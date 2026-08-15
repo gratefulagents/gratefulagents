@@ -125,6 +125,8 @@ describe("SecurityConfigPostures", () => {
     expect(screen.getByText("new")).toBeTruthy();
     expect(screen.getByText("regressed")).toBeTruthy();
     expect(screen.queryByText("resolved")).toBeNull();
+    // A missing value is one treatment everywhere, and it says what it means.
+    expect(screen.getByText("No baseline changes")).toBeTruthy();
     expect(getSecurityConfigPostures).toHaveBeenCalledWith({
       namespace: "",
       activityLimit: 0,
@@ -197,6 +199,7 @@ describe("SecurityConfigPostures", () => {
     expect(
       screen.queryByRole("img", { name: /Finding trend for web-scan/ }),
     ).toBeNull();
+    expect(screen.getByText("Not enough runs for a trend")).toBeTruthy();
   });
 
   it("toggles the sort direction when a column header is clicked", async () => {

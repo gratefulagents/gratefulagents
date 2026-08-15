@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, Settings2, ShieldAlert, ShieldCheck } from "lucide-react";
+import { ChevronRight, Loader2, Settings2, ShieldAlert, ShieldCheck } from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
@@ -45,14 +45,22 @@ import type {
  *  narrowed view is shareable and survives a reload. */
 const FILTER_SPEC = { q: "", range: "all", repo: "all" } as const;
 
-/** The severities that earn a headline tile; the rest roll into the total. */
-const SEVERITY_TILES = SEVERITY_ORDER.slice(0, 3);
+/** The severities that lead the page; the rest are shown in the breakdown. */
+const RISK_SEVERITIES = ["critical", "high"] as const;
 
 const SEVERITY_TONE: Record<string, StatusTone> = {
   critical: "danger",
   high: "warning",
   medium: "info",
+  low: "neutral",
+  info: "neutral",
 };
+
+const BASELINE_STATE_ORDER = ["new", "recurring", "regressed", "reopened", "resolved"] as const;
+
+function capitalize(word: string): string {
+  return word ? `${word[0].toUpperCase()}${word.slice(1)}` : word;
+}
 
 function scanTone(status: string): StatusTone {
   switch (status.toLowerCase()) {
@@ -98,14 +106,54 @@ function runsHref(params: Record<string, string>): string {
   return `/security/runs${query ? `?${query}` : ""}`;
 }
 
+/** One status treatment for every pill on this page: the shared soft tone. */
+function StatusPill({
+  tone,
+  className,
+  title,
+  children,
+}: {
+  tone: StatusTone;
+  className?: string;
+  title?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Badge variant="outline" title={title} className={cn("border-transparent", toneSoft[tone], className)}>
+      {children}
+    </Badge>
+  );
+}
+
+/** A bare dash says nothing; name what is missing for pointer and screen reader. */
+function EmptyCell({ label }: { label: string }) {
+  return (
+    <span title={label} className="text-muted-foreground/70">
+      <span aria-hidden>—</span>
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+}
+
+/** "2h ago" — a bare "2h" reads as a duration; the tooltip carries the absolute time. */
+function RelativeTime({ ms, now, missingLabel }: { ms: number; now: number; missingLabel: string }) {
+  if (!ms) return <EmptyCell label={missingLabel} />;
+  return (
+    <span title={new Date(ms).toLocaleString()}>
+      {formatAge(BigInt(Math.floor(ms / 1000)), now)} ago
+    </span>
+  );
+}
+
 /**
- * PostureTile is one figure of the headline strip: a small label over a large
+ * RiskTile is one figure of the headline row: a small label over a large
  * tabular number, and always a link into the view that explains the number —
- * no metric on this page is a dead end. A tone paints an inset accent along
- * the top edge (and the number itself) so critical/high counts read at a
- * glance; zero counts stay quiet even when a tone is set.
+ * no metric on this page is a dead end. The chevron and the hover/focus
+ * surface make that link visible before the pointer arrives. A tone paints an
+ * inset accent along the top edge (and the number itself) so critical/high
+ * counts read at a glance; zero counts stay quiet even when a tone is set.
  */
-function PostureTile({
+function RiskTile({
   label,
   value,
   to,
@@ -127,52 +175,123 @@ function PostureTile({
     <Link
       to={to}
       aria-label={`${label}: ${value}`}
-      className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 transition-colors hover:border-border hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      className="group cursor-pointer rounded-lg border border-border/70 bg-muted/20 px-3 py-3 transition-colors hover:border-primary/50 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       style={active ? { boxShadow: `inset 0 2px 0 0 ${toneColor[tone]}` } : undefined}
     >
-      <p className="truncate text-[11.5px] text-muted-foreground">{label}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="truncate text-[11.5px] text-muted-foreground">{label}</p>
+        <span
+          aria-hidden
+          className="inline-flex shrink-0 items-center gap-0.5 text-[10.5px] text-muted-foreground/60 transition-colors group-hover:text-foreground group-focus-visible:text-foreground"
+        >
+          <span className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+            View
+          </span>
+          <ChevronRight className="size-3" />
+        </span>
+      </div>
       <p
         aria-live={live ? "polite" : undefined}
         className={cn(
-          "mt-0.5 font-mono text-xl font-semibold leading-tight tabular-nums",
+          "mt-1 font-mono text-3xl font-semibold leading-none tabular-nums",
           active ? toneText[tone] : "text-foreground",
         )}
       >
         {value}
       </p>
-      {hint && <p className="mt-0.5 truncate text-[11px] text-muted-foreground/70">{hint}</p>}
+      {hint && <p className="mt-1.5 truncate text-[11px] text-muted-foreground/70">{hint}</p>}
     </Link>
   );
 }
 
+/** A demoted, inline metric: same deep link, a fraction of the visual weight. */
+function MetricLink({
+  label,
+  value,
+  to,
+  hint,
+}: {
+  label: string;
+  value: number;
+  to: string;
+  hint?: string;
+}) {
+  return (
+    <Link
+      to={to}
+      aria-label={`${label}: ${value}`}
+      className="group inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+    >
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-mono font-semibold tabular-nums text-foreground">{value}</span>
+      {hint && <span className="text-muted-foreground/70">{hint}</span>}
+      <ChevronRight
+        aria-hidden
+        className="size-3 text-muted-foreground/50 transition-colors group-hover:text-foreground"
+      />
+    </Link>
+  );
+}
+
+/** One term of the actionable-findings sum: "2 critical", linked like the rest. */
+function SeverityTerm({ severity, value, to }: { severity: string; value: number; to: string }) {
+  const tone = SEVERITY_TONE[severity] ?? "neutral";
+  return (
+    <Link
+      to={to}
+      aria-label={`${capitalize(severity)} findings: ${value}`}
+      className="inline-flex cursor-pointer items-baseline gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+    >
+      <span
+        className={cn(
+          "font-mono font-semibold tabular-nums",
+          value > 0 ? toneText[tone] : "text-muted-foreground",
+        )}
+      >
+        {value}
+      </span>
+      <span className="text-muted-foreground">{severity}</span>
+    </Link>
+  );
+}
+
+/**
+ * Both scan tables share one column geometry (fixed widths, same order, same
+ * alignment) so "Active scans" and "Recent scans" read as one system stacked
+ * on top of itself rather than two unrelated tables. Only the trailing
+ * timestamp changes meaning between them.
+ */
 function ScanTable({
   caption,
   scans,
   now,
   timeLabel,
+  missingTimeLabel,
 }: {
   caption: string;
   scans: SecurityScan[];
   now: number;
   timeLabel: string;
+  /** What an absent timestamp means in this table ("Not started yet"). */
+  missingTimeLabel: string;
 }) {
   return (
-    <Table>
+    <Table className="table-fixed">
       <TableCaption className="sr-only">{caption}</TableCaption>
       <TableHeader>
         <TableRow>
-          <TableHead>Scan run</TableHead>
-          <TableHead>Configuration</TableHead>
-          <TableHead>Repository</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Findings</TableHead>
-          <TableHead className="text-right">{timeLabel}</TableHead>
+          <TableHead className="w-[24%]">Scan run</TableHead>
+          <TableHead className="w-[16%]">Configuration</TableHead>
+          <TableHead className="w-[20%]">Repository</TableHead>
+          <TableHead className="w-[13%]">Status</TableHead>
+          <TableHead className="w-[15%]">Findings</TableHead>
+          <TableHead className="w-[12%] text-right">{timeLabel}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {scans.map((scan) => (
           <TableRow key={`${scan.namespace}/${scan.runName}`}>
-            <TableCell>
+            <TableCell className="truncate">
               <Link
                 to={`/security/${scan.namespace}/${scan.runName}`}
                 className="font-medium text-primary hover:underline"
@@ -180,23 +299,26 @@ function ScanTable({
                 {scan.runName}
               </Link>
             </TableCell>
-            <TableCell className="text-sm text-muted-foreground">{scan.scanName || "—"}</TableCell>
-            <TableCell className="font-mono text-sm text-muted-foreground">
-              {repoLabel(scan.repository) || "—"}
+            <TableCell className="truncate text-sm text-muted-foreground">
+              {scan.scanName || <EmptyCell label="No scan configuration recorded" />}
+            </TableCell>
+            <TableCell className="truncate font-mono text-sm text-muted-foreground">
+              {repoLabel(scan.repository) || <EmptyCell label="No repository recorded" />}
             </TableCell>
             <TableCell>
-              <Badge
-                variant="outline"
-                className={cn("capitalize border-transparent", toneSoft[scanTone(scan.status)])}
-              >
+              <StatusPill tone={scanTone(scan.status)} className="capitalize">
                 {scan.status || "unknown"}
-              </Badge>
+              </StatusPill>
             </TableCell>
             <TableCell>
-              <SeverityCountBadges counts={scan.counts} />
+              {severityCountTotal(scan.counts) > 0 ? (
+                <SeverityCountBadges counts={scan.counts} />
+              ) : (
+                <EmptyCell label="No findings reported" />
+              )}
             </TableCell>
             <TableCell className="text-right tabular-nums text-muted-foreground">
-              {formatAge(BigInt(Math.floor(scanMs(scan) / 1000)), now)}
+              <RelativeTime ms={scanMs(scan)} now={now} missingLabel={missingTimeLabel} />
             </TableCell>
           </TableRow>
         ))}
@@ -215,12 +337,9 @@ function ConfigIssueRow({ issue }: { issue: SecurityScanConfigIssue }) {
       >
         {issue.name}
       </Link>
-      <Badge
-        variant="outline"
-        className={cn("border-transparent capitalize", toneSoft[issue.suspended ? "neutral" : "danger"])}
-      >
+      <StatusPill tone={issue.suspended ? "neutral" : "danger"} className="capitalize">
         {issue.readyReason || issue.phase || "NotReady"}
-      </Badge>
+      </StatusPill>
       {issue.message && (
         <span className="min-w-0 flex-1 basis-64 truncate text-muted-foreground" title={issue.message}>
           {issue.message}
@@ -332,6 +451,13 @@ export function SecurityOverview() {
   );
 
   const counts = overview?.findingCounts ?? {};
+  const baselineCounts: Record<(typeof BASELINE_STATE_ORDER)[number], number> = {
+    new: overview?.newFindings ?? 0,
+    recurring: overview?.recurringFindings ?? 0,
+    regressed: overview?.regressedFindings ?? 0,
+    reopened: overview?.reopenedFindings ?? 0,
+    resolved: overview?.resolvedFindings ?? 0,
+  };
   const lens = { repo: values.repo, range: values.range };
   const latestRun = recentScans[0];
   // Without baseline data the "new" view has nothing to show, so the tile
@@ -342,6 +468,13 @@ export function SecurityOverview() {
 
   const filtersActive = activeCount() > 0;
   const hasScans = activeScans.length > 0 || recentScans.length > 0;
+  const skillsTone: StatusTone = skillsError
+    ? "warning"
+    : skillsStatus?.state === "installed"
+      ? "success"
+      : skillsStatus?.state === "partially_installed"
+        ? "warning"
+        : "neutral";
   // First run: nothing has ever been configured or scanned. A filter that
   // hides every row must never look like an empty account.
   const firstRun =
@@ -357,7 +490,7 @@ export function SecurityOverview() {
       description="Repository security posture: scan activity, actionable findings, and configurations that need attention."
       query={values.q}
       onQuery={(next) => set("q", next)}
-      searchPlaceholder="Search scans, configurations, repositories…"
+      searchPlaceholder="Search scans…"
       nav={<SecurityNav />}
       toolbar={
         overview && hasScans ? (
@@ -384,15 +517,7 @@ export function SecurityOverview() {
       }
       actions={
         <>
-          <Badge
-            variant="outline"
-            title={skillsError || undefined}
-            className={cn(
-              "border-transparent",
-              skillsStatus?.state === "installed" && toneSoft.success,
-              skillsStatus?.state === "partially_installed" && toneSoft.warning,
-            )}
-          >
+          <StatusPill tone={skillsTone} title={skillsError || undefined}>
             <span role="status" aria-live="polite">
               {skillsLoading
                 ? "Security skills · Checking…"
@@ -406,7 +531,7 @@ export function SecurityOverview() {
                         ? "Security skills · Unavailable"
                         : "Security skills · Not installed"}
             </span>
-          </Badge>
+          </StatusPill>
           {skillsError ? (
             <Button size="sm" variant="outline" onClick={() => void fetchSkillsStatus()}>
               Retry
@@ -473,34 +598,30 @@ export function SecurityOverview() {
           )}
 
           {overview.storeSupported && (
-            <section aria-labelledby="security-posture-heading" data-testid="security-posture">
+            <section aria-labelledby="security-posture-heading" data-testid="security-posture" className="space-y-2.5">
               <h2 id="security-posture-heading" className="sr-only">
                 Security posture
               </h2>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
-                {SEVERITY_TILES.map((severity) => (
-                  <PostureTile
+              {/* Row one is what someone has to act on today. */}
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                {RISK_SEVERITIES.map((severity) => (
+                  <RiskTile
                     key={severity}
-                    label={`${severity[0].toUpperCase()}${severity.slice(1)}`}
+                    label={capitalize(severity)}
                     value={severityValue(counts, severity)}
                     tone={SEVERITY_TONE[severity]}
                     hint={`${severity} findings`}
                     to={runsHref({ ...lens, severity })}
                   />
                 ))}
-                <PostureTile
-                  label="Actionable findings"
-                  value={actionableTotal(counts)}
-                  hint="across every severity"
-                  to={runsHref(lens)}
+                <RiskTile
+                  label="Configs needing attention"
+                  value={overview.configIssues.length}
+                  tone={overview.configIssues.length > 0 ? "danger" : undefined}
+                  hint={`of ${overview.configCount} configuration${overview.configCount === 1 ? "" : "s"}`}
+                  to="/security/configs?status=attention"
                 />
-                <PostureTile
-                  label="Total findings"
-                  value={counts["total"] ?? 0}
-                  hint="including triaged and resolved"
-                  to={runsHref(lens)}
-                />
-                <PostureTile
+                <RiskTile
                   label="Active scans"
                   value={visibleActive.length}
                   tone={visibleActive.length > 0 ? "running" : undefined}
@@ -508,64 +629,83 @@ export function SecurityOverview() {
                   live
                   to={runsHref({ ...lens, status: "running" })}
                 />
-                <PostureTile
-                  label="Configs needing attention"
-                  value={overview.configIssues.length}
-                  tone={overview.configIssues.length > 0 ? "danger" : undefined}
-                  hint={`of ${overview.configCount} configuration${overview.configCount === 1 ? "" : "s"}`}
-                  to="/security/configs?status=attention"
-                />
-                <PostureTile
-                  label="New since baseline"
-                  value={overview.baselineAvailable ? overview.newFindings : 0}
-                  tone={overview.baselineAvailable && overview.newFindings > 0 ? "warning" : undefined}
-                  hint={overview.baselineAvailable ? "vs. the last baseline" : "no baseline yet"}
-                  to={baselineHref}
-                />
+              </div>
+              {/* Row two is context: the sum that the tiles above are part of,
+                  spelled out across every severity so the arithmetic checks. */}
+              <div className="space-y-1.5 rounded-lg border border-border/60 bg-muted/10 px-2.5 py-2 text-[12px]">
+                <div className="flex flex-wrap items-center gap-x-0.5 gap-y-1">
+                  <MetricLink
+                    label="Actionable findings"
+                    value={actionableTotal(counts)}
+                    to={runsHref(lens)}
+                  />
+                  <span aria-hidden className="px-1 text-muted-foreground/60">
+                    =
+                  </span>
+                  {SEVERITY_ORDER.map((severity, index) => (
+                    <Fragment key={severity}>
+                      {index > 0 && (
+                        <span aria-hidden className="text-muted-foreground/60">
+                          +
+                        </span>
+                      )}
+                      <SeverityTerm
+                        severity={severity}
+                        value={severityValue(counts, severity)}
+                        to={runsHref({ ...lens, severity })}
+                      />
+                    </Fragment>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/50 pt-1.5">
+                  <MetricLink
+                    label="Total findings"
+                    value={counts["total"] ?? 0}
+                    hint="including triaged and resolved"
+                    to={runsHref(lens)}
+                  />
+                  <span aria-hidden className="text-muted-foreground/40">
+                    ·
+                  </span>
+                  {overview.baselineAvailable ? (
+                    <div
+                      className="flex flex-wrap items-center gap-2"
+                      aria-label="Baseline changes"
+                    >
+                      <span className="text-muted-foreground">Since the last baseline:</span>
+                      {BASELINE_STATE_ORDER.map((state) => {
+                        const count = baselineCounts[state];
+                        const chip = (
+                          <span className="inline-flex items-center gap-1">
+                            <BaselineBadge state={state} />
+                            <span className="font-medium tabular-nums">{count}</span>
+                          </span>
+                        );
+                        return latestRun ? (
+                          <Link
+                            key={state}
+                            to={`/security/${latestRun.namespace}/${latestRun.runName}?baseline=${state}`}
+                            aria-label={`${capitalize(state)} since baseline: ${count}`}
+                            className="cursor-pointer rounded-md px-1 py-0.5 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                          >
+                            {chip}
+                          </Link>
+                        ) : (
+                          <span key={state}>{chip}</span>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <>
+                      <MetricLink label="New since baseline" value={0} to={baselineHref} />
+                      <span className="text-muted-foreground/70">
+                        no baseline yet — comparisons appear after a second scan
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
             </section>
-          )}
-
-          {overview.storeSupported && (
-            <div className="space-y-2">
-              {overview.baselineAvailable ? (
-                <div className="flex flex-wrap items-center gap-2 text-[12.5px]" aria-label="Baseline changes">
-                  <span className="text-muted-foreground">Since the last baseline:</span>
-                  {(
-                    [
-                      ["new", overview.newFindings],
-                      ["recurring", overview.recurringFindings],
-                      ["regressed", overview.regressedFindings],
-                      ["reopened", overview.reopenedFindings],
-                      ["resolved", overview.resolvedFindings],
-                    ] as const
-                  ).map(([state, count]) => {
-                    const chip = (
-                      <span className="inline-flex items-center gap-1">
-                        <BaselineBadge state={state} />
-                        <span className="font-medium tabular-nums">{count}</span>
-                      </span>
-                    );
-                    return latestRun ? (
-                      <Link
-                        key={state}
-                        to={`/security/${latestRun.namespace}/${latestRun.runName}?baseline=${state}`}
-                        className="hover:opacity-80"
-                        aria-label={`View ${state} findings`}
-                      >
-                        {chip}
-                      </Link>
-                    ) : (
-                      <span key={state}>{chip}</span>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-[12px] text-muted-foreground/70">
-                  New, recurring, and resolved finding counts appear here once baseline comparisons are available.
-                </p>
-              )}
-            </div>
           )}
 
           {activeScans.length > 0 && (
@@ -584,6 +724,7 @@ export function SecurityOverview() {
                   scans={visibleActive}
                   now={now}
                   timeLabel="Started"
+                  missingTimeLabel="Not started yet"
                 />
               )}
             </DetailSection>
@@ -616,6 +757,7 @@ export function SecurityOverview() {
                   scans={visibleRecent}
                   now={now}
                   timeLabel="Completed"
+                  missingTimeLabel="Not completed yet"
                 />
               )}
               {overview.trends

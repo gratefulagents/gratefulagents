@@ -605,6 +605,49 @@ describe("SecurityScanDetail", () => {
       await screen.findByText(/This scan run has not finished/),
     ).toBeTruthy();
   });
+
+  it("disables the artifact downloads with a reason while the run is unfinished", async () => {
+    const running = scanFixture();
+    running.status = "running";
+    getSecurityScan.mockResolvedValue(running);
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+
+    renderDetail();
+
+    const report = (await screen.findByRole("button", { name: /Report/ })) as HTMLButtonElement;
+    expect(report.disabled).toBe(true);
+    expect(report.getAttribute("title")).toMatch(/once the scan run finishes/);
+    expect((screen.getByRole("button", { name: /SARIF/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Audit CSV/ }) as HTMLButtonElement).disabled)
+      .toBe(true);
+
+    fireEvent.click(report);
+    expect(getSecurityScanReport).not.toHaveBeenCalled();
+  });
+
+  it("keeps the artifact downloads enabled once the run has completed", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+
+    renderDetail();
+
+    const report = (await screen.findByRole("button", { name: /Report/ })) as HTMLButtonElement;
+    expect(report.disabled).toBe(false);
+    expect(report.getAttribute("title")).toBeNull();
+  });
+
+  it("documents what the actionable count includes", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: { total: 4, actionable: 2 } });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+
+    renderDetail();
+
+    const help = await screen.findByRole("button", { name: 'What "Actionable" means' });
+    expect(help.getAttribute("title")).toMatch(/open, triaged, or confirmed/);
+  });
 });
 
 describe("SecurityScanDetail repository integration state", () => {
@@ -961,6 +1004,45 @@ describe("SecurityScanDetail finding filters", () => {
     });
   });
 
+  it("toggles duplicate visibility from the filter chip", async () => {
+    mockFindingsPage();
+
+    renderDetail();
+    await screen.findByText("SQL injection in payment lookup");
+
+    const chip = screen.getByRole("button", { name: "Duplicates" });
+    expect(chip.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(chip);
+    await waitFor(() => expect(search()).toBe("?dupes=include"));
+    expect(
+      screen.getByRole("button", { name: "Duplicates" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Duplicates" }));
+    await waitFor(() => expect(search()).toBe(""));
+  });
+
+  it("switches suppressed visibility from the segmented chips", async () => {
+    mockFindingsPage();
+
+    renderDetail();
+    await screen.findByText("SQL injection in payment lookup");
+
+    const group = screen.getByRole("group", { name: "Suppressed findings" });
+    expect(within(group).getByRole("button", { name: "Hidden" }).getAttribute("aria-pressed"))
+      .toBe("true");
+
+    fireEvent.click(within(group).getByRole("button", { name: "Only" }));
+
+    await waitFor(() => expect(search()).toBe("?suppressed=only"));
+    await waitFor(() => {
+      expect(listSecurityFindings).toHaveBeenLastCalledWith(
+        expect.objectContaining({ suppressed: "only" }),
+      );
+    });
+  });
+
   it("offers a filtered-empty state that clears the filters", async () => {
     mockFindingsPage([findingFixture()]);
 
@@ -981,6 +1063,62 @@ describe("SecurityScanDetail finding filters", () => {
 
     expect(await screen.findByText("This scan reported no findings.")).toBeTruthy();
     expect(screen.queryByText("No findings match these filters")).toBeNull();
+  });
+
+  it("reconciles the actionable summary with the findings hidden by default", async () => {
+    mockFindingsPage([findingFixture()]);
+    getSecurityFindingSummary.mockResolvedValue({ counts: { total: 3, actionable: 3 } });
+
+    renderDetail();
+
+    const notice = await screen.findByTestId("hidden-findings-notice");
+    expect(notice.textContent).toContain("Showing 1 of 3 actionable findings");
+    expect(notice.textContent).toContain(
+      "2 hidden — suppressed and duplicate findings are excluded by default",
+    );
+
+    fireEvent.click(within(notice).getByRole("button", { name: "Show hidden" }));
+
+    await waitFor(() => expect(search()).toContain("suppressed=include"));
+    expect(search()).toContain("dupes=include");
+    await waitFor(() => {
+      expect(listSecurityFindings).toHaveBeenLastCalledWith(
+        expect.objectContaining({ suppressed: "include", includeDuplicates: true }),
+      );
+    });
+  });
+
+  it("names only the duplicates when suppressed findings are already shown", async () => {
+    mockFindingsPage([findingFixture()]);
+    getSecurityFindingSummary.mockResolvedValue({ counts: { total: 2, actionable: 2 } });
+
+    renderDetail("/security/user-alice/nightly-1?suppressed=include");
+
+    const notice = await screen.findByTestId("hidden-findings-notice");
+    expect(notice.textContent).toContain(
+      "1 hidden — duplicate findings are excluded by default",
+    );
+    expect(within(notice).getByRole("button", { name: "Show duplicates" })).toBeTruthy();
+  });
+
+  it("stays quiet when the table already lists every actionable finding", async () => {
+    mockFindingsPage();
+    getSecurityFindingSummary.mockResolvedValue({ counts: { total: 2, actionable: 2 } });
+
+    renderDetail();
+
+    await screen.findByText("SQL injection in payment lookup");
+    expect(screen.queryByTestId("hidden-findings-notice")).toBeNull();
+  });
+
+  it("stays quiet while a narrowing filter explains the smaller count", async () => {
+    mockFindingsPage();
+    getSecurityFindingSummary.mockResolvedValue({ counts: { total: 2, actionable: 2 } });
+
+    renderDetail("/security/user-alice/nightly-1?tool=sast-agent");
+
+    await screen.findByText("Path traversal in report export");
+    expect(screen.queryByTestId("hidden-findings-notice")).toBeNull();
   });
 });
 

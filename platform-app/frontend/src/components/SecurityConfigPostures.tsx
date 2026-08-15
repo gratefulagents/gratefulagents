@@ -7,11 +7,10 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ListRowSkeleton } from "@/components/ui/list-state";
 import { DetailSection } from "@/components/detail-page";
-import { SEVERITIES, severityTone } from "@/components/SecurityScanList";
+import { EmptyCell, SEVERITIES, severityTone, STATUS_PILL } from "@/components/SecurityScanList";
 import { BaselineBadge } from "@/components/security-baseline";
 import { repoLabel } from "@/lib/securityFilters";
 import { client } from "@/lib/client";
@@ -97,7 +96,7 @@ function ActionableSeverityBar({ scanName, counts }: { scanName: string; counts:
 /** Hand-rolled SVG sparkline of total findings across recent runs, oldest first. */
 function TrendSparkline({ scanName, activity }: { scanName: string; activity: SecurityRunActivityPoint[] }) {
   if (activity.length < 2) {
-    return <span className="text-muted-foreground/60">—</span>;
+    return <EmptyCell meaning="Not enough runs for a trend" />;
   }
   const width = 100;
   const height = 28;
@@ -220,6 +219,7 @@ function PostureRow({
     .map((state) => ({ state, count: counts[`baseline_${state}`] ?? 0 }))
     .filter((c) => c.count > 0);
   const repository = repoLabel(posture.repository) || posture.repository;
+  const lastRun = lastRunUnix(posture);
   return (
     <TableRow>
       <TableCell className="max-w-[24ch]">
@@ -233,7 +233,7 @@ function PostureRow({
       </TableCell>
       <TableCell className="max-w-[24ch] font-mono text-sm text-muted-foreground">
         <span className="block truncate" title={posture.repository || undefined}>
-          {repository || "—"}
+          {repository || <EmptyCell meaning="No repository" />}
         </span>
       </TableCell>
       <TableCell>
@@ -250,7 +250,7 @@ function PostureRow({
       </TableCell>
       <TableCell>
         {changes.length === 0 ? (
-          <span className="text-sm text-muted-foreground">—</span>
+          <EmptyCell meaning="No baseline changes" />
         ) : (
           <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
             {changes.map((c) => (
@@ -274,18 +274,28 @@ function PostureRow({
       </TableCell>
       <TableCell>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <Badge
-            variant="outline"
-            className={cn("capitalize border-transparent", toneSoft[statusTone(posture.lastRunStatus)])}
+          <span
+            className={cn(
+              STATUS_PILL,
+              "capitalize tracking-tight",
+              toneSoft[statusTone(posture.lastRunStatus)],
+            )}
           >
             {posture.lastRunStatus || "unknown"}
-          </Badge>
+          </span>
           {posture.lastRunName && (
             <span className="text-[12px] text-muted-foreground">{posture.lastRunName}</span>
           )}
-          <span className="text-[12px] tabular-nums text-muted-foreground">
-            {formatAge(lastRunUnix(posture), now)}
-          </span>
+          {lastRun === 0n ? (
+            <EmptyCell meaning="Never run" className="text-[12px]" />
+          ) : (
+            <span
+              className="text-[12px] tabular-nums text-muted-foreground"
+              title={new Date(Number(lastRun) * 1000).toLocaleString()}
+            >
+              {formatAge(lastRun, now)}
+            </span>
+          )}
         </div>
       </TableCell>
       <TableCell>

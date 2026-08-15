@@ -106,11 +106,11 @@ describe("SecurityScanList", () => {
 
     expect(await screen.findByText("acme/payments")).toBeTruthy();
     expect(screen.getByText("nightly")).toBeTruthy();
-    expect(screen.getByText("completed")).toBeTruthy();
-    expect(screen.getByText("critical")).toBeTruthy();
-    expect(screen.getByText("1")).toBeTruthy();
-    expect(screen.queryByText("high")).toBeNull();
-    expect(screen.queryByText("medium")).toBeNull();
+    // Status and findings render twice: the desktop cell plus the mobile-only
+    // summary that replaces those columns below `sm`.
+    const cells = within(screen.getAllByRole("row")[1]).getAllByRole("cell");
+    expect(cells[1].textContent).toBe("completed");
+    expect(cells[2].textContent).toBe("critical1");
     expect(
       screen.getByRole("link", { name: "nightly-1" }).getAttribute("href"),
     ).toBe("/security/user-alice/nightly-1");
@@ -120,12 +120,72 @@ describe("SecurityScanList", () => {
     expect(listSecurityScans).toHaveBeenCalledWith({ namespace: "" });
   });
 
+  it("folds the hidden columns into a mobile-only summary in the primary cell", async () => {
+    listSecurityScans.mockResolvedValue({ scans: [scanFixture()] });
+    setup();
+
+    await screen.findByText("acme/payments");
+    // At 390px only the first column stays: everything else reads here, so no
+    // badge is clipped at the card edge and the table never scrolls sideways.
+    const summary = screen.getByTestId("scan-summary");
+    expect(summary.className).toContain("sm:hidden");
+    expect(within(summary).getByText("completed")).toBeTruthy();
+    expect(within(summary).getByText("critical")).toBeTruthy();
+    expect(summary.textContent).toContain("Scanned 30m ago");
+    // The primary cell holds it; the folded columns are hidden below `sm`.
+    const cells = within(screen.getAllByRole("row")[1]).getAllByRole("cell");
+    expect(cells[0].contains(summary)).toBe(true);
+    for (const cell of cells.slice(1)) {
+      expect(cell.className).toContain("hidden");
+      expect(cell.className).toContain("sm:table-cell");
+    }
+    for (const header of screen.getAllByRole("columnheader").slice(1)) {
+      expect(header.className).toContain("hidden");
+      expect(header.className).toContain("sm:table-cell");
+    }
+  });
+
+  it("names the row actions and empty cells instead of leaving bare glyphs", async () => {
+    listSecurityScans.mockResolvedValue({
+      scans: [
+        scanFixture({
+          runName: "never-run",
+          counts: {},
+          startedAt: undefined,
+          completedAt: undefined,
+        }),
+      ],
+    });
+    setup();
+
+    await screen.findByText("never-run");
+    // The agent-run action is icon-only now: no repeated "View run" phrase.
+    expect(screen.queryByText("View run")).toBeNull();
+    expect(screen.getByRole("link", { name: "View agent run never-run" })).toBeTruthy();
+    // Both dashes carry their meaning in text, not in a glyph — once in the
+    // desktop cell and once in the mobile summary.
+    expect(screen.getAllByText("No findings reported")).toHaveLength(2);
+    expect(screen.getAllByText("Never scanned")).toHaveLength(2);
+  });
+
   it("shows the empty state when there are no scans", async () => {
     listSecurityScans.mockResolvedValue({ scans: [] });
     setup();
 
     expect(await screen.findByText("No security scans found")).toBeTruthy();
+    // Nothing to search and nothing to narrow: no search box, no filter bar.
+    expect(screen.queryByRole("searchbox")).toBeNull();
     expect(screen.queryByRole("group", { name: "Scan run filters" })).toBeNull();
+  });
+
+  it("keeps search and filters on an empty result the user asked for", async () => {
+    listSecurityScans.mockResolvedValue({ scans: [] });
+    setup("/security/runs?q=ledger");
+
+    expect(await screen.findByText("No security scans found")).toBeTruthy();
+    // The query has to stay clearable, so the controls stay.
+    expect(screen.getByRole("searchbox", { name: "Search scans…" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Scan run filters" })).toBeTruthy();
   });
 
   it("shows the error state when loading fails", async () => {
@@ -143,7 +203,7 @@ describe("SecurityScanList", () => {
     expect(rowNames()).toEqual(["weekly-7"]);
     // A reload lands on the same URL: the search box is re-hydrated from it.
     expect(
-      (screen.getByRole("searchbox", { name: "Search security scans…" }) as HTMLInputElement).value,
+      (screen.getByRole("searchbox", { name: "Search scans…" }) as HTMLInputElement).value,
     ).toBe("ledger");
     expect(screen.getByText("1 of 3 runs")).toBeTruthy();
   });
@@ -153,7 +213,7 @@ describe("SecurityScanList", () => {
     setup("/security/runs?selected=finding-1");
 
     await screen.findByText("nightly-1");
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search security scans…" }), {
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search scans…" }), {
       target: { value: "globex" },
     });
 

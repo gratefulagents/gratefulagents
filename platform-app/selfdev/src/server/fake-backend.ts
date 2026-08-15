@@ -198,6 +198,10 @@ function findingCounts(findings: SecurityFinding[], includeSuppressed: boolean):
     counts[key] = (counts[key] ?? 0) + 1;
   };
   for (const f of findings) {
+    // Postgres summarises deduplicated rows only (SummarizeSecurityFindingsScoped
+    // filters `duplicate_of IS NULL`), so counting duplicates here would make the
+    // fake backend disagree with production and hand the UI impossible totals.
+    if (f.duplicateOf) continue;
     if (isSuppressed(f)) {
       bump("suppressed");
       if (!includeSuppressed) continue;

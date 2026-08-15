@@ -240,7 +240,7 @@ describe("SecurityFindingDetail", () => {
 
     // History entries with from→to provenance.
     expect(screen.getByText("confirmed exploitable")).toBeTruthy();
-    expect(screen.getByText("open → confirmed")).toBeTruthy();
+    expect(screen.getByText("Open → Confirmed")).toBeTruthy();
     expect(screen.getByText("needs a second look")).toBeTruthy();
 
     // Source agent run link.
@@ -689,5 +689,76 @@ describe("SecurityFindingDetail provenance and suppression", () => {
     await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
     expect(screen.queryByTestId("suppression-details")).toBeNull();
     expect(screen.queryByText("suppressed")).toBeNull();
+  });
+});
+
+describe("SecurityFindingDetail presentation", () => {
+  it("groups prev/next into one control that names its order and explains disabled ends", async () => {
+    // A single sibling: both ends of the pager are dead, and must say why.
+    mockHappyPath();
+    renderDetail();
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+
+    const position = screen.getByTestId("finding-position");
+    const prev = screen.getByRole("button", { name: "Previous finding" });
+    const next = screen.getByRole("button", { name: "Next finding" });
+    const group = position.parentElement!;
+    expect(group.contains(prev)).toBe(true);
+    expect(group.contains(next)).toBe(true);
+
+    expect(screen.getByText("Ordered by score, as filtered")).toBeTruthy();
+    expect(prev.closest("span[title]")?.getAttribute("title")).toMatch(/first finding/);
+    expect(next.closest("span[title]")?.getAttribute("title")).toMatch(/last finding/);
+    // Disabled reads as "nothing to page to", not as a broken control.
+    expect(prev.className).toContain("disabled:opacity-100");
+  });
+
+  it("normalises status casing, empty values, and timestamps", async () => {
+    mockHappyPath({ finding: findingFixture({ confidence: "", category: "" }) });
+    renderDetail();
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+
+    // "Open" in the header and in the overview, never "open".
+    expect(screen.getAllByText("Open").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("open")).toBeNull();
+
+    // One wording for an unset value, in facts and in the assignee field.
+    expect(screen.getAllByText("Not set").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Unassigned")).toBeNull();
+    expect((screen.getByLabelText("Assignee") as HTMLInputElement).placeholder).toBe("Not set");
+
+    // Compact absolute stamp plus relative age, never "2/1/2026, 12:00:00 AM".
+    const timeline = screen.getByRole("region", { name: "Timeline" });
+    expect(timeline.textContent).toMatch(/Feb 1/);
+    expect(timeline.textContent).toMatch(/(ago|in \d)/);
+    expect(screen.queryByText(/\d{1,2}\/\d{1,2}\/\d{4}/)).toBeNull();
+
+    // The header copy action carries a visible label, not just an icon.
+    expect(screen.getByRole("button", { name: "Copy file and line" }).textContent).toContain(
+      "Copy",
+    );
+  });
+
+  it("keeps 'Update status' disabled until the status changes, then confirms the save", async () => {
+    mockHappyPath();
+    updateSecurityFindingStatus.mockResolvedValue(findingFixture({ status: "confirmed" }));
+    renderDetail();
+    await screen.findByRole("heading", { name: "SQL injection in payment lookup" });
+
+    const submit = () => screen.getByRole("button", { name: "Update status" }) as HTMLButtonElement;
+    expect(submit().disabled).toBe(true);
+    expect(submit().closest("span[title]")?.getAttribute("title")).toMatch(/different status/);
+
+    // A note alone is not a change; the status itself has to move.
+    fireEvent.change(screen.getByLabelText("Note (optional)"), { target: { value: "checked" } });
+    expect(submit().disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "confirmed" } });
+    expect(submit().disabled).toBe(false);
+    fireEvent.click(submit());
+
+    // Saved in place, and the button falls back to disabled once applied.
+    expect(await screen.findByText("Saved")).toBeTruthy();
+    expect(submit().disabled).toBe(true);
   });
 });

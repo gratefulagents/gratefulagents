@@ -1,8 +1,8 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
-import { Copy, Download, FileText, FilterX, SquareArrowOutUpRight, X } from "lucide-react";
+import { Copy, Download, FileText, FilterX, Info, SquareArrowOutUpRight, X } from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
@@ -15,13 +15,14 @@ import {
   FilterBar, FilterChips, FilterSelect, type FilterOption,
 } from "@/components/ui/filter-bar";
 import { DetailErrorState, classifyDetailError } from "@/components/ui/detail-state";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUrlFilters } from "@/hooks/useUrlFilters";
 import { SEVERITY_ORDER, optionsFrom } from "@/lib/securityFilters";
 import {
-  DetailHeader, DetailSection, StatBar, Stat, FactList, Fact, FactLink,
+  DetailHeader, DetailSection, FactList, Fact, FactLink,
 } from "@/components/detail-page";
 import {
-  SEVERITIES, SeverityBadge, severityTone,
+  SEVERITIES, STATUS_PILL, SeverityBadge, severityTone,
 } from "@/components/SecurityScanList";
 import { SecurityScanRunPanel } from "@/components/SecurityScanRunPanel";
 import { SecurityScanFormDialog } from "@/components/SecurityScanFormDialog";
@@ -33,7 +34,7 @@ import { packBudgetSummary } from "@/components/SecurityPolicyPackDialog";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { downloadBlob } from "@/lib/download";
-import { toneSoft } from "@/lib/status";
+import { toneColor, toneSoft, type StatusTone } from "@/lib/status";
 import type {
   BulkUpdateSecurityFindingOutcome,
   SecurityFinding,
@@ -98,6 +99,15 @@ const FILTER_KEYS = [
   "suppressed", "dupes",
 ] as const;
 
+/**
+ * Filters that narrow the table to a subset of the run. While any of them is
+ * set, the table count is expected to be smaller than the run-wide actionable
+ * total, so reconciling the two numbers would be noise.
+ */
+const NARROWING_FILTER_KEYS = [
+  "q", "severity", "category", "tool", "file", "baseline", "assignee",
+] as const;
+
 const SEVERITY_CHIP_OPTIONS: FilterOption[] = SEVERITY_ORDER.map((severity) => ({
   value: severity,
   label: severity.charAt(0).toUpperCase() + severity.slice(1),
@@ -113,14 +123,63 @@ const BASELINE_FILTER_OPTIONS: FilterOption[] = optionsFrom(BASELINE_STATES, "An
 
 const SUPPRESSED_FILTER_OPTIONS: FilterOption[] = [
   { value: "exclude", label: "Hidden" },
-  { value: "include", label: "Included" },
-  { value: "only", label: "Only suppressed" },
+  { value: "include", label: "Shown" },
+  { value: "only", label: "Only" },
 ];
 
 const DUPES_FILTER_OPTIONS: FilterOption[] = [
-  { value: "hide", label: "Hidden" },
-  { value: "include", label: "Included" },
+  { value: "include", label: "Duplicates" },
 ];
+
+/**
+ * Selected chips have to win against the toolbar's own tinted surface, so the
+ * pressed state gets a full-strength border and label while the unpressed one
+ * keeps readable (not disabled-looking) foreground text.
+ */
+const CHIP_STATES = cn(
+  "[&_button]:font-medium",
+  "[&_button[aria-pressed=false]]:border-border [&_button[aria-pressed=false]]:text-foreground/75",
+  "[&_button[aria-pressed=false]]:hover:border-primary/40 [&_button[aria-pressed=false]]:hover:bg-muted/60",
+  "[&_button[aria-pressed=true]]:border-primary [&_button[aria-pressed=true]]:bg-primary/20",
+  "[&_button[aria-pressed=true]]:text-foreground [&_button[aria-pressed=true]]:font-semibold",
+);
+
+/** "Actionable" drives the default status filter, so it has to be explainable. */
+const ACTIONABLE_HELP =
+  "Findings that still need work: open, triaged, or confirmed. Fixed, false positive, "
+  + "accepted-risk, and suppressed findings are excluded.";
+
+/** Statuses where the run has not yet submitted its report artifacts. */
+const IN_FLIGHT_SCAN_STATUSES = new Set(["pending", "queued", "running"]);
+
+const ARTIFACTS_PENDING_HINT =
+  "Available once the scan run finishes and submits its results.";
+
+function scanStatusTone(status: string): StatusTone {
+  switch (status.toLowerCase()) {
+    case "completed":
+    case "succeeded":
+      return "success";
+    case "running":
+    case "pending":
+    case "queued":
+      return "running";
+    case "failed":
+    case "error":
+      return "danger";
+    default:
+      return "neutral";
+  }
+}
+
+const FINDING_STATUS_TONES: Record<string, StatusTone> = {
+  open: "warning",
+  triaged: "info",
+  confirmed: "danger",
+  false_positive: "neutral",
+  fixed: "success",
+  accepted_risk: "purple",
+};
 
 const RECOVERY_LINKS = [
   { to: "/security/runs", label: "Back to scan runs" },
@@ -186,6 +245,39 @@ export function SecurityScanDetail() {
       return true;
     });
   }, [findings, values.tool, values.file]);
+
+  // The severity tiles count every actionable finding the run recorded, while
+  // the table only lists the ones the default filters admit — suppressed and
+  // duplicate findings are hidden. Left unsaid, "5 actionable" next to "4 of 4
+  // findings" reads as a contradiction, so name the gap and offer the switch.
+  const hiddenActionable = useMemo(() => {
+    if (findingsLoading || status !== "actionable" || suppressed === "only") return null;
+    const hidesSuppressed = suppressed === "exclude";
+    const hidesDuplicates = values.dupes !== "include";
+    if (!hidesSuppressed && !hidesDuplicates) return null;
+    if (NARROWING_FILTER_KEYS.some((key) => isActive(key))) return null;
+    const total = summary["actionable"] ?? 0;
+    const hidden = total - visibleFindings.length;
+    if (hidden <= 0) return null;
+    const kind = hidesSuppressed && hidesDuplicates
+      ? "suppressed and duplicate"
+      : hidesSuppressed
+        ? "suppressed"
+        : "duplicate";
+    return {
+      shown: visibleFindings.length,
+      total,
+      reason: `${hidden} hidden — ${kind} findings are excluded by default`,
+      action: hidesSuppressed && hidesDuplicates
+        ? "Show hidden"
+        : hidesSuppressed
+          ? "Show suppressed"
+          : "Show duplicates",
+    };
+  }, [
+    findingsLoading, status, suppressed, values.dupes, isActive, summary,
+    visibleFindings.length,
+  ]);
 
   const selected = visibleFindings.find((finding) => finding.id === selectedId) ?? null;
   const selectedPresent = selected !== null;
@@ -658,6 +750,8 @@ export function SecurityScanDetail() {
 
   const filtersActive = activeCount(["selected"]);
   const filteredEmpty = visibleFindings.length === 0 && filtersActive > 0;
+  const artifactsReady = !IN_FLIGHT_SCAN_STATUSES.has(scan.status.toLowerCase());
+  const exportHint = artifactsReady ? undefined : ARTIFACTS_PENDING_HINT;
 
   return (
     <div className="space-y-7">
@@ -665,11 +759,7 @@ export function SecurityScanDetail() {
         parentLabel="Security"
         parentTo="/security"
         title={scan.runName}
-        meta={
-          <Badge variant="outline" className="capitalize">
-            {scan.status || "unknown"}
-          </Badge>
-        }
+        meta={<ScanStatusPill status={scan.status} />}
         subtitle={
           <span className="font-mono text-[12.5px] text-muted-foreground">
             {scan.repository}
@@ -685,7 +775,7 @@ export function SecurityScanDetail() {
                 key={`${scanConfig.namespace}/${scanConfig.name}`}
                 duplicateFrom={scanConfig}
                 trigger={
-                  <Button variant="outline" size="sm">
+                  <Button variant="ghost" size="sm">
                     <Copy />
                     Duplicate scan
                   </Button>
@@ -701,96 +791,61 @@ export function SecurityScanDetail() {
               <SquareArrowOutUpRight />
               Agent run
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={reportBusy !== null}
-              onClick={() => void downloadReport("markdown")}
+            {/* One secondary download cluster instead of three peer buttons
+                competing with the title. The hint lives on the group as well as
+                each control because a disabled button never gets a hover. */}
+            <span
+              title={exportHint}
+              className="inline-flex items-center gap-0.5 rounded-lg border border-border/70 bg-muted/20 p-0.5"
             >
-              <FileText />
-              {reportBusy === "markdown" ? "Fetching…" : "Report"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={reportBusy !== null}
-              onClick={() => void downloadReport("sarif")}
-            >
-              <Download />
-              {reportBusy === "sarif" ? "Fetching…" : "SARIF"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={exportBusy}
-              onClick={() => void exportAuditLog()}
-            >
-              <Download />
-              {exportBusy ? "Exporting…" : "Audit CSV"}
-            </Button>
+              <span className="pl-1.5 pr-0.5 text-[10.5px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70">
+                Download
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7"
+                title={exportHint}
+                disabled={!artifactsReady || reportBusy !== null}
+                onClick={() => void downloadReport("markdown")}
+              >
+                <FileText />
+                {reportBusy === "markdown" ? "Fetching…" : "Report"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7"
+                title={exportHint}
+                disabled={!artifactsReady || reportBusy !== null}
+                onClick={() => void downloadReport("sarif")}
+              >
+                <Download />
+                {reportBusy === "sarif" ? "Fetching…" : "SARIF"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7"
+                title={exportHint}
+                disabled={!artifactsReady || exportBusy}
+                onClick={() => void exportAuditLog()}
+              >
+                <Download />
+                {exportBusy ? "Exporting…" : "Audit CSV"}
+              </Button>
+            </span>
           </>
         }
       />
 
-      {scan.status.toLowerCase() === "running" && (
+      {!artifactsReady && (
         <p className="text-[12.5px] text-muted-foreground">
           This scan run has not finished. The Markdown report and SARIF artifact become
           available once the run submits its results.
         </p>
       )}
 
-      {scanConfig && (scanConfig.lastCheck || scanConfig.lastNotifications) && (
-        <section
-          aria-label="Repository integration"
-          className="space-y-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-[12.5px]"
-        >
-          <p className="font-medium text-foreground">Repository integration</p>
-          {scanConfig.lastCheck && (
-            <p className="text-muted-foreground">
-              GitHub check on{" "}
-              <span className="font-mono">{scanConfig.lastCheck.revision.slice(0, 12)}</span>:{" "}
-              {scanConfig.lastCheck.error ? (
-                <span className="text-destructive">
-                  publish failed — {scanConfig.lastCheck.error} (retried automatically)
-                </span>
-              ) : (
-                <>
-                  <Badge variant="outline" className="capitalize">{scanConfig.lastCheck.conclusion}</Badge>
-                  {scanConfig.lastCheck.url && (
-                    <>
-                      {" "}
-                      <a
-                        className="underline underline-offset-2"
-                        href={scanConfig.lastCheck.url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        view check
-                      </a>
-                    </>
-                  )}
-                </>
-              )}
-              {scanConfig.lastCheck.sarifError && (
-                <span className="text-destructive"> · SARIF upload failed — {scanConfig.lastCheck.sarifError}</span>
-              )}
-              {scanConfig.lastCheck.sarifUploaded && " · SARIF uploaded to code scanning"}
-            </p>
-          )}
-          {scanConfig.lastNotifications && (
-            <p className="text-muted-foreground">
-              Notifications: {scanConfig.lastNotifications.sent} sent,{" "}
-              {scanConfig.lastNotifications.suppressed} suppressed as duplicates
-              {scanConfig.lastNotifications.lastError ? (
-                <span className="text-destructive">
-                  {" "}
-                  — last error: {scanConfig.lastNotifications.lastError} (retried automatically)
-                </span>
-              ) : null}
-            </p>
-          )}
-        </section>
-      )}
       {reportNotice && (
         <p role="status" className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-[12.5px] text-muted-foreground">
           {reportNotice}
@@ -808,109 +863,44 @@ export function SecurityScanDetail() {
         </div>
       )}
 
-      {scanConfig && (scanConfig.effectiveBudgets || scanConfig.retention) && (
-        <section
-          aria-label="Budgets and retention"
-          className="space-y-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-[12.5px]"
-        >
-          <p className="font-medium text-foreground">Budgets &amp; retention</p>
-          {scanConfig.effectiveBudgets && (
-            <p className="text-muted-foreground" data-testid="effective-budgets">
-              Effective budgets (scan merged with its policy pack):{" "}
-              {packBudgetSummary(scanConfig.effectiveBudgets)}. Platform-observed usage is
-              checked against these limits before and during each run
-              {scanConfig.budgetExceeded ? "" : "; no limit is currently exceeded"}.
-            </p>
-          )}
-          {scanConfig.retention && (
-            <p className="text-muted-foreground" data-testid="retention-sweep">
-              Retention sweep
-              {scanConfig.retention.lastSweepTimeUnix > 0n &&
-                ` (last ran ${new Date(Number(scanConfig.retention.lastSweepTimeUnix) * 1000).toLocaleString()})`}
-              : {String(scanConfig.retention.scansPurged)} scan runs,{" "}
-              {String(scanConfig.retention.findingsPurged)} findings, and{" "}
-              {String(scanConfig.retention.reportsPurged)} reports purged;{" "}
-              {String(scanConfig.retention.evidenceRedacted)} evidence and{" "}
-              {String(scanConfig.retention.pocRedacted)} PoC entries redacted;{" "}
-              {String(scanConfig.retention.auditEventsPurged)} audit events purged
-              {scanConfig.retention.moreWork ? " · sweep still in progress" : ""}
-              {scanConfig.retention.lastError ? (
-                <span className="text-destructive">
-                  {" "}
-                  · last sweep error: {scanConfig.retention.lastError} (retried automatically)
-                </span>
-              ) : null}
-            </p>
-          )}
-        </section>
-      )}
-
-      <StatBar>
-        <Stat label="Total" value={summary["total"] ?? 0} />
-        <Stat label="Actionable" value={summary["actionable"] ?? summary["open"] ?? 0} />
-        {SEVERITIES.map((s) => (
-          <Stat
-            key={s}
-            label={s}
-            value={
-              <span className={cn(toneSoft[severityTone(s)], "rounded-md px-2 py-0.5")}>
-                {summary[`actionable_${s}`] ?? summary[s] ?? 0}
-              </span>
-            }
-            mono={false}
-          />
-        ))}
-      </StatBar>
-
-      {namespace &&
-        scanConfig?.lastExecution &&
-        scanConfig.lastExecution.mode === "deterministic" && (
-          <ExecutionProgressPanel
-            namespace={namespace}
-            execution={scanConfig.lastExecution}
-            workflowTasks={workflowTasks}
-            findingLinkBase={runName ? `/security/${namespace}/${runName}/findings` : undefined}
-            onResume={async () => {
-              setActionError(null);
-              try {
-                await client.resumeSecurityScan({ namespace, name: scanConfig.name });
-                await fetchScan();
-              } catch (e: unknown) {
-                setActionError(
-                  e instanceof Error ? e.message : "Failed to resume the execution",
-                );
-              }
-            }}
-          />
-        )}
-
-      {namespace && runName && (
-        <SecurityScanRunPanel
-          namespace={namespace}
-          runName={runName}
-          onRunSettled={handleRunSettled}
-          hideWhenMissing={Boolean(scanConfig?.lastExecution)}
-        />
-      )}
-
-      {scan.summary && (
-        <DetailSection title="Scan Summary">
-          <p className="max-w-[90ch] whitespace-pre-wrap text-[13px] leading-relaxed text-muted-foreground">
-            {scan.summary}
-          </p>
-        </DetailSection>
-      )}
-
       {actionError && (
         <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12.5px]">
           {actionError}
         </div>
       )}
 
+      {/* The severity summary is the answer to "what did this scan find?", so it
+          sits directly under the header and the findings workspace follows it;
+          execution, run, and configuration detail live below the table. */}
+      <section aria-label="Finding summary" className="space-y-3">
+        <div className="flex flex-wrap items-stretch gap-2">
+          <SummaryTile label="Total" value={summary["total"] ?? 0} />
+          <SummaryTile
+            label="Actionable"
+            value={summary["actionable"] ?? summary["open"] ?? 0}
+            help={ACTIONABLE_HELP}
+          />
+          <span aria-hidden className="mx-1 hidden w-px self-stretch bg-border/60 sm:block" />
+          {SEVERITIES.map((s) => (
+            <SummaryTile
+              key={s}
+              label={s}
+              value={summary[`actionable_${s}`] ?? summary[s] ?? 0}
+              tone={severityTone(s)}
+            />
+          ))}
+        </div>
+        {scan.summary && (
+          <p className="max-w-[90ch] whitespace-pre-wrap text-[13px] leading-relaxed text-muted-foreground">
+            {scan.summary}
+          </p>
+        )}
+      </section>
+
       <DetailSection title="Findings">
-        {/* Sticky so the filters and the column headers stay reachable
-            while a long findings list scrolls under them. */}
-        <div className="sticky top-0 z-20 -mx-1 space-y-2 bg-background/95 px-1 py-2 backdrop-blur">
+        {/* Sticky so the filters stay reachable while a long findings list
+            scrolls under them. The background is opaque: rows pass behind it. */}
+        <div className="sticky top-0 z-20 -mx-1 space-y-2 bg-background px-1 py-2">
           <div className="flex flex-wrap items-center gap-2">
             <ListSearchInput
               value={search}
@@ -965,12 +955,15 @@ export function SecurityScanDetail() {
             onClear={clearFilters}
             resultLabel={`${visibleFindings.length} of ${findings.length} ${findings.length === 1 ? "finding" : "findings"}`}
           >
-            <FilterChips
-              label="Severity"
-              options={SEVERITY_CHIP_OPTIONS}
-              selected={severity === "all" ? [] : [severity]}
-              onToggle={(value) => set("severity", severity === value ? "all" : value)}
-            />
+            <ChipGroup label="Severity">
+              <FilterChips
+                label="Severity"
+                className={CHIP_STATES}
+                options={SEVERITY_CHIP_OPTIONS}
+                selected={severity === "all" ? [] : [severity]}
+                onToggle={(value) => set("severity", severity === value ? "all" : value)}
+              />
+            </ChipGroup>
             <FilterSelect
               label="Status"
               value={status}
@@ -996,19 +989,24 @@ export function SecurityScanDetail() {
               onChange={(next) => set("baseline", next)}
               options={BASELINE_FILTER_OPTIONS}
             />
-            <FilterSelect
-              label="Suppressed"
-              value={suppressed}
-              defaultValue="exclude"
-              onChange={(next) => set("suppressed", next)}
-              options={SUPPRESSED_FILTER_OPTIONS}
-            />
-            <FilterSelect
+            {/* Suppressed and duplicates are visibility switches, not lookups:
+                as dropdowns they read as "Suppressed · Hidden", which says
+                nothing about what picking the other value would do. */}
+            <ChipGroup label="Suppressed">
+              <FilterChips
+                label="Suppressed findings"
+                className={CHIP_STATES}
+                options={SUPPRESSED_FILTER_OPTIONS}
+                selected={[suppressed]}
+                onToggle={(value) => set("suppressed", value)}
+              />
+            </ChipGroup>
+            <FilterChips
               label="Duplicates"
-              value={values.dupes}
-              defaultValue="hide"
-              onChange={(next) => set("dupes", next)}
+              className={CHIP_STATES}
               options={DUPES_FILTER_OPTIONS}
+              selected={values.dupes === "include" ? ["include"] : []}
+              onToggle={() => set("dupes", values.dupes === "include" ? "hide" : "include")}
             />
             <input
               aria-label="Filter by file path"
@@ -1028,6 +1026,30 @@ export function SecurityScanDetail() {
             />
           </FilterBar>
         </div>
+        {hiddenActionable && (
+          <div
+            role="status"
+            data-testid="hidden-findings-notice"
+            className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-[12.5px] text-muted-foreground"
+          >
+            <span>
+              Showing{" "}
+              <span className="font-medium text-foreground">{hiddenActionable.shown}</span> of{" "}
+              <span className="font-medium text-foreground">{hiddenActionable.total}</span>{" "}
+              actionable findings
+            </span>
+            <span aria-hidden>·</span>
+            <span>{hiddenActionable.reason}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6"
+              onClick={() => setMany({ suppressed: "include", dupes: "include" })}
+            >
+              {hiddenActionable.action}
+            </Button>
+          </div>
+        )}
         <div className={cn("mt-4 grid gap-4", selected && "lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]")}>
           <ListState
             loading={findingsLoading}
@@ -1146,9 +1168,11 @@ export function SecurityScanDetail() {
               <TableCaption className="sr-only">
                 Security findings{filtersActive > 0 ? " matching the current filters" : ""}
               </TableCaption>
-              {/* Offset by the sticky toolbar above so the column headers park
-                  under it instead of behind it. */}
-              <TableHeader className="sticky top-[86px] z-10 bg-card/95 backdrop-blur">
+              {/* Not sticky: the shared table wrapper is a scroll container
+                  (overflow-x), so a sticky offset here resolves against that
+                  never-scrolled box and only pushes the header down over the
+                  first rows. The filter bar above carries the sticky duty. */}
+              <TableHeader>
                 <TableRow>
                   <TableHead className="w-8">
                     <input
@@ -1201,7 +1225,7 @@ export function SecurityScanDetail() {
                       </span>
                       <div className="mt-0.5 flex items-center gap-2">
                         <span
-                          className="truncate font-mono text-[11.5px] text-muted-foreground"
+                          className="min-w-0 truncate font-mono text-[11.5px] text-muted-foreground"
                           title={finding.filePath}
                         >
                           {finding.filePath}
@@ -1236,10 +1260,12 @@ export function SecurityScanDetail() {
                     <TableCell>
                       <BaselineBadge state={finding.baselineState} />
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {finding.assignee || "—"}
+                    <TableCell className="max-w-[16ch] text-sm text-muted-foreground">
+                      <span className="block truncate" title={finding.assignee || undefined}>
+                        {finding.assignee || "—"}
+                      </span>
                     </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
+                    <TableCell className="text-right font-mono tabular-nums whitespace-nowrap">
                       {finding.score.toFixed(1)}
                     </TableCell>
                   </TableRow>
@@ -1435,15 +1461,246 @@ export function SecurityScanDetail() {
           )}
         </div>
       </DetailSection>
+
+      {namespace &&
+        scanConfig?.lastExecution &&
+        scanConfig.lastExecution.mode === "deterministic" && (
+          <ExecutionProgressPanel
+            namespace={namespace}
+            execution={scanConfig.lastExecution}
+            workflowTasks={workflowTasks}
+            findingLinkBase={runName ? `/security/${namespace}/${runName}/findings` : undefined}
+            onResume={async () => {
+              setActionError(null);
+              try {
+                await client.resumeSecurityScan({ namespace, name: scanConfig.name });
+                await fetchScan();
+              } catch (e: unknown) {
+                setActionError(
+                  e instanceof Error ? e.message : "Failed to resume the execution",
+                );
+              }
+            }}
+          />
+        )}
+
+      {namespace && runName && (
+        <SecurityScanRunPanel
+          namespace={namespace}
+          runName={runName}
+          onRunSettled={handleRunSettled}
+          hideWhenMissing={Boolean(scanConfig?.lastExecution)}
+        />
+      )}
+
+      {scanConfig && (scanConfig.lastCheck || scanConfig.lastNotifications) && (
+        <section
+          aria-label="Repository integration"
+          className="space-y-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-[12.5px]"
+        >
+          <p className="font-medium text-foreground">Repository integration</p>
+          {scanConfig.lastCheck && (
+            <p className="text-muted-foreground">
+              GitHub check on{" "}
+              <span className="font-mono">{scanConfig.lastCheck.revision.slice(0, 12)}</span>:{" "}
+              {scanConfig.lastCheck.error ? (
+                <span className="text-destructive">
+                  publish failed — {scanConfig.lastCheck.error} (retried automatically)
+                </span>
+              ) : (
+                <>
+                  <Badge variant="outline" className="capitalize">{scanConfig.lastCheck.conclusion}</Badge>
+                  {scanConfig.lastCheck.url && (
+                    <>
+                      {" "}
+                      <a
+                        className="underline underline-offset-2"
+                        href={scanConfig.lastCheck.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        view check
+                      </a>
+                    </>
+                  )}
+                </>
+              )}
+              {scanConfig.lastCheck.sarifError && (
+                <span className="text-destructive"> · SARIF upload failed — {scanConfig.lastCheck.sarifError}</span>
+              )}
+              {scanConfig.lastCheck.sarifUploaded && " · SARIF uploaded to code scanning"}
+            </p>
+          )}
+          {scanConfig.lastNotifications && (
+            <p className="text-muted-foreground">
+              Notifications: {scanConfig.lastNotifications.sent} sent,{" "}
+              {scanConfig.lastNotifications.suppressed} suppressed as duplicates
+              {scanConfig.lastNotifications.lastError ? (
+                <span className="text-destructive">
+                  {" "}
+                  — last error: {scanConfig.lastNotifications.lastError} (retried automatically)
+                </span>
+              ) : null}
+            </p>
+          )}
+        </section>
+      )}
+      {scanConfig && (scanConfig.effectiveBudgets || scanConfig.retention) && (
+        <section
+          aria-label="Budgets and retention"
+          className="space-y-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2.5 text-[12.5px]"
+        >
+          <p className="font-medium text-foreground">Budgets &amp; retention</p>
+          {scanConfig.effectiveBudgets && (
+            <p className="text-muted-foreground" data-testid="effective-budgets">
+              Effective budgets (scan merged with its policy pack):{" "}
+              {packBudgetSummary(scanConfig.effectiveBudgets)}. Platform-observed usage is
+              checked against these limits before and during each run
+              {scanConfig.budgetExceeded ? "" : "; no limit is currently exceeded"}.
+            </p>
+          )}
+          {scanConfig.retention && (
+            <p className="text-muted-foreground" data-testid="retention-sweep">
+              Retention sweep
+              {scanConfig.retention.lastSweepTimeUnix > 0n &&
+                ` (last ran ${new Date(Number(scanConfig.retention.lastSweepTimeUnix) * 1000).toLocaleString()})`}
+              : {String(scanConfig.retention.scansPurged)} scan runs,{" "}
+              {String(scanConfig.retention.findingsPurged)} findings, and{" "}
+              {String(scanConfig.retention.reportsPurged)} reports purged;{" "}
+              {String(scanConfig.retention.evidenceRedacted)} evidence and{" "}
+              {String(scanConfig.retention.pocRedacted)} PoC entries redacted;{" "}
+              {String(scanConfig.retention.auditEventsPurged)} audit events purged
+              {scanConfig.retention.moreWork ? " · sweep still in progress" : ""}
+              {scanConfig.retention.lastError ? (
+                <span className="text-destructive">
+                  {" "}
+                  · last sweep error: {scanConfig.retention.lastError} (retried automatically)
+                </span>
+              ) : null}
+            </p>
+          )}
+        </section>
+      )}
+
     </div>
   );
 }
 
-/** Calm neutral status pill; severity keeps the only saturated colour. */
+/**
+ * Status pill matching the severity pill's geometry so a row reads as one band
+ * of chips; the tone lives in the dot, keeping severity the only tinted pill.
+ */
 function StatusPill({ status }: { status: string }) {
+  const tone = FINDING_STATUS_TONES[status] ?? "neutral";
   return (
-    <span className="inline-flex h-[20px] items-center rounded-full bg-muted/70 px-2 text-[11px] font-medium capitalize tracking-tight whitespace-nowrap text-muted-foreground">
+    <span
+      className={cn(
+        STATUS_PILL,
+        "capitalize bg-muted/60 text-foreground/90 ring-1 ring-inset ring-border/70",
+      )}
+    >
+      <span
+        aria-hidden
+        className="size-1.5 rounded-full"
+        style={{ backgroundColor: toneColor[tone] }}
+      />
       {statusLabel(status)}
+    </span>
+  );
+}
+
+/** Run status, promoted to the loudest element in the header after the title. */
+function ScanStatusPill({ status }: { status: string }) {
+  const tone = scanStatusTone(status);
+  return (
+    <span
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-semibold capitalize",
+        toneSoft[tone],
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn("size-1.5 rounded-full", tone === "running" && "animate-pulse")}
+        style={{ backgroundColor: toneColor[tone] }}
+      />
+      {status || "unknown"}
+    </span>
+  );
+}
+
+/**
+ * One treatment for every summary number. Zero counts drop their surface so a
+ * clean severity reads as absence instead of as a result worth looking at.
+ */
+function SummaryTile({
+  label,
+  value,
+  tone,
+  help,
+}: {
+  label: string;
+  value: number;
+  tone?: StatusTone;
+  help?: string;
+}) {
+  const zero = value === 0;
+  return (
+    <div
+      className={cn(
+        "flex min-w-[88px] flex-col gap-1.5 rounded-lg border px-3 py-2",
+        zero ? "border-border/40" : "border-border/70 bg-muted/25",
+      )}
+    >
+      <span className="flex items-center gap-1 text-[10.5px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70">
+        {tone && (
+          <span
+            aria-hidden
+            className={cn("size-1.5 rounded-full", zero && "opacity-40")}
+            style={{ backgroundColor: toneColor[tone] }}
+          />
+        )}
+        {label}
+        {help && <HelpHint label={`What "${label}" means`} text={help} />}
+      </span>
+      <span
+        className={cn(
+          "font-mono text-[20px] font-semibold leading-none tabular-nums",
+          zero ? "text-muted-foreground/40" : "text-foreground",
+        )}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function HelpHint({ label, text }: { label: string; text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            title={text}
+            className="inline-flex rounded-full text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          >
+            <Info className="size-3" aria-hidden />
+          </button>
+        }
+      />
+      <TooltipContent>{text}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Visible caption for a chip group, so it matches the labelled dropdowns. */
+function ChipGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="text-[11px] text-muted-foreground/80">{label}</span>
+      {children}
     </span>
   );
 }

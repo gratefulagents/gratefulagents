@@ -181,6 +181,13 @@ function LocationProbe() {
   );
 }
 
+/** Destructive row actions live behind the row's overflow menu. */
+async function deleteFromRowMenu(name: string) {
+  fireEvent.click(screen.getByRole("button", { name: `More actions for ${name}` }));
+  await screen.findByRole("menu");
+  fireEvent.click(screen.getByRole("menuitem", { name: /Delete/ }));
+}
+
 function renderPage(path = "/security/library") {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -259,7 +266,7 @@ describe("SecurityLibraryPage", () => {
     );
     renderPage();
     await screen.findByTestId("workflow-row-payments-workflow");
-    fireEvent.click(screen.getByRole("button", { name: "Delete payments-workflow" }));
+    await deleteFromRowMenu("payments-workflow");
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     await waitFor(() => {
       expect(screen.getByTestId("library-action-error").textContent).toContain("scan-a, scan-b");
@@ -363,7 +370,7 @@ describe("SecurityLibraryPage", () => {
     await screen.findByTestId("workflow-row-payments-workflow");
     fireEvent.click(screen.getByRole("tab", { name: /Programs/ }));
     await screen.findByTestId("program-row-acme-bounty");
-    fireEvent.click(screen.getByRole("button", { name: "Delete acme-bounty" }));
+    await deleteFromRowMenu("acme-bounty");
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(deleteSecurityProgram).toHaveBeenCalledWith({
@@ -437,7 +444,7 @@ describe("SecurityLibraryPage", () => {
     await screen.findByTestId("workflow-row-payments-workflow");
     fireEvent.click(screen.getByRole("tab", { name: /Policy packs/ }));
     await screen.findByTestId("policy-pack-row-prod-policy");
-    fireEvent.click(screen.getByRole("button", { name: "Delete prod-policy" }));
+    await deleteFromRowMenu("prod-policy");
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     await waitFor(() => {
       expect(screen.getByTestId("library-action-error").textContent).toContain("scan-a");
@@ -459,9 +466,10 @@ describe("SecurityLibraryPage URL state", () => {
     expect((screen.getByPlaceholderText("Search the library…") as HTMLInputElement).value).toBe(
       "vendor",
     );
-    // Tab labels carry the count of what the current filters leave visible.
-    expect(screen.getByRole("tab", { name: /Policy packs/ }).textContent).toContain("(1)");
-    expect(screen.getByRole("tab", { name: /Workflows/ }).textContent).toContain("(0)");
+    // Tab labels carry the count of what the current filters leave visible,
+    // rendered as a badge beside the label.
+    expect(screen.getByRole("tab", { name: /Policy packs/ }).textContent).toBe("Policy packs1");
+    expect(screen.getByRole("tab", { name: /Workflows/ }).textContent).toBe("Workflows0");
   });
 
   it("falls back to the first tab for an unknown tab value", async () => {

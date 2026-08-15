@@ -3,16 +3,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import {
-  BadgeCheck, CircleDashed, Copy, ListOrdered, Pencil, Plus, ScrollText, SearchX,
-  ShieldCheck, Trash2, Workflow,
+  BadgeCheck, CircleDashed, Copy, ListOrdered, MoreHorizontal, Pencil, Plus, ScrollText,
+  SearchX, ShieldCheck, Trash2, Workflow,
 } from "lucide-react";
 
 import {
-  Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -54,6 +60,7 @@ import {
 } from "@/components/SecurityPolicyPackDialog";
 import { SecurityProgramDialog } from "@/components/SecurityProgramDialog";
 import { client } from "@/lib/client";
+import { cn } from "@/lib/utils";
 import {
   CreateSecurityPostScriptRequestSchema,
   CreateSecurityRankerRequestSchema,
@@ -596,11 +603,31 @@ function PostScriptEditorDialog({
 /* ── Library page ────────────────────────────────────────────── */
 
 const TABS = [
-  { id: "workflows", label: "Workflows" },
-  { id: "rankers", label: "Rankers" },
-  { id: "post-scripts", label: "Post-scripts" },
-  { id: "policy-packs", label: "Policy packs" },
-  { id: "programs", label: "Programs" },
+  {
+    id: "workflows",
+    label: "Workflows",
+    help: "Reusable task graphs referenced by security scans.",
+  },
+  {
+    id: "rankers",
+    label: "Rankers",
+    help: "Severity rankers referenced by security scans.",
+  },
+  {
+    id: "post-scripts",
+    label: "Post-scripts",
+    help: "Prompts run against matching findings after a scan's workflow.",
+  },
+  {
+    id: "policy-packs",
+    label: "Policy packs",
+    help: "Scan defaults, enforced floors, suppressions, retention, and budgets.",
+  },
+  {
+    id: "programs",
+    label: "Programs",
+    help: "Verified program scope snapshots referenced by security scans.",
+  },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -802,13 +829,91 @@ function LibraryTabState({
 /** Resource name plus the columns that collapse away on narrow screens. */
 function NameCell({ name, meta }: { name: string; meta?: React.ReactNode }) {
   return (
-    <TableCell className="max-w-[16rem] whitespace-normal align-top">
-      <div className="truncate font-mono text-[13px]">{name}</div>
+    <TableCell className="w-[1%] max-w-[18rem] whitespace-normal align-top">
+      <div className="truncate text-[13.5px] font-semibold tracking-[-0.005em] text-foreground">
+        {name}
+      </div>
       {meta ? (
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground md:hidden">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-foreground/70 md:hidden">
           {meta}
         </div>
       ) : null}
+    </TableCell>
+  );
+}
+
+/**
+ * Description column. The most informative field on the page, so it takes the
+ * width the fixed-size columns give back and shows two lines instead of one
+ * clipped line; the full text stays reachable on hover and on keyboard focus.
+ */
+function DescriptionCell({
+  text,
+  className,
+}: {
+  text: string;
+  /** Responsive visibility, e.g. `hidden md:table-cell`. */
+  className?: string;
+}) {
+  return (
+    <TableCell className={cn("w-auto align-top text-foreground/75", className)}>
+      {text ? (
+        <span
+          title={text}
+          tabIndex={0}
+          className="line-clamp-2 rounded-sm outline-none focus-visible:line-clamp-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
+          {text}
+        </span>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      )}
+    </TableCell>
+  );
+}
+
+/**
+ * Row actions: the routine edit (and duplicate) stay one click away, while the
+ * destructive delete moves behind an overflow menu so it cannot be hit by
+ * accident next to them.
+ */
+function RowActions({
+  name,
+  edit,
+  duplicate,
+  onDelete,
+}: {
+  name: string;
+  edit: React.ReactNode;
+  duplicate?: React.ReactNode;
+  onDelete: () => void;
+}) {
+  return (
+    <TableCell className="w-[1%] whitespace-nowrap text-right align-top">
+      <div className="inline-flex items-center gap-0.5">
+        {edit}
+        {duplicate}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title="More actions"
+                aria-label={`More actions for ${name}`}
+              />
+            }
+          >
+            <MoreHorizontal className="size-3.5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[160px]">
+            <DropdownMenuItem variant="destructive" onClick={onDelete}>
+              <Trash2 />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </TableCell>
   );
 }
@@ -1042,6 +1147,72 @@ export function SecurityLibraryPage() {
   };
   const filtersActive = activeFilterCount > 0;
 
+  // One primary action per view: the create action for the kind in front of
+  // you, docked to the tab bar it applies to. Drafting and pack portability
+  // stay secondary so the eye lands on the primary first.
+  const tabActions: Record<TabId, React.ReactNode> = {
+    workflows: (
+      <>
+        <WorkflowEditorDialog
+          mode="create"
+          onSaved={onSaved}
+          trigger={
+            <Button size="sm">
+              <Plus className="size-3.5" /> New workflow
+            </Button>
+          }
+        />
+        <GenerateSecurityDraftDialog kind="workflow" onDraft={acceptDraft} />
+      </>
+    ),
+    rankers: (
+      <RankerEditorDialog
+        mode="create"
+        onSaved={onSaved}
+        trigger={
+          <Button size="sm">
+            <Plus className="size-3.5" /> New ranker
+          </Button>
+        }
+      />
+    ),
+    "post-scripts": (
+      <>
+        <PostScriptEditorDialog
+          mode="create"
+          onSaved={onSaved}
+          trigger={
+            <Button size="sm">
+              <Plus className="size-3.5" /> New post-script
+            </Button>
+          }
+        />
+        <GenerateSecurityDraftDialog kind="post-script" onDraft={acceptDraft} />
+      </>
+    ),
+    "policy-packs": (
+      <PolicyPackEditorDialog
+        mode="create"
+        onSaved={onSaved}
+        trigger={
+          <Button size="sm">
+            <Plus className="size-3.5" /> New policy pack
+          </Button>
+        }
+      />
+    ),
+    programs: (
+      <SecurityProgramDialog
+        onSaved={onSaved}
+        trigger={
+          <Button size="sm">
+            <Plus className="size-3.5" /> New security program
+          </Button>
+        }
+      />
+    ),
+  };
+
   return (
     <ResourceListPage
       title="Security library"
@@ -1055,8 +1226,8 @@ export function SecurityLibraryPage() {
       empty={Boolean(error)}
       skeleton={<TableRowSkeleton cols={5} />}
       nav={<SecurityNav />}
-      toolbar={
-        <div className="flex flex-wrap gap-2">
+      actions={
+        <>
           <ExportSecurityPackDialog
             workflows={workflows.map((w) => w.name)}
             rankers={rankers.map((r) => r.name)}
@@ -1065,7 +1236,7 @@ export function SecurityLibraryPage() {
             policyPacks={policyPacks.map((p) => p.name)}
           />
           <ImportSecurityPackDialog onImported={onSaved} />
-        </div>
+        </>
       }
     >
       {actionError && (
@@ -1102,27 +1273,38 @@ export function SecurityLibraryPage() {
           if (typeof next === "string") set("tab", next, { history: "push" });
         }}
       >
-        <TabsList>
-          {TABS.map((entry) => (
-            <TabsTrigger key={entry.id} value={entry.id}>
-              {entry.label} ({tabCounts[entry.id]})
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 border-b border-border/70">
+          {/* Underlined tabs, not a second pill bar: the section nav above is
+              already segmented, so the kind tabs need a different shape to
+              read as the level below it. */}
+          <TabsList
+            variant="line"
+            className="max-w-full flex-1 justify-start gap-4 overflow-x-auto bg-transparent p-0 group-data-horizontal/tabs:h-9 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {TABS.map((entry) => (
+              <TabsTrigger
+                key={entry.id}
+                value={entry.id}
+                className="group/tab h-9 flex-none rounded-none px-0.5 text-[13.5px] text-muted-foreground data-active:text-foreground dark:data-active:text-foreground group-data-horizontal/tabs:after:bottom-0 group-data-horizontal/tabs:after:h-[2px] data-active:after:bg-primary"
+              >
+                {entry.label}
+                <span className="rounded-full bg-muted px-1.5 py-px text-[10.5px] font-medium tabular-nums text-muted-foreground transition-colors group-data-active/tab:bg-primary/15 group-data-active/tab:text-primary">
+                  {tabCounts[entry.id]}
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          <div className="flex flex-wrap items-center gap-2 pb-1.5">{tabActions[tab]}</div>
+        </div>
+        {/* The kind's one-line explanation belongs with the tab that selects
+            it, not stranded under the table as a caption. */}
+        <p className="text-[12.5px] text-muted-foreground">
+          {TABS.find((entry) => entry.id === tab)?.help}
+          {tab === "programs" &&
+            " A program URL records provenance only and does not authorize network testing."}
+        </p>
 
-        <TabsContent value="workflows" className="space-y-3 pt-3">
-          <div className="flex flex-wrap gap-2">
-            <WorkflowEditorDialog
-              mode="create"
-              onSaved={onSaved}
-              trigger={
-                <Button size="sm">
-                  <Plus className="size-3.5" /> New workflow
-                </Button>
-              }
-            />
-            <GenerateSecurityDraftDialog kind="workflow" onDraft={acceptDraft} />
-          </div>
+        <TabsContent value="workflows" className="space-y-3 pt-1">
           <LibraryFilterBar
             label="Workflow filters"
             noun="workflows"
@@ -1152,16 +1334,17 @@ export function SecurityLibraryPage() {
             }
           >
             <Table>
-              <TableCaption className="mt-2 px-3 pb-2 text-left text-[11.5px]">
-                Reusable task graphs referenced by security scans.
-              </TableCaption>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="hidden md:table-cell">Description</TableHead>
-                  <TableHead className="hidden sm:table-cell">Tasks</TableHead>
-                  <TableHead className="hidden sm:table-cell">Used by</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="w-[1%] whitespace-nowrap">Name</TableHead>
+                  <TableHead className="hidden w-auto md:table-cell">Description</TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap text-right sm:table-cell">
+                    Tasks
+                  </TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap sm:table-cell">
+                    Used by
+                  </TableHead>
+                  <TableHead className="w-[1%] whitespace-nowrap text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1177,45 +1360,54 @@ export function SecurityLibraryPage() {
                         </>
                       }
                     />
-                    <TableCell className="hidden max-w-72 truncate text-muted-foreground md:table-cell">
-                      {workflow.description}
+                    <DescriptionCell
+                      text={workflow.description}
+                      className="hidden md:table-cell"
+                    />
+                    <TableCell className="hidden w-[1%] whitespace-nowrap text-right tabular-nums align-top sm:table-cell">
+                      {workflow.tasks.length}
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell">{workflow.tasks.length}</TableCell>
-                    <TableCell className="hidden sm:table-cell">
+                    <TableCell className="hidden w-[1%] whitespace-nowrap align-top sm:table-cell">
                       <UsageCell item={workflow} />
                     </TableCell>
-                    <TableCell className="text-right align-top">
-                      <div className="inline-flex items-center gap-1">
+                    <RowActions
+                      name={workflow.name}
+                      onDelete={() => setPendingDelete({ kind: "workflow", name: workflow.name })}
+                      edit={
                         <WorkflowEditorDialog
                           mode="edit"
                           source={workflow}
                           onSaved={onSaved}
                           trigger={
-                            <Button variant="ghost" size="icon-sm" aria-label={`Edit ${workflow.name}`}>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              title="Edit"
+                              aria-label={`Edit ${workflow.name}`}
+                            >
                               <Pencil className="size-3.5" />
                             </Button>
                           }
                         />
+                      }
+                      duplicate={
                         <WorkflowEditorDialog
                           mode="duplicate"
                           source={workflow}
                           onSaved={onSaved}
                           trigger={
-                            <Button variant="ghost" size="icon-sm" aria-label={`Duplicate ${workflow.name}`}>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              title="Duplicate"
+                              aria-label={`Duplicate ${workflow.name}`}
+                            >
                               <Copy className="size-3.5" />
                             </Button>
                           }
                         />
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Delete ${workflow.name}`}
-                          onClick={() => setPendingDelete({ kind: "workflow", name: workflow.name })}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                      }
+                    />
                   </TableRow>
                 ))}
               </TableBody>
@@ -1223,16 +1415,7 @@ export function SecurityLibraryPage() {
           </LibraryTabState>
         </TabsContent>
 
-        <TabsContent value="rankers" className="space-y-3 pt-3">
-          <RankerEditorDialog
-            mode="create"
-            onSaved={onSaved}
-            trigger={
-              <Button size="sm">
-                <Plus className="size-3.5" /> New ranker
-              </Button>
-            }
-          />
+        <TabsContent value="rankers" className="space-y-3 pt-1">
           <LibraryFilterBar
             label="Ranker filters"
             noun="rankers"
@@ -1269,16 +1452,17 @@ export function SecurityLibraryPage() {
             }
           >
             <Table>
-              <TableCaption className="mt-2 px-3 pb-2 text-left text-[11.5px]">
-                Severity rankers referenced by security scans.
-              </TableCaption>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="hidden md:table-cell">Description</TableHead>
-                  <TableHead className="hidden sm:table-cell">Rules</TableHead>
-                  <TableHead className="hidden sm:table-cell">Used by</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="w-[1%] whitespace-nowrap">Name</TableHead>
+                  <TableHead className="hidden w-auto md:table-cell">Description</TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap text-right sm:table-cell">
+                    Rules
+                  </TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap sm:table-cell">
+                    Used by
+                  </TableHead>
+                  <TableHead className="w-[1%] whitespace-nowrap text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1294,45 +1478,51 @@ export function SecurityLibraryPage() {
                         </>
                       }
                     />
-                    <TableCell className="hidden max-w-72 truncate text-muted-foreground md:table-cell">
-                      {ranker.description}
+                    <DescriptionCell text={ranker.description} className="hidden md:table-cell" />
+                    <TableCell className="hidden w-[1%] whitespace-nowrap text-right tabular-nums align-top sm:table-cell">
+                      {ranker.rules.length}
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell">{ranker.rules.length}</TableCell>
-                    <TableCell className="hidden sm:table-cell">
+                    <TableCell className="hidden w-[1%] whitespace-nowrap align-top sm:table-cell">
                       <UsageCell item={ranker} />
                     </TableCell>
-                    <TableCell className="text-right align-top">
-                      <div className="inline-flex items-center gap-1">
+                    <RowActions
+                      name={ranker.name}
+                      onDelete={() => setPendingDelete({ kind: "ranker", name: ranker.name })}
+                      edit={
                         <RankerEditorDialog
                           mode="edit"
                           source={ranker}
                           onSaved={onSaved}
                           trigger={
-                            <Button variant="ghost" size="icon-sm" aria-label={`Edit ${ranker.name}`}>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              title="Edit"
+                              aria-label={`Edit ${ranker.name}`}
+                            >
                               <Pencil className="size-3.5" />
                             </Button>
                           }
                         />
+                      }
+                      duplicate={
                         <RankerEditorDialog
                           mode="duplicate"
                           source={ranker}
                           onSaved={onSaved}
                           trigger={
-                            <Button variant="ghost" size="icon-sm" aria-label={`Duplicate ${ranker.name}`}>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              title="Duplicate"
+                              aria-label={`Duplicate ${ranker.name}`}
+                            >
                               <Copy className="size-3.5" />
                             </Button>
                           }
                         />
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Delete ${ranker.name}`}
-                          onClick={() => setPendingDelete({ kind: "ranker", name: ranker.name })}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                      }
+                    />
                   </TableRow>
                 ))}
               </TableBody>
@@ -1340,19 +1530,7 @@ export function SecurityLibraryPage() {
           </LibraryTabState>
         </TabsContent>
 
-        <TabsContent value="post-scripts" className="space-y-3 pt-3">
-          <div className="flex flex-wrap gap-2">
-            <PostScriptEditorDialog
-              mode="create"
-              onSaved={onSaved}
-              trigger={
-                <Button size="sm">
-                  <Plus className="size-3.5" /> New post-script
-                </Button>
-              }
-            />
-            <GenerateSecurityDraftDialog kind="post-script" onDraft={acceptDraft} />
-          </div>
+        <TabsContent value="post-scripts" className="space-y-3 pt-1">
           <LibraryFilterBar
             label="Post-script filters"
             noun="post-scripts"
@@ -1390,16 +1568,17 @@ export function SecurityLibraryPage() {
             }
           >
             <Table>
-              <TableCaption className="mt-2 px-3 pb-2 text-left text-[11.5px]">
-                Prompts run against matching findings after a scan's workflow.
-              </TableCaption>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="hidden md:table-cell">Description</TableHead>
-                  <TableHead className="hidden sm:table-cell">Runs on</TableHead>
-                  <TableHead className="hidden sm:table-cell">Used by</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="w-[1%] whitespace-nowrap">Name</TableHead>
+                  <TableHead className="hidden w-auto md:table-cell">Description</TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap sm:table-cell">
+                    Runs on
+                  </TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap sm:table-cell">
+                    Used by
+                  </TableHead>
+                  <TableHead className="w-[1%] whitespace-nowrap text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1415,45 +1594,51 @@ export function SecurityLibraryPage() {
                         </>
                       }
                     />
-                    <TableCell className="hidden max-w-72 truncate text-muted-foreground md:table-cell">
-                      {script.description}
+                    <DescriptionCell text={script.description} className="hidden md:table-cell" />
+                    <TableCell className="hidden w-[1%] whitespace-nowrap align-top text-foreground/75 sm:table-cell">
+                      {script.runOn || "all"}
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell">{script.runOn || "all"}</TableCell>
-                    <TableCell className="hidden sm:table-cell">
+                    <TableCell className="hidden w-[1%] whitespace-nowrap align-top sm:table-cell">
                       <UsageCell item={script} />
                     </TableCell>
-                    <TableCell className="text-right align-top">
-                      <div className="inline-flex items-center gap-1">
+                    <RowActions
+                      name={script.name}
+                      onDelete={() => setPendingDelete({ kind: "post-script", name: script.name })}
+                      edit={
                         <PostScriptEditorDialog
                           mode="edit"
                           source={script}
                           onSaved={onSaved}
                           trigger={
-                            <Button variant="ghost" size="icon-sm" aria-label={`Edit ${script.name}`}>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              title="Edit"
+                              aria-label={`Edit ${script.name}`}
+                            >
                               <Pencil className="size-3.5" />
                             </Button>
                           }
                         />
+                      }
+                      duplicate={
                         <PostScriptEditorDialog
                           mode="duplicate"
                           source={script}
                           onSaved={onSaved}
                           trigger={
-                            <Button variant="ghost" size="icon-sm" aria-label={`Duplicate ${script.name}`}>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              title="Duplicate"
+                              aria-label={`Duplicate ${script.name}`}
+                            >
                               <Copy className="size-3.5" />
                             </Button>
                           }
                         />
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Delete ${script.name}`}
-                          onClick={() => setPendingDelete({ kind: "post-script", name: script.name })}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                      }
+                    />
                   </TableRow>
                 ))}
               </TableBody>
@@ -1461,18 +1646,7 @@ export function SecurityLibraryPage() {
           </LibraryTabState>
         </TabsContent>
 
-        <TabsContent value="policy-packs" className="space-y-3 pt-3">
-          <div className="flex flex-wrap gap-2">
-            <PolicyPackEditorDialog
-              mode="create"
-              onSaved={onSaved}
-              trigger={
-                <Button size="sm">
-                  <Plus className="size-3.5" /> New policy pack
-                </Button>
-              }
-            />
-          </div>
+        <TabsContent value="policy-packs" className="space-y-3 pt-1">
           <LibraryFilterBar
             label="Policy pack filters"
             noun="policy packs"
@@ -1515,18 +1689,23 @@ export function SecurityLibraryPage() {
             }
           >
             <Table>
-              <TableCaption className="mt-2 px-3 pb-2 text-left text-[11.5px]">
-                Scan defaults, enforced floors, suppressions, retention, and budgets.
-              </TableCaption>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="hidden lg:table-cell">Description</TableHead>
-                  <TableHead className="hidden sm:table-cell">Enforced</TableHead>
-                  <TableHead className="hidden md:table-cell">Suppressions</TableHead>
-                  <TableHead className="hidden lg:table-cell">Retention / budgets</TableHead>
-                  <TableHead className="hidden sm:table-cell">Used by</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="w-[1%] whitespace-nowrap">Name</TableHead>
+                  <TableHead className="hidden w-auto lg:table-cell">Description</TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap sm:table-cell">
+                    Enforced
+                  </TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap md:table-cell">
+                    Suppressions
+                  </TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap lg:table-cell">
+                    Retention / budgets
+                  </TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap sm:table-cell">
+                    Used by
+                  </TableHead>
+                  <TableHead className="w-[1%] whitespace-nowrap text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1549,10 +1728,8 @@ export function SecurityLibraryPage() {
                           </>
                         }
                       />
-                      <TableCell className="hidden max-w-60 truncate text-muted-foreground lg:table-cell">
-                        {pack.description}
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell">
+                      <DescriptionCell text={pack.description} className="hidden lg:table-cell" />
+                      <TableCell className="hidden w-[1%] align-top sm:table-cell">
                         {pack.enforced.length === 0 ? (
                           <span className="text-muted-foreground">none</span>
                         ) : (
@@ -1565,42 +1742,41 @@ export function SecurityLibraryPage() {
                           </span>
                         )}
                       </TableCell>
-                      <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
+                      <TableCell className="hidden w-[1%] whitespace-nowrap align-top text-sm text-foreground/75 md:table-cell">
                         {pack.suppressions.length === 0
                           ? "—"
                           : `${pack.suppressions.length} rule${pack.suppressions.length === 1 ? "" : "s"}`}
                       </TableCell>
-                      <TableCell className="hidden max-w-64 text-[12px] text-muted-foreground lg:table-cell">
+                      <TableCell className="hidden w-[1%] whitespace-nowrap align-top text-[12px] text-foreground/70 lg:table-cell">
                         <div className="space-y-0.5">
-                          <div className="truncate">{retention ? `retention: ${retention}` : "retention: keep forever"}</div>
-                          <div className="truncate">{budgets ? `budgets: ${budgets}` : "budgets: unlimited"}</div>
+                          <div>{retention ? `retention: ${retention}` : "retention: keep forever"}</div>
+                          <div>{budgets ? `budgets: ${budgets}` : "budgets: unlimited"}</div>
                         </div>
                       </TableCell>
-                      <TableCell className="hidden sm:table-cell">
+                      <TableCell className="hidden w-[1%] whitespace-nowrap align-top sm:table-cell">
                         <UsageCell item={pack} />
                       </TableCell>
-                      <TableCell className="text-right align-top">
-                        <div className="inline-flex items-center gap-1">
+                      <RowActions
+                        name={pack.name}
+                        onDelete={() => setPendingDelete({ kind: "policy-pack", name: pack.name })}
+                        edit={
                           <PolicyPackEditorDialog
                             mode="edit"
                             source={pack}
                             onSaved={onSaved}
                             trigger={
-                              <Button variant="ghost" size="icon-sm" aria-label={`Edit ${pack.name}`}>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                title="Edit"
+                                aria-label={`Edit ${pack.name}`}
+                              >
                                 <Pencil className="size-3.5" />
                               </Button>
                             }
                           />
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`Delete ${pack.name}`}
-                            onClick={() => setPendingDelete({ kind: "policy-pack", name: pack.name })}
-                          >
-                            <Trash2 className="size-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
+                        }
+                      />
                     </TableRow>
                   );
                 })}
@@ -1609,19 +1785,7 @@ export function SecurityLibraryPage() {
           </LibraryTabState>
         </TabsContent>
 
-        <TabsContent value="programs" className="space-y-3 pt-3">
-          <SecurityProgramDialog
-            onSaved={onSaved}
-            trigger={
-              <Button size="sm">
-                <Plus className="size-3.5" /> New security program
-              </Button>
-            }
-          />
-          <p className="text-xs text-muted-foreground">
-            Programs preserve an operator-verified scope policy snapshot for scan prompts. A
-            program URL records provenance only and does not authorize network testing.
-          </p>
+        <TabsContent value="programs" className="space-y-3 pt-1">
           {programsError && (
             <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               Security programs are unavailable: {programsError}
@@ -1668,20 +1832,31 @@ export function SecurityLibraryPage() {
             }
           >
             <Table>
-              <TableCaption className="mt-2 px-3 pb-2 text-left text-[11.5px]">
-                Verified program scope snapshots referenced by security scans.
-              </TableCaption>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="hidden md:table-cell">Program</TableHead>
-                  <TableHead className="hidden sm:table-cell">Provider</TableHead>
-                  <TableHead className="hidden xl:table-cell">Provenance URL</TableHead>
-                  <TableHead className="hidden xl:table-cell">Scope policy snapshot</TableHead>
-                  <TableHead className="hidden lg:table-cell">Repositories</TableHead>
-                  <TableHead className="hidden lg:table-cell">Verified</TableHead>
-                  <TableHead className="hidden sm:table-cell">Used by</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="w-[1%] whitespace-nowrap">Name</TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap md:table-cell">
+                    Program
+                  </TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap sm:table-cell">
+                    Provider
+                  </TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap xl:table-cell">
+                    Provenance URL
+                  </TableHead>
+                  <TableHead className="hidden w-auto xl:table-cell">
+                    Scope policy snapshot
+                  </TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap lg:table-cell">
+                    Repositories
+                  </TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap lg:table-cell">
+                    Verified
+                  </TableHead>
+                  <TableHead className="hidden w-[1%] whitespace-nowrap sm:table-cell">
+                    Used by
+                  </TableHead>
+                  <TableHead className="w-[1%] whitespace-nowrap text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1698,9 +1873,13 @@ export function SecurityLibraryPage() {
                         </>
                       }
                     />
-                    <TableCell className="hidden font-medium md:table-cell">{program.displayName}</TableCell>
-                    <TableCell className="hidden sm:table-cell">{program.provider}</TableCell>
-                    <TableCell className="hidden max-w-64 xl:table-cell">
+                    <TableCell className="hidden w-[1%] align-top font-medium md:table-cell">
+                      {program.displayName}
+                    </TableCell>
+                    <TableCell className="hidden w-[1%] whitespace-nowrap align-top sm:table-cell">
+                      {program.provider}
+                    </TableCell>
+                    <TableCell className="hidden w-[1%] max-w-56 align-top xl:table-cell">
                       <a
                         href={program.programUrl}
                         target="_blank"
@@ -1711,42 +1890,44 @@ export function SecurityLibraryPage() {
                         {program.programUrl}
                       </a>
                     </TableCell>
-                    <TableCell
-                      className="hidden max-w-72 whitespace-pre-line text-[12px] text-muted-foreground xl:table-cell"
-                      title={program.scopePolicy}
-                    >
-                      <span className="line-clamp-2">{program.scopePolicy}</span>
+                    <TableCell className="hidden w-auto align-top whitespace-pre-line text-[12px] text-foreground/75 xl:table-cell">
+                      <span
+                        title={program.scopePolicy}
+                        tabIndex={0}
+                        className="line-clamp-2 rounded-sm outline-none focus-visible:line-clamp-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      >
+                        {program.scopePolicy}
+                      </span>
                     </TableCell>
-                    <TableCell className="hidden text-[12px] text-muted-foreground lg:table-cell">
+                    <TableCell className="hidden w-[1%] whitespace-nowrap align-top text-[12px] text-foreground/70 lg:table-cell">
                       {programTargetLabel(program)}
                     </TableCell>
-                    <TableCell className="hidden text-[12px] text-muted-foreground lg:table-cell">
+                    <TableCell className="hidden w-[1%] whitespace-nowrap align-top text-[12px] text-foreground/70 lg:table-cell">
                       {program.verifiedAt ? timestampDate(program.verifiedAt).toLocaleString() : "—"}
                     </TableCell>
-                    <TableCell className="hidden sm:table-cell">
+                    <TableCell className="hidden w-[1%] whitespace-nowrap align-top sm:table-cell">
                       <UsageCell item={program} />
                     </TableCell>
-                    <TableCell className="text-right align-top">
-                      <div className="inline-flex items-center gap-1">
+                    <RowActions
+                      name={program.name}
+                      onDelete={() => setPendingDelete({ kind: "program", name: program.name })}
+                      edit={
                         <SecurityProgramDialog
                           source={program}
                           onSaved={onSaved}
                           trigger={
-                            <Button variant="ghost" size="icon-sm" aria-label={`Edit ${program.name}`}>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              title="Edit"
+                              aria-label={`Edit ${program.name}`}
+                            >
                               <Pencil className="size-3.5" />
                             </Button>
                           }
                         />
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Delete ${program.name}`}
-                          onClick={() => setPendingDelete({ kind: "program", name: program.name })}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                      }
+                    />
                   </TableRow>
                 ))}
               </TableBody>

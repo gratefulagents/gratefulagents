@@ -138,6 +138,8 @@ describe("SecurityOverview", () => {
     expect(await screen.findByRole("link", { name: "Critical: 2" })).toBeTruthy();
     expect(href("High: 1")).toBe("/security/runs?severity=high");
     expect(href("Total findings: 9")).toBe("/security/runs");
+    // The header search fits its fixed-width input.
+    expect(screen.getByPlaceholderText("Search scans…")).toBeTruthy();
     // Scan rows deep-link into their run detail.
     expect(href("nightly-2")).toBe("/security/user-alice/nightly-2");
     expect(href("nightly-1")).toBe("/security/user-alice/nightly-1");
@@ -163,11 +165,14 @@ describe("SecurityOverview", () => {
 
     expect(await screen.findByRole("link", { name: "Critical: 2" })).toBeTruthy();
     expect(href("Critical: 2")).toBe("/security/runs?severity=critical");
-    expect(href("Medium: 0")).toBe("/security/runs?severity=medium");
+    // A tile has to look like the link it is: pointer cursor plus a chevron.
+    const criticalTile = screen.getByRole("link", { name: "Critical: 2" });
+    expect(criticalTile.className).toContain("cursor-pointer");
+    expect(criticalTile.querySelector("svg")).toBeTruthy();
     expect(href("Actionable findings: 3")).toBe("/security/runs");
     expect(href("Active scans: 1")).toBe("/security/runs?status=running");
     expect(href("Configs needing attention: 1")).toBe("/security/configs?status=attention");
-    // Without baseline data the tile still leads somewhere useful.
+    // Without baseline data the baseline metric still leads somewhere useful.
     expect(href("New since baseline: 0")).toBe("/security/user-alice/nightly-1");
     // The in-flight count is announced as scans start and finish.
     expect(
@@ -175,6 +180,21 @@ describe("SecurityOverview", () => {
         .getByRole("link", { name: "Active scans: 1" })
         .querySelector('[aria-live="polite"]')?.textContent,
     ).toBe("1");
+  });
+
+  it("spells the actionable total out across all five severities", async () => {
+    getSecurityOverview.mockResolvedValue(overviewFixture());
+
+    renderOverview();
+
+    expect(await screen.findByRole("link", { name: "Actionable findings: 3" })).toBeTruthy();
+    // Every severity in the sum is present and links into its filtered view,
+    // so 2 + 1 + 0 + 0 + 0 visibly reconciles with the total.
+    expect(href("Critical findings: 2")).toBe("/security/runs?severity=critical");
+    expect(href("High findings: 1")).toBe("/security/runs?severity=high");
+    expect(href("Medium findings: 0")).toBe("/security/runs?severity=medium");
+    expect(href("Low findings: 0")).toBe("/security/runs?severity=low");
+    expect(href("Info findings: 0")).toBe("/security/runs?severity=info");
   });
 
   it("carries the active range and repository filters into tile links", async () => {
@@ -272,10 +292,40 @@ describe("SecurityOverview", () => {
     expect(deltas.textContent).toContain("new2");
     expect(deltas.textContent).toContain("recurring5");
     expect(deltas.textContent).toContain("resolved1");
-    // The headline tile points at the newest run's baseline view.
+    // The headline metric points at the newest run's baseline view, and the
+    // chip row is the only baseline treatment on the page.
     expect(href("New since baseline: 2")).toBe(
       "/security/user-alice/nightly-1?baseline=new",
     );
+    expect(screen.getAllByRole("link", { name: /since baseline/ })).toHaveLength(5);
+  });
+
+  it("makes relative times unambiguous and dashes meaningful", async () => {
+    const fixture = overviewFixture();
+    // A queued run has neither a start time nor findings yet.
+    fixture.activeScans = [
+      create(SecurityScanSchema, {
+        namespace: "user-alice",
+        runName: "queued-1",
+        scanName: "nightly",
+        repository: "github.com/acme/payments",
+        status: "pending",
+      }),
+    ];
+    getSecurityOverview.mockResolvedValue(fixture);
+
+    renderOverview();
+
+    const completedRow = (await screen.findByRole("link", { name: "nightly-1" })).closest("tr")!;
+    const completedAge = completedRow.querySelector("td:last-child span")!;
+    expect(completedAge.textContent).toBe("30m ago");
+    expect(completedAge.getAttribute("title")).toBeTruthy();
+
+    const queuedRow = screen.getByRole("link", { name: "queued-1" }).closest("tr")!;
+    expect(queuedRow.querySelector("td:last-child span")?.getAttribute("title")).toBe(
+      "Not started yet",
+    );
+    expect(screen.getByTitle("No findings reported")).toBeTruthy();
   });
 
   it("degrades to configurations when the store lacks security support", async () => {

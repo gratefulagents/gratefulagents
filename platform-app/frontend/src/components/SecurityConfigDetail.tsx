@@ -1,9 +1,10 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { clone, create } from "@bufbuild/protobuf";
-import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
-import { FilterX, Pause, Pencil, Play, SquareArrowOutUpRight } from "lucide-react";
+import {
+  ArrowDown, ArrowUp, Check, Copy, FilterX, Pause, Pencil, Play, SquareArrowOutUpRight,
+} from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
@@ -23,18 +24,17 @@ import { ReadyBadge } from "@/components/ReadyBadge";
 import { OwnerAvatar } from "@/components/OwnerAvatar";
 import { BASELINE_STATES } from "@/components/security-baseline";
 import {
-  SEVERITIES, SeverityBadge, SeverityCountBadges, severityTone,
+  EmptyCell, SEVERITIES, SeverityBadge, SeverityCountBadges, severityTone, STATUS_PILL,
 } from "@/components/SecurityScanList";
-import { FINDING_STATUSES, formatSeen, statusLabel } from "@/components/SecurityScanDetail";
+import { FINDING_STATUSES, statusLabel } from "@/components/SecurityScanDetail";
 import {
   SecurityScanFormDialog, scanConfigUsesSavedCredentials,
 } from "@/components/SecurityScanFormDialog";
 import { useUrlFilters } from "@/hooks/useUrlFilters";
-import { SEVERITY_ORDER, optionsFrom, repoLabel } from "@/lib/securityFilters";
+import { SEVERITY_ORDER, SEVERITY_RANK, optionsFrom, repoLabel, timestampMs } from "@/lib/securityFilters";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
-import { toneSoft, type StatusTone } from "@/lib/status";
-import { formatAge, formatScheduleTime } from "@/lib/format";
+import { toneSoft, toneText, type StatusTone } from "@/lib/status";
 import { useNow } from "@/hooks/useNow";
 import {
   SecurityScanConfigSpecSchema,
@@ -44,8 +44,10 @@ import {
   type SecurityScanConfig,
 } from "@/rpc/platform/service_pb";
 
+const filterDividerClass = "mx-0.5 h-5 w-px shrink-0 self-center bg-border/60";
+
 const filterInputClass =
-  "h-7 w-32 rounded-lg border border-input bg-background px-2 text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 dark:bg-input/30";
+  "h-7 w-28 rounded-lg border border-input bg-background px-2 text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 dark:bg-input/30";
 
 // The findings store caps an omitted limit at 200 rows; page explicitly so a
 // configuration with more findings than one page can still show all of them.
@@ -122,14 +124,172 @@ function runStatusTone(status: string): StatusTone {
   }
 }
 
-function runTimeUnix(run: SecurityScan): bigint {
-  const ts: Timestamp | undefined = run.completedAt ?? run.startedAt;
-  if (!ts) return 0n;
-  return BigInt(Math.floor(timestampDate(ts).getTime() / 1000));
+function runTimeMs(run: SecurityScan): number {
+  return timestampMs(run.completedAt ?? run.startedAt);
+}
+
+/**
+ * One relative-time vocabulary for the whole page — "just now", "12m ago",
+ * "in 9h", "8d ago" — so the header, the findings table, the run list and the
+ * schedule facts never render the same instant three different ways.
+ */
+function relativeTime(ms: number, nowMs: number): string {
+  const seconds = Math.round((ms - nowMs) / 1000);
+  const elapsed = Math.abs(seconds);
+  if (elapsed < 45) return "just now";
+  const amount =
+    elapsed < 3600
+      ? `${Math.round(elapsed / 60)}m`
+      : elapsed < 86_400
+        ? `${Math.round(elapsed / 3600)}h`
+        : elapsed < 2_592_000
+          ? `${Math.round(elapsed / 86_400)}d`
+          : `${Math.round(elapsed / 2_592_000)}mo`;
+  return seconds > 0 ? `in ${amount}` : `${amount} ago`;
+}
+
+/** Relative time with the absolute timestamp in the tooltip. */
+function TimeAgo({ ms, now, className }: { ms: number; now: number; className?: string }) {
+  if (!ms) return <EmptyCell meaning="Not recorded" className={cn("text-[12px]", className)} />;
+  return (
+    <span
+      className={cn("whitespace-nowrap tabular-nums", className)}
+      title={new Date(ms).toLocaleString()}
+    >
+      {relativeTime(ms, now)}
+    </span>
+  );
+}
+
+/** Copy affordance for values the rail has to truncate (URLs, cron strings). */
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={`Copy ${label}`}
+      title={`Copy ${label}`}
+      onClick={() => {
+        void navigator.clipboard?.writeText(value).then(() => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1_500);
+        });
+      }}
+      className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+    >
+      {copied ? <Check className="size-3" aria-hidden /> : <Copy className="size-3" aria-hidden />}
+      <span className="sr-only" role="status">
+        {copied ? `${label} copied` : ""}
+      </span>
+    </button>
+  );
+}
+
+/** Labelled fragment of the header identity line ("Repo · demo/app"). */
+function HeaderMeta({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className="inline-flex min-w-0 items-baseline gap-1.5">
+      <span className="shrink-0 text-[10.5px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </span>
+  );
+}
+
+type SortKey = "severity" | "title" | "seen" | "score";
+type SortDir = "asc" | "desc";
+
+function compareFindings(a: SecurityFinding, b: SecurityFinding, key: SortKey): number {
+  switch (key) {
+    case "severity": {
+      const rank = (f: SecurityFinding) => SEVERITY_RANK[f.severity.toLowerCase()] ?? 0;
+      return rank(a) - rank(b) || a.score - b.score;
+    }
+    case "title":
+      return a.title.localeCompare(b.title);
+    case "seen":
+      return timestampMs(a.lastSeenAt) - timestampMs(b.lastSeenAt);
+    case "score":
+      return a.score - b.score;
+  }
+}
+
+/** Column header that also sorts the findings table. */
+function SortHead({
+  label,
+  sortKey,
+  sort,
+  onSort,
+  className,
+}: {
+  label: string;
+  sortKey: SortKey;
+  sort: { key: SortKey; dir: SortDir };
+  onSort: (key: SortKey) => void;
+  className?: string;
+}) {
+  const active = sort.key === sortKey;
+  return (
+    <TableHead
+      className={className}
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="inline-flex items-center gap-1 rounded-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      >
+        {label}
+        {active
+          && (sort.dir === "asc" ? (
+            <ArrowUp className="size-3" aria-hidden />
+          ) : (
+            <ArrowDown className="size-3" aria-hidden />
+          ))}
+      </button>
+    </TableHead>
+  );
 }
 
 function errorMessage(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
+}
+
+function findingWord(count: number): string {
+  return count === 1 ? "finding" : "findings";
+}
+
+/**
+ * The single sentence that reconciles every finding number on this page: how
+ * many rows match the current filters, how many are loaded while the list is
+ * paged, and how many findings the configuration has recorded. The summary
+ * strip, the toolbar and the table used to answer that question with three
+ * different numbers ("5 actionable" beside "4 of 8").
+ */
+function findingsCountText(counts: {
+  matching: number;
+  loaded: number;
+  recorded: number;
+  hasMore: boolean;
+  /** Recorded findings in the scope the status filter selects, when known. */
+  scope: { count: number; noun: string } | null;
+}): string {
+  const { matching, loaded, recorded, hasMore, scope } = counts;
+  if (hasMore) {
+    const head = matching === loaded
+      ? `${loaded} ${findingWord(loaded)} loaded`
+      : `${matching} of ${loaded} loaded ${findingWord(loaded)} match these filters`;
+    return `${head} · ${recorded} recorded — load more to see the rest`;
+  }
+  if (scope) {
+    const head = matching === scope.count
+      ? `All ${scope.count} ${scope.noun}`
+      : `${matching} of ${scope.count} ${scope.noun} match these filters`;
+    return `${head} · ${recorded} recorded in total`;
+  }
+  if (matching === recorded) return `All ${recorded} ${findingWord(recorded)}`;
+  return `${matching} of ${recorded} ${findingWord(recorded)} match these filters`;
 }
 
 /**
@@ -160,6 +320,10 @@ export function SecurityConfigDetail() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [runNowPending, setRunNowPending] = useState(false);
   const [suspendPending, setSuspendPending] = useState(false);
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
+    key: "severity",
+    dir: "desc",
+  });
   const now = useNow();
 
   const fetchConfig = useCallback(async (background = false) => {
@@ -288,6 +452,23 @@ export function SecurityConfigDetail() {
     });
   }, [findings, values.tool, values.file]);
 
+  const sortedFindings = useMemo(() => {
+    const rows = [...visibleFindings];
+    rows.sort((a, b) => {
+      const c = compareFindings(a, b, sort.key);
+      return sort.dir === "asc" ? c : -c;
+    });
+    return rows;
+  }, [visibleFindings, sort]);
+
+  const onSort = useCallback((key: SortKey) => {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "desc" ? "asc" : "desc" }
+        : { key, dir: key === "title" ? "asc" : "desc" },
+    );
+  }, []);
+
   // For deterministic multi-task executions, finding.runName is the task
   // AgentRun while only the shared execution's scan record exists in the run
   // routes. Resolve links through the persisted scan run (id == scanId) and
@@ -396,15 +577,75 @@ export function SecurityConfigDetail() {
   const targetUrl = config.spec?.targetUrl ?? "";
   const target = repoUrl || targetUrl;
   const targetText = repoUrl ? repoLabel(repoUrl) : targetUrl;
-  const schedule = config.spec?.schedule || "Runs once";
+  const cron = config.spec?.schedule ?? "";
+  const schedule = cron || "Runs once";
   const filtersActive = activeCount(["selected"]);
   const totalFindings = summary["total"] ?? 0;
-  const scope = filtersActive > 0 ? "matching findings" : "findings";
-  const loadedLabel = filtersActive === 0 && totalFindings > findings.length
-    ? `Showing ${findings.length} of ${totalFindings} findings`
-    : hasMoreFindings
-      ? `Showing the first ${findings.length} ${scope}`
-      : `Showing all ${findings.length} ${scope}`;
+  const actionableFindings = summary["actionable"] ?? summary["open"] ?? 0;
+  const shownFindings = sortedFindings.length;
+  // A Run column that repeats the same name on every row is noise; it only
+  // earns its width when the findings actually come from different runs.
+  const showRunColumn = new Set(findings.map(findingRunName)).size > 1;
+  const lastScanMs = Number(config.lastScanTimeUnix) * 1000;
+  const nextScanMs = Number(config.nextScheduleTimeUnix) * 1000;
+  const ownerLabel = config.owner
+    ? `Owner: ${config.owner.name || config.owner.email || "unknown"}`
+    : "";
+  // The summary counts suppressed findings separately and leaves them out of
+  // every other key, so the population the list draws from depends on the
+  // suppressed filter.
+  const suppressedFindings = summary["suppressed"] ?? 0;
+  const recordedFindings =
+    suppressed === "only"
+      ? suppressedFindings
+      : suppressed === "include"
+        ? totalFindings + suppressedFindings
+        : totalFindings;
+  // With the default status filter the list is a subset of one summary stat;
+  // naming that stat is what stops "5 actionable" and "4 shown" from reading
+  // as a contradiction. Only trust it while the summary and the query cover
+  // the same rows (it excludes suppressed findings, and duplicates are counted
+  // by neither).
+  const statusScope =
+    suppressed !== "exclude" || values.dupes === "include"
+      ? null
+      : status === "actionable"
+        ? { count: actionableFindings, noun: "actionable findings" }
+        : status === "open"
+          ? { count: summary["open"] ?? 0, noun: "open findings" }
+          : null;
+  const countScope =
+    statusScope && statusScope.count >= shownFindings && statusScope.count !== recordedFindings
+      ? statusScope
+      : null;
+  const countText = findingsLoading && findings.length === 0
+    ? "Loading findings…"
+    : findingsCountText({
+      matching: shownFindings,
+      loaded: findings.length,
+      recorded: recordedFindings,
+      hasMore: hasMoreFindings,
+      scope: countScope,
+    });
+  // What the view is holding back, and the one click that brings it in.
+  const hiddenSuppressed = suppressed === "exclude" && suppressedFindings > 0;
+  const hiddenDupes = values.dupes === "hide";
+  const hiddenParts = [
+    hiddenSuppressed ? `${suppressedFindings} suppressed` : "",
+    hiddenDupes ? "duplicates" : "",
+  ].filter(Boolean);
+  const hiddenLabel = hiddenParts.length > 0 ? `${hiddenParts.join(" and ")} hidden` : "";
+  const includeHiddenLabel =
+    hiddenParts.length === 2
+      ? "Include both"
+      : hiddenSuppressed
+        ? "Include suppressed"
+        : "Include duplicates";
+  const includeHidden = () =>
+    setMany({
+      ...(hiddenSuppressed ? { suppressed: "include" } : {}),
+      ...(hiddenDupes ? { dupes: "include" } : {}),
+    });
 
   return (
     <div className="space-y-7">
@@ -419,22 +660,39 @@ export function SecurityConfigDetail() {
             ) : (
               <ReadyBadge status={config.conditionReady} />
             )}
-            <OwnerAvatar owner={config.owner} />
+            {config.owner && (
+              // The bare avatar was an unexplained badge: name the person it
+              // stands for for pointer, keyboard and screen-reader users.
+              <span className="inline-flex items-center" title={ownerLabel}>
+                <span className="sr-only">{ownerLabel}</span>
+                <OwnerAvatar owner={config.owner} />
+              </span>
+            )}
           </>
         }
         subtitle={
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-muted-foreground">
-            <span className="max-w-[44ch] truncate font-mono" title={target || undefined}>
-              {targetText || "—"}
-            </span>
-            <span aria-hidden className="text-muted-foreground/40">·</span>
-            <span className="truncate font-mono" title={`Schedule: ${schedule}`}>
-              {schedule}
-            </span>
-            <span aria-hidden className="text-muted-foreground/40">·</span>
-            <span className="truncate font-mono" title={`Namespace: ${config.namespace}`}>
-              {config.namespace}
-            </span>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-muted-foreground">
+            <HeaderMeta label="Repo">
+              <span className="max-w-[40ch] truncate font-mono" title={target || undefined}>
+                {targetText || "—"}
+              </span>
+            </HeaderMeta>
+            <HeaderMeta label="Namespace">
+              <span className="truncate font-mono">{config.namespace}</span>
+            </HeaderMeta>
+            {/* The cron expression itself lives (once) in the Configuration
+                panel; here the schedule is stated as what it means next. */}
+            <HeaderMeta label="Schedule">
+              {suspended ? (
+                <span>Paused</span>
+              ) : nextScanMs > 0 ? (
+                <span className="inline-flex items-baseline gap-1">
+                  next run <TimeAgo ms={nextScanMs} now={now} />
+                </span>
+              ) : (
+                <span>{cron ? "Scheduled" : "Manual"}</span>
+              )}
+            </HeaderMeta>
           </div>
         }
         actions={
@@ -443,13 +701,10 @@ export function SecurityConfigDetail() {
             aria-label="Configuration actions"
             className="flex flex-wrap items-center gap-2"
           >
+            {/* One primary action; the state-changing suspend/resume is set
+                apart by a divider so it is never clicked by momentum. */}
             {!suspended && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={runNowPending}
-                onClick={() => void handleRunNow()}
-              >
+              <Button size="sm" disabled={runNowPending} onClick={() => void handleRunNow()}>
                 <Play />
                 {runNowPending ? "Starting…" : "Run now"}
               </Button>
@@ -464,9 +719,11 @@ export function SecurityConfigDetail() {
               }
               onSaved={() => void fetchConfig(true)}
             />
+            <span aria-hidden className="mx-0.5 h-5 w-px shrink-0 bg-border/70" />
             <Button
-              variant="outline"
+              variant={suspended ? "default" : "ghost"}
               size="sm"
+              className={suspended ? undefined : "text-muted-foreground hover:text-foreground"}
               disabled={suspendPending}
               onClick={() => void toggleSuspend(config)}
             >
@@ -483,24 +740,35 @@ export function SecurityConfigDetail() {
         </div>
       )}
 
+      {/* One treatment for every metric: a plain number, tinted by severity,
+          with zeros dropped back so the eye lands on what is actually there. */}
       <StatBar>
-        <Stat label="Total" value={totalFindings} />
-        <Stat label="Actionable" value={summary["actionable"] ?? summary["open"] ?? 0} />
-        {SEVERITIES.map((s) => (
-          <Stat
-            key={s}
-            label={s}
-            value={
-              <span className={cn(toneSoft[severityTone(s)], "rounded-md px-2 py-0.5")}>
-                {summary[`actionable_${s}`] ?? summary[s] ?? 0}
-              </span>
-            }
-            mono={false}
-          />
-        ))}
+        <Stat label="Findings" value={totalFindings} sub="all runs" />
+        <Stat
+          label="Actionable"
+          value={actionableFindings}
+          sub={actionableFindings > 0 ? `of ${totalFindings} need triage` : "nothing to triage"}
+        />
+        {SEVERITIES.map((s) => {
+          const count = summary[`actionable_${s}`] ?? summary[s] ?? 0;
+          return (
+            <Stat
+              key={s}
+              label={s}
+              value={
+                <span className={count > 0 ? toneText[severityTone(s)] : "text-muted-foreground/70"}>
+                  {count}
+                </span>
+              }
+            />
+          );
+        })}
       </StatBar>
 
-      <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1fr)_minmax(240px,300px)]">
+      {/* The rail only takes a column once the findings table can still hold
+          its own columns beside it; below that it sits underneath, two
+          sections wide, instead of squeezing the table off-screen. */}
+      <div className="grid items-start gap-7 xl:grid-cols-[minmax(0,1fr)_320px]">
         <DetailSection
           title="Findings"
           description="Every deduplicated finding this scan has reported, across all of its runs."
@@ -515,70 +783,102 @@ export function SecurityConfigDetail() {
               label="Finding filters"
               activeCount={filtersActive}
               onClear={clearFilters}
-              resultLabel={`${visibleFindings.length} of ${findings.length} ${findings.length === 1 ? "finding" : "findings"}`}
             >
-              <FilterChips
-                label="Severity"
-                options={SEVERITY_CHIP_OPTIONS}
-                selected={severity === "all" ? [] : [severity]}
-                onToggle={(value) => set("severity", severity === value ? "all" : value)}
-              />
-              <FilterSelect
-                label="Status"
-                value={status}
-                defaultValue="actionable"
-                onChange={(next) => set("status", next)}
-                options={STATUS_FILTER_OPTIONS}
-              />
-              <FilterSelect
-                label="Category"
-                value={category}
-                onChange={(next) => set("category", next)}
-                options={categoryOptions}
-              />
-              <FilterSelect
-                label="Tool"
-                value={values.tool}
-                onChange={(next) => set("tool", next)}
-                options={toolOptions}
-              />
-              <FilterSelect
-                label="Baseline"
-                value={baseline}
-                onChange={(next) => set("baseline", next)}
-                options={BASELINE_FILTER_OPTIONS}
-              />
-              <FilterSelect
-                label="Suppressed"
-                value={suppressed}
-                defaultValue="exclude"
-                onChange={(next) => set("suppressed", next)}
-                options={SUPPRESSED_FILTER_OPTIONS}
-              />
-              <FilterSelect
-                label="Duplicates"
-                value={values.dupes}
-                defaultValue="hide"
-                onChange={(next) => set("dupes", next)}
-                options={DUPES_FILTER_OPTIONS}
-              />
-              <input
-                aria-label="Filter by file path"
-                type="text"
-                value={values.file}
-                onChange={(e) => set("file", e.target.value)}
-                placeholder="File path…"
-                className={filterInputClass}
-              />
-              <input
-                aria-label="Filter by assignee"
-                type="text"
-                value={assignee}
-                onChange={(e) => set("assignee", e.target.value)}
-                placeholder="Assignee…"
-                className={filterInputClass}
-              />
+              {/* Triage first (what is wrong, how bad), then where it came
+                  from, then the scope switches most people never touch —
+                  hairlines keep the wrapped row readable as three groups. */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <FilterChips
+                  label="Severity"
+                  options={SEVERITY_CHIP_OPTIONS}
+                  selected={severity === "all" ? [] : [severity]}
+                  onToggle={(value) => set("severity", severity === value ? "all" : value)}
+                />
+                <FilterSelect
+                  label="Status"
+                  value={status}
+                  defaultValue="actionable"
+                  onChange={(next) => set("status", next)}
+                  options={STATUS_FILTER_OPTIONS}
+                />
+              </div>
+              <span aria-hidden className={filterDividerClass} />
+              <div className="flex flex-wrap items-center gap-1.5">
+                <FilterSelect
+                  label="Category"
+                  value={category}
+                  onChange={(next) => set("category", next)}
+                  options={categoryOptions}
+                />
+                <FilterSelect
+                  label="Tool"
+                  value={values.tool}
+                  onChange={(next) => set("tool", next)}
+                  options={toolOptions}
+                />
+                <input
+                  aria-label="Filter by file path"
+                  type="text"
+                  value={values.file}
+                  onChange={(e) => set("file", e.target.value)}
+                  placeholder="File path…"
+                  className={filterInputClass}
+                />
+              </div>
+              <span aria-hidden className={filterDividerClass} />
+              <div className="flex flex-wrap items-center gap-1.5">
+                <FilterSelect
+                  label="Baseline"
+                  value={baseline}
+                  onChange={(next) => set("baseline", next)}
+                  options={BASELINE_FILTER_OPTIONS}
+                />
+                <FilterSelect
+                  label="Suppressed"
+                  value={suppressed}
+                  defaultValue="exclude"
+                  onChange={(next) => set("suppressed", next)}
+                  options={SUPPRESSED_FILTER_OPTIONS}
+                />
+                <FilterSelect
+                  label="Duplicates"
+                  value={values.dupes}
+                  defaultValue="hide"
+                  onChange={(next) => set("dupes", next)}
+                  options={DUPES_FILTER_OPTIONS}
+                />
+                <input
+                  aria-label="Filter by assignee"
+                  type="text"
+                  value={assignee}
+                  onChange={(e) => set("assignee", e.target.value)}
+                  placeholder="Assignee…"
+                  className={filterInputClass}
+                />
+              </div>
             </FilterBar>
+            {/* One place answers "how many?" — matching, loaded, recorded, and
+                what the default filters are holding back, with the switch that
+                brings it in. */}
+            <p
+              role="status"
+              className="flex flex-wrap items-center gap-x-1.5 gap-y-1 px-0.5 text-[12px] text-muted-foreground"
+            >
+              <span className="tabular-nums">{countText}</span>
+              {hiddenLabel && (
+                <>
+                  <span aria-hidden>·</span>
+                  <span className="tabular-nums">{hiddenLabel}</span>
+                  <button
+                    type="button"
+                    onClick={includeHidden}
+                    className="ml-0.5 rounded-sm font-medium text-primary underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  >
+                    {includeHiddenLabel}
+                  </button>
+                </>
+              )}
+            </p>
           </div>
 
           {findingsError && (
@@ -624,17 +924,25 @@ export function SecurityConfigDetail() {
                     </TableCaption>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Title</TableHead>
-                        <TableHead>Severity</TableHead>
-                        <TableHead>Category</TableHead>
+                        <SortHead label="Title" sortKey="title" sort={sort} onSort={onSort} />
+                        <SortHead label="Severity" sortKey="severity" sort={sort} onSort={onSort} />
+                        <TableHead className="hidden 2xl:table-cell">Category</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Run</TableHead>
-                        <TableHead className="hidden lg:table-cell">Last Seen</TableHead>
-                        <TableHead className="text-right">Score</TableHead>
+                        {showRunColumn && (
+                          <TableHead className="hidden lg:table-cell">Run</TableHead>
+                        )}
+                        <SortHead label="Last seen" sortKey="seen" sort={sort} onSort={onSort} />
+                        <SortHead
+                          label="Score"
+                          sortKey="score"
+                          sort={sort}
+                          onSort={onSort}
+                          className="text-right"
+                        />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {visibleFindings.map((finding) => {
+                      {sortedFindings.map((finding) => {
                         const href = findingHref(finding);
                         const selected = values.selected === finding.id;
                         return (
@@ -654,7 +962,7 @@ export function SecurityConfigDetail() {
                               openFinding(finding);
                             }}
                           >
-                            <TableCell className="max-w-[44ch]">
+                            <TableCell className="max-w-[24ch] lg:max-w-[30ch] 2xl:max-w-[40ch]">
                               <Link
                                 to={href}
                                 title={finding.title}
@@ -676,24 +984,36 @@ export function SecurityConfigDetail() {
                             <TableCell>
                               <SeverityBadge severity={finding.severity} />
                             </TableCell>
-                            <TableCell className="max-w-[16ch] truncate text-muted-foreground" title={finding.category}>
-                              {finding.category || "—"}
-                            </TableCell>
-                            <TableCell className="capitalize text-muted-foreground">
-                              {statusLabel(finding.status)}
+                            <TableCell
+                              className="hidden max-w-[16ch] truncate text-muted-foreground 2xl:table-cell"
+                              title={finding.category}
+                            >
+                              {finding.category || <EmptyCell meaning="No category" />}
                             </TableCell>
                             <TableCell>
-                              <Link
-                                to={`/security/${finding.namespace}/${findingRunName(finding)}`}
-                                className="block max-w-[20ch] truncate font-mono text-[11.5px] text-primary hover:underline"
-                                title={findingRunName(finding)}
-                                onClick={(e) => e.stopPropagation()}
+                              <span
+                                className={cn(
+                                  STATUS_PILL,
+                                  "bg-muted/70 capitalize tracking-tight text-muted-foreground",
+                                )}
                               >
-                                {findingRunName(finding)}
-                              </Link>
+                                {statusLabel(finding.status)}
+                              </span>
                             </TableCell>
-                            <TableCell className="hidden text-muted-foreground lg:table-cell">
-                              {formatSeen(finding.lastSeenAt)}
+                            {showRunColumn && (
+                              <TableCell className="hidden lg:table-cell">
+                                <Link
+                                  to={`/security/${finding.namespace}/${findingRunName(finding)}`}
+                                  className="block max-w-[18ch] truncate font-mono text-[11.5px] text-primary hover:underline"
+                                  title={findingRunName(finding)}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {findingRunName(finding)}
+                                </Link>
+                              </TableCell>
+                            )}
+                            <TableCell className="text-muted-foreground">
+                              <TimeAgo ms={timestampMs(finding.lastSeenAt)} now={now} />
                             </TableCell>
                             <TableCell className="text-right font-mono tabular-nums">
                               {finding.score.toFixed(1)}
@@ -703,11 +1023,10 @@ export function SecurityConfigDetail() {
                       })}
                     </TableBody>
                   </Table>
-                  <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
-                    <span className="text-[12px] tabular-nums text-muted-foreground">
-                      {loadedLabel}
-                    </span>
-                    {hasMoreFindings && (
+                  {hasMoreFindings && (
+                    // The count lives in the filter bar; here there is only the
+                    // one thing left to do about it.
+                    <div className="mt-3 flex justify-center">
                       <Button
                         variant="outline"
                         size="sm"
@@ -716,27 +1035,63 @@ export function SecurityConfigDetail() {
                       >
                         {loadingMore ? "Loading…" : "Load more"}
                       </Button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </>
               </ListState>
             </div>
           )}
         </DetailSection>
 
-        <div className="space-y-7">
+        <div className="grid items-start gap-7 md:grid-cols-2 xl:grid-cols-1">
           <DetailSection title="Configuration">
-            <FactList>
-              <Fact label="Schedule" mono value={schedule} />
-              <Fact label="Phase" value={config.phase || "—"} />
-              <Fact label="Last Scan" value={formatScheduleTime(config.lastScanTimeUnix, now)} />
-              {config.nextScheduleTimeUnix > 0n && (
-                <Fact
-                  label="Next Scan"
-                  value={formatScheduleTime(config.nextScheduleTimeUnix, now)}
-                />
-              )}
-              <Fact label="Target" value={target || ""} />
+            {/* A narrow rail cannot afford a 160px label column: labels get
+                just enough room so the values (URLs, cron) keep theirs. */}
+            <FactList className="sm:grid-cols-[minmax(0,76px)_minmax(0,1fr)]">
+              <Fact
+                label="Target"
+                value={
+                  target ? (
+                    <span className="flex min-w-0 items-center gap-1">
+                      <a
+                        href={target}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={target}
+                        className="min-w-0 truncate font-mono text-[12.5px] text-primary hover:underline"
+                      >
+                        {target}
+                      </a>
+                      <CopyButton value={target} label={repoUrl ? "repository URL" : "target URL"} />
+                    </span>
+                  ) : (
+                    ""
+                  )
+                }
+              />
+              <Fact
+                label="Schedule"
+                value={
+                  <span className="flex min-w-0 items-center gap-1">
+                    <span className="min-w-0 truncate font-mono text-[12.5px]" title={schedule}>
+                      {schedule}
+                    </span>
+                    {cron && <CopyButton value={cron} label="schedule" />}
+                  </span>
+                }
+              />
+              <Fact
+                label="Next run"
+                value={
+                  suspended ? (
+                    <span className="text-muted-foreground">Paused</span>
+                  ) : (
+                    <TimeAgo ms={nextScanMs} now={now} />
+                  )
+                }
+              />
+              <Fact label="Last run" value={<TimeAgo ms={lastScanMs} now={now} />} />
+              <Fact label="Phase" value={config.phase || ""} />
             </FactList>
           </DetailSection>
 
@@ -765,20 +1120,22 @@ export function SecurityConfigDetail() {
                       >
                         {run.runName}
                       </Link>
-                      <span className="shrink-0 text-[11.5px] tabular-nums text-muted-foreground">
-                        {formatAge(runTimeUnix(run), now)}
-                      </span>
+                      <TimeAgo
+                        ms={runTimeMs(run)}
+                        now={now}
+                        className="shrink-0 text-[11.5px] text-muted-foreground"
+                      />
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                      <Badge
-                        variant="outline"
+                      <span
                         className={cn(
-                          "capitalize border-transparent",
+                          STATUS_PILL,
+                          "capitalize tracking-tight",
                           toneSoft[runStatusTone(run.status)],
                         )}
                       >
                         {run.status || "unknown"}
-                      </Badge>
+                      </span>
                       <SeverityCountBadges counts={run.counts} />
                       <Link
                         to={`/runs/${run.namespace}/${run.runName}`}

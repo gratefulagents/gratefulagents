@@ -41,16 +41,22 @@ export function FilterBar({
       role="group"
       aria-label={label}
       className={cn(
-        "flex flex-wrap items-center gap-1.5 rounded-xl border border-border/70 bg-muted/20 px-2.5 py-2",
+        "flex flex-wrap items-center gap-1.5 rounded-xl border border-border/70 bg-muted/25 px-2 py-1.5",
         className,
       )}
     >
-      <span className="inline-flex shrink-0 items-center gap-1.5 pr-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        <Filter className="size-3.5" aria-hidden />
-        <span className="hidden sm:inline">Filters</span>
+      {/* The funnel is decoration, not a control: an uppercase "FILTERS" word
+          read as a button and stole attention from the real controls. The count
+          badge only appears once filters are on, so "this list is narrowed" is
+          visible at a glance (and announced) without shouting when it isn't. */}
+      <span className="ml-0.5 mr-0.5 inline-flex shrink-0 items-center gap-1">
+        <Filter
+          className={cn("size-3.5", activeCount > 0 ? "text-primary" : "text-muted-foreground/70")}
+          aria-hidden
+        />
         {activeCount > 0 && (
           <span
-            className="rounded-full bg-primary/12 px-1.5 py-px text-[10px] font-semibold text-primary"
+            className="rounded-full bg-primary/15 px-1.5 py-px text-[10px] font-semibold tabular-nums text-primary"
             aria-label={`${activeCount} active ${activeCount === 1 ? "filter" : "filters"}`}
           >
             {activeCount}
@@ -58,24 +64,28 @@ export function FilterBar({
         )}
       </span>
       {children}
-      <div className="ml-auto flex items-center gap-1.5">
-        {resultLabel !== undefined && (
-          <span className="text-[11px] tabular-nums text-muted-foreground" aria-live="polite">
-            {resultLabel}
-          </span>
-        )}
-        {activeCount > 0 && onClear && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
-            onClick={onClear}
-          >
-            <X className="size-3" aria-hidden />
-            Clear
-          </Button>
-        )}
-      </div>
+      {/* Count and Clear sit immediately after the controls rather than pinned
+          to the far edge, where a wide viewport left them stranded across an
+          empty gap and disconnected from what they describe. */}
+      {resultLabel !== undefined && (
+        <span
+          className="pl-1 text-[11.5px] tabular-nums text-muted-foreground"
+          aria-live="polite"
+        >
+          {resultLabel}
+        </span>
+      )}
+      {activeCount > 0 && onClear && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 px-2 text-[11.5px] text-muted-foreground hover:text-foreground"
+          onClick={onClear}
+        >
+          <X className="size-3" aria-hidden />
+          Clear
+        </Button>
+      )}
     </div>
   );
 }
@@ -122,14 +132,19 @@ export function FilterSelect({
         size="sm"
         aria-label={label}
         className={cn(
-          "h-7 max-w-[220px] gap-1 text-[12px]",
-          active && "border-primary/45 bg-primary/8 text-foreground",
+          "h-7 max-w-[240px] gap-1 border-border/80 bg-background/70 text-[12px] dark:bg-input/40",
+          active && "border-primary/50 bg-primary/10 text-foreground",
           className,
         )}
       >
+        {/* Label and value are separated by weight, not just a colon: at 12px
+            on a dark surface "Status: Any status" otherwise reads as one blur. */}
         <span className="truncate">
-          <span className="text-muted-foreground">{label}: </span>
-          {selected?.label ?? value}
+          <span className="text-muted-foreground/80">{label}</span>
+          <span className="px-1 text-muted-foreground/40">·</span>
+          <span className={cn(active ? "font-medium text-foreground" : "text-foreground/90")}>
+            {selected?.label ?? value}
+          </span>
         </span>
       </SelectTrigger>
       <SelectContent>

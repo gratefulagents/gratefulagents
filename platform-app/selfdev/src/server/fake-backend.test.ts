@@ -185,7 +185,11 @@ describe("fake backend", () => {
 
   it("summarizes findings with severity, open, and baseline counters", async () => {
     const summary = await platform.getSecurityFindingSummary({ namespace: "demo" });
-    const visible = defaultScenario.securityFindings.filter((f) => f.suppressedBy === "");
+    // Postgres summarises deduplicated, unsuppressed rows only, so the fake
+    // backend must drop duplicates from the totals too.
+    const visible = defaultScenario.securityFindings.filter(
+      (f) => f.suppressedBy === "" && f.duplicateOf === "",
+    );
     expect(summary.counts.total).toBe(visible.length);
     expect(summary.counts.critical).toBeGreaterThan(0);
     expect(summary.counts.open_critical).toBeGreaterThan(0);

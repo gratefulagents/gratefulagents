@@ -20,7 +20,6 @@ import {
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -37,13 +36,15 @@ import { filterByQuery } from "@/components/ui/list-search";
 import { ResourceListPage } from "@/components/list-page";
 import { SecurityNav } from "@/components/SecurityNav";
 import { ProgramTargetImportDialog } from "@/components/ProgramTargetImportDialog";
-import { SeverityCountBadges } from "@/components/SecurityScanList";
+import { EmptyCell, SeverityCountBadges, STATUS_PILL } from "@/components/SecurityScanList";
 import {
   scanConfigUsesSavedCredentials,
   SecurityScanFormDialog,
 } from "@/components/SecurityScanFormDialog";
 import { client } from "@/lib/client";
 import { formatScheduleTime } from "@/lib/format";
+import { toneSoft } from "@/lib/status";
+import { cn } from "@/lib/utils";
 import type { ProgramScanTarget } from "@/lib/programTargetCatalog";
 import {
   hasSeverityAtLeast,
@@ -222,6 +223,11 @@ export function sortScanConfigs(
   });
 }
 
+/**
+ * Sortable headers must be indistinguishable from static ones apart from the
+ * caret, so the button repeats `TableHead`'s typography instead of inheriting
+ * a browser-default button font in title case.
+ */
 function SortableHead({
   sortKey,
   active,
@@ -242,12 +248,14 @@ function SortableHead({
       <button
         type="button"
         onClick={() => onSort(sortKey)}
-        className={`-mx-1 inline-flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${
-          on ? "text-foreground" : ""
-        }`}
+        className={cn(
+          "inline-flex items-center gap-1 rounded-sm text-[11px] font-medium uppercase",
+          "tracking-[0.04em] text-muted-foreground/70 transition-colors hover:text-foreground",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+        )}
       >
         {option.label}
-        <Icon className={`size-3 ${on ? "opacity-80" : "opacity-40"}`} aria-hidden />
+        <Icon className={cn("size-3", on ? "opacity-100" : "opacity-40")} aria-hidden />
       </button>
     </TableHead>
   );
@@ -377,6 +385,9 @@ export function SecurityScanConfigList() {
   );
   const filterCount = activeCount(["q", "sort"]);
   const narrowedView = Boolean(values.q.trim()) || filterCount > 0;
+  // Nothing configured and nothing asked for: a search box and a filter strip
+  // over an empty page imply the list is narrowed when it is simply empty.
+  const nothingToSearch = !configs.length && !narrowedView;
 
   return (
     <ResourceListPage
@@ -384,7 +395,8 @@ export function SecurityScanConfigList() {
       description="Configured security scans that analyze repositories, once or on a schedule."
       query={values.q}
       onQuery={(value) => set("q", value)}
-      searchPlaceholder="Search scan configurations…"
+      searchPlaceholder="Search configurations…"
+      hideSearch={nothingToSearch}
       loading={loading}
       error={error}
       onRetry={fetchConfigs}
@@ -468,49 +480,51 @@ export function SecurityScanConfigList() {
       }
       nav={<SecurityNav />}
       toolbar={
-        <FilterBar
-          label="Configuration filters"
-          activeCount={filterCount}
-          onClear={() => reset()}
-          resultLabel={`Showing ${visible.length} of ${configs.length} configurations`}
-        >
-          <FilterSelect
-            label="Status"
-            value={values.status}
-            onChange={(value) => set("status", value)}
-            options={STATUS_OPTIONS}
-          />
-          <FilterSelect
-            label="Findings"
-            value={values.findings}
-            onChange={(value) => set("findings", value)}
-            options={FINDINGS_OPTIONS}
-          />
-          <FilterSelect
-            label="Last scan"
-            value={values.scanned}
-            onChange={(value) => set("scanned", value)}
-            options={SCANNED_OPTIONS}
-          />
-          <FilterSelect
-            label="Schedule"
-            value={values.schedule}
-            onChange={(value) => set("schedule", value)}
-            options={SCHEDULE_OPTIONS}
-          />
-          <FilterSelect
-            label="Program"
-            value={values.program}
-            onChange={(value) => set("program", value)}
-            options={programOptions}
-          />
-          <FilterSelect
-            label="Repository"
-            value={values.repo}
-            onChange={(value) => set("repo", value)}
-            options={repoOptions}
-          />
-        </FilterBar>
+        !nothingToSearch && (
+          <FilterBar
+            label="Configuration filters"
+            activeCount={filterCount}
+            onClear={() => reset()}
+            resultLabel={`Showing ${visible.length} of ${configs.length} configurations`}
+          >
+            <FilterSelect
+              label="Status"
+              value={values.status}
+              onChange={(value) => set("status", value)}
+              options={STATUS_OPTIONS}
+            />
+            <FilterSelect
+              label="Findings"
+              value={values.findings}
+              onChange={(value) => set("findings", value)}
+              options={FINDINGS_OPTIONS}
+            />
+            <FilterSelect
+              label="Last scan"
+              value={values.scanned}
+              onChange={(value) => set("scanned", value)}
+              options={SCANNED_OPTIONS}
+            />
+            <FilterSelect
+              label="Schedule"
+              value={values.schedule}
+              onChange={(value) => set("schedule", value)}
+              options={SCHEDULE_OPTIONS}
+            />
+            <FilterSelect
+              label="Program"
+              value={values.program}
+              onChange={(value) => set("program", value)}
+              options={programOptions}
+            />
+            <FilterSelect
+              label="Repository"
+              value={values.repo}
+              onChange={(value) => set("repo", value)}
+              options={repoOptions}
+            />
+          </FilterBar>
+        )
       }
     >
       {actionError && (
@@ -522,17 +536,30 @@ export function SecurityScanConfigList() {
         <TableCaption className="sr-only">Security scan configurations</TableCaption>
         <TableHeader>
           <TableRow>
-            <SortableHead sortKey="name" active={values.sort} onSort={(key) => set("sort", key)} />
-            <TableHead className="hidden lg:table-cell">Program</TableHead>
-            <TableHead>Status</TableHead>
-            <SortableHead sortKey="findings" active={values.sort} onSort={(key) => set("sort", key)} />
+            {/* The name cell holds the repository, schedule and (on narrow
+                viewports) the last scan, so it keeps the widest share; the
+                icon-only action column only needs its buttons. */}
+            <SortableHead
+              sortKey="name"
+              active={values.sort}
+              onSort={(key) => set("sort", key)}
+              className="sm:w-[36%]"
+            />
+            <TableHead className="hidden lg:table-cell lg:w-[20%]">Program</TableHead>
+            <TableHead className="hidden sm:table-cell sm:w-[7.5rem]">Status</TableHead>
+            <SortableHead
+              sortKey="findings"
+              active={values.sort}
+              onSort={(key) => set("sort", key)}
+              className="hidden sm:table-cell sm:w-[22%]"
+            />
             <SortableHead
               sortKey="scanned"
               active={values.sort}
               onSort={(key) => set("sort", key)}
-              className="hidden sm:table-cell"
+              className="hidden sm:table-cell sm:w-[8rem]"
             />
-            <TableHead className="text-right">Actions</TableHead>
+            <TableHead className="w-px text-right whitespace-nowrap">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -542,12 +569,17 @@ export function SecurityScanConfigList() {
             const programRef = config.spec?.securityProgramRef ?? "";
             const programUrl = programUrls.get(programRef);
             const repository = configRepoUrl(config);
+            const statusPill = suspended ? (
+              <span className={cn(STATUS_PILL, toneSoft.warning)}>Suspended</span>
+            ) : (
+              <ReadyBadge status={config.conditionReady} />
+            );
             return (
               <TableRow key={key}>
-                <TableCell className="max-w-[22rem] align-top">
+                <TableCell className="max-w-[26rem] align-top whitespace-normal">
                   <Link
                     to={`/security/configs/${config.namespace}/${config.name}`}
-                    className="font-medium text-primary hover:underline"
+                    className="block truncate font-medium text-primary hover:underline"
                   >
                     {config.name}
                   </Link>
@@ -560,8 +592,18 @@ export function SecurityScanConfigList() {
                     {programRef && (
                       <span className="truncate font-mono lg:hidden">· {programRef}</span>
                     )}
-                    <span className="sm:hidden">
-                      · {formatScheduleTime(config.lastScanTimeUnix, now)}
+                  </div>
+                  {/* Below `sm` the status, findings and last-scan columns are
+                      hidden, so a phone reads the whole row here instead of
+                      scrolling the table sideways past a badge clipped at the
+                      card edge. */}
+                  <div className="mt-1 flex flex-wrap items-center gap-1 sm:hidden" data-testid="config-summary">
+                    {statusPill}
+                    <SeverityCountBadges counts={config.findingCounts} />
+                    <span className="text-[11.5px] text-muted-foreground">
+                      {config.lastScanTimeUnix === 0n
+                        ? "Never scanned"
+                        : `Scanned ${formatScheduleTime(config.lastScanTimeUnix, now)}`}
                     </span>
                   </div>
                 </TableCell>
@@ -581,27 +623,18 @@ export function SecurityScanConfigList() {
                         </a>
                       )}
                     </div>
-                  ) : "-"}
+                  ) : <EmptyCell meaning="No security program linked" />}
                 </TableCell>
-                <TableCell className="align-top">
-                  {suspended ? (
-                    <Badge variant="secondary">Suspended</Badge>
-                  ) : (
-                    <ReadyBadge status={config.conditionReady} />
-                  )}
-                </TableCell>
-                <TableCell className="align-top">
+                <TableCell className="hidden align-top sm:table-cell">{statusPill}</TableCell>
+                <TableCell className="hidden align-top sm:table-cell">
                   <SeverityCountBadges counts={config.findingCounts} />
                 </TableCell>
                 <TableCell className="hidden align-top text-muted-foreground sm:table-cell">
-                  <div>{formatScheduleTime(config.lastScanTimeUnix, now)}</div>
-                  <Link
-                    to={`/security/runs?q=${encodeURIComponent(config.name)}`}
-                    aria-label={`View runs for ${config.name}`}
-                    className="text-[11.5px] text-primary hover:underline"
-                  >
-                    View runs
-                  </Link>
+                  {config.lastScanTimeUnix === 0n ? (
+                    <EmptyCell meaning="Never scanned" />
+                  ) : (
+                    formatScheduleTime(config.lastScanTimeUnix, now)
+                  )}
                 </TableCell>
                 <TableCell className="align-top text-right">
                   <div className="inline-flex items-center justify-end gap-1">
@@ -648,7 +681,12 @@ export function SecurityScanConfigList() {
                           Duplicate
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          render={<Link to={`/security/runs?q=${encodeURIComponent(config.name)}`} />}
+                          render={
+                            <Link
+                              to={`/security/runs?q=${encodeURIComponent(config.name)}`}
+                              aria-label={`View runs for ${config.name}`}
+                            />
+                          }
                         >
                           <History />
                           View runs

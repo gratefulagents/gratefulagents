@@ -15,6 +15,7 @@ export function ResourceListPage({
   query,
   onQuery,
   searchPlaceholder,
+  hideSearch,
   actions,
   nav,
   toolbar,
@@ -34,6 +35,12 @@ export function ResourceListPage({
   query: string;
   onQuery: (v: string) => void;
   searchPlaceholder: string;
+  /**
+   * Hide the search field. For a page with nothing to search yet, an empty
+   * search box is furniture that implies the list is filtered when it is
+   * simply empty.
+   */
+  hideSearch?: boolean;
   actions?: React.ReactNode;
   /** Optional sub-navigation strip rendered between the header and content. */
   nav?: React.ReactNode;
@@ -60,12 +67,14 @@ export function ResourceListPage({
           )}
         </div>
         <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-shrink-0">
-          <ListSearchInput
-            value={query}
-            onChange={onQuery}
-            placeholder={searchPlaceholder}
-            className="min-w-0 flex-1 sm:flex-none"
-          />
+          {!hideSearch && (
+            <ListSearchInput
+              value={query}
+              onChange={onQuery}
+              placeholder={searchPlaceholder}
+              className="min-w-0 flex-1 sm:flex-none"
+            />
+          )}
           {actions}
         </div>
       </div>

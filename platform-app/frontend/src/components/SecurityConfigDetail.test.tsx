@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 import { SecurityConfigDetail } from "@/components/SecurityConfigDetail";
 import {
+  ResourceOwnerSchema,
   SecurityFindingSchema,
   SecurityScanConfigSchema,
   SecurityScanConfigSpecSchema,
@@ -54,7 +55,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function configFixture(overrides: { suspend?: boolean } = {}) {
+function configFixture(overrides: { suspend?: boolean; owner?: boolean } = {}) {
   return create(SecurityScanConfigSchema, {
     namespace: "user-alice",
     name: "nightly",
@@ -63,6 +64,9 @@ function configFixture(overrides: { suspend?: boolean } = {}) {
       schedule: "@daily",
       suspend: overrides.suspend ?? false,
     }),
+    owner: overrides.owner
+      ? create(ResourceOwnerSchema, { name: "Alice Chen", email: "alice@acme.test" })
+      : undefined,
     phase: "Scheduled",
     conditionReady: "True",
     lastRunName: "nightly-2",
@@ -91,6 +95,7 @@ function findingFixture(
     scanId: string;
     sourceAgent: string;
     filePath: string;
+    score: number;
   }> = {},
 ) {
   return create(SecurityFindingSchema, {
@@ -105,7 +110,7 @@ function findingFixture(
     sourceAgent: overrides.sourceAgent ?? "semgrep",
     filePath: overrides.filePath ?? "internal/db/query.go",
     startLine: 42,
-    score: 9.5,
+    score: overrides.score ?? 9.5,
     status: "open",
     lastSeenAt: timestampFromDate(new Date("2026-02-02T00:00:00Z")),
   });
@@ -118,6 +123,14 @@ function LocationProbe() {
 
 function currentLocation(): string {
   return screen.getByTestId("location").textContent ?? "";
+}
+
+/** Finding titles in render order, top row first. */
+function findingTitles(): string[] {
+  return screen
+    .getAllByRole("row")
+    .slice(1)
+    .map((row) => row.querySelector("a")?.textContent ?? "");
 }
 
 function renderDetail(initialEntry = "/security/configs/user-alice/nightly") {
@@ -263,7 +276,7 @@ describe("SecurityConfigDetail", () => {
     renderDetail();
 
     await screen.findByRole("link", { name: "Hardcoded credential" });
-    expect(screen.getByText("2 of 2 findings")).toBeTruthy();
+    expect(screen.getByText("All 2 findings")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("Filter by file path"), {
       target: { value: "cmd/" },
@@ -272,7 +285,7 @@ describe("SecurityConfigDetail", () => {
       expect(screen.queryByRole("link", { name: "SQL injection in payment lookup" })).toBeNull();
     });
     expect(screen.getByRole("link", { name: "Hardcoded credential" })).toBeTruthy();
-    expect(screen.getByText("1 of 2 findings")).toBeTruthy();
+    expect(screen.getByText("1 of 2 findings match these filters")).toBeTruthy();
 
     // Tool is a loaded-page filter too: it never re-queries the server.
     const callsBefore = listSecurityFindings.mock.calls.length;
@@ -281,6 +294,73 @@ describe("SecurityConfigDetail", () => {
       expect(screen.queryByRole("link", { name: "Hardcoded credential" })).toBeNull();
     });
     expect(listSecurityFindings.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("reconciles the summary, the loaded rows, and what the filters hide", async () => {
+    // The shape from the report: 8 recorded findings, 5 of them actionable, one
+    // suppressed, and a duplicate the default filters drop. The page used to
+    // say "5 actionable" in the summary and "4 of 8" under the table.
+    getSecurityScanConfig.mockResolvedValue(configFixture());
+    getSecurityFindingSummary.mockResolvedValue({
+      counts: { total: 8, actionable: 5, open: 4, suppressed: 1 },
+    });
+    listSecurityScans.mockResolvedValue({ scans: [runFixture("nightly-1")] });
+    const matching = Array.from({ length: 4 }, (_, i) =>
+      findingFixture(`f-${i}`, "nightly-1", { title: `Finding ${i}` }));
+    listSecurityFindings.mockResolvedValue({ findings: matching });
+    renderDetail();
+
+    await screen.findByRole("link", { name: "Finding 0" });
+    // One line: what matches, in the scope the summary stat names, and how
+    // many findings exist in total.
+    expect(
+      screen.getByText("4 of 5 actionable findings match these filters · 8 recorded in total"),
+    ).toBeTruthy();
+    // What is being held back, in the same line, with one click to include it.
+    expect(screen.getByText("1 suppressed and duplicates hidden")).toBeTruthy();
+    // The summary strip counts against the same denominator.
+    expect(screen.getByText("of 8 need triage")).toBeTruthy();
+
+    listSecurityFindings.mockResolvedValue({
+      findings: [
+        ...matching,
+        findingFixture("f-sup", "nightly-1", { title: "Suppressed finding" }),
+        findingFixture("f-dup", "nightly-1", { title: "Duplicate finding" }),
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Include both" }));
+
+    await waitFor(() => {
+      expect(currentLocation()).toBe(
+        "/security/configs/user-alice/nightly?suppressed=include&dupes=include",
+      );
+    });
+    expect(listSecurityFindings).toHaveBeenCalledWith(
+      expect.objectContaining({ suppressed: "include", includeDuplicates: true }),
+    );
+    // Nothing is hidden now, and the suppressed finding joins the population
+    // the count is measured against.
+    await screen.findByText("6 of 9 findings match these filters");
+    expect(screen.queryByRole("button", { name: /^Include/ })).toBeNull();
+  });
+
+  it("says so plainly when the whole actionable set is on screen", async () => {
+    getSecurityScanConfig.mockResolvedValue(configFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: { total: 7, actionable: 4 } });
+    listSecurityScans.mockResolvedValue({ scans: [runFixture("nightly-1")] });
+    listSecurityFindings.mockResolvedValue({
+      findings: Array.from({ length: 4 }, (_, i) =>
+        findingFixture(`f-${i}`, "nightly-1", { title: `Finding ${i}` })),
+    });
+    renderDetail();
+
+    await screen.findByRole("link", { name: "Finding 0" });
+    expect(
+      screen.getByText("All 4 actionable findings · 7 recorded in total"),
+    ).toBeTruthy();
+    // Nothing suppressed to report, so only the duplicate policy is named.
+    expect(screen.getByText("duplicates hidden")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Include duplicates" })).toBeTruthy();
   });
 
   it("clears every filter and the URL from the filter bar", async () => {
@@ -311,7 +391,10 @@ describe("SecurityConfigDetail", () => {
     expect(listSecurityFindings).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 200, offset: 0 }),
     );
-    expect(screen.getByText("Showing 200 of 201 findings")).toBeTruthy();
+    // One count for the page: what is loaded and what exists.
+    expect(
+      screen.getByText("200 findings loaded · 201 recorded — load more to see the rest"),
+    ).toBeTruthy();
     fireEvent.click(loadMore);
 
     await waitFor(() => {
@@ -322,7 +405,7 @@ describe("SecurityConfigDetail", () => {
     await screen.findByText("Finding 200");
     // The short second page means there is nothing further to load.
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
-    expect(screen.getByText("Showing all 201 findings")).toBeTruthy();
+    expect(screen.getByText("All 201 findings")).toBeTruthy();
   });
 
   it("restarts paging at the first page when a filter changes", async () => {
@@ -360,7 +443,7 @@ describe("SecurityConfigDetail", () => {
     // offset against a different query.
     expect(listSecurityFindings.mock.calls).toHaveLength(1);
     expect(currentLocation()).toBe("/security/configs/user-alice/nightly?severity=critical");
-    await screen.findByText("Showing all 1 matching findings");
+    await screen.findByText("1 of 400 findings match these filters");
   });
 
   it("opens a finding from the row with the keyboard, keeping the filters", async () => {
@@ -376,6 +459,96 @@ describe("SecurityConfigDetail", () => {
         "/security/user-alice/nightly-1/findings/f-1?severity=critical",
       );
     });
+  });
+
+  it("sorts the findings table from its column headers", async () => {
+    mockHappyPath([
+      findingFixture("f-1", "nightly-1", { severity: "high", score: 4 }),
+      findingFixture("f-2", "nightly-1", {
+        title: "Hardcoded credential",
+        severity: "critical",
+        score: 9.5,
+      }),
+    ]);
+    renderDetail();
+
+    await screen.findByRole("link", { name: "Hardcoded credential" });
+    // Worst first by default, whatever order the server returned.
+    expect(findingTitles()).toEqual([
+      "Hardcoded credential",
+      "SQL injection in payment lookup",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Score" }));
+    expect(findingTitles()).toEqual([
+      "Hardcoded credential",
+      "SQL injection in payment lookup",
+    ]);
+    // A second click flips the direction, and the header says which way.
+    fireEvent.click(screen.getByRole("button", { name: "Score" }));
+    expect(findingTitles()).toEqual([
+      "SQL injection in payment lookup",
+      "Hardcoded credential",
+    ]);
+    expect(
+      screen.getByRole("columnheader", { name: "Score" }).getAttribute("aria-sort"),
+    ).toBe("ascending");
+  });
+
+  it("only spends a column on the run when the findings come from different runs", async () => {
+    mockHappyPath([
+      findingFixture("f-1", "nightly-1"),
+      findingFixture("f-2", "nightly-1", { title: "Hardcoded credential" }),
+    ]);
+    renderDetail();
+
+    await screen.findByRole("link", { name: "Hardcoded credential" });
+    expect(screen.queryByRole("columnheader", { name: "Run" })).toBeNull();
+
+    cleanup();
+    mockHappyPath([
+      findingFixture("f-1", "nightly-1"),
+      findingFixture("f-2", "nightly-2", { title: "Hardcoded credential" }),
+    ]);
+    renderDetail();
+
+    await screen.findByRole("link", { name: "Hardcoded credential" });
+    expect(screen.getByRole("columnheader", { name: "Run" })).toBeTruthy();
+  });
+
+  it("makes truncated rail values copyable and names the owner badge", async () => {
+    getSecurityScanConfig.mockResolvedValue(configFixture({ owner: true }));
+    getSecurityFindingSummary.mockResolvedValue({ counts: { total: 1 } });
+    listSecurityFindings.mockResolvedValue({ findings: [findingFixture("f-1", "nightly-1")] });
+    listSecurityScans.mockResolvedValue({ scans: [runFixture("nightly-1")] });
+    renderDetail();
+
+    // The full URL stays reachable even though the rail truncates it.
+    const target = await screen.findByRole("link", {
+      name: "https://github.com/acme/payments.git",
+    });
+    expect(target.getAttribute("href")).toBe("https://github.com/acme/payments.git");
+    expect(target.getAttribute("title")).toBe("https://github.com/acme/payments.git");
+    expect(screen.getByRole("button", { name: "Copy repository URL" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy schedule" })).toBeTruthy();
+    // The avatar is no longer an unexplained badge.
+    expect(screen.getByText("Owner: Alice Chen")).toBeTruthy();
+  });
+
+  it("states times relatively with the absolute timestamp in the tooltip", async () => {
+    mockHappyPath();
+    renderDetail();
+
+    await screen.findByRole("link", { name: "SQL injection in payment lookup" });
+    const seen = new Date("2026-02-02T00:00:00Z");
+    const cells = screen
+      .getAllByTitle(seen.toLocaleString())
+      .map((el) => el.textContent ?? "");
+    // Findings and runs both report the same instant the same way.
+    expect(cells.length).toBeGreaterThan(1);
+    for (const text of cells) {
+      expect(text).toMatch(/^(just now|in \d+(m|h|d|mo)|\d+(m|h|d|mo) ago)$/);
+    }
   });
 
   it("shows a typed not-found state with recovery links for a missing config", async () => {

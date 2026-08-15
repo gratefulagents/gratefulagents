@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 
 import {
@@ -357,8 +357,48 @@ describe("SecurityScanConfigList", () => {
     listSecurityScanConfigs.mockResolvedValue({ configs: [configFixture({ name: "nightly scan" })] });
     renderList();
 
-    const link = await screen.findByRole("link", { name: "View runs for nightly scan" });
+    await screen.findByText("nightly scan");
+    // The per-row "View runs" text link was noise on every row; it now lives in
+    // the row's overflow menu, still reachable by keyboard and named per row.
+    await openRowMenu("nightly scan");
+    const link = screen.getByRole("menuitem", { name: "View runs for nightly scan" });
     expect(link.getAttribute("href")).toBe("/security/runs?q=nightly%20scan");
+  });
+
+  it("gives the placeholder cells a spoken meaning", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [configFixture({ name: "never", lastScanTimeUnix: 0n })],
+    });
+    renderList();
+
+    await screen.findByText("never");
+    expect(screen.getAllByTitle("Never scanned").length).toBeGreaterThan(0);
+    expect(screen.getByText("No security program linked")).toBeTruthy();
+    // Once in the findings cell, once in the mobile-only row summary.
+    expect(screen.getAllByText("No findings reported")).toHaveLength(2);
+  });
+
+  it("folds the hidden columns into a mobile-only summary in the primary cell", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [configFixture({ name: "paused", suspend: true, findingCounts: { high: 2 } })],
+    });
+    renderList();
+
+    await screen.findByText("paused");
+    // At 390px the status and findings columns are hidden, so they read here
+    // instead of being clipped at the card edge.
+    const summary = screen.getByTestId("config-summary");
+    expect(summary.className).toContain("sm:hidden");
+    expect(within(summary).getByText("Suspended")).toBeTruthy();
+    expect(within(summary).getByText("high")).toBeTruthy();
+    expect(summary.textContent).toContain("Scanned");
+    const cells = within(screen.getAllByRole("row")[1]).getAllByRole("cell");
+    expect(cells[0].contains(summary)).toBe(true);
+    // Status, findings and last scan fold away below `sm`; actions stay.
+    for (const cell of cells.slice(2, 5)) {
+      expect(cell.className).toContain("hidden");
+      expect(cell.className).toContain("sm:table-cell");
+    }
   });
 
   it("keeps secondary actions in an overflow menu: duplicate, suspend and delete", async () => {
@@ -541,12 +581,16 @@ describe("SecurityScanConfigList", () => {
     await screen.findByText("No scan configurations yet");
     expect(screen.getByRole("button", { name: /Create your first scan/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+    // Nothing to search and nothing to narrow: no search box, no filter bar.
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(screen.queryByRole("group", { name: "Configuration filters" })).toBeNull();
 
     cleanup();
     listSecurityScanConfigs.mockResolvedValue({ configs: [configFixture()] });
     renderList("/security/configs?status=suspended");
 
     await screen.findByText("No configurations match these filters");
+    expect(screen.getByRole("searchbox")).toBeTruthy();
     expect(screen.getByText("Showing 0 of 1 configurations")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     await waitFor(() => expect(search()).toBe(""));
