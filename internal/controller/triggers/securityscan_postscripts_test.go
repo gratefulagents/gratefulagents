@@ -71,6 +71,9 @@ func TestSecurityScanPostScriptMatchesMediumAndAboveActionable(t *testing.T) {
 		{name: "medium matches the medium floor", runOn: "medium-and-above-actionable", severity: "medium", floor: "medium", want: true},
 		{name: "high matches the medium floor", runOn: "medium-and-above-actionable", severity: "high", floor: "medium", want: true},
 		{name: "low stays below the medium floor", runOn: "medium-and-above-actionable", severity: "low", floor: "medium"},
+		{name: "low matches the low floor", runOn: "low-and-above-actionable", severity: "low", floor: "low", want: true},
+		{name: "info stays below the low floor", runOn: "low-and-above-actionable", severity: "info", floor: "low"},
+		{name: "low is not dispatched under a medium-paying program", runOn: "low-and-above-actionable", severity: "low", floor: "medium"},
 		{name: "medium stays below the high floor", runOn: "high-and-above-actionable", severity: "medium", floor: "high"},
 		// A program that publishes no medium impacts does not pay for them, so
 		// the two expensive PoC stages must not be dispatched at all: the
@@ -94,10 +97,11 @@ func TestSecurityScanPostScriptMatchesMediumAndAboveActionable(t *testing.T) {
 	}
 }
 
-func TestSecurityScanPostScriptsActionableOnlyCoversMediumVariant(t *testing.T) {
+func TestSecurityScanPostScriptsActionableOnlyCoversSeverityVariants(t *testing.T) {
 	t.Parallel()
 	for runOn, want := range map[string]bool{
 		"medium-and-above-actionable": true,
+		"low-and-above-actionable":    true,
 		"high-and-above-actionable":   true,
 		"high-and-above":              false,
 		"all":                         false,

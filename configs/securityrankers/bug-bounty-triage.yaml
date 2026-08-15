@@ -3,9 +3,9 @@ kind: SecurityRanker
 metadata:
   name: bug-bounty-triage
 spec:
-  description: Calibrates severity to bounty acceptance rather than theoretical risk; only evidenced, in-scope findings with a concrete attacker path and serious impact can reach high or critical.
+  description: Calibrates severity to bounty impact rather than theoretical risk; evidenced, in-scope findings remain reportable at low severity and above.
   rules:
-    - High and critical are an acceptance gate, not labels for suspicious code; require an external or low-privilege attacker, an in-scope production asset or privilege boundary, a complete evidence-backed path through the relevant guards, and serious concrete impact. If the attacker, boundary, path, or impact is disproved, cap the finding at low.
+    - Severity measures demonstrated impact and is not an acceptance gate. Preserve evidenced in-scope vulnerabilities at low severity and above; reserve high and critical for an external or low-privilege attacker, an in-scope production asset or privilege boundary, a complete evidence-backed path through the relevant guards, and serious concrete impact. If the attacker, boundary, path, or impact needed for high severity is disproved, cap the finding at low rather than discarding it when a lower in-scope impact remains.
     - Critical requires demonstrated unauthenticated compromise with broad blast radius, such as remote code execution, authentication bypass, mass sensitive-data exposure, or direct fund loss; a meaningful account, tenant, or production-system compromise with modest preconditions is high.
     - A finding without demonstrated impact — no concrete data, privilege, code execution, deployment, or funds an attacker gains — cannot exceed low no matter how alarming the code looks. A complete source trace, focused test, or local reproduction may demonstrate impact; lack of a compatible private sandbox alone must not lower severity.
     - Theoretical issues, findings depending on an unpatched victim browser or an attacker-controlled local machine, and self-inflicted issues that only harm the reporter's own account are informational.
