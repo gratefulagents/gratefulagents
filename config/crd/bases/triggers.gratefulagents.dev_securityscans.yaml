@@ -1215,7 +1215,8 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: exactly one of repoURL or targetURL must be set
-              rule: (has(self.repoURL) && self.repoURL.size() > 0) != (has(self.targetURL) && self.targetURL.size() > 0)
+              rule: (has(self.repoURL) && self.repoURL.size() > 0) != (has(self.targetURL)
+                && self.targetURL.size() > 0)
           status:
             description: SecurityScanStatus defines the observed state of SecurityScan.
             properties:
@@ -1953,17 +1954,24 @@ spec:
                             minimum: 0
                             type: integer
                           repositoryURL:
-                            description: repositoryURL is the HTTPS URL of the repository
-                              to scan.
+                            description: |-
+                              repositoryURL is the HTTPS URL of the repository to scan. It is mutually
+                              exclusive with targetURL.
                             maxLength: 2048
-                            minLength: 1
-                            pattern: ^https://
+                            pattern: ^(https://.*)?$
                             type: string
                           scanName:
                             description: scanName is the suggested SecurityScan name.
                             maxLength: 253
                             minLength: 1
                             pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          targetURL:
+                            description: |-
+                              targetURL is the HTTP(S) URL or bare domain to examine in a repoless web
+                              security scan. It is mutually exclusive with repositoryURL.
+                            maxLength: 2048
+                            pattern: ^([A-Za-z0-9.-]+(:[0-9]+)?|https?://[A-Za-z0-9.\[\]:-]+([/?][^#@,[:space:]]*)?)?$
                             type: string
                           workflowRef:
                             description: workflowRef names the SecurityWorkflow to
@@ -1977,14 +1985,19 @@ spec:
                         - featured
                         - policyPackRef
                         - priority
-                        - repositoryURL
                         - scanName
                         - workflowRef
                         type: object
+                        x-kubernetes-validations:
+                        - message: exactly one of repositoryURL or targetURL must
+                            be set
+                          rule: (has(self.repositoryURL) && self.repositoryURL.size()
+                            > 0) != (has(self.targetURL) && self.targetURL.size()
+                            > 0)
                       scanTargets:
                         description: |-
                           scanTargets describe suggested SecurityScan configurations for the
-                          repositories covered by this program.
+                          repositories and websites covered by this program.
                         items:
                           description: |-
                             SecurityProgramScanTarget describes a suggested SecurityScan configuration
@@ -2035,11 +2048,11 @@ spec:
                               minimum: 0
                               type: integer
                             repositoryURL:
-                              description: repositoryURL is the HTTPS URL of the repository
-                                to scan.
+                              description: |-
+                                repositoryURL is the HTTPS URL of the repository to scan. It is mutually
+                                exclusive with targetURL.
                               maxLength: 2048
-                              minLength: 1
-                              pattern: ^https://
+                              pattern: ^(https://.*)?$
                               type: string
                             scanName:
                               description: scanName is the suggested SecurityScan
@@ -2047,6 +2060,13 @@ spec:
                               maxLength: 253
                               minLength: 1
                               pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                              type: string
+                            targetURL:
+                              description: |-
+                                targetURL is the HTTP(S) URL or bare domain to examine in a repoless web
+                                security scan. It is mutually exclusive with repositoryURL.
+                              maxLength: 2048
+                              pattern: ^([A-Za-z0-9.-]+(:[0-9]+)?|https?://[A-Za-z0-9.\[\]:-]+([/?][^#@,[:space:]]*)?)?$
                               type: string
                             workflowRef:
                               description: workflowRef names the SecurityWorkflow
@@ -2060,10 +2080,15 @@ spec:
                           - featured
                           - policyPackRef
                           - priority
-                          - repositoryURL
                           - scanName
                           - workflowRef
                           type: object
+                          x-kubernetes-validations:
+                          - message: exactly one of repositoryURL or targetURL must
+                              be set
+                            rule: (has(self.repositoryURL) && self.repositoryURL.size()
+                              > 0) != (has(self.targetURL) && self.targetURL.size()
+                              > 0)
                         maxItems: 256
                         type: array
                         x-kubernetes-list-map-keys:
