@@ -389,6 +389,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Bug-report auto-fix lifecycle: tracks fix runs launched for agent bug
+	// reports, records their PRs, and resolves reports when the PR merges.
+	if bugReportStore, ok := sharedStateStore.(store.AgentBugReportStore); ok {
+		if err := (&triggercontroller.BugReportFixReconciler{
+			Client:  mgr.GetClient(),
+			Scheme:  mgr.GetScheme(),
+			Reports: bugReportStore,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "BugReportFix")
+			os.Exit(1)
+		}
+	}
+
 	if err := (&triggercontroller.CronReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),

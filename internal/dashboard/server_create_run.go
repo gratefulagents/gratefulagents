@@ -42,6 +42,9 @@ type createRunOptions struct {
 	repoless bool
 	// planMode starts the run in the plan-first ModeTemplate.
 	planMode bool
+	// labels are extra metadata labels stamped on the created AgentRun (for
+	// example the bug-report linkage used by the auto-fix controller).
+	labels map[string]string
 }
 
 // resolveRunModelAndProvider resolves the effective model and provider for a run.
@@ -313,6 +316,14 @@ func (s *Server) createAgentRunFromRequest(ctx context.Context, req *platform.Cr
 	}
 	if opts.repoless {
 		run.Annotations["platform.gratefulagents.dev/repoless"] = "true"
+	}
+	if len(opts.labels) > 0 {
+		if run.Labels == nil {
+			run.Labels = make(map[string]string, len(opts.labels))
+		}
+		for k, v := range opts.labels {
+			run.Labels[k] = v
+		}
 	}
 	if triggersv1alpha1.IsOpenAICompatibleProvider(provider) {
 		run.Annotations[openAIApiModeAnnotation] = triggersv1alpha1.NormalizeOpenAIAPIForProvider(provider, defaults.OpenAIAPI)

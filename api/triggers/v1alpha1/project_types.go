@@ -38,6 +38,13 @@ type ProjectSpec struct {
 	// +optional
 	KubernetesAdmin bool `json:"kubernetesAdmin,omitempty"`
 
+	// bugSquasher marks this project as the namespace's default bug-squasher:
+	// moving an agent-filed bug report to in_progress launches an autonomous
+	// fix AgentRun from this project. The dashboard keeps the flag exclusive
+	// per namespace: enabling it on one project clears it on the others.
+	// +optional
+	BugSquasher bool `json:"bugSquasher,omitempty"`
+
 	// defaults holds the fields used when creating AgentRuns from this project.
 	Defaults AgentRunDefaults `json:"defaults"`
 

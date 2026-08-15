@@ -128,6 +128,11 @@ const (
 // controller to delete all run-scoped database state and cluster resources.
 const AgentRunCleanupFinalizer = "platform.gratefulagents.dev/cleanup"
 
+// BugReportIDLabel links an auto-fix AgentRun to the agent bug report (UUID)
+// it was launched for. The bug-report fix controller watches runs carrying
+// this label to record the fix PR and resolve the report when the PR merges.
+const BugReportIDLabel = "platform.gratefulagents.dev/bug-report-id"
+
 // Review verdict values stored in ReviewVerdictAnnotation.
 const (
 	ReviewVerdictApprove        = "approve"

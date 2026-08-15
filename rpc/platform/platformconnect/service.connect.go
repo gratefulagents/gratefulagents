@@ -1080,7 +1080,11 @@ type PlatformServiceClient interface {
 	// humans in the dashboard. Backed by the optional Postgres state store.
 	ListBugReports(context.Context, *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error)
 	// UpdateBugReportStatus sets the triage status (open, acknowledged,
-	// resolved, dismissed) of one report, attributed to the caller.
+	// in_progress, resolved, dismissed) of one report, attributed to the
+	// caller. Moving a report to in_progress launches an autonomous fix
+	// AgentRun from the namespace's bug-squasher project (FailedPrecondition
+	// when no project has bug_squasher enabled); the report auto-resolves when
+	// the fix pull request merges.
 	UpdateBugReportStatus(context.Context, *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error)
 }
 
@@ -4143,7 +4147,11 @@ type PlatformServiceHandler interface {
 	// humans in the dashboard. Backed by the optional Postgres state store.
 	ListBugReports(context.Context, *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error)
 	// UpdateBugReportStatus sets the triage status (open, acknowledged,
-	// resolved, dismissed) of one report, attributed to the caller.
+	// in_progress, resolved, dismissed) of one report, attributed to the
+	// caller. Moving a report to in_progress launches an autonomous fix
+	// AgentRun from the namespace's bug-squasher project (FailedPrecondition
+	// when no project has bug_squasher enabled); the report auto-resolves when
+	// the fix pull request merges.
 	UpdateBugReportStatus(context.Context, *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error)
 }
 
