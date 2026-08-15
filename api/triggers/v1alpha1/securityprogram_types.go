@@ -168,12 +168,21 @@ type SecurityProgramSubmissionBudget struct {
 
 // SecurityProgramScanTarget describes a suggested SecurityScan configuration
 // for a program.
+// +kubebuilder:validation:XValidation:rule="(has(self.repositoryURL) && self.repositoryURL.size() > 0) != (has(self.targetURL) && self.targetURL.size() > 0)",message="exactly one of repositoryURL or targetURL must be set"
 type SecurityProgramScanTarget struct {
-	// repositoryURL is the HTTPS URL of the repository to scan.
-	// +kubebuilder:validation:MinLength=1
+	// repositoryURL is the HTTPS URL of the repository to scan. It is mutually
+	// exclusive with targetURL.
+	// +optional
 	// +kubebuilder:validation:MaxLength=2048
-	// +kubebuilder:validation:Pattern=`^https://`
-	RepositoryURL string `json:"repositoryURL"`
+	// +kubebuilder:validation:Pattern=`^(https://.*)?$`
+	RepositoryURL string `json:"repositoryURL,omitempty"`
+
+	// targetURL is the HTTP(S) URL or bare domain to examine in a repoless web
+	// security scan. It is mutually exclusive with repositoryURL.
+	// +optional
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^([A-Za-z0-9.-]+(:[0-9]+)?|https?://[A-Za-z0-9.\[\]:-]+([/?][^#@,[:space:]]*)?)?$`
+	TargetURL string `json:"targetURL,omitempty"`
 
 	// baseBranch is the repository's verified default branch used by imported
 	// SecurityScans. Legacy targets that omit it fall back to main.
@@ -227,7 +236,7 @@ type SecurityProgramScanTarget struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.scanTarget) && has(self.scanTargets) && self.scanTargets.size() > 0)",message="scanTarget and scanTargets cannot both be set"
 type SecurityProgramSpec struct {
 	// scanTargets describe suggested SecurityScan configurations for the
-	// repositories covered by this program.
+	// repositories and websites covered by this program.
 	// +optional
 	// +kubebuilder:validation:MaxItems=256
 	// +listType=map

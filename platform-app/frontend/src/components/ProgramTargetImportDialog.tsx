@@ -67,7 +67,8 @@ export function ProgramTargetImportDialog({
                         )}
                       </div>
                       <div className="truncate font-mono text-xs text-muted-foreground">
-                        {target.repoUrl} · {target.baseBranch}
+                        {target.targetUrl || target.repoUrl}
+                        {target.repoUrl && ` · ${target.baseBranch}`}
                       </div>
                       <div className="font-mono text-xs text-muted-foreground">{target.workflowRef}</div>
                     </div>

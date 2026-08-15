@@ -36322,8 +36322,8 @@ type SecurityProgramResource struct {
 	//
 	// Deprecated: Marked as deprecated in rpc/platform/service.proto.
 	ScanTarget *SecurityProgramScanTarget `protobuf:"bytes,8,opt,name=scan_target,json=scanTarget,proto3" json:"scan_target,omitempty"`
-	// scan_targets contains every independently importable repository covered
-	// by the program.
+	// scan_targets contains every independently importable repository or website
+	// covered by the program.
 	ScanTargets      []*SecurityProgramScanTarget `protobuf:"bytes,9,rep,name=scan_targets,json=scanTargets,proto3" json:"scan_targets,omitempty"`
 	UsageCount       int32                        `protobuf:"varint,10,opt,name=usage_count,json=usageCount,proto3" json:"usage_count,omitempty"`
 	ReferencingScans []string                     `protobuf:"bytes,11,rep,name=referencing_scans,json=referencingScans,proto3" json:"referencing_scans,omitempty"`
@@ -38609,7 +38609,7 @@ func (x *SecuritySkillsStatus) GetConflictCount() int32 {
 
 type SecurityProgramScanTarget struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	RepositoryUrl   string                 `protobuf:"bytes,1,opt,name=repository_url,json=repositoryUrl,proto3" json:"repository_url,omitempty"`
+	RepositoryUrl   string                 `protobuf:"bytes,1,opt,name=repository_url,json=repositoryUrl,proto3" json:"repository_url,omitempty"` // repository target; mutually exclusive with target_url
 	WorkflowRef     string                 `protobuf:"bytes,2,opt,name=workflow_ref,json=workflowRef,proto3" json:"workflow_ref,omitempty"`
 	PolicyPackRef   string                 `protobuf:"bytes,3,opt,name=policy_pack_ref,json=policyPackRef,proto3" json:"policy_pack_ref,omitempty"`
 	ScanName        string                 `protobuf:"bytes,4,opt,name=scan_name,json=scanName,proto3" json:"scan_name,omitempty"`
@@ -38618,8 +38618,11 @@ type SecurityProgramScanTarget struct {
 	Featured        bool                   `protobuf:"varint,7,opt,name=featured,proto3" json:"featured,omitempty"`
 	BaseBranch      string                 `protobuf:"bytes,8,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"`
 	ParameterValues map[string]string      `protobuf:"bytes,9,rep,name=parameter_values,json=parameterValues,proto3" json:"parameter_values,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// HTTP(S) URL or bare domain for a repoless web scan. Mutually exclusive
+	// with repository_url.
+	TargetUrl     string `protobuf:"bytes,10,opt,name=target_url,json=targetUrl,proto3" json:"target_url,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SecurityProgramScanTarget) Reset() {
@@ -38713,6 +38716,13 @@ func (x *SecurityProgramScanTarget) GetParameterValues() map[string]string {
 		return x.ParameterValues
 	}
 	return nil
+}
+
+func (x *SecurityProgramScanTarget) GetTargetUrl() string {
+	if x != nil {
+		return x.TargetUrl
+	}
+	return ""
 }
 
 // BugReport is one deduplicated agent-filed platform bug report, complaint,
@@ -42536,7 +42546,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12'\n" +
 	"\x0finstalled_count\x18\x03 \x01(\x05R\x0einstalledCount\x12'\n" +
 	"\x0favailable_count\x18\x04 \x01(\x05R\x0eavailableCount\x12%\n" +
-	"\x0econflict_count\x18\x05 \x01(\x05R\rconflictCount\"\xd2\x03\n" +
+	"\x0econflict_count\x18\x05 \x01(\x05R\rconflictCount\"\xf1\x03\n" +
 	"\x19SecurityProgramScanTarget\x12%\n" +
 	"\x0erepository_url\x18\x01 \x01(\tR\rrepositoryUrl\x12!\n" +
 	"\fworkflow_ref\x18\x02 \x01(\tR\vworkflowRef\x12&\n" +
@@ -42547,7 +42557,10 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\bfeatured\x18\a \x01(\bR\bfeatured\x12\x1f\n" +
 	"\vbase_branch\x18\b \x01(\tR\n" +
 	"baseBranch\x12f\n" +
-	"\x10parameter_values\x18\t \x03(\v2;.platform.v1.SecurityProgramScanTarget.ParameterValuesEntryR\x0fparameterValues\x1aB\n" +
+	"\x10parameter_values\x18\t \x03(\v2;.platform.v1.SecurityProgramScanTarget.ParameterValuesEntryR\x0fparameterValues\x12\x1d\n" +
+	"\n" +
+	"target_url\x18\n" +
+	" \x01(\tR\ttargetUrl\x1aB\n" +
 	"\x14ParameterValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf3\x03\n" +

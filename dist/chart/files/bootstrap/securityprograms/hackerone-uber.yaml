@@ -1,0 +1,69 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackerone-uber
+spec:
+  scanTargets:
+    - targetURL: "https://uber.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: uber-web
+      displayName: "Uber — Web"
+      priority: 9000
+      featured: true
+  provider: HackerOne
+  displayName: Uber
+  programURL: https://hackerone.com/uber
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: impact
+  pocRequired: true
+  scopePolicy: |-
+    Browser-verified public scope snapshot (2026-08-15)
+
+    Authoritative engagement: https://hackerone.com/uber
+    Browser-readable asset-table source: https://bbscope.com/program/h1/uber (crawled five days before verification).
+    HackerOne code of conduct: https://www.hackerone.com/policies/code-of-conduct
+
+    In-scope asset rows captured: 4
+    *.uberinternal.com
+    *ubereats.com
+    Recon Data
+    uber.com
+
+    Out-of-scope asset rows captured: 19
+    The exact exclusions are transcribed into outOfScope below. The two broad in-scope domain rows do not authorize affecting drivers, riders, merchants, restaurants, employees, or other third parties. The program is impact-focused; a hostname alone is not a valid report.
+
+    Importable target boundary
+    The exact https://uber.com row is exposed as an individual import target. The two wildcard domain rows and descriptive Recon Data row remain policy-only scope and must not be expanded into discovered hosts. Importing the apex URL still requires researcher-controlled accounts, current program rules, and human review.
+
+    Operator gate
+    Re-open the HackerOne engagement immediately before testing. Verify the affected service remains Uber-operated, use only your own accounts and data, and comply with any current identity header or rate limit.
+  outOfScope:
+    - "*.ubercarshare.com"
+    - "*.uberscoot.us"
+    - "*.ubertransit.io"
+    - "*scaledsolutions.uber.com"
+    - scaledsolutions*.uber.com
+    - Fraud Reports
+    - bizblog.uber.com
+    - central-beta.uber.com
+    - drive.uber.com
+    - eng.uber.com
+    - et.uber.com
+    - assets.uber.com
+    - brand.uber.com
+    - love.uber.com
+    - merchants.ubereats.com
+    - newsroom.uber.com
+    - people.uber.com
+    - uber.com.cn
+    - uber.onelogin.com
+    - Any customer, partner, restaurant, vehicle, device, account, or data not controlled by the researcher
+  prohibitedTesting:
+    - Do not run a wildcard network scan from this catalog record
+    - Use only researcher-controlled accounts and data; never place real rides, deliveries, charges, or merchant orders as test traffic
+    - No denial of service, distributed denial of service, traffic flooding, brute force, spam, social engineering, or physical testing
+    - Do not access or modify another person's account, location, trip, order, payment, or personal information
+    - Human-review every automated or AI-assisted result and provide a reproducible impact-focused proof of concept
+    - Do not publicly disclose without HackerOne and Uber approval

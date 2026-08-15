@@ -11,8 +11,8 @@ afterEach(() => {
 
 type TargetInput = Omit<
   SecurityProgramResource["scanTargets"][number],
-  "$typeName" | "parameterValues"
-> & { parameterValues?: Record<string, string> };
+  "$typeName" | "parameterValues" | "targetUrl"
+> & { parameterValues?: Record<string, string>; targetUrl?: string };
 
 function legacyProgram(
   name: string,

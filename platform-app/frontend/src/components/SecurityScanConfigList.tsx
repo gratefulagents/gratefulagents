@@ -464,6 +464,7 @@ export function SecurityScanConfigList() {
                 name: selectedProgramScanTarget.name,
                 spec: {
                   repoUrl: selectedProgramScanTarget.repoUrl,
+                  targetUrl: selectedProgramScanTarget.targetUrl,
                   baseBranch: selectedProgramScanTarget.baseBranch,
                   workflowRef: selectedProgramScanTarget.workflowRef,
                   policyPackRef: selectedProgramScanTarget.policyPackRef,

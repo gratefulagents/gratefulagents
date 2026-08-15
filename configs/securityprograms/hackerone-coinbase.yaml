@@ -1,0 +1,68 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackerone-coinbase
+spec:
+  scanTargets:
+    - repositoryURL: "https://github.com/coinbase/cb-mpc"
+      baseBranch: master
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: coinbase-cb-mpc
+      displayName: "Coinbase — cb-mpc"
+      priority: 4000
+      featured: true
+    - repositoryURL: "https://github.com/coinbase/cb-mpc-go"
+      baseBranch: master
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: coinbase-cb-mpc-go
+      displayName: "Coinbase — cb-mpc-go (no bounty)"
+      priority: 4001
+      featured: false
+  provider: HackerOne
+  displayName: Coinbase Web2
+  programURL: https://hackerone.com/coinbase
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  scopePolicy: |-
+    Browser-verified public scope snapshot (2026-08-15)
+
+    Authoritative Web2 engagement: https://hackerone.com/coinbase
+    Official 2026 policy update: https://www.coinbase.com/blog/focusing-our-bug-bounty-program-on-what-matters-most-in-the-age-of-ai
+    Browser-readable asset-table source: https://bbscope.com/program/h1/coinbase (crawled on the verification date).
+
+    In-scope asset rows captured: 16
+    Web and network: *.base.app; *.base.org; *.cbhq.net; *.coinbase-corp.com; *.coinbase.com; 54.175.255.192/27; Other (listed as no bounty).
+    Mobile and extension: Android com.coinbase.android; iOS com.vilcsak.bitcoin2; Coinbase Wallet Chrome extension; Android org.toshi; iOS org.toshi.distribution.
+    Code: github.com/base/*; github.com/coinbase/*; github.com/coinbase/cb-mpc; github.com/coinbase/cb-mpc-go (the current table marks cb-mpc-go no bounty).
+
+    Out-of-scope asset rows captured: 3
+    N/A or anything not owned and operated by Coinbase; status.*.coinbase.com; status.coinbase.com.
+
+    Current eligibility boundary
+    The HackerOne program is Web2 only. As of the 2026-07-29 update, Low and Medium findings are out of scope. High findings are eligible up to $6,000, Critical up to $15,000, and Extreme impact up to $1,000,000. Web3 and smart-contract work remains a separate Cantina program and must not be inferred into this record.
+
+    Importable target boundary
+    The two repositories listed by exact URL are exposed as individual source-scan targets with their verified default branches. Wildcard domains, the CIDR, mobile apps, browser extension, and organization-wide GitHub wildcards remain policy-only scope and are not converted into production network targets.
+
+    Operator gate
+    Re-open HackerOne immediately before testing and verify ownership, severity eligibility, identity requirements, and rate limits. Never infer a Base or Coinbase-branded third-party asset into scope.
+  outOfScope:
+    - Any asset not owned and operated by Coinbase
+    - status.*.coinbase.com
+    - status.coinbase.com
+    - Low-severity findings
+    - Medium-severity findings
+    - Web3, onchain, smart-contract, and protocol findings handled by the separate Cantina program
+    - Any unlisted third-party Base or Coinbase ecosystem project
+  prohibitedTesting:
+    - Do not run a network scan from this catalog record
+    - Use only researcher-controlled accounts, wallets, API keys, devices, funds, and data
+    - Do not access another user's assets or data, move real third-party funds, manipulate markets, or disrupt trading
+    - No denial of service, distributed denial of service, traffic flooding, brute force, spam, social engineering, or physical testing
+    - Manually validate automated or AI-assisted findings and demonstrate High, Critical, or Extreme impact
+    - Stop immediately on exposure of secrets, funds, or another user's data and retain only minimum proof
+    - Do not publicly disclose without coordinated approval

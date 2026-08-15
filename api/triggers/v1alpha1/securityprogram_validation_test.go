@@ -32,12 +32,11 @@ func validSecurityProgramSpec() SecurityProgramSpec {
 				},
 			},
 			{
-				RepositoryURL: "https://github.com/acme/contracts",
-				BaseBranch:    "develop",
-				WorkflowRef:   "smart-contract-review",
+				TargetURL:     "https://app.acme.example",
+				WorkflowRef:   "web-app-full-assessment",
 				PolicyPackRef: "bug-bounty",
-				ScanName:      "acme-contracts",
-				DisplayName:   "Acme Contracts",
+				ScanName:      "acme-web",
+				DisplayName:   "Acme Web",
 				Priority:      2,
 			},
 		},
@@ -80,6 +79,15 @@ func TestValidateSecurityProgramSpec(t *testing.T) {
 		"repository userinfo rejected": func(s *SecurityProgramSpec) {
 			s.ScanTargets[0].RepositoryURL = "https://user@github.com/acme/widget"
 		},
+		"target URL invalid":           func(s *SecurityProgramSpec) { s.ScanTargets[1].TargetURL = "ftp://app.acme.example" },
+		"target URL fragment rejected": func(s *SecurityProgramSpec) { s.ScanTargets[1].TargetURL = "https://app.acme.example/#private" },
+		"target URL comma rejected":    func(s *SecurityProgramSpec) { s.ScanTargets[1].TargetURL = "https://app.acme.example/a,b" },
+		"bare target path rejected":    func(s *SecurityProgramSpec) { s.ScanTargets[1].TargetURL = "app.acme.example/path" },
+		"hostless target rejected":     func(s *SecurityProgramSpec) { s.ScanTargets[1].TargetURL = "https://?query" },
+		"target URL and repository mutually exclusive": func(s *SecurityProgramSpec) {
+			s.ScanTargets[1].RepositoryURL = "https://github.com/acme/web"
+		},
+		"target kind required":  func(s *SecurityProgramSpec) { s.ScanTargets[1].TargetURL = "" },
 		"base branch bounded":   func(s *SecurityProgramSpec) { s.ScanTargets[0].BaseBranch = strings.Repeat("b", 256) },
 		"workflow ref valid":    func(s *SecurityProgramSpec) { s.ScanTargets[0].WorkflowRef = "Not Valid!" },
 		"policy pack ref valid": func(s *SecurityProgramSpec) { s.ScanTargets[0].PolicyPackRef = "Not Valid!" },

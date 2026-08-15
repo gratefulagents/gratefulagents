@@ -23,7 +23,9 @@ import {
 
 type ScanTargetDraft = {
   id: number;
+  targetType: "repository" | "website";
   repositoryUrl: string;
+  targetUrl: string;
   baseBranch: string;
   workflowRef: string;
   policyPackRef: string;
@@ -124,7 +126,9 @@ function scanTargetToDraft(source?: SecurityProgramScanTarget, priority = 0): Sc
   nextScanTargetID += 1;
   return {
     id: nextScanTargetID,
+    targetType: source?.targetUrl ? "website" : "repository",
     repositoryUrl: source?.repositoryUrl ?? "",
+    targetUrl: source?.targetUrl ?? "",
     baseBranch: source?.baseBranch || "main",
     workflowRef: source?.workflowRef ?? "",
     policyPackRef: source?.policyPackRef ?? "bug-bounty",
@@ -202,6 +206,21 @@ function isHttpsUrl(value: string): boolean {
   }
 }
 
+function isHttpUrlOrDomain(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.includes(",")) return false;
+  const absolute = trimmed.includes("://");
+  if (!absolute && /[/?#@]/.test(trimmed)) return false;
+  const candidate = absolute ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(candidate);
+    return (url.protocol === "https:" || url.protocol === "http:") &&
+      Boolean(url.hostname) && !url.username && !url.password && !url.hash;
+  } catch {
+    return false;
+  }
+}
+
 function isDNS1123Subdomain(value: string): boolean {
   return value.length <= 253 && /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*$/.test(value);
 }
@@ -242,11 +261,15 @@ export function SecurityProgramDialog({
   }, new Map());
   const scanTargetsInvalid = draft.scanTargets.length > 256 || draft.scanTargets.some((target) => {
     const repositoryUrl = target.repositoryUrl.trim();
+    const targetUrl = target.targetUrl.trim();
     const workflowRef = target.workflowRef.trim();
     const policyPackRef = target.policyPackRef.trim();
     const scanName = target.scanName.trim();
-    return !repositoryUrl || repositoryUrl.length > 2048 || !isHttpsUrl(repositoryUrl) ||
-      !target.baseBranch.trim() || target.baseBranch.trim().length > 255 ||
+    const targetInvalid = target.targetType === "repository"
+      ? !repositoryUrl || repositoryUrl.length > 2048 || !isHttpsUrl(repositoryUrl) ||
+        !target.baseBranch.trim() || target.baseBranch.trim().length > 255
+      : !targetUrl || targetUrl.length > 2048 || !isHttpUrlOrDomain(targetUrl);
+    return targetInvalid ||
       !isDNS1123Subdomain(workflowRef) || !isDNS1123Subdomain(policyPackRef) ||
       !isDNS1123Subdomain(scanName) || (scanNameCounts.get(scanName) ?? 0) > 1 ||
       !target.displayName.trim() || target.displayName.trim().length > 200 ||
@@ -424,8 +447,9 @@ export function SecurityProgramDialog({
         scopePolicy: draft.scopePolicy,
         verifiedAt: timestampFromDate(new Date(draft.verifiedAt)),
         scanTargets: draft.scanTargets.map((target) => ({
-          repositoryUrl: target.repositoryUrl.trim(),
-          baseBranch: target.baseBranch.trim(),
+          repositoryUrl: target.targetType === "repository" ? target.repositoryUrl.trim() : "",
+          targetUrl: target.targetType === "website" ? target.targetUrl.trim() : "",
+          baseBranch: target.targetType === "repository" ? target.baseBranch.trim() : "",
           workflowRef: target.workflowRef.trim(),
           policyPackRef: target.policyPackRef.trim(),
           scanName: target.scanName.trim(),
@@ -982,10 +1006,10 @@ export function SecurityProgramDialog({
             <section className="space-y-3 border-y border-border/60 py-4" aria-labelledby="scan-targets-heading">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-1">
-                  <h3 id="scan-targets-heading" className="text-sm font-medium">Repository targets</h3>
+                  <h3 id="scan-targets-heading" className="text-sm font-medium">Scan targets</h3>
                   <p className="max-w-xl text-[11px] leading-relaxed text-muted-foreground">
-                    One program can cover multiple repositories. Each target becomes an independently
-                    importable scan configuration with its own branch and workflow.
+                    One program can cover multiple repositories and websites. Each target becomes an
+                    independently importable scan configuration with its own workflow.
                   </p>
                 </div>
                 <Button
@@ -996,20 +1020,23 @@ export function SecurityProgramDialog({
                   disabled={draft.scanTargets.length >= 256}
                 >
                   <Plus data-icon="inline-start" />
-                  Add repository
+                  Add target
                 </Button>
               </div>
               {draft.scanTargets.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border/70 px-4 py-5 text-center text-xs text-muted-foreground">
-                  No repository targets. The verified scope can still be saved without an import shortcut.
+                  No scan targets. The verified scope can still be saved without an import shortcut.
                 </div>
               ) : (
                 <div className="space-y-3">
                   {draft.scanTargets.map((target, index) => {
                     const repositoryUrl = target.repositoryUrl.trim();
+                    const targetUrl = target.targetUrl.trim();
                     const scanName = target.scanName.trim();
                     const repositoryUrlInvalid = repositoryUrl !== "" &&
                       (repositoryUrl.length > 2048 || !isHttpsUrl(repositoryUrl));
+                    const targetUrlInvalid = targetUrl !== "" &&
+                      (targetUrl.length > 2048 || !isHttpUrlOrDomain(targetUrl));
                     const scanNameInvalid = scanName !== "" && !isDNS1123Subdomain(scanName);
                     const duplicateScanName = scanName !== "" && (scanNameCounts.get(scanName) ?? 0) > 1;
                     const priorityInvalid = target.priority !== "" && !validPriority(target.priority);
@@ -1018,43 +1045,80 @@ export function SecurityProgramDialog({
                       <div key={target.id} className="rounded-xl border border-border/70 bg-muted/20 p-4">
                         <div className="mb-4 flex items-center justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="text-xs font-medium">Repository {index + 1}</p>
+                            <p className="text-xs font-medium">Target {index + 1}</p>
                             <p className="truncate font-mono text-[10px] text-muted-foreground">
-                              {scanName || repositoryUrl || "Unconfigured target"}
+                              {scanName || targetUrl || repositoryUrl || "Unconfigured target"}
                             </p>
                           </div>
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon-sm"
-                            aria-label={`Remove repository ${index + 1}`}
+                            aria-label={`Remove target ${index + 1}`}
                             onClick={() => removeScanTarget(index)}
                           >
                             <Trash2 />
                           </Button>
                         </div>
                         <div className="grid gap-4 sm:grid-cols-2">
-                          <FlowField
-                            id={`${fieldID}-repository-url`}
-                            label="Repository URL"
-                            required
-                            className="sm:col-span-2"
-                          >
-                            <Input
-                              id={`${fieldID}-repository-url`}
-                              type="url"
-                              required
-                              maxLength={2048}
-                              value={target.repositoryUrl}
-                              onChange={(event) => updateScanTarget(index, { repositoryUrl: event.target.value })}
-                              placeholder="https://github.com/acme/contracts"
-                              className="font-mono"
-                              aria-invalid={repositoryUrlInvalid}
-                            />
-                            {repositoryUrlInvalid && (
-                              <p className="pt-1 text-xs text-destructive">Enter an absolute HTTPS URL without user information.</p>
-                            )}
+                          <FlowField id={`${fieldID}-target-type`} label="Target type" required>
+                            <select
+                              id={`${fieldID}-target-type`}
+                              className={selectClass}
+                              value={target.targetType}
+                              onChange={(event) => updateScanTarget(index, {
+                                targetType: event.target.value as ScanTargetDraft["targetType"],
+                              })}
+                            >
+                              <option value="repository">Repository</option>
+                              <option value="website">Website or API</option>
+                            </select>
                           </FlowField>
+                          <div />
+                          {target.targetType === "repository" ? (
+                            <FlowField
+                              id={`${fieldID}-repository-url`}
+                              label="Repository URL"
+                              required
+                              className="sm:col-span-2"
+                            >
+                              <Input
+                                id={`${fieldID}-repository-url`}
+                                type="url"
+                                required
+                                maxLength={2048}
+                                value={target.repositoryUrl}
+                                onChange={(event) => updateScanTarget(index, { repositoryUrl: event.target.value })}
+                                placeholder="https://github.com/acme/contracts"
+                                className="font-mono"
+                                aria-invalid={repositoryUrlInvalid}
+                              />
+                              {repositoryUrlInvalid && (
+                                <p className="pt-1 text-xs text-destructive">Enter an absolute HTTPS URL without user information.</p>
+                              )}
+                            </FlowField>
+                          ) : (
+                            <FlowField
+                              id={`${fieldID}-target-url`}
+                              label="Website or API URL"
+                              required
+                              className="sm:col-span-2"
+                            >
+                              <Input
+                                id={`${fieldID}-target-url`}
+                                required
+                                maxLength={2048}
+                                value={target.targetUrl}
+                                onChange={(event) => updateScanTarget(index, { targetUrl: event.target.value })}
+                                placeholder="https://api.example.com"
+                                className="font-mono"
+                                aria-invalid={targetUrlInvalid}
+                              />
+                              {targetUrlInvalid && (
+                                <p className="pt-1 text-xs text-destructive">Enter an HTTP(S) URL or bare domain without user information.</p>
+                              )}
+                            </FlowField>
+                          )}
                           <FlowField
                             id={`${fieldID}-display-name`}
                             label="Target display name"
@@ -1092,17 +1156,19 @@ export function SecurityProgramDialog({
                               <p className="pt-1 text-xs text-destructive">Scan names must be unique within the program.</p>
                             )}
                           </FlowField>
-                          <FlowField id={`${fieldID}-base-branch`} label="Default branch" required>
-                            <Input
-                              id={`${fieldID}-base-branch`}
-                              required
-                              maxLength={255}
-                              value={target.baseBranch}
-                              onChange={(event) => updateScanTarget(index, { baseBranch: event.target.value })}
-                              placeholder="main"
-                              className="font-mono"
-                            />
-                          </FlowField>
+                          {target.targetType === "repository" && (
+                            <FlowField id={`${fieldID}-base-branch`} label="Default branch" required>
+                              <Input
+                                id={`${fieldID}-base-branch`}
+                                required
+                                maxLength={255}
+                                value={target.baseBranch}
+                                onChange={(event) => updateScanTarget(index, { baseBranch: event.target.value })}
+                                placeholder="main"
+                                className="font-mono"
+                              />
+                            </FlowField>
+                          )}
                           <FlowField id={`${fieldID}-workflow-ref`} label="Workflow" required>
                             <Input
                               id={`${fieldID}-workflow-ref`}
@@ -1146,7 +1212,7 @@ export function SecurityProgramDialog({
                           <div className="flex items-center justify-between gap-3 self-end rounded-lg border border-border/60 bg-background px-3 py-2">
                             <div className="space-y-0.5">
                               <Label htmlFor={`${fieldID}-featured`} className="text-[12.5px]">Featured target</Label>
-                              <p className="text-[10px] text-muted-foreground">Highlight this repository in target pickers.</p>
+                              <p className="text-[10px] text-muted-foreground">Highlight this target in target pickers.</p>
                             </div>
                             <Switch
                               id={`${fieldID}-featured`}

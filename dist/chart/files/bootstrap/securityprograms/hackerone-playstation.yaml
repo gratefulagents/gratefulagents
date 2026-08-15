@@ -1,0 +1,131 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackerone-playstation
+spec:
+  scanTargets:
+    - targetURL: "https://api.direct.playstation.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: playstation-direct-api
+      displayName: "PlayStation — Direct API"
+      priority: 6000
+      featured: false
+    - targetURL: "https://ca.account.sony.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: playstation-ca-account
+      displayName: "PlayStation — Canada account"
+      priority: 6001
+      featured: false
+    - targetURL: "https://checkout.playstation.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: playstation-checkout
+      displayName: "PlayStation — Checkout"
+      priority: 6002
+      featured: false
+    - targetURL: "https://direct.playstation.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: playstation-direct
+      displayName: "PlayStation — Direct"
+      priority: 6004
+      featured: false
+    - targetURL: "https://profile.playstation.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: playstation-profile
+      displayName: "PlayStation — Profile"
+      priority: 6007
+      featured: false
+    - targetURL: "https://ps5.np.playstation.net"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: playstation-ps5-network
+      displayName: "PlayStation — PS5 network"
+      priority: 6008
+      featured: false
+    - targetURL: "https://session-share.playstation.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: playstation-session-share
+      displayName: "PlayStation — Session share"
+      priority: 6009
+      featured: false
+    - targetURL: "https://social.playstation.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: playstation-social
+      displayName: "PlayStation — Social"
+      priority: 6010
+      featured: false
+    - targetURL: "https://store.playstation.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: playstation-store
+      displayName: "PlayStation — Store"
+      priority: 6011
+      featured: false
+    - targetURL: "https://transact.playstation.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: playstation-transact
+      displayName: "PlayStation — Transactions"
+      priority: 6012
+      featured: false
+    - targetURL: "https://wallets.api.playstation.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: playstation-wallets-api
+      displayName: "PlayStation — Wallets API"
+      priority: 6013
+      featured: false
+    - targetURL: "https://web.np.playstation.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: playstation-web-network
+      displayName: "PlayStation — Web network"
+      priority: 6014
+      featured: false
+  provider: HackerOne
+  displayName: PlayStation
+  programURL: https://hackerone.com/playstation
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  scopePolicy: |-
+    Browser-verified public scope snapshot (2026-08-15)
+
+    Authoritative engagement: https://hackerone.com/playstation
+    Official Sony reporting boundary: https://www.playstation.com/en-gb/legal/compliance/ukpstiregulations/
+    Browser-readable asset-table source: https://bbscope.com/program/h1/playstation (crawled one day before verification).
+
+    In-scope asset rows captured: 24
+    Wildcards: *.api.playstation.com; *.playstation.com (the table marks this broad row no bounty); *.playstation.net; *.sonyentertainmentnetwork.com.
+    Hardware and apps: PlayStation 4; PlayStation 5; Android PlayStation App; iOS PlayStation App.
+    Named web/API rows: api.direct.playstation.com; ca.account.sony.com; checkout.playstation.com; compete.playstation.com; direct.playstation.com; my.account.sony.com; my.playstation.com; profile.playstation.com; ps5.np.playstation.net; session-share.playstation.com; social.playstation.com; store.playstation.com; transact.playstation.com; wallets.api.playstation.com; web.np.playstation.com; www.playstation.com.
+
+    Out-of-scope asset rows captured: 0
+    Zero explicit asset rows does not mean all Sony assets are in scope. Sony directs vulnerabilities in other Sony products to Secure@Sony, and vulnerabilities in third-party games or software are handled by their publishers.
+
+    Importable target boundary
+    The 12 actionable exact first-party application, account, commerce, network, and API URLs are exposed as individual import targets. The discontinued My PlayStation host, a 404-only account root, the redirect-only Competition Center host, and the general marketing apex remain policy-only scope, together with wildcards, the broad no-bounty API row, consoles, hardware, mobile apps, and descriptive product rows. Imported account, store, wallet, and session targets still require current policy review and researcher-controlled accounts and data.
+
+    Operator gate
+    Re-open HackerOne before testing, confirm that the exact product/host row is still listed and bounty eligible, and use only researcher-controlled consoles, accounts, purchases, wallets, sessions, and data.
+  outOfScope:
+    - Any Sony asset not listed in the current PlayStation HackerOne table
+    - "The broad *.playstation.com row is marked no bounty in the captured table"
+    - Sony products outside the PlayStation program, which must be reported through Secure@Sony
+    - Third-party games, applications, publishers, payment providers, and services not operated by PlayStation
+    - Any account, console, wallet, transaction, session, purchase, or data not controlled by the researcher
+  prohibitedTesting:
+    - Do not expand an imported exact URL into wildcard, adjacent-host, API-range, or IP-range scanning
+    - Use only researcher-owned consoles, devices, accounts, payment methods, sessions, and data
+    - Do not access another player's account, messages, wallet, purchases, trophies, sessions, or personal data
+    - No denial of service, distributed denial of service, traffic flooding, brute force, spam, social engineering, or physical testing of facilities
+    - Do not test third-party games or services without separate authorization
+    - Manually validate automated or AI-assisted findings and provide a reproducible proof of impact
+    - Do not publicly disclose without coordinated approval

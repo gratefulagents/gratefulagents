@@ -9,8 +9,9 @@ import {
   type SecurityProgramScanTarget,
 } from "@/rpc/platform/service_pb";
 
-type TargetInput = Omit<SecurityProgramScanTarget, "$typeName" | "parameterValues"> & {
+type TargetInput = Omit<SecurityProgramScanTarget, "$typeName" | "parameterValues" | "targetUrl"> & {
   parameterValues?: Record<string, string>;
+  targetUrl?: string;
 };
 
 function target(input: TargetInput): SecurityProgramScanTarget {
@@ -77,6 +78,7 @@ describe("importableProgramTargets", () => {
         name: "scan-hidden",
         displayName: "Hidden",
         repoUrl: "https://example.com/hidden",
+        targetUrl: "",
         baseBranch: "main",
         workflowRef: "workflow-hidden",
         policyPackRef: "policy-hidden",
@@ -88,6 +90,7 @@ describe("importableProgramTargets", () => {
         name: "scan-first",
         displayName: "First",
         repoUrl: "https://example.com/first",
+        targetUrl: "",
         baseBranch: "master",
         workflowRef: "workflow-first",
         policyPackRef: "policy-first",
@@ -99,6 +102,7 @@ describe("importableProgramTargets", () => {
         name: "scan-alpha",
         displayName: "Alpha",
         repoUrl: "https://example.com/alpha",
+        targetUrl: "",
         baseBranch: "develop",
         workflowRef: "workflow-alpha",
         policyPackRef: "policy-alpha",
@@ -110,6 +114,7 @@ describe("importableProgramTargets", () => {
         name: "scan-zebra",
         displayName: "Zebra",
         repoUrl: "https://example.com/zebra",
+        targetUrl: "",
         baseBranch: "main",
         workflowRef: "workflow-zebra",
         policyPackRef: "policy-zebra",
@@ -118,6 +123,27 @@ describe("importableProgramTargets", () => {
         parameterValues: {},
       },
     ]);
+  });
+
+  it("maps every website URL to an independent scan target", () => {
+    const targets = importableProgramTargets([
+      program("web-program", [
+        {
+          featured: true, priority: 1, displayName: "Web", scanName: "web",
+          targetUrl: "https://app.example.com", repositoryUrl: "", baseBranch: "",
+          workflowRef: "web-app-full-assessment", policyPackRef: "web-application",
+        },
+        {
+          featured: true, priority: 2, displayName: "API", scanName: "api",
+          targetUrl: "https://api.example.com", repositoryUrl: "", baseBranch: "",
+          workflowRef: "web-api-assessment", policyPackRef: "web-application",
+        },
+      ]),
+    ]);
+
+    expect(targets).toHaveLength(2);
+    expect(targets[0]).toMatchObject({ name: "web", targetUrl: "https://app.example.com", repoUrl: "", baseBranch: "" });
+    expect(targets[1]).toMatchObject({ name: "api", targetUrl: "https://api.example.com", repoUrl: "", baseBranch: "" });
   });
 
   it("imports the deprecated single target and defaults its branch", () => {
