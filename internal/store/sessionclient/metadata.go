@@ -141,10 +141,47 @@ func (c *Client) WriteSubAgentCheckpoint(ctx context.Context, checkpoint json.Ra
 	if !json.Valid(checkpoint) {
 		return fmt.Errorf("marshaling session metadata %q: invalid JSON", metadataKeySubAgentCheckpoint)
 	}
+	checkpoint = sanitizeCheckpointJSONForPostgres(checkpoint)
 	if err := c.store.MergeSessionMetadata(ctx, c.sessionID, metadataKeySubAgentCheckpoint, checkpoint); err != nil {
 		return fmt.Errorf("merging session metadata %q: %w", metadataKeySubAgentCheckpoint, err)
 	}
 	return nil
+}
+
+// sanitizeCheckpointJSONForPostgres replaces JSON's escaped NUL character with
+// the Unicode replacement character. PostgreSQL jsonb rejects \u0000 because
+// PostgreSQL text cannot represent NUL (SQLSTATE 22P05), while JSON permits it.
+// Escaped backslashes are copied as a pair so a literal "\\u0000" is preserved.
+func sanitizeCheckpointJSONForPostgres(checkpoint json.RawMessage) json.RawMessage {
+	sanitized := make(json.RawMessage, 0, len(checkpoint))
+	inString := false
+	for i := 0; i < len(checkpoint); i++ {
+		current := checkpoint[i]
+		sanitized = append(sanitized, current)
+		if !inString {
+			if current == '"' {
+				inString = true
+			}
+			continue
+		}
+		if current == '"' {
+			inString = false
+			continue
+		}
+		if current != '\\' || i+1 >= len(checkpoint) {
+			continue
+		}
+		if i+5 < len(checkpoint) && checkpoint[i+1] == 'u' && string(checkpoint[i+2:i+6]) == "0000" {
+			sanitized = append(sanitized, 'u', 'f', 'f', 'f', 'd')
+			i += 5
+			continue
+		}
+		// This escape cannot start another escape. Copy its second byte now so
+		// an encoded literal backslash followed by "u0000" remains unchanged.
+		i++
+		sanitized = append(sanitized, checkpoint[i])
+	}
+	return sanitized
 }
 
 // ResetConversationWindow advances the durable history floor to the latest
