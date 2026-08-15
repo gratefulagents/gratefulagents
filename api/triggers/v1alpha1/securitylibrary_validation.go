@@ -154,6 +154,36 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 				add(field+".outputSchema", "task %q outputSchema must be a JSON object (a JSON Schema in object form)", name)
 			}
 		}
+		if task.When != nil {
+			if strings.TrimSpace(task.When.Task) == "" {
+				add(field+".when.task", "task %q condition needs a dependency task", name)
+			}
+			if strings.TrimSpace(task.When.Path) == "" {
+				add(field+".when.path", "task %q condition needs a structured-output path", name)
+			}
+			var scalar any
+			if err := json.Unmarshal([]byte(task.When.Equals), &scalar); err != nil {
+				add(field+".when.equals", "task %q condition equals must be a JSON boolean or string", name)
+			} else {
+				switch scalar.(type) {
+				case bool, string:
+				default:
+					add(field+".when.equals", "task %q condition equals must be a JSON boolean or string", name)
+				}
+			}
+			if output := strings.TrimSpace(task.When.OtherwiseOutput); output != "" {
+				if !json.Valid([]byte(output)) {
+					add(field+".when.otherwiseOutput", "task %q condition otherwiseOutput must be valid JSON", name)
+				} else if schema := strings.TrimSpace(task.OutputSchema); schema != "" {
+					if err := ValidateSecurityWorkflowOutput(schema, output); err != nil {
+						add(field+".when.otherwiseOutput", "task %q condition otherwiseOutput does not satisfy outputSchema: %v", name, err)
+					}
+				}
+			}
+			if strings.TrimSpace(task.OutputSchema) != "" && strings.TrimSpace(task.When.OtherwiseOutput) == "" {
+				add(field+".when.otherwiseOutput", "task %q condition needs otherwiseOutput because it declares outputSchema", name)
+			}
+		}
 	}
 
 	for i, task := range tasks {
@@ -169,6 +199,21 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 				add(field+".dependsOn", "task %q lists dependency %q twice", task.Name, dep)
 			}
 			depSet[dep] = true
+		}
+		if task.When != nil {
+			ref, known := byName[task.When.Task]
+			switch {
+			case !known:
+				add(field+".when.task", "task %q condition references unknown task %q", task.Name, task.When.Task)
+			case !depSet[task.When.Task] || task.When.Task == task.Name:
+				add(field+".when.task", "task %q condition task %q must also be listed in dependsOn", task.Name, task.When.Task)
+			case strings.TrimSpace(ref.OutputSchema) == "":
+				add(field+".when.task", "task %q condition task %q must declare outputSchema", task.Name, task.When.Task)
+			case !securityWorkflowSchemaAllowsObject(ref.OutputSchema):
+				add(field+".when.task", "task %q condition task %q outputSchema must allow an object", task.Name, task.When.Task)
+			case !securityWorkflowSchemaAllowsPath(ref.OutputSchema, task.When.Path):
+				add(field+".when.path", "task %q condition path %q is incompatible with task %q outputSchema", task.Name, task.When.Path, task.When.Task)
+			}
 		}
 
 		if task.ForEach != "" {
@@ -284,6 +329,14 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 // other than "array" cannot, an absent or non-string "type" is allowed (the
 // schema may be intentionally loose).
 func securityWorkflowSchemaAllowsArray(schema string) bool {
+	return securityWorkflowSchemaAllowsType(schema, "array")
+}
+
+func securityWorkflowSchemaAllowsObject(schema string) bool {
+	return securityWorkflowSchemaAllowsType(schema, "object")
+}
+
+func securityWorkflowSchemaAllowsType(schema, want string) bool {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(schema), &object); err != nil || object == nil {
 		return true // malformed schemas are rejected by the per-task check
@@ -296,7 +349,110 @@ func securityWorkflowSchemaAllowsArray(schema string) bool {
 	if err := json.Unmarshal(raw, &typeName); err != nil {
 		return true
 	}
-	return typeName == "array"
+	return typeName == want
+}
+
+// securityWorkflowSchemaAllowsPath rejects paths that contradict concrete
+// object properties in a source schema. Loose schemas remain allowed.
+func securityWorkflowSchemaAllowsPath(schema, path string) bool {
+	var current map[string]any
+	if err := json.Unmarshal([]byte(schema), &current); err != nil {
+		return true
+	}
+	segments := strings.Split(path, ".")
+	for i, segment := range segments {
+		properties, known := current["properties"].(map[string]any)
+		if !known {
+			return true
+		}
+		next, exists := properties[segment].(map[string]any)
+		if !exists {
+			return false
+		}
+		if i == len(segments)-1 {
+			if typ, known := next["type"].(string); known && (typ == "object" || typ == "array") {
+				return false
+			}
+			return true
+		}
+		if typ, known := next["type"].(string); known && typ != "object" {
+			return false
+		}
+		current = next
+	}
+	return false
+}
+
+// ValidateSecurityWorkflowOutput checks the dependency-free JSON Schema subset
+// used by workflow task outputs: type, required, properties, and array items.
+func ValidateSecurityWorkflowOutput(schemaJSON, valueJSON string) error {
+	var schema map[string]any
+	if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil {
+		return fmt.Errorf("invalid schema: %w", err)
+	}
+	var value any
+	if err := json.Unmarshal([]byte(valueJSON), &value); err != nil {
+		return fmt.Errorf("invalid value: %w", err)
+	}
+	return validateSecurityWorkflowValue(schema, value, "$")
+}
+
+func validateSecurityWorkflowValue(schema map[string]any, value any, path string) error {
+	if typ, ok := schema["type"].(string); ok {
+		valid := false
+		switch typ {
+		case "object":
+			_, valid = value.(map[string]any)
+		case "array":
+			_, valid = value.([]any)
+		case "string":
+			_, valid = value.(string)
+		case "boolean":
+			_, valid = value.(bool)
+		case "number", "integer":
+			_, valid = value.(float64)
+		case "null":
+			valid = value == nil
+		default:
+			valid = true // unsupported schema types are handled by AgentRun tooling
+		}
+		if !valid {
+			return fmt.Errorf("%s must be %s", path, typ)
+		}
+	}
+	if object, ok := value.(map[string]any); ok {
+		if required, ok := schema["required"].([]any); ok {
+			for _, raw := range required {
+				name, ok := raw.(string)
+				if ok {
+					if _, exists := object[name]; !exists {
+						return fmt.Errorf("%s is missing required property %q", path, name)
+					}
+				}
+			}
+		}
+		if properties, ok := schema["properties"].(map[string]any); ok {
+			for name, childValue := range object {
+				child, ok := properties[name].(map[string]any)
+				if !ok {
+					continue
+				}
+				if err := validateSecurityWorkflowValue(child, childValue, path+"."+name); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if array, ok := value.([]any); ok {
+		if items, ok := schema["items"].(map[string]any); ok {
+			for i, item := range array {
+				if err := validateSecurityWorkflowValue(items, item, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // validateSecurityWorkflowToolList validates one tools.allowed/denied list:

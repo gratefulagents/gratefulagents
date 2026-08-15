@@ -573,6 +573,7 @@ func planSecurityScanExecution(workflow []triggersv1alpha1.SecurityScanTask, ext
 			DependsOn:  append([]string(nil), task.DependsOn...),
 			ForEach:    task.ForEach,
 			TargetRuns: task.TargetRuns,
+			When:       task.When.DeepCopy(),
 		})
 		instances := int32(1)
 		if task.ForEach == "" {
@@ -1194,6 +1195,15 @@ func (e *securityScanExecutionEngine) expandFanOuts(ctx context.Context) bool {
 	return materialized
 }
 
+func (e *securityScanExecutionEngine) plannedWhen(name string) *triggersv1alpha1.SecurityScanTaskCondition {
+	for _, node := range e.exec.Plan {
+		if node.Name == name {
+			return node.When.DeepCopy()
+		}
+	}
+	return nil
+}
+
 func (e *securityScanExecutionEngine) plannedForEach(name string) string {
 	for _, node := range e.exec.Plan {
 		if node.Name == name {
@@ -1584,9 +1594,34 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 			continue
 		}
 		task := e.tasks[entry.Name]
+		task.When = e.plannedWhen(task.Name)
 		if !e.depsSatisfied(task) {
 			entry.State = triggersv1alpha1.SecurityScanTaskStateBlocked
 			continue
+		}
+		if task.When != nil {
+			matched, err := e.taskConditionMatches(ctx, task)
+			if err != nil {
+				entry.State = triggersv1alpha1.SecurityScanTaskStateFailed
+				entry.LastError = truncateSecurityScanError("task condition: " + err.Error())
+				entry.FinishedAt = &e.now
+				continue
+			}
+			if !matched {
+				output := strings.TrimSpace(task.When.OtherwiseOutput)
+				if schema := strings.TrimSpace(task.OutputSchema); schema != "" {
+					if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(schema, output); err != nil {
+						entry.State = triggersv1alpha1.SecurityScanTaskStateFailed
+						entry.LastError = truncateSecurityScanError("task condition otherwiseOutput: " + err.Error())
+						entry.FinishedAt = &e.now
+						continue
+					}
+				}
+				entry.State = triggersv1alpha1.SecurityScanTaskStateSucceeded
+				entry.StructuredOutput = output
+				entry.FinishedAt = &e.now
+				continue
+			}
 		}
 		// A forEach task whose entries still form the un-started placeholder
 		// is expanded (not launched) once its source completes; expansion
@@ -1614,6 +1649,49 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 			running++
 		}
 	}
+}
+
+// taskConditionMatches evaluates a task's controller-side launch condition.
+// It deliberately supports object traversal only: selectors over arrays are
+// ambiguous under schema evolution and belong in an explicit producer field.
+func (e *securityScanExecutionEngine) taskConditionMatches(ctx context.Context, task triggersv1alpha1.SecurityScanTask) (bool, error) {
+	condition := task.When
+	if condition == nil {
+		return true, nil
+	}
+	raw, err := e.taskOutput(ctx, condition.Task)
+	if err != nil {
+		return false, fmt.Errorf("read %q output: %w", condition.Task, err)
+	}
+	var value any
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return false, fmt.Errorf("decode %q output: %w", condition.Task, err)
+	}
+	for _, segment := range strings.Split(condition.Path, ".") {
+		object, ok := value.(map[string]any)
+		if !ok {
+			return false, fmt.Errorf("path %q traverses a non-object at %q", condition.Path, segment)
+		}
+		value, ok = object[segment]
+		if !ok {
+			return false, fmt.Errorf("path %q is missing segment %q", condition.Path, segment)
+		}
+	}
+	actual, err := json.Marshal(value)
+	if err != nil {
+		return false, fmt.Errorf("encode value at %q: %w", condition.Path, err)
+	}
+	var expected any
+	if err := json.Unmarshal([]byte(condition.Equals), &expected); err != nil {
+		return false, fmt.Errorf("decode expected value: %w", err)
+	}
+	canonicalExpected, err := json.Marshal(expected)
+	if err != nil {
+		return false, fmt.Errorf("encode expected value: %w", err)
+	}
+	return string(actual) == string(canonicalExpected), nil
 }
 
 // executionStarted reports whether the execution has ever dispatched a task
@@ -1900,6 +1978,13 @@ func (e *securityScanExecutionEngine) taskInstanceOutputs(ctx context.Context, n
 	for _, entry := range entries {
 		if entry.State != triggersv1alpha1.SecurityScanTaskStateSucceeded {
 			return nil, false, fmt.Errorf("task %q has not succeeded", name)
+		}
+		if out := strings.TrimSpace(entry.StructuredOutput); out != "" {
+			if !json.Valid([]byte(out)) {
+				return nil, false, fmt.Errorf("task %q controller output is invalid JSON", name)
+			}
+			outputs = append(outputs, out)
+			continue
 		}
 		if entry.RunName == "" {
 			continue // vacuously succeeded zero-instance fan-out marker

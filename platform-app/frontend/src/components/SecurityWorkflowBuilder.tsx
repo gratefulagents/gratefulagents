@@ -18,6 +18,7 @@ import {
   edgeMidpoint,
 } from "@/components/security-dag";
 import {
+  SecurityScanTaskConditionSchema,
   SecurityScanTaskConfigSchema,
   SecurityScanTaskToolsSchema,
   SecurityWorkflowParameterSchema,
@@ -72,6 +73,11 @@ export interface WorkflowTaskDraft {
   /** Desired chunk count for complete fan-out (1-50); exclusive with maxInstances. */
   targetRuns: string;
   repeats: string;
+  /** Dependency-output launch condition; all fields empty disables it. */
+  whenTask: string;
+  whenPath: string;
+  whenEquals: string;
+  whenOtherwiseOutput: string;
 }
 
 export interface WorkflowFieldError {
@@ -99,6 +105,10 @@ export function emptyWorkflowTask(): WorkflowTaskDraft {
     maxInstances: "",
     targetRuns: "",
     repeats: "",
+    whenTask: "",
+    whenPath: "",
+    whenEquals: "",
+    whenOtherwiseOutput: "",
   };
 }
 
@@ -130,6 +140,10 @@ export function workflowTasksFromProto(tasks: SecurityScanTaskConfig[]): Workflo
     maxInstances: t.maxInstances ? String(t.maxInstances) : "",
     targetRuns: t.targetRuns ? String(t.targetRuns) : "",
     repeats: t.repeats ? String(t.repeats) : "",
+    whenTask: t.when?.task ?? "",
+    whenPath: t.when?.path ?? "",
+    whenEquals: t.when?.equals ?? "",
+    whenOtherwiseOutput: t.when?.otherwiseOutput ?? "",
   }));
 }
 
@@ -163,6 +177,15 @@ export function workflowTasksToProto(tasks: WorkflowTaskDraft[]): SecurityScanTa
       targetRuns: t.targetRuns.trim() ? Number(t.targetRuns) : 0,
       repeats: t.repeats.trim() ? Number(t.repeats) : 0,
       skillRefs: t.skillRefs.map((name) => name.trim()).filter(Boolean),
+      when:
+        t.whenTask.trim() || t.whenPath.trim() || t.whenEquals.trim() || t.whenOtherwiseOutput.trim()
+          ? create(SecurityScanTaskConditionSchema, {
+              task: t.whenTask.trim(),
+              path: t.whenPath.trim(),
+              equals: t.whenEquals.trim(),
+              otherwiseOutput: t.whenOtherwiseOutput.trim(),
+            })
+          : undefined,
     });
     return task;
   });
@@ -300,6 +323,37 @@ export function validateWorkflowTasks(tasks: WorkflowTaskDraft[]): WorkflowField
         errors.push({ field: `${field}.outputSchema`, message: `Task "${name}" output schema must be a JSON object.` });
       }
     }
+    const conditionEnabled = Boolean(
+      task.whenTask.trim() || task.whenPath.trim() || task.whenEquals.trim() || task.whenOtherwiseOutput.trim(),
+    );
+    if (conditionEnabled) {
+      const conditionTask = task.whenTask.trim();
+      if (conditionTask === "" || !task.dependsOn.includes(conditionTask)) {
+        errors.push({ field: `${field}.when.task`, message: `Task "${name}" condition must name one of its dependencies.` });
+      }
+      if (task.whenPath.trim() === "") {
+        errors.push({ field: `${field}.when.path`, message: `Task "${name}" condition needs an output path.` });
+      }
+      let expected: unknown;
+      try {
+        expected = JSON.parse(task.whenEquals.trim());
+      } catch {
+        expected = undefined;
+      }
+      if (typeof expected !== "boolean" && typeof expected !== "string") {
+        errors.push({ field: `${field}.when.equals`, message: `Task "${name}" condition equals must be a JSON boolean or string such as true or "detected".` });
+      }
+      const otherwiseOutput = task.whenOtherwiseOutput.trim();
+      if (outputSchema !== "" && otherwiseOutput === "") {
+        errors.push({ field: `${field}.when.otherwiseOutput`, message: `Task "${name}" needs otherwise output because it declares an output schema.` });
+      } else if (otherwiseOutput !== "") {
+        try {
+          JSON.parse(otherwiseOutput);
+        } catch {
+          errors.push({ field: `${field}.when.otherwiseOutput`, message: `Task "${name}" otherwise output must be valid JSON.` });
+        }
+      }
+    }
     const forEach = task.forEach.trim();
     if (forEach !== "" && !task.dependsOn.includes(forEach)) {
       errors.push({ field: `${field}.forEach`, message: `Task "${name}" for-each must name one of its dependencies.` });
@@ -357,6 +411,34 @@ export function validateWorkflowTasks(tasks: WorkflowTaskDraft[]): WorkflowField
     task.forEach.trim() !== "" || (isNonNegativeInt(task.repeats.trim()) && Number(task.repeats.trim()) > 1);
   tasks.forEach((task, index) => {
     const name = task.name.trim();
+    const conditionTask = task.whenTask.trim();
+    if (conditionTask !== "") {
+      const source = byName.get(conditionTask);
+      if (source?.outputSchema.trim()) {
+        try {
+          let schema = JSON.parse(source.outputSchema) as { type?: unknown; properties?: Record<string, unknown> };
+          if (schema.type !== undefined && schema.type !== "object") {
+            errors.push({ field: `tasks[${index}].when.task`, message: `Task "${name}" condition source "${conditionTask}" must publish an object.` });
+          } else {
+            const segments = task.whenPath.trim().split(".");
+            for (const [segmentIndex, segment] of segments.entries()) {
+              if (!schema.properties) break;
+              const child = schema.properties[segment] as { type?: unknown; properties?: Record<string, unknown> } | undefined;
+              const last = segmentIndex === segments.length - 1;
+              const incompatible = !child || (!last && child.type !== undefined && child.type !== "object") ||
+                (last && (child.type === "object" || child.type === "array"));
+              if (incompatible) {
+                errors.push({ field: `tasks[${index}].when.path`, message: `Task "${name}" condition path is incompatible with "${conditionTask}" output schema.` });
+                break;
+              }
+              schema = child;
+            }
+          }
+        } catch {
+          // Generic output-schema validation reports malformed JSON.
+        }
+      }
+    }
     const forEach = task.forEach.trim();
     if (forEach !== "") {
       const source = byName.get(forEach);
@@ -1144,6 +1226,64 @@ export function SecurityWorkflowBuilder({
                     placeholder='{"type":"object","properties":{...}}'
                   />
                 </FlowField>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FlowField
+                    id={`${idPrefix}-inspector-when-task`}
+                    label="Run only when"
+                    hint="Dependency whose structured output controls whether an AgentRun is created."
+                  >
+                    <select
+                      id={`${idPrefix}-inspector-when-task`}
+                      className={selectClass}
+                      value={selected.whenTask}
+                      onChange={(event) => updateTask(selectedIndex, { whenTask: event.target.value })}
+                    >
+                      <option value="">Off</option>
+                      {selected.dependsOn.filter(Boolean).map((dep) => (
+                        <option key={dep} value={dep}>{dep}</option>
+                      ))}
+                    </select>
+                  </FlowField>
+                  <FlowField
+                    id={`${idPrefix}-inspector-when-path`}
+                    label="Condition path"
+                    hint="Dot-separated object path in that task's structured output."
+                  >
+                    <Input
+                      id={`${idPrefix}-inspector-when-path`}
+                      value={selected.whenPath}
+                      onChange={(event) => updateTask(selectedIndex, { whenPath: event.target.value })}
+                      placeholder="specialists.evm-protocol-specialist"
+                      className="font-mono"
+                    />
+                  </FlowField>
+                  <FlowField
+                    id={`${idPrefix}-inspector-when-equals`}
+                    label="Condition equals"
+                    hint={'JSON boolean or string that enables the run, such as true or "detected".'}
+                  >
+                    <Input
+                      id={`${idPrefix}-inspector-when-equals`}
+                      value={selected.whenEquals}
+                      onChange={(event) => updateTask(selectedIndex, { whenEquals: event.target.value })}
+                      placeholder="true"
+                      className="font-mono"
+                    />
+                  </FlowField>
+                  <FlowField
+                    id={`${idPrefix}-inspector-when-otherwise`}
+                    label="Otherwise output"
+                    hint="Structured JSON published without launching an agent when the condition is false."
+                  >
+                    <Textarea
+                      id={`${idPrefix}-inspector-when-otherwise`}
+                      value={selected.whenOtherwiseOutput}
+                      onChange={(event) => updateTask(selectedIndex, { whenOtherwiseOutput: event.target.value })}
+                      placeholder='{"status":"skipped"}'
+                      className="min-h-16 font-mono"
+                    />
+                  </FlowField>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <FlowField
                     id={`${idPrefix}-inspector-for-each`}

@@ -163,6 +163,14 @@ func securityWorkflowTasksFromProto(
 			retries := t.GetMaxRetries()
 			task.MaxRetries = &retries
 		}
+		if condition := t.GetWhen(); condition != nil {
+			task.When = &triggersv1alpha1.SecurityScanTaskCondition{
+				Task:            strings.TrimSpace(condition.GetTask()),
+				Path:            strings.TrimSpace(condition.GetPath()),
+				Equals:          strings.TrimSpace(condition.GetEquals()),
+				OtherwiseOutput: strings.TrimSpace(condition.GetOtherwiseOutput()),
+			}
+		}
 		if task.MaxTurns < 0 {
 			errs = append(errs, triggersv1alpha1.SecurityWorkflowFieldError{
 				Field:   fmt.Sprintf("tasks[%d].maxTurns", i),
@@ -215,6 +223,14 @@ func securityScanTaskToProto(t triggersv1alpha1.SecurityScanTask) *platform.Secu
 		pb.Tools = &platform.SecurityScanTaskTools{
 			Allowed: append([]string(nil), t.Tools.Allowed...),
 			Denied:  append([]string(nil), t.Tools.Denied...),
+		}
+	}
+	if t.When != nil {
+		pb.When = &platform.SecurityScanTaskCondition{
+			Task:            t.When.Task,
+			Path:            t.When.Path,
+			Equals:          t.When.Equals,
+			OtherwiseOutput: t.When.OtherwiseOutput,
 		}
 	}
 	return pb

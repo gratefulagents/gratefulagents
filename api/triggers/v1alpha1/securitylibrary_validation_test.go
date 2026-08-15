@@ -60,6 +60,37 @@ func TestValidateSecurityWorkflowTasksExecutionFieldsHappyPath(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityWorkflowTaskCondition(t *testing.T) {
+	tasks := []SecurityScanTask{
+		{Name: "detect", Objective: "detect", OutputSchema: `{"type":"object"}`},
+		{
+			Name:         "specialist",
+			Objective:    "review",
+			DependsOn:    []string{"detect"},
+			OutputSchema: `{"type":"object","required":["status"],"properties":{"status":{"type":"string"}}}`,
+			When: &SecurityScanTaskCondition{
+				Task: "detect", Path: "specialists.evm", Equals: "true", OtherwiseOutput: `{"status":"skipped"}`,
+			},
+		},
+	}
+	if errs := ValidateSecurityWorkflowTasks(tasks); len(errs) != 0 {
+		t.Fatalf("expected valid condition, got %v", errs)
+	}
+
+	tasks[1].When.Task = "missing"
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].when.task", "unknown task")
+	tasks[1].When.Task = "detect"
+	tasks[1].When.OtherwiseOutput = ""
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].when.otherwiseOutput", "needs otherwiseOutput")
+	tasks[1].When.OtherwiseOutput = `{}`
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].when.otherwiseOutput", "does not satisfy outputSchema")
+	tasks[1].When.OtherwiseOutput = `{"status":"skipped"}`
+	tasks[0].OutputSchema = `{"type":"array"}`
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].when.task", "must allow an object")
+	tasks[0].OutputSchema = `{"type":"object","properties":{"specialists":{"type":"object","properties":{"solana":{"type":"boolean"}}}}}`
+	requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[1].when.path", "incompatible")
+}
+
 func TestValidateSecurityWorkflowTasksExecutionFieldFailures(t *testing.T) {
 	base := func() []SecurityScanTask {
 		return []SecurityScanTask{

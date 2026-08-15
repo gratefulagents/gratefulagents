@@ -24,13 +24,22 @@ spec:
         runtime/VM, consensus, contracts/programs/modules, bridge/rollup/prover, wallet/signer/custody,
         relayer/oracle/indexer/keeper/sequencer/batcher, RPC/P2P, tests, and deployment/release code, with
         repository-relative evidence files. Use detected only when source or configuration evidence supports
-        it, not from documentation or names alone; use inconclusive when evidence conflicts. This is inventory,
+        it, not from documentation or names alone; use inconclusive when evidence conflicts. Populate every
+        specialists boolean conservatively: each of the ten platform-specialist flags is true exactly when its
+        matching platform status is detected or inconclusive; bridge-l2-zk-specialist is true when a bridge,
+        rollup, prover, verifier, cross-chain message, or data-availability component is detected or inconclusive;
+        wallet-mpc-cryptography-specialist is true for any wallet, signer, custody, HSM, MPC, or threshold-crypto
+        component; economics-mev-governance-specialist is true whenever any production protocol platform is
+        detected or inconclusive; and off-chain-services-specialist is true for any relayer, oracle, indexer,
+        keeper, bundler, sequencer, batcher, prover service, RPC service, admin API, telemetry pipeline,
+        key-custody service, backup, or recovery component. Set a specialist flag false only when repository
+        evidence establishes that its entire area is absent; uncertainty must route to review. This is inventory,
         not a vulnerability hunt, and it must not claim that builds, tests, analyzers, fuzzers, provers, or
         network checks were executed.
       outputSchema: |-
         {
           "type": "object",
-          "required": ["revision", "scope", "platforms", "limitations"],
+          "required": ["revision", "scope", "platforms", "specialists", "limitations"],
           "properties": {
             "revision": {"type": "string"},
             "scope": {
@@ -68,6 +77,7 @@ spec:
                 }
               }
             },
+            "specialists": {"type":"object","required":["evm-protocol-specialist","solana-anchor-specialist","cosmos-cosmwasm-ibc-specialist","substrate-polkadot-xcm-specialist","aptos-move-specialist","sui-move-specialist","cairo-starknet-specialist","ton-specialist","algorand-specialist","bitcoin-lightning-specialist","bridge-l2-zk-specialist","wallet-mpc-cryptography-specialist","economics-mev-governance-specialist","off-chain-services-specialist"],"properties":{"evm-protocol-specialist":{"type":"boolean"},"solana-anchor-specialist":{"type":"boolean"},"cosmos-cosmwasm-ibc-specialist":{"type":"boolean"},"substrate-polkadot-xcm-specialist":{"type":"boolean"},"aptos-move-specialist":{"type":"boolean"},"sui-move-specialist":{"type":"boolean"},"cairo-starknet-specialist":{"type":"boolean"},"ton-specialist":{"type":"boolean"},"algorand-specialist":{"type":"boolean"},"bitcoin-lightning-specialist":{"type":"boolean"},"bridge-l2-zk-specialist":{"type":"boolean"},"wallet-mpc-cryptography-specialist":{"type":"boolean"},"economics-mev-governance-specialist":{"type":"boolean"},"off-chain-services-specialist":{"type":"boolean"}}},
             "limitations": {"type": "array", "items": {"type": "string"}}
           }
         }
@@ -484,6 +494,11 @@ spec:
         in limitations. Report only production-reachable attacker paths with decisive file:line evidence and
         return every resulting finding fingerprint; otherwise return an empty fingerprint list.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.evm-protocol-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"evm-protocol","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -509,6 +524,11 @@ spec:
         tool or test; record execution gaps in limitations. Report only concrete production-reachable attacker
         paths with decisive file:line evidence and return their finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.solana-anchor-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"solana-anchor","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -533,6 +553,11 @@ spec:
         not claim this manual task ran them. Record execution limits and report only concrete
         attacker paths with decisive file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.cosmos-cosmwasm-ibc-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"cosmos-cosmwasm-ibc","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -558,6 +583,11 @@ spec:
         task ran them. Record limitations and report only concrete attacker paths with decisive
         file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.substrate-polkadot-xcm-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"substrate-polkadot-xcm","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -583,6 +613,11 @@ spec:
         Prover, tests, or node. Record limitations and report only concrete attacker paths with decisive
         file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.aptos-move-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"aptos-move","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -607,6 +642,11 @@ spec:
         but do not claim this task ran compiler, tests, simulators, or validators. Record limitations
         and report only concrete attacker paths with decisive file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.sui-move-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"sui-move","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -631,6 +671,11 @@ spec:
         provers, or a devnet. Record limitations and report only concrete attacker paths with decisive
         file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.cairo-starknet-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"cairo-starknet","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -650,6 +695,11 @@ spec:
         emulator, property/stateful, compile/artifact, and integration tests, but do not claim this task ran any. Record TON-specific execution limits and report only concrete attacker paths with decisive
         file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.ton-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"ton","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -670,6 +720,11 @@ spec:
         any. Record Algorand-specific execution limits and report only concrete attacker paths with decisive
         file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.algorand-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"algorand","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -696,6 +751,11 @@ spec:
         tests. Record limitations and report only concrete attacker paths with decisive file:line evidence and
         finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.bitcoin-lightning-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"bitcoin-lightning","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -722,6 +782,11 @@ spec:
         tests, but do not claim this task executed any. Record limitations and report only concrete
         attacker paths with decisive file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.bridge-l2-zk-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"bridge-l2-zk","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -749,6 +814,11 @@ spec:
         and side-channel tests, but do not claim this task ran them. Record limitations and report
         only concrete attacker paths with decisive file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.wallet-mpc-cryptography-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"wallet-mpc-cryptography","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -779,6 +849,11 @@ spec:
         Record limitations and report only concrete attacker paths with decisive file:line evidence and
         finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.economics-mev-governance-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"economics-mev-governance","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
@@ -806,6 +881,11 @@ spec:
         contacted a service. Record limitations and report only concrete attacker paths with decisive
         file:line evidence and finding fingerprints.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      when:
+        task: detect-platforms-and-components
+        path: specialists.off-chain-services-specialist
+        equals: "true"
+        otherwiseOutput: '{"area":"off-chain-services","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
       outputSchema: |-
         {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
 
