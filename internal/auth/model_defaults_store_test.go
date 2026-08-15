@@ -39,23 +39,23 @@ func TestUserModelDefaultsUpsertGetDelete(t *testing.T) {
 
 	// Insert.
 	saved, err := store.UpsertUserModelDefaults(ctx, &auth.UserModelDefaults{
-		UserID: user.ID, Provider: "openai", Model: "gpt-5.2", ReasoningLevel: "high",
+		UserID: user.ID, Provider: "openai", AuthMode: "oauth", Model: "gpt-5.2", ReasoningLevel: "high",
 	})
 	if err != nil {
 		t.Fatalf("UpsertUserModelDefaults (insert): %v", err)
 	}
-	if saved.Provider != "openai" || saved.Model != "gpt-5.2" || saved.ReasoningLevel != "high" || saved.Disabled || saved.UpdatedAt.IsZero() {
+	if saved.Provider != "openai" || saved.AuthMode != "oauth" || saved.Model != "gpt-5.2" || saved.ReasoningLevel != "high" || saved.Disabled || saved.UpdatedAt.IsZero() {
 		t.Fatalf("unexpected saved defaults: %+v", saved)
 	}
 
 	// Update, flipping disabled while keeping values.
 	updated, err := store.UpsertUserModelDefaults(ctx, &auth.UserModelDefaults{
-		UserID: user.ID, Provider: "anthropic", Model: "claude-sonnet-4-6", ReasoningLevel: "medium", Disabled: true,
+		UserID: user.ID, Provider: "anthropic", AuthMode: "api-key", Model: "claude-sonnet-4-6", ReasoningLevel: "medium", Disabled: true,
 	})
 	if err != nil {
 		t.Fatalf("UpsertUserModelDefaults (update): %v", err)
 	}
-	if updated.Provider != "anthropic" || updated.Model != "claude-sonnet-4-6" || updated.ReasoningLevel != "medium" || !updated.Disabled {
+	if updated.Provider != "anthropic" || updated.AuthMode != "api-key" || updated.Model != "claude-sonnet-4-6" || updated.ReasoningLevel != "medium" || !updated.Disabled {
 		t.Fatalf("unexpected updated defaults: %+v", updated)
 	}
 
@@ -63,7 +63,7 @@ func TestUserModelDefaultsUpsertGetDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetUserModelDefaults (after update): %v", err)
 	}
-	if got == nil || got.Provider != "anthropic" || !got.Disabled {
+	if got == nil || got.Provider != "anthropic" || got.AuthMode != "api-key" || !got.Disabled {
 		t.Fatalf("round-trip defaults = %+v", got)
 	}
 

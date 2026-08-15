@@ -180,6 +180,7 @@ export function CreateProjectDialog({
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [authModeTouched, setAuthModeTouched] = useState(false);
   const [userSecrets, setUserSecrets] = useState<UserSecretOption[]>([]);
 
   const meta = providerMeta(form.provider);
@@ -210,16 +211,18 @@ export function CreateProjectDialog({
     const seeded = applyModelDefaults(myModelDefaults);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot prefill of untouched fields
     setForm((prev) =>
-      prev.provider === "anthropic" && !prev.model && !prev.reasoningLevel
+      prev.provider === "anthropic" && !prev.model && !prev.reasoningLevel && !authModeTouched
         ? {
             ...prev,
             provider: seeded.provider,
+            authMode:
+              seeded.provider === "copilot" ? "oauth" : seeded.authMode || prev.authMode,
             model: seeded.model,
             reasoningLevel: seeded.reasoningLevel,
           }
         : prev,
     );
-  }, [open, modelDefaultsLoaded, myModelDefaults]);
+  }, [open, modelDefaultsLoaded, myModelDefaults, authModeTouched]);
 
   // Load the user's saved credential presence + personal namespace when the
   // dialog opens, so we can offer "use a saved credential" and show where the
@@ -329,6 +332,7 @@ export function CreateProjectDialog({
   }, [open, useSaved, meta.oauthOnly, form.provider, credentials]);
 
   function update<K extends keyof FormState>(field: K, value: FormState[K]) {
+    if (field === "authMode") setAuthModeTouched(true);
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
@@ -347,6 +351,7 @@ export function CreateProjectDialog({
     setAvailableModels([]);
     setModelsLoading(false);
     setModelsError(null);
+    setAuthModeTouched(false);
     clearError();
   }, [clearError]);
 

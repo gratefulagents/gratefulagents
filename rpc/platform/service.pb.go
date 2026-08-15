@@ -12157,9 +12157,9 @@ func (x *UpdateMyRoleModelPreferencesRequest) GetPreferences() []*RoleModelPrefe
 	return nil
 }
 
-// ModelDefaults contains the calling user's personal default provider, model,
-// and reasoning level. Creation surfaces use it to prefill new projects,
-// triggers, and scan configs (not runs, which follow their project) so the
+// ModelDefaults contains the calling user's personal default provider, auth
+// mode, model, and reasoning level. Creation surfaces use it to prefill new
+// projects, triggers, and scan configs (not runs, which follow their project) so the
 // user does not have to pick a model every time; every field stays editable
 // per resource. `disabled` keeps the saved values but stops applying them
 // automatically.
@@ -12173,7 +12173,9 @@ type ModelDefaults struct {
 	// disabled turns off automatic application without clearing the values.
 	Disabled bool `protobuf:"varint,4,opt,name=disabled,proto3" json:"disabled,omitempty"`
 	// updated_at is unset when the user has never saved model defaults.
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// auth_mode selects which saved provider credential to use (api-key | oauth).
+	AuthMode      string `protobuf:"bytes,6,opt,name=auth_mode,json=authMode,proto3" json:"auth_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -12243,6 +12245,13 @@ func (x *ModelDefaults) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ModelDefaults) GetAuthMode() string {
+	if x != nil {
+		return x.AuthMode
+	}
+	return ""
+}
+
 type GetMyModelDefaultsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -12287,8 +12296,11 @@ type UpdateMyModelDefaultsRequest struct {
 	Model          string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
 	ReasoningLevel string                 `protobuf:"bytes,3,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"`
 	Disabled       bool                   `protobuf:"varint,4,opt,name=disabled,proto3" json:"disabled,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Optional for rolling compatibility: omitted by older clients preserves an
+	// existing auth mode; an explicitly empty value clears it.
+	AuthMode      *string `protobuf:"bytes,5,opt,name=auth_mode,json=authMode,proto3,oneof" json:"auth_mode,omitempty"` // api-key | oauth
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UpdateMyModelDefaultsRequest) Reset() {
@@ -12347,6 +12359,13 @@ func (x *UpdateMyModelDefaultsRequest) GetDisabled() bool {
 		return x.Disabled
 	}
 	return false
+}
+
+func (x *UpdateMyModelDefaultsRequest) GetAuthMode() string {
+	if x != nil && x.AuthMode != nil {
+		return *x.AuthMode
+	}
+	return ""
 }
 
 // GitIdentity contains a user's git commit settings. When set, AgentRuns the
@@ -40167,20 +40186,24 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"updated_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\"\n" +
 	" GetMyRoleModelPreferencesRequest\"i\n" +
 	"#UpdateMyRoleModelPreferencesRequest\x12B\n" +
-	"\vpreferences\x18\x01 \x03(\v2 .platform.v1.RoleModelPreferenceR\vpreferences\"\xc1\x01\n" +
+	"\vpreferences\x18\x01 \x03(\v2 .platform.v1.RoleModelPreferenceR\vpreferences\"\xde\x01\n" +
 	"\rModelDefaults\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12'\n" +
 	"\x0freasoning_level\x18\x03 \x01(\tR\x0ereasoningLevel\x12\x1a\n" +
 	"\bdisabled\x18\x04 \x01(\bR\bdisabled\x129\n" +
 	"\n" +
-	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x1b\n" +
-	"\x19GetMyModelDefaultsRequest\"\x95\x01\n" +
+	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1b\n" +
+	"\tauth_mode\x18\x06 \x01(\tR\bauthMode\"\x1b\n" +
+	"\x19GetMyModelDefaultsRequest\"\xc5\x01\n" +
 	"\x1cUpdateMyModelDefaultsRequest\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12'\n" +
 	"\x0freasoning_level\x18\x03 \x01(\tR\x0ereasoningLevel\x12\x1a\n" +
-	"\bdisabled\x18\x04 \x01(\bR\bdisabled\"\x93\x01\n" +
+	"\bdisabled\x18\x04 \x01(\bR\bdisabled\x12 \n" +
+	"\tauth_mode\x18\x05 \x01(\tH\x00R\bauthMode\x88\x01\x01B\f\n" +
+	"\n" +
+	"_auth_mode\"\x93\x01\n" +
 	"\vGitIdentity\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x129\n" +
@@ -44173,6 +44196,7 @@ func file_rpc_platform_service_proto_init() {
 		return
 	}
 	file_rpc_platform_service_proto_msgTypes[86].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[143].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[202].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[203].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[205].OneofWrappers = []any{}

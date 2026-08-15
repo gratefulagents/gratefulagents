@@ -3,12 +3,14 @@ import type { ModelDefaults } from "@/rpc/platform/service_pb";
 /** Values a fresh creation form is seeded with. */
 export type AppliedModelDefaults = {
   provider: string;
+  authMode: "" | "api-key" | "oauth";
   model: string;
   reasoningLevel: string;
 };
 
 export const FALLBACK_MODEL_DEFAULTS: AppliedModelDefaults = {
   provider: "anthropic",
+  authMode: "",
   model: "",
   reasoningLevel: "",
 };
@@ -38,6 +40,12 @@ export function applyModelDefaults(
   if (!hasActiveModelDefaults(defaults) || !defaults) return { ...FALLBACK_MODEL_DEFAULTS };
   return {
     provider: defaults.provider.trim() || FALLBACK_MODEL_DEFAULTS.provider,
+    authMode:
+      defaults.authMode?.trim() === "oauth"
+        ? "oauth"
+        : defaults.authMode?.trim() === "api-key"
+          ? "api-key"
+          : "",
     model: defaults.model.trim(),
     reasoningLevel: defaults.reasoningLevel.trim(),
   };

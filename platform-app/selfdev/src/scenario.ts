@@ -135,7 +135,7 @@ export interface Scenario {
   anthropicUsage: MyAnthropicUsage;
   soul: Soul;
   gitIdentity: GitIdentity;
-  /** Personal default provider/model/reasoning (getMyModelDefaults). */
+  /** Personal default provider/auth mode/model/reasoning (getMyModelDefaults). */
   modelDefaults: ModelDefaults;
 
   notifications: NotificationInfo[];

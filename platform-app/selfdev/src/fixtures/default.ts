@@ -1299,6 +1299,7 @@ const gitIdentity = create(GitIdentitySchema, {
 // Saved personal model defaults so create dialogs demonstrate prefill.
 const modelDefaults = create(ModelDefaultsSchema, {
   provider: "anthropic",
+  authMode: "api-key",
   model: "claude-sonnet-4-6",
   reasoningLevel: "high",
   updatedAt: timestampFromDate(daysAgo(6)),

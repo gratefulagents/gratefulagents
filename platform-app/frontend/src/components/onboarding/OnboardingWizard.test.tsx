@@ -165,6 +165,7 @@ describe("OnboardingWizard", () => {
     await screen.findByText("Default model saved");
     expect(client.updateMyModelDefaults).toHaveBeenCalledWith({
       provider: "openrouter",
+      authMode: "api-key",
       model: "z-ai/glm-4.7",
       reasoningLevel: "high",
       disabled: false,

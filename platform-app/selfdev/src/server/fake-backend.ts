@@ -1041,15 +1041,17 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
     getMyModelDefaults: async () => s.modelDefaults,
     updateMyModelDefaults: async (req: {
       provider: string;
+      authMode: string;
       model: string;
       reasoningLevel: string;
       disabled: boolean;
     }) => {
-      const cleared = !req.provider && !req.model && !req.reasoningLevel && !req.disabled;
+      const cleared = !req.provider && !req.authMode && !req.model && !req.reasoningLevel && !req.disabled;
       s.modelDefaults = cleared
         ? create(ModelDefaultsSchema, {})
         : create(ModelDefaultsSchema, {
             provider: req.provider,
+            authMode: req.authMode,
             model: req.model,
             reasoningLevel: req.reasoningLevel,
             disabled: req.disabled,

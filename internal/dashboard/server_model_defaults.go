@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/auth"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
@@ -62,20 +63,33 @@ func (s *Server) UpdateMyModelDefaults(ctx context.Context, req *platform.Update
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
 	}
 	provider := strings.ToLower(strings.TrimSpace(req.GetProvider()))
+	authMode := strings.ToLower(strings.TrimSpace(req.GetAuthMode()))
 	model := strings.TrimSpace(req.GetModel())
 	reasoningLevel := strings.ToLower(strings.TrimSpace(req.GetReasoningLevel()))
-	if err := validateModelDefaults(provider, model, reasoningLevel); err != nil {
+	if err := validateModelDefaults(provider, authMode, model, reasoningLevel); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	if provider == "" && model == "" && reasoningLevel == "" && !req.GetDisabled() {
+	if provider == "" && authMode == "" && model == "" && reasoningLevel == "" && !req.GetDisabled() {
 		if err := store.DeleteUserModelDefaults(ctx, actor.Subject); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("clear model defaults: %w", err))
 		}
 		return &platform.ModelDefaults{}, nil
 	}
+	// Older clients predate auth_mode. Preserve an existing selection when such
+	// a client replaces the other fields during a rolling upgrade.
+	if req.AuthMode == nil {
+		current, getErr := store.GetUserModelDefaults(ctx, actor.Subject)
+		if getErr != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get model defaults: %w", getErr))
+		}
+		if current != nil && current.Provider == provider {
+			authMode = current.AuthMode
+		}
+	}
 	defaults, err := store.UpsertUserModelDefaults(ctx, &auth.UserModelDefaults{
 		UserID:         actor.Subject,
 		Provider:       provider,
+		AuthMode:       authMode,
 		Model:          model,
 		ReasoningLevel: reasoningLevel,
 		Disabled:       req.GetDisabled(),
@@ -89,7 +103,7 @@ func (s *Server) UpdateMyModelDefaults(ctx context.Context, req *platform.Update
 // validateModelDefaults checks trimmed values. A provider without a model is
 // allowed (default provider only), as is a reasoning level alone; a model
 // without a provider is ambiguous and rejected.
-func validateModelDefaults(provider, model, reasoningLevel string) error {
+func validateModelDefaults(provider, authMode, model, reasoningLevel string) error {
 	if provider != "" {
 		if _, err := resolveProvider(provider, ""); err != nil {
 			return err
@@ -100,6 +114,20 @@ func validateModelDefaults(provider, model, reasoningLevel string) error {
 	}
 	if model != "" && provider == "" {
 		return fmt.Errorf("model requires a provider")
+	}
+	if authMode != "" && provider == "" {
+		return fmt.Errorf("auth mode requires a provider")
+	}
+	if authMode != "" && authMode != "api-key" && authMode != "oauth" {
+		return fmt.Errorf("unsupported auth mode %q (expected api-key or oauth)", authMode)
+	}
+	if provider == "copilot" && authMode != "" && authMode != "oauth" {
+		return fmt.Errorf("copilot requires oauth auth mode")
+	}
+	if provider != "" && authMode != "" {
+		if err := triggersv1alpha1.ValidateProviderAuthMode(provider, triggersv1alpha1.NormalizeAuthMode(authMode)); err != nil {
+			return err
+		}
 	}
 	if !validReasoningLevels[reasoningLevel] {
 		return fmt.Errorf("unsupported reasoning level %q (expected none, low, medium, high, xhigh, or max)", reasoningLevel)
@@ -115,6 +143,7 @@ func modelDefaultsToProto(defaults *auth.UserModelDefaults) *platform.ModelDefau
 		return out
 	}
 	out.Provider = defaults.Provider
+	out.AuthMode = defaults.AuthMode
 	out.Model = defaults.Model
 	out.ReasoningLevel = defaults.ReasoningLevel
 	out.Disabled = defaults.Disabled
