@@ -157,6 +157,9 @@ func TestCreateProjectCreatesCRDAndCredentialsSecret(t *testing.T) {
 	if profile.Spec.Security == nil {
 		t.Fatal("RuntimeProfile.Spec.Security is nil")
 	}
+	if profile.Spec.Sandbox == nil || !profile.Spec.Sandbox.EnablePrivateProcfs {
+		t.Fatalf("RuntimeProfile.Spec.Sandbox = %#v, want private procfs enabled", profile.Spec.Sandbox)
+	}
 	if profile.Spec.Security.PermissionMode != platformv1alpha1.PermissionModeWorkspaceWrite {
 		t.Fatalf("PermissionMode = %q, want workspace-write", profile.Spec.Security.PermissionMode)
 	}

@@ -207,8 +207,9 @@ func TestUpdateProjectCanConfigureRuntimeProfileAndMCPPolicy(t *testing.T) {
 		Spec: triggersv1alpha1.ProjectSpec{
 			DisplayName: "Payments",
 			Defaults: triggersv1alpha1.AgentRunDefaults{
-				Provider: triggersv1alpha1.ProviderOpenAI,
-				AuthMode: platformv1alpha1.AgentRunAuthModeAPIKey,
+				Provider:          triggersv1alpha1.ProviderOpenAI,
+				AuthMode:          platformv1alpha1.AgentRunAuthModeAPIKey,
+				RuntimeProfileRef: &platformv1alpha1.NamedRef{Name: "payments-runtime"},
 				Secrets: triggersv1alpha1.AgentRunSecrets{ProviderKeys: []platformv1alpha1.ProviderKeyRef{{
 					Provider:   triggersv1alpha1.ProviderOpenAI,
 					SecretName: "openai-secret",
@@ -216,7 +217,14 @@ func TestUpdateProjectCanConfigureRuntimeProfileAndMCPPolicy(t *testing.T) {
 			},
 		},
 	}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	legacyProfile := &platformv1alpha1.RuntimeProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "payments-runtime", Namespace: ns},
+		Spec: platformv1alpha1.RuntimeProfileSpec{Security: &platformv1alpha1.RuntimeProfileSecurity{
+			PermissionMode: platformv1alpha1.PermissionModeWorkspaceWrite,
+			EgressMode:     platformv1alpha1.EgressMode("unrestricted"),
+		}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing, legacyProfile).Build()
 	srv := &Server{k8sClient: c, scheme: scheme}
 
 	resp, err := srv.UpdateProject(projectActorCtx(), &platform.UpdateProjectRequest{
@@ -250,12 +258,43 @@ func TestUpdateProjectCanConfigureRuntimeProfileAndMCPPolicy(t *testing.T) {
 	if profile.Spec.Security == nil || profile.Spec.Security.PermissionMode != platformv1alpha1.PermissionModeReadOnly || profile.Spec.Security.EgressMode != platformv1alpha1.EgressMode("disabled") {
 		t.Fatalf("RuntimeProfile security = %#v, want read-only/disabled", profile.Spec.Security)
 	}
+	if profile.Spec.Sandbox == nil || !profile.Spec.Sandbox.EnablePrivateProcfs {
+		t.Fatalf("RuntimeProfile sandbox = %#v, want legacy profile migrated to private procfs", profile.Spec.Sandbox)
+	}
 	policy := &platformv1alpha1.MCPPolicy{}
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "payments-mcp-policy"}, policy); err != nil {
 		t.Fatalf("Get(MCPPolicy) error = %v", err)
 	}
 	if policy.Spec.DefaultAction != platformv1alpha1.MCPDefaultActionDeny || len(policy.Spec.AllowedServers) != 2 {
 		t.Fatalf("MCPPolicy spec = %#v, want Deny with two allowed servers", policy.Spec)
+	}
+}
+
+func TestApplyConfiguredRuntimeProfilePreservesExplicitPrivateProcfsOptOut(t *testing.T) {
+	scheme := testProjectScheme(t)
+	ns := testUserNS()
+	profile := &platformv1alpha1.RuntimeProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "portable-runtime", Namespace: ns},
+		Spec: platformv1alpha1.RuntimeProfileSpec{
+			Sandbox: &platformv1alpha1.RuntimeProfileSandbox{EnablePrivateProcfs: false},
+			Security: &platformv1alpha1.RuntimeProfileSecurity{
+				PermissionMode: platformv1alpha1.PermissionModeWorkspaceWrite,
+				EgressMode:     platformv1alpha1.EgressMode("unrestricted"),
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(profile).Build()
+	srv := &Server{k8sClient: c, scheme: scheme}
+
+	if _, _, err := srv.applyConfiguredRuntimeProfile(context.Background(), ns, "", true, profile.Name, "read-only", "disabled"); err != nil {
+		t.Fatalf("applyConfiguredRuntimeProfile() error = %v", err)
+	}
+	got := &platformv1alpha1.RuntimeProfile{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: profile.Name}, got); err != nil {
+		t.Fatalf("Get(RuntimeProfile) error = %v", err)
+	}
+	if got.Spec.Sandbox == nil || got.Spec.Sandbox.EnablePrivateProcfs {
+		t.Fatalf("RuntimeProfile sandbox = %#v, want explicit private procfs opt-out preserved", got.Spec.Sandbox)
 	}
 }
 
