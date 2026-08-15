@@ -106,9 +106,11 @@ COPY --from=halmos-root / /usr/local/share/ga-security/toolroots/halmos/
 COPY --from=go-fuzz-root / /usr/local/share/ga-security/toolroots/go-fuzz-tests/
 COPY --from=cargo-fuzz-root / /usr/local/share/ga-security/toolroots/cargo-fuzz/
 COPY --from=builder /out/tools/forge /usr/local/share/ga-security/toolroots/halmos/usr/local/bin/forge
-RUN cp -L /usr/local/share/ga-security/toolroots/slither/home/ethsec/.local/bin/solc /usr/local/share/ga-security/toolroots/halmos/usr/local/bin/solc \
+RUN if [ "$(dpkg --print-architecture)" = "amd64" ]; then cp /usr/local/bin/medusa /usr/local/share/ga-security/toolroots/slither/usr/local/bin/medusa; fi \
+    && cp -L /usr/local/share/ga-security/toolroots/slither/home/ethsec/.local/bin/solc /usr/local/share/ga-security/toolroots/halmos/usr/local/bin/solc \
     && for root in slither halmos go-fuzz-tests cargo-fuzz; do mkdir -p "/usr/local/share/ga-security/toolroots/${root}/work" "/usr/local/share/ga-security/toolroots/${root}/etc" "/usr/local/share/ga-security/toolroots/${root}/dev/shm"; : > "/usr/local/share/ga-security/toolroots/${root}/dev/null"; rm -f "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf" "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/resolv.conf"; : > "/usr/local/share/ga-security/toolroots/${root}/etc/hosts"; done \
     && printf '%s\n' 'sha256:65b53faf87985c6b43a98ac0da9158235715cb767bf1fe68e2e3f94ccb281978' > /usr/local/share/ga-security/toolroots/slither/.ga-oci-digest \
+    && if [ "$(dpkg --print-architecture)" = "amd64" ]; then printf '%s\n' 'sha256:501378783e7caab89e2567fd10fb6aec1193e5afed89fca17aba900fdd520df0' > /usr/local/share/ga-security/toolroots/slither/.ga-medusa-closure-digest; fi \
     && printf '%s\n' 'sha256:7ac9f37f8554d8354a7a924eb81393fe30f1bbe851e07c4c35f33a935f53593f' > /usr/local/share/ga-security/toolroots/halmos/.ga-oci-digest \
     && printf '%s\n' 'sha256:2005724102f45917a63e9d092fc0e4ea56ea575048ce147caad5f5f61502c365' > /usr/local/share/ga-security/toolroots/go-fuzz-tests/.ga-oci-digest \
     && printf '%s\n' 'sha256:f393fca4c2be92f68d811beae8829cda9db8a88ed4164cbeb7a7e1bc1cbfe89b' > /usr/local/share/ga-security/toolroots/cargo-fuzz/.ga-oci-digest \

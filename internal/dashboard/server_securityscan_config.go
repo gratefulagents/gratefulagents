@@ -70,25 +70,34 @@ func (s *Server) GetSecurityScanConfig(
 	}
 	pb := securityScanConfigProto(cr)
 	pb.Owner, pb.MyPermission = s.resourceACL(ctx, securityScanResourceType, cr.Name, cr.Namespace)
-	s.populateSecurityScanTaskOutputs(ctx, cr.Namespace, pb.LastExecution)
+	s.populateSecurityScanTaskOutputs(ctx, cr.Namespace, pb.LastExecution, cr.Status.LastExecution)
 	return pb, nil
 }
 
 // populateSecurityScanTaskOutputs copies each deterministic task instance's
-// structured output (AgentRun status.structuredOutput, written by the
-// submit_task_output tool) into the execution-state proto. Outputs are read
-// at response time instead of being mirrored into the SecurityScan CR so
-// etcd never carries the payloads (64KiB per task instance). Best-effort:
+// structured output from ordinary AgentRuns into the execution-state proto.
+// Controller-published condition fallback outputs are already copied from the
+// SecurityScan status and are left intact. AgentRun outputs are read at response
+// time instead of being mirrored into the SecurityScan CR so etcd never carries
+// those larger payloads (64KiB per task instance). Best-effort:
 // deleted or unreadable runs simply leave output_json empty. Only the
 // single-get path calls this — list responses stay lean.
 func (s *Server) populateSecurityScanTaskOutputs(
 	ctx context.Context, namespace string, exec *platform.SecurityScanExecutionState,
+	source *triggersv1alpha1.SecurityScanExecutionStatus,
 ) {
-	if exec == nil || exec.Mode != triggersv1alpha1.SecurityScanExecutionModeDeterministic {
+	if exec == nil || source == nil || exec.Mode != triggersv1alpha1.SecurityScanExecutionModeDeterministic {
 		return
 	}
+	controllerOutputs := make(map[string]string)
+	for _, task := range source.Tasks {
+		if task.StructuredOutput != "" {
+			controllerOutputs[fmt.Sprintf("%s/%d", task.Name, task.Instance)] = task.StructuredOutput
+		}
+	}
 	for _, task := range exec.Tasks {
-		if task.RunName == "" || task.State != triggersv1alpha1.SecurityScanTaskStateSucceeded {
+		task.OutputJson = controllerOutputs[fmt.Sprintf("%s/%d", task.Name, task.Instance)]
+		if task.OutputJson != "" || task.RunName == "" || task.State != triggersv1alpha1.SecurityScanTaskStateSucceeded {
 			continue
 		}
 		run := &platformv1alpha1.AgentRun{}
@@ -999,12 +1008,18 @@ func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionSt
 		})
 	}
 	for _, p := range e.Plan {
-		pb.Plan = append(pb.Plan, &platform.SecurityScanExecutionPlanNode{
+		pbNode := &platform.SecurityScanExecutionPlanNode{
 			Name:       p.Name,
 			DependsOn:  append([]string(nil), p.DependsOn...),
 			ForEach:    p.ForEach,
 			TargetRuns: p.TargetRuns,
-		})
+		}
+		if p.When != nil {
+			pbNode.When = &platform.SecurityScanTaskCondition{
+				Task: p.When.Task, Path: p.When.Path, Equals: p.When.Equals, OtherwiseOutput: p.When.OtherwiseOutput,
+			}
+		}
+		pb.Plan = append(pb.Plan, pbNode)
 	}
 	for _, j := range e.PostScriptJobs {
 		pbJob := &platform.SecurityScanPostScriptJobState{

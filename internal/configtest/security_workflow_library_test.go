@@ -256,7 +256,6 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 		"map-architecture-assets-roles-entrypoints",
 		"define-security-invariants",
 		"reproducible-build-artifact-deployment-review",
-		"aderyn-static-analysis",
 		"slither-static-analysis",
 		"merge-solidity-static-analysis",
 		"deterministic-forge-tests-and-invariants",
@@ -296,7 +295,6 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 			"define-security-invariants",
 		},
 		"merge-solidity-static-analysis": {
-			"aderyn-static-analysis",
 			"slither-static-analysis",
 		},
 		"account-build-and-static-coverage": {
@@ -416,7 +414,6 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 	}
 
 	for name, tool := range map[string]string{
-		"aderyn-static-analysis":                   "aderyn",
 		"slither-static-analysis":                  "slither",
 		"deterministic-forge-tests-and-invariants": "forge-security-tests",
 		"echidna-stateful-property-fuzzing":        "echidna",

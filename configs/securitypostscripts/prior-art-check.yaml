@@ -14,7 +14,7 @@ spec:
     reach is unavailable evidence, not a clean result.
 
     Check in this order and stop at the first confirmed match:
-    1. Bot findability: would a standard detector — slither, aderyn, a
+    1. Bot findability: would a standard detector — slither or a
        semgrep-style rule, or this platform's own bot pass — report this
        pattern from the source alone? Name the tool and the rule. Anything
        bot-findable, and every finding sharing its pattern, is unpayable.
