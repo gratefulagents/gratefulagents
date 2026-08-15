@@ -9,7 +9,10 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-type TargetInput = Omit<SecurityProgramResource["scanTargets"][number], "$typeName">;
+type TargetInput = Omit<
+  SecurityProgramResource["scanTargets"][number],
+  "$typeName" | "parameterValues"
+> & { parameterValues?: Record<string, string> };
 
 function legacyProgram(
   name: string,

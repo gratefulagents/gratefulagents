@@ -27,6 +27,9 @@ func validSecurityProgramSpec() SecurityProgramSpec {
 				DisplayName:   "Acme Widget",
 				Priority:      1,
 				Featured:      true,
+				ParameterValues: map[string]string{
+					"project_root": ".",
+				},
 			},
 			{
 				RepositoryURL: "https://github.com/acme/contracts",
@@ -85,6 +88,21 @@ func TestValidateSecurityProgramSpec(t *testing.T) {
 			s.ScanTargets[0].DisplayName = " "
 		},
 		"priority nonnegative": func(s *SecurityProgramSpec) { s.ScanTargets[0].Priority = -1 },
+		"parameter name valid": func(s *SecurityProgramSpec) {
+			s.ScanTargets[0].ParameterValues = map[string]string{"not a name": "value"}
+		},
+		"parameter name bounded": func(s *SecurityProgramSpec) {
+			s.ScanTargets[0].ParameterValues = map[string]string{strings.Repeat("n", MaxSecurityProgramParameterName+1): "value"}
+		},
+		"parameter value bounded": func(s *SecurityProgramSpec) {
+			s.ScanTargets[0].ParameterValues = map[string]string{"name": strings.Repeat("界", MaxSecurityProgramParameterValue+1)}
+		},
+		"parameter count bounded": func(s *SecurityProgramSpec) {
+			s.ScanTargets[0].ParameterValues = make(map[string]string, MaxSecurityProgramTargetParameters+1)
+			for index := 0; index <= MaxSecurityProgramTargetParameters; index++ {
+				s.ScanTargets[0].ParameterValues[fmt.Sprintf("parameter_%d", index)] = "value"
+			}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			spec := validSecurityProgramSpec()
@@ -102,6 +120,16 @@ func TestValidateSecurityProgramSpecWithoutScanTarget(t *testing.T) {
 	spec.ScanTarget = nil
 	if errs := ValidateSecurityProgramSpec(spec); len(errs) != 0 {
 		t.Fatalf("ValidateSecurityProgramSpec(without scan target) = %v", errs)
+	}
+}
+
+func TestSecurityProgramScanTargetDeepCopy(t *testing.T) {
+	target := validSecurityProgramSpec().ScanTargets[0]
+	copy := target.DeepCopy()
+	copy.ParameterValues["project_root"] = "contracts"
+
+	if got := target.ParameterValues["project_root"]; got != "." {
+		t.Fatalf("original parameter value = %q, want .", got)
 	}
 }
 

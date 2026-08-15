@@ -5467,6 +5467,7 @@ message SecurityProgramScanTarget {
   int32 priority = 6;
   bool featured = 7;
   string base_branch = 8;
+  map<string, string> parameter_values = 9;
 }
 
 // BugReport is one deduplicated agent-filed platform bug report, complaint,

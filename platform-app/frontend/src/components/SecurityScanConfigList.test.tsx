@@ -54,6 +54,7 @@ vi.mock("@/components/SecurityScanFormDialog", () => ({
       data-policy-pack-ref={initialConfig?.spec?.policyPackRef}
       data-program-ref={initialConfig?.spec?.securityProgramRef}
       data-base-branch={initialConfig?.spec?.baseBranch}
+      data-parameter-values={JSON.stringify(initialConfig?.spec?.parameterValues ?? {})}
     >
       {trigger}
     </div>
@@ -154,6 +155,10 @@ describe("SecurityScanConfigList", () => {
           baseBranch: "main",
           workflowRef: "custom-workflow",
           policyPackRef: "bug-bounty",
+          parameterValues: {
+            project_root: ".",
+            deployment_manifest: "operator-verified deployment required",
+          },
         },
       }],
     });
@@ -169,6 +174,10 @@ describe("SecurityScanConfigList", () => {
     expect(seed.getAttribute("data-workflow-ref")).toBe("custom-workflow");
     expect(seed.getAttribute("data-policy-pack-ref")).toBe("bug-bounty");
     expect(seed.getAttribute("data-program-ref")).toBe("custom-program");
+    expect(JSON.parse(seed.getAttribute("data-parameter-values") ?? "{}")).toEqual({
+      project_root: ".",
+      deployment_manifest: "operator-verified deployment required",
+    });
     expect(createSecurityScan).not.toHaveBeenCalled();
   });
 

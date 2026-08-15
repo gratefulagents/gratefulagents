@@ -254,6 +254,19 @@ spec:
                   featured:
                     description: featured includes the target in featured target catalogs.
                     type: boolean
+                  parameterValues:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      parameterValues are scan-time workflow values copied into imported
+                      SecurityScan spec.parameterValues.
+                    maxProperties: 32
+                    type: object
+                    x-kubernetes-validations:
+                    - message: parameter names must be identifiers of at most 63 characters
+                      rule: self.all(k, k.size() <= 63 && k.matches('^[a-zA-Z_][a-zA-Z0-9_]*$'))
+                    - message: parameter values must be at most 4096 characters
+                      rule: self.all(k, self[k].size() <= 4096)
                   policyPackRef:
                     description: policyPackRef names the SecurityPolicyPack to use.
                     maxLength: 253
@@ -319,6 +332,20 @@ spec:
                       description: featured includes the target in featured target
                         catalogs.
                       type: boolean
+                    parameterValues:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        parameterValues are scan-time workflow values copied into imported
+                        SecurityScan spec.parameterValues.
+                      maxProperties: 32
+                      type: object
+                      x-kubernetes-validations:
+                      - message: parameter names must be identifiers of at most 63
+                          characters
+                        rule: self.all(k, k.size() <= 63 && k.matches('^[a-zA-Z_][a-zA-Z0-9_]*$'))
+                      - message: parameter values must be at most 4096 characters
+                        rule: self.all(k, self[k].size() <= 4096)
                     policyPackRef:
                       description: policyPackRef names the SecurityPolicyPack to use.
                       maxLength: 253

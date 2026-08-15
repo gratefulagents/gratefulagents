@@ -301,6 +301,7 @@ export function SecurityScanConfigList() {
                   workflowRef: selectedProgramScanTarget.workflowRef,
                   policyPackRef: selectedProgramScanTarget.policyPackRef,
                   securityProgramRef: selectedProgramScanTarget.securityProgramRef,
+                  parameterValues: selectedProgramScanTarget.parameterValues,
                   manualOnly: true,
                   minSeverity: "high",
                   parallelism: 4,

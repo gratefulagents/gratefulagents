@@ -92,12 +92,13 @@ func TestForkEndpointTokenResolutionNeverLeaksIntoResults(t *testing.T) {
 
 // fakeDevnet answers the two JSON-RPC calls the supervisor makes, so the
 // supervisor's readiness and pinning logic is testable without anvil.
-func fakeDevnet(t *testing.T, chainID, blockNumber int64, blockHash string) *httptest.Server {
+func fakeDevnet(t *testing.T, chainID, blockNumber int64, blockHash, blockSelector string) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 		var call struct {
-			Method string `json:"method"`
+			Method string            `json:"method"`
+			Params []json.RawMessage `json:"params"`
 		}
 		_ = json.Unmarshal(body, &call)
 		w.Header().Set("Content-Type", "application/json")
@@ -105,6 +106,11 @@ func fakeDevnet(t *testing.T, chainID, blockNumber int64, blockHash string) *htt
 		case "eth_chainId":
 			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":"0x%x"}`, chainID)
 		case "eth_getBlockByNumber":
+			var selector string
+			if len(call.Params) == 0 || json.Unmarshal(call.Params[0], &selector) != nil || selector != blockSelector {
+				_, _ = fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"error":{"message":"unexpected block selector"}}`)
+				return
+			}
 			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"number":"0x%x","hash":%q}}`, blockNumber, blockHash)
 		default:
 			_, _ = fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"error":{"message":"unsupported method"}}`)
@@ -124,7 +130,7 @@ func devnetRequest(listenURL string, blockHash string) forkDevnetRequest {
 
 func TestForkDevnetEmitsThePinnedReplayRecordAndTerminates(t *testing.T) {
 	hash := "0x" + strings.Repeat("ab", 32)
-	devnet := fakeDevnet(t, 1, 21000000, hash)
+	devnet := fakeDevnet(t, 1, 21000000, hash, "latest")
 	started := time.Now()
 	output, err := superviseForkDevnet(t.Context(), devnetRequest(devnet.URL, hash))
 	if err != nil {
@@ -176,9 +182,9 @@ func TestForkDevnetReadinessTimeoutIsAnError(t *testing.T) {
 func TestForkDevnetChainOrBlockMismatchIsAnError(t *testing.T) {
 	pinned := "0x" + strings.Repeat("ab", 32)
 	for name, devnet := range map[string]*httptest.Server{
-		"chain id":   fakeDevnet(t, 8453, 21000000, pinned),
-		"block":      fakeDevnet(t, 1, 20999999, pinned),
-		"block hash": fakeDevnet(t, 1, 21000000, "0x"+strings.Repeat("cd", 32)),
+		"chain id":   fakeDevnet(t, 8453, 21000000, pinned, "latest"),
+		"block":      fakeDevnet(t, 1, 20999999, pinned, "latest"),
+		"block hash": fakeDevnet(t, 1, 21000000, "0x"+strings.Repeat("cd", 32), "latest"),
 	} {
 		_, err := superviseForkDevnet(t.Context(), devnetRequest(devnet.URL, pinned))
 		if err == nil {
@@ -188,6 +194,81 @@ func TestForkDevnetChainOrBlockMismatchIsAnError(t *testing.T) {
 		if !strings.Contains(err.Error(), "pinned") {
 			t.Errorf("%s mismatch error must name the pinned request: %v", name, err)
 		}
+	}
+}
+
+func forgeForkRequest(blockHash string) ExecutionRequest {
+	return ExecutionRequest{
+		Tool: Tool{Name: "forge-fork-test"},
+		Config: RunConfig{Arguments: map[string]string{
+			"fork_endpoint": "mainnet-archive", "chain_id": "1",
+			"fork_block_number": "21000000", "fork_block_hash": blockHash,
+		}},
+	}
+}
+
+func TestForgeForkPreflightVerifiesTheResolvedPin(t *testing.T) {
+	pinned := "0x" + strings.Repeat("ab", 32)
+	endpoint := fakeDevnet(t, 1, 21000000, pinned, "0x1406f40")
+	configureForkEndpoint(t, "mainnet-archive", "mainnet-archive", endpoint.URL)
+
+	result, handled := executeEVMStage(t.Context(), forgeForkRequest(pinned), []string{"forge", "test", "--fork-url", endpoint.URL}, "", nil, &operatorSecret{})
+	if handled || result.Err != nil {
+		t.Fatalf("matching pin did not fall through to Forge: handled=%t result=%+v", handled, result)
+	}
+}
+
+func TestForgeForkPreflightStopsBeforeForgeOnMismatch(t *testing.T) {
+	pinned := "0x" + strings.Repeat("ab", 32)
+	for name, endpoint := range map[string]*httptest.Server{
+		"chain id":   fakeDevnet(t, 8453, 21000000, pinned, "0x1406f40"),
+		"block hash": fakeDevnet(t, 1, 21000000, "0x"+strings.Repeat("cd", 32), "0x1406f40"),
+	} {
+		configureForkEndpoint(t, "mainnet-archive", "mainnet-archive", endpoint.URL)
+		result, handled := executeEVMStage(t.Context(), forgeForkRequest(pinned), []string{"forge", "test", "--fork-url", endpoint.URL}, "", nil, &operatorSecret{})
+		if !handled || result.ExitCode != 2 || result.Err == nil {
+			t.Errorf("%s mismatch could fall through to Forge: handled=%t result=%+v", name, handled, result)
+		}
+	}
+}
+
+func TestResolveEVMForkPinUsesFinalizedBlock(t *testing.T) {
+	pinned := "0x" + strings.Repeat("ab", 32)
+	endpoint := fakeDevnet(t, 1, 21000000, pinned, "finalized")
+	configureForkEndpoint(t, "mainnet-archive", "mainnet-archive", endpoint.URL)
+
+	pin, err := ResolveEVMForkPin(t.Context(), "mainnet-archive", 1)
+	if err != nil {
+		t.Fatalf("resolve finalized pin: %v", err)
+	}
+	if pin.ChainID != 1 || pin.ForkBlockNumber != 21000000 || pin.ForkBlockHash != pinned {
+		t.Fatalf("resolved pin = %+v", pin)
+	}
+	if _, err := ResolveEVMForkPin(t.Context(), "mainnet-archive", 8453); err == nil || !strings.Contains(err.Error(), "expected 8453") {
+		t.Fatalf("chain mismatch was accepted: %v", err)
+	}
+}
+
+func TestForkPinChecksRedactOperatorEndpointSecrets(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"error":{"message":%q}}`, "rejected "+r.URL.Path)
+	}))
+	t.Cleanup(server.Close)
+	endpoint := server.URL + "/v1/" + forkEndpointAPIKey
+	configureForkEndpoint(t, "mainnet-archive", "mainnet-archive", endpoint)
+
+	if _, err := ResolveEVMForkPin(t.Context(), "mainnet-archive", 1); err == nil {
+		t.Fatal("expected finalized pin resolution to fail")
+	} else if strings.Contains(err.Error(), forkEndpointAPIKey) || strings.Contains(err.Error(), endpoint) {
+		t.Fatalf("pin resolution leaked the operator endpoint: %v", err)
+	}
+	result, handled := executeEVMStage(t.Context(), forgeForkRequest("0x"+strings.Repeat("ab", 32)), []string{"forge", "test", "--fork-url", endpoint}, "", nil, &operatorSecret{})
+	if !handled || result.Err == nil {
+		t.Fatalf("expected Forge preflight to fail: handled=%t result=%+v", handled, result)
+	}
+	if strings.Contains(result.Err.Error(), forkEndpointAPIKey) || strings.Contains(result.Err.Error(), endpoint) {
+		t.Fatalf("Forge preflight leaked the operator endpoint: %v", result.Err)
 	}
 }
 

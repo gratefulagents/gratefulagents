@@ -9,7 +9,9 @@ import {
   type SecurityProgramScanTarget,
 } from "@/rpc/platform/service_pb";
 
-type TargetInput = Omit<SecurityProgramScanTarget, "$typeName">;
+type TargetInput = Omit<SecurityProgramScanTarget, "$typeName" | "parameterValues"> & {
+  parameterValues?: Record<string, string>;
+};
 
 function target(input: TargetInput): SecurityProgramScanTarget {
   return create(SecurityProgramScanTargetSchema, input);
@@ -45,6 +47,7 @@ describe("importableProgramTargets", () => {
           baseBranch: "develop",
           workflowRef: "workflow-alpha",
           policyPackRef: "policy-alpha",
+          parameterValues: { project_root: "contracts" },
         },
       ]),
       program("program-hidden", [{
@@ -79,6 +82,7 @@ describe("importableProgramTargets", () => {
         policyPackRef: "policy-hidden",
         securityProgramRef: "program-hidden",
         priority: 0,
+        parameterValues: {},
       },
       {
         name: "scan-first",
@@ -89,6 +93,7 @@ describe("importableProgramTargets", () => {
         policyPackRef: "policy-first",
         securityProgramRef: "program-first",
         priority: 5,
+        parameterValues: {},
       },
       {
         name: "scan-alpha",
@@ -99,6 +104,7 @@ describe("importableProgramTargets", () => {
         policyPackRef: "policy-alpha",
         securityProgramRef: "program-multi",
         priority: 20,
+        parameterValues: { project_root: "contracts" },
       },
       {
         name: "scan-zebra",
@@ -109,6 +115,7 @@ describe("importableProgramTargets", () => {
         policyPackRef: "policy-zebra",
         securityProgramRef: "program-multi",
         priority: 20,
+        parameterValues: {},
       },
     ]);
   });

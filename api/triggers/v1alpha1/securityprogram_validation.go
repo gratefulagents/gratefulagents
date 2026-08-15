@@ -9,11 +9,15 @@ package v1alpha1
 import (
 	"fmt"
 	"net/url"
+	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
 	"k8s.io/apimachinery/pkg/util/validation"
 )
+
+var securityProgramParameterNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // ValidateSecurityProgramSpec validates the operator-authored program scope
 // snapshot for dashboard writes, reconciliation, and scan dispatch.
@@ -111,6 +115,23 @@ func ValidateSecurityProgramSpec(spec SecurityProgramSpec) []SecurityWorkflowFie
 		}
 		if target.Priority < 0 {
 			add(fieldPrefix+".priority", "must not be negative")
+		}
+		if len(target.ParameterValues) > MaxSecurityProgramTargetParameters {
+			add(fieldPrefix+".parameterValues", "must contain at most %d entries", MaxSecurityProgramTargetParameters)
+		}
+		parameterNames := make([]string, 0, len(target.ParameterValues))
+		for name := range target.ParameterValues {
+			parameterNames = append(parameterNames, name)
+		}
+		sort.Strings(parameterNames)
+		for _, name := range parameterNames {
+			field := fmt.Sprintf("%s.parameterValues[%q]", fieldPrefix, name)
+			if len(name) > MaxSecurityProgramParameterName || !securityProgramParameterNamePattern.MatchString(name) {
+				add(field, "name must be an identifier of at most %d characters", MaxSecurityProgramParameterName)
+			}
+			if utf8.RuneCountInString(target.ParameterValues[name]) > MaxSecurityProgramParameterValue {
+				add(field, "value must be at most %d characters", MaxSecurityProgramParameterValue)
+			}
 		}
 	}
 	errs = append(errs, validateSecurityProgramScope(spec)...)
