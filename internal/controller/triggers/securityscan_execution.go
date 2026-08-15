@@ -36,6 +36,9 @@ const (
 	// securityScanTaskModeTemplate is the ModeTemplate applied to
 	// deterministic task runs when spec.defaults.modeRef is not set.
 	securityScanTaskModeTemplate = "security-scan-task"
+	// webSecurityScanTaskModeTemplate is the unclamped task mode used only for
+	// URL/domain targets.
+	webSecurityScanTaskModeTemplate = "web-security-scan-task"
 
 	// securityScanTaskLabel marks a task AgentRun with its workflow task
 	// name; securityScanTaskInstanceLabel carries the 0-based instance.
@@ -2127,7 +2130,14 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 	if task.Tools != nil {
 		toolPolicy = securityScanTaskToolPolicy(task, inst)
 	}
-	toolPolicy = securityScanApplyRoleToolAccess(toolPolicy, role)
+	// URL-driven web research intentionally retains the complete tool surface.
+	// Source-review roles normally suppress repository mutation tools, but that
+	// role-level narrowing must not cripple browser/CLI web tasks that have been
+	// explicitly configured for a live target. The task's own tools block can
+	// still express an operator-requested narrowing when one is present.
+	if strings.TrimSpace(scan.Spec.TargetURL) == "" {
+		toolPolicy = securityScanApplyRoleToolAccess(toolPolicy, role)
+	}
 
 	annotations := base.annotations
 	annotations[securityScanTaskLabel] = task.Name
@@ -2152,7 +2162,7 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 
 	modeRef := base.modeRef
 	if scan.Spec.Defaults.ModeRef == nil {
-		modeRef = &platformv1alpha1.ModeRef{Name: securityScanTaskModeTemplate}
+		modeRef = &platformv1alpha1.ModeRef{Name: securityScanDefaultModeTemplate(scan.Spec, true)}
 	}
 
 	created, _, err := CreateTriggerRun(ctx, r.Client, r.StateStore, TriggerRunSpec{

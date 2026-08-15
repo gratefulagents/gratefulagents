@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +34,9 @@ const (
 	// securityScanModeTemplate is the ModeTemplate applied to scan runs when
 	// spec.defaults.modeRef is not set.
 	securityScanModeTemplate = "security-scan"
+	// webSecurityScanModeTemplate is the unclamped coordinator mode used only
+	// for URL/domain targets, keeping repository scans on their existing mode.
+	webSecurityScanModeTemplate = "web-security-scan"
 
 	// securityScanLabel marks AgentRuns created by a SecurityScan for listing.
 	securityScanLabel = "security.gratefulagents.dev/scan"
@@ -682,7 +686,7 @@ func (r *SecurityScanReconciler) createScanRun(ctx context.Context, scan *trigge
 // note.
 func (r *SecurityScanReconciler) coordinatorParallelismBound(ctx context.Context, scan *triggersv1alpha1.SecurityScan, spec triggersv1alpha1.SecurityScanSpec) (int32, string) {
 	bound := spec.EffectiveParallelism()
-	modeName := securityScanModeTemplate
+	modeName := securityScanDefaultModeTemplate(spec, false)
 	if ref := scan.Spec.Defaults.ModeRef; ref != nil && strings.TrimSpace(ref.Name) != "" {
 		modeName = strings.TrimSpace(ref.Name)
 	}
@@ -739,15 +743,25 @@ func (r *SecurityScanReconciler) buildScanRunBase(ctx context.Context, scan *tri
 			d.CustomInstructions = strings.TrimRight(d.CustomInstructions, "\n") + "\n\n" + roleInstructions
 		}
 	}
+	isWebsiteTarget := strings.TrimSpace(scan.Spec.TargetURL) != ""
 	d.RepoURL = scan.Spec.RepoURL
-	d.BaseBranch = scan.Spec.EffectiveBaseBranch()
+	if !isWebsiteTarget {
+		d.BaseBranch = scan.Spec.EffectiveBaseBranch()
+		if len(scan.Spec.AdditionalRepos) > 0 {
+			d.AdditionalRepos = append([]string(nil), scan.Spec.AdditionalRepos...)
+		}
+	} else {
+		// Website scans are deliberately repoless and receive no repository
+		// credential. Their live target comes only from operator-owned scan data.
+		d.RepoURL = ""
+		d.BaseBranch = ""
+		d.AdditionalRepos = nil
+		d.Secrets.GithubToken = ""
+	}
 	if runCtx != nil && runCtx.Event != nil && runCtx.Event.Fork {
 		// Untrusted fork contribution: never hand the run a GitHub
 		// credential, even when the scan's defaults configure one.
 		d.Secrets.GithubToken = ""
-	}
-	if len(scan.Spec.AdditionalRepos) > 0 {
-		d.AdditionalRepos = append([]string(nil), scan.Spec.AdditionalRepos...)
 	}
 	if scan.Spec.MaxRuntime.Duration > 0 {
 		d.Timeout = scan.Spec.MaxRuntime
@@ -768,7 +782,7 @@ func (r *SecurityScanReconciler) buildScanRunBase(ctx context.Context, scan *tri
 	}
 	var modeRef *platformv1alpha1.ModeRef
 	if d.ModeRef == nil {
-		modeRef = &platformv1alpha1.ModeRef{Name: securityScanModeTemplate}
+		modeRef = &platformv1alpha1.ModeRef{Name: securityScanDefaultModeTemplate(scan.Spec, false)}
 	}
 
 	if err := validateTriggerRunDefaults(TriggerRunSpec{
@@ -787,23 +801,33 @@ func (r *SecurityScanReconciler) buildScanRunBase(ctx context.Context, scan *tri
 	if resolved.spec.DedupeEnabled() {
 		dedupePermille = resolved.spec.DedupeSimilarityThresholdPermille()
 	}
+	targetIdentity := securityScanTargetIdentity(scan.Spec)
 	annotations := map[string]string{
 		runModeAnnotation: "auto",
-		triggersv1alpha1.SecurityScanNameAnnotation:           scan.Name,
-		triggersv1alpha1.SecurityScanRepositoryAnnotation:     scan.Spec.RepoURL,
+		triggersv1alpha1.SecurityScanNameAnnotation: scan.Name,
+		// The legacy repository annotation is the finding/report target identity.
+		// Website scans populate it with their canonical URL for compatibility.
+		triggersv1alpha1.SecurityScanRepositoryAnnotation:     targetIdentity,
 		triggersv1alpha1.SecurityScanMinSeverityAnnotation:    resolved.spec.EffectiveMinSeverity(),
 		triggersv1alpha1.SecurityScanDedupePermilleAnnotation: strconv.Itoa(int(dedupePermille)),
+	}
+	if isWebsiteTarget {
+		annotations["security.gratefulagents.dev/target-kind"] = "web"
+		annotations["security.gratefulagents.dev/target-url"] = targetIdentity
 	}
 	// Network authorization is operator configuration: it is stamped from the
 	// resolved spec so a model can never widen what a deterministic security
 	// tool is allowed to probe by naming a host in its own tool input.
-	if targets := securityScanAuthorizedNetworkTargets(resolved.spec.Scope); targets != "" {
+	if targets := securityScanAuthorizedNetworkTargetsForSpec(resolved.spec); targets != "" {
 		annotations[triggersv1alpha1.SecurityScanAuthorizedNetworkTargetsAnnotation] = targets
 	}
-	if rev := strings.TrimSpace(scan.Spec.Revision); rev != "" {
-		annotations[triggersv1alpha1.SecurityScanRevisionAnnotation] = rev
+	revision := ""
+	if !isWebsiteTarget {
+		revision = strings.TrimSpace(scan.Spec.Revision)
+		if revision != "" {
+			annotations[triggersv1alpha1.SecurityScanRevisionAnnotation] = revision
+		}
 	}
-	revision := strings.TrimSpace(scan.Spec.Revision)
 	if runCtx != nil && runCtx.Event != nil {
 		// Platform-stamped from the verified webhook payload; overrides any
 		// pinned spec revision so the run and any published check agree on
@@ -841,6 +865,28 @@ func (r *SecurityScanReconciler) buildScanRunBase(ctx context.Context, scan *tri
 	}, nil
 }
 
+func securityScanTargetIdentity(spec triggersv1alpha1.SecurityScanSpec) string {
+	if target := strings.TrimSpace(spec.TargetURL); target != "" {
+		if normalized, err := triggersv1alpha1.NormalizeSecurityScanTargetURL(target); err == nil {
+			return normalized
+		}
+	}
+	return spec.RepoURL
+}
+
+func securityScanDefaultModeTemplate(spec triggersv1alpha1.SecurityScanSpec, task bool) string {
+	if strings.TrimSpace(spec.TargetURL) != "" {
+		if task {
+			return webSecurityScanTaskModeTemplate
+		}
+		return webSecurityScanModeTemplate
+	}
+	if task {
+		return securityScanTaskModeTemplate
+	}
+	return securityScanModeTemplate
+}
+
 // securityScanAuthorizedNetworkTargets renders the operator-declared network
 // authorization as the comma-separated annotation value carried by every scan
 // run. Entries are trimmed; an empty result stamps nothing, which authorizes
@@ -854,6 +900,28 @@ func securityScanAuthorizedNetworkTargets(scope *triggersv1alpha1.SecurityScanSc
 		if trimmed := strings.TrimSpace(target); trimmed != "" {
 			targets = append(targets, trimmed)
 		}
+	}
+	return strings.Join(targets, ",")
+}
+
+// securityScanAuthorizedNetworkTargetsForSpec treats a website target as
+// authorization for its canonical URL, host, and subdomains, then appends any
+// separately declared targets. The scope is operator-owned, not model-owned.
+func securityScanAuthorizedNetworkTargetsForSpec(spec triggersv1alpha1.SecurityScanSpec) string {
+	targets := make([]string, 0, 3)
+	if target := strings.TrimSpace(spec.TargetURL); target != "" {
+		normalized, err := triggersv1alpha1.NormalizeSecurityScanTargetURL(target)
+		if err == nil {
+			targets = append(targets, normalized)
+			if parsed, parseErr := url.Parse(normalized); parseErr == nil && parsed.Hostname() != "" {
+				// A top-level domain target intentionally includes all of its
+				// subdomains; the scanner authorization matcher enforces the suffix.
+				targets = append(targets, "*."+strings.ToLower(parsed.Hostname()))
+			}
+		}
+	}
+	if additional := securityScanAuthorizedNetworkTargets(spec.Scope); additional != "" {
+		targets = append(targets, additional)
 	}
 	return strings.Join(targets, ",")
 }

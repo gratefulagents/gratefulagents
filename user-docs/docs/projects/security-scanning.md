@@ -189,6 +189,17 @@ Workflows, severity rankers, post-scripts, and bounty program scope snapshots ca
 - **`SecurityPostScript`** — `spec.description`, `spec.prompt`, and `spec.runOn` (`all`, `confirmed`, `high-and-above`, or `high-and-above-actionable`). The actionable variant is for proof or remediation stages that should not start after a successful predecessor has already rejected, fixed, or accepted the risk; final reporting and audit stages should use `all` so they can record the terminal outcome.
 - **`SecurityProgram`** — an operator-verified bounty or disclosure-program snapshot: provider, display name, HTTPS provenance URL, the explicit scope policy, when that policy was verified, and optional `scanTargets` for every independently importable repository. Each target selects its own default branch, workflow, policy pack, scan name, and catalog priority. The controller never fetches the program URL. Neither the URL nor a scan target authorizes network access; only `spec.scope.authorizedNetworkTargets` can do that.
 
+### URL-driven web assessment workflows
+
+For a website or domain target, choose the workflow by depth:
+
+- `web-recon-passive` is the fast attack-surface inventory.
+- `web-app-full-assessment` is the professional multi-track assessment based on OWASP WSTG/ASVS coverage: mapping fans out into authentication/session, authorization and tenant isolation, server-side input handling, browser/client security, API/GraphQL/WebSocket security, business logic, SSRF/file/parser integrations, and deployment/exposure testing before validation and triage.
+- Focused workflows (`web-auth-session-assessment`, `web-access-control-assessment`, `web-api-assessment`, `web-client-side-assessment`, `web-server-side-input-assessment`, `web-business-logic-assessment`, and `web-deployment-exposure-assessment`) trade breadth for a deeper pass over one surface.
+- `web-retest-confirmed-findings` rechecks previously reported issues without rerunning the entire assessment.
+
+Website scans use dedicated full-access mode templates and do not remove Browser, WebFetch, Bash/CLI, registered scanners, workspace, or other tools granted by the selected RuntimeProfile. The workflow objectives carry the live-testing rule as an instruction: do not make stateful target changes, send potentially mutating requests, upload content, trigger callbacks, brute-force credentials, or perform load testing. When a valid test inherently requires a state change, the agent records it as untested unless the operator explicitly supplied a disposable fixture or environment; it must never simulate a successful result.
+
 A `SecurityScan` references them with:
 
 ```yaml

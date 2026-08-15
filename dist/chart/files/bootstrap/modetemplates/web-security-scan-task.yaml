@@ -1,12 +1,12 @@
 apiVersion: platform.gratefulagents.dev/v1alpha1
 kind: ModeTemplate
 metadata:
-  name: security-scan-task
+  name: web-security-scan-task
 spec:
-  name: security-scan-task
+  name: web-security-scan-task
   version: v1
-  displayName: Security Scan Task
-  description: Executes exactly one assigned security workflow task, recording evidence-backed findings and typed structured output for downstream tasks.
+  displayName: Web Security Scan Task
+  description: Executes one full-access website reconnaissance task, recording evidence-backed findings and typed output for downstream tasks.
   category: direct
   autonomous: true
 
@@ -17,9 +17,9 @@ spec:
     maxRetries: 1
     maxConcurrentSubAgents: 1
 
-  # Repository tasks retain the established workspace-only clamp. URL-driven
-  # live web tasks use the separate web-security-scan-task template.
-  permissionMode: workspace-write
+  # Do not clamp any capability granted by the selected RuntimeProfile. Live
+  # web tasks keep browser, HTTP, shell, scanner, and mutation tools.
+  permissionMode: danger-full-access
   allowedMutatingTools:
     - report_security_finding
     - update_security_finding

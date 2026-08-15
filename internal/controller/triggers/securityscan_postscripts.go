@@ -832,7 +832,7 @@ func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, sc
 
 	modeRef := base.modeRef
 	if scan.Spec.Defaults.ModeRef == nil {
-		modeRef = &platformv1alpha1.ModeRef{Name: securityScanTaskModeTemplate}
+		modeRef = &platformv1alpha1.ModeRef{Name: securityScanDefaultModeTemplate(scan.Spec, true)}
 	}
 
 	toolPolicy := r.postScriptToolPolicy(ctx, resolved)

@@ -40,6 +40,19 @@ var blockchainSecurityWorkflowLibrary = []string{
 	"wallet-security-review",
 }
 
+var fullAccessWebWorkflowLibrary = []string{
+	"web-access-control-assessment",
+	"web-api-assessment",
+	"web-app-full-assessment",
+	"web-auth-session-assessment",
+	"web-business-logic-assessment",
+	"web-client-side-assessment",
+	"web-deployment-exposure-assessment",
+	"web-recon-passive",
+	"web-retest-confirmed-findings",
+	"web-server-side-input-assessment",
+}
+
 var securityWorkflowLibrary = []string{
 	"api-service-audit",
 	"algorand-security-review",
@@ -66,7 +79,17 @@ var securityWorkflowLibrary = []string{
 	"ton-security-review",
 	"validated-critical-hunt",
 	"wallet-security-review",
+	"web-access-control-assessment",
+	"web-api-assessment",
+	"web-app-full-assessment",
 	"web-app-owasp",
+	"web-auth-session-assessment",
+	"web-business-logic-assessment",
+	"web-client-side-assessment",
+	"web-deployment-exposure-assessment",
+	"web-recon-passive",
+	"web-retest-confirmed-findings",
+	"web-server-side-input-assessment",
 }
 
 // TestSecurityWorkflowLibraryInventory prevents new bootstrap workflows from
@@ -89,6 +112,49 @@ func TestSecurityWorkflowLibraryInventory(t *testing.T) {
 	slices.Sort(want)
 	if !slices.Equal(discovered, want) {
 		t.Fatalf("securityWorkflowLibrary = %v, want every shipped workflow %v", want, discovered)
+	}
+}
+
+func TestFullAccessWebWorkflowsUsePromptOnlyLiveSafety(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range fullAccessWebWorkflowLibrary {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var workflow triggersv1alpha1.SecurityWorkflow
+			readBootstrapAsset(t, "securityworkflows", name, &workflow)
+			for _, task := range workflow.Spec.Tasks {
+				if task.Tools != nil {
+					t.Errorf("task %q narrows tools; web workflows must retain the full run tool surface", task.Name)
+				}
+				if refs := workflowTaskOutputRefPattern.FindAllStringSubmatch(task.Objective, -1); len(refs) > 3 {
+					t.Errorf("task %q interpolates %d upstream outputs; rendered objectives support at most three full task outputs", task.Name, len(refs))
+				}
+				if task.Name == "triage-and-report" {
+					continue
+				}
+				objective := strings.ToLower(task.Objective)
+				fullTools := strings.Contains(objective, "full tool") ||
+					strings.Contains(objective, "full run tool") ||
+					strings.Contains(objective, "full available") ||
+					strings.Contains(objective, "all available tools") ||
+					strings.Contains(objective, "keep all available tools") ||
+					strings.Contains(objective, "tool surface remains available")
+				if !fullTools {
+					t.Errorf("task %q must state that full tool availability is intentional", task.Name)
+				}
+				promptOnlySafety := strings.Contains(objective, "stateful") ||
+					strings.Contains(objective, "state-changing") ||
+					strings.Contains(objective, "state change") ||
+					strings.Contains(objective, "change state") ||
+					strings.Contains(objective, "change server state") ||
+					strings.Contains(objective, "mutating request")
+				if !promptOnlySafety {
+					t.Errorf("task %q must carry the prompt-only no-state-change rule", task.Name)
+				}
+			}
+		})
 	}
 }
 

@@ -163,6 +163,32 @@ describe("SecurityScanFormDialog", () => {
     expect(request.policies?.configureRuntimeProfile).toBe(true);
   });
 
+  it("creates a repoless website scan and normalizes a bare domain to HTTPS", async () => {
+    renderDialog();
+
+    expect(screen.getByText("Scan target")).toBeTruthy();
+    expect(screen.getByText("Repository events")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Target type/), {
+      target: { value: "website" },
+    });
+    expect(screen.queryByText("Scan target")).toBeNull();
+    expect(screen.queryByText("Repository events")).toBeNull();
+    fireEvent.change(screen.getByLabelText(/Website URL or domain/), {
+      target: { value: "staging.example.com" },
+    });
+
+    const form = document.querySelector("form");
+    expect(form).toBeTruthy();
+    fireEvent.submit(form as HTMLFormElement);
+
+    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(1));
+    const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
+    expect(request.spec?.repoUrl).toBe("");
+    expect(request.spec?.targetUrl).toBe("https://staging.example.com");
+    expect(request.spec?.baseBranch).toBe("");
+    expect(request.spec?.additionalRepos).toEqual([]);
+  });
+
   it("creates manual-only scans without schedule or suspend semantics", async () => {
     renderDialog();
     fireEvent.change(screen.getByLabelText(/Repository URL/), {

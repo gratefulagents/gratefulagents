@@ -31176,10 +31176,10 @@ type SecurityScanScopeConfig struct {
 	IncludePaths []string               `protobuf:"bytes,2,rep,name=include_paths,json=includePaths,proto3" json:"include_paths,omitempty"`
 	ExcludePaths []string               `protobuf:"bytes,3,rep,name=exclude_paths,json=excludePaths,proto3" json:"exclude_paths,omitempty"`
 	Languages    []string               `protobuf:"bytes,4,rep,name=languages,proto3" json:"languages,omitempty"`
-	// authorized_network_targets is the operator's allowlist of hosts,
-	// host:port pairs, CIDR prefixes, or absolute http(s) URLs that the scan's
-	// deterministic network tools may probe. Empty means no network scanning is
-	// authorized. At most 64 entries.
+	// authorized_network_targets is the operator's allowlist of hosts, wildcard
+	// domains, host:port pairs, CIDR prefixes, or absolute http(s) URLs that the
+	// scan's deterministic network tools may probe. target_url automatically
+	// authorizes its host and subdomains. At most 64 additional entries.
 	AuthorizedNetworkTargets []string `protobuf:"bytes,5,rep,name=authorized_network_targets,json=authorizedNetworkTargets,proto3" json:"authorized_network_targets,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
@@ -32965,7 +32965,7 @@ func (x *SecurityScanPostScriptJobState) GetScripts() []string {
 // spec (api/triggers/v1alpha1 SecurityScanSpec).
 type SecurityScanConfigSpec struct {
 	state           protoimpl.MessageState   `protogen:"open.v1"`
-	RepoUrl         string                   `protobuf:"bytes,1,opt,name=repo_url,json=repoUrl,proto3" json:"repo_url,omitempty"`          // required scan target
+	RepoUrl         string                   `protobuf:"bytes,1,opt,name=repo_url,json=repoUrl,proto3" json:"repo_url,omitempty"`          // repository target; mutually exclusive with target_url
 	BaseBranch      string                   `protobuf:"bytes,2,opt,name=base_branch,json=baseBranch,proto3" json:"base_branch,omitempty"` // empty = main
 	Revision        string                   `protobuf:"bytes,3,opt,name=revision,proto3" json:"revision,omitempty"`                       // optional commit pin
 	AdditionalRepos []string                 `protobuf:"bytes,4,rep,name=additional_repos,json=additionalRepos,proto3" json:"additional_repos,omitempty"`
@@ -33019,7 +33019,11 @@ type SecurityScanConfigSpec struct {
 	SecurityProgramRef string `protobuf:"bytes,29,opt,name=security_program_ref,json=securityProgramRef,proto3" json:"security_program_ref,omitempty"`
 	// manual_only disables creation/spec-generation, scheduled, and
 	// repository-event runs. Explicit RunSecurityScanNow requests still run.
-	ManualOnly    bool `protobuf:"varint,30,opt,name=manual_only,json=manualOnly,proto3" json:"manual_only,omitempty"`
+	ManualOnly bool `protobuf:"varint,30,opt,name=manual_only,json=manualOnly,proto3" json:"manual_only,omitempty"`
+	// target_url is an HTTP(S) URL or bare domain for a repoless web scan.
+	// Bare domains default to HTTPS and authorize their subdomains. It is
+	// mutually exclusive with repo_url.
+	TargetUrl     string `protobuf:"bytes,31,opt,name=target_url,json=targetUrl,proto3" json:"target_url,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -33262,6 +33266,13 @@ func (x *SecurityScanConfigSpec) GetManualOnly() bool {
 		return x.ManualOnly
 	}
 	return false
+}
+
+func (x *SecurityScanConfigSpec) GetTargetUrl() string {
+	if x != nil {
+		return x.TargetUrl
+	}
+	return ""
 }
 
 // SecurityScanConfig is one configured SecurityScan CR plus its status.
@@ -42042,7 +42053,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x0fstarted_at_unix\x18\n" +
 	" \x01(\x03R\rstartedAtUnix\x12(\n" +
 	"\x10finished_at_unix\x18\v \x01(\x03R\x0efinishedAtUnix\x12\x18\n" +
-	"\ascripts\x18\f \x03(\tR\ascripts\"\xb3\f\n" +
+	"\ascripts\x18\f \x03(\tR\ascripts\"\xd2\f\n" +
 	"\x16SecurityScanConfigSpec\x12\x19\n" +
 	"\brepo_url\x18\x01 \x01(\tR\arepoUrl\x12\x1f\n" +
 	"\vbase_branch\x18\x02 \x01(\tR\n" +
@@ -42078,7 +42089,9 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x10parameter_values\x18\x1c \x03(\v28.platform.v1.SecurityScanConfigSpec.ParameterValuesEntryR\x0fparameterValues\x120\n" +
 	"\x14security_program_ref\x18\x1d \x01(\tR\x12securityProgramRef\x12\x1f\n" +
 	"\vmanual_only\x18\x1e \x01(\bR\n" +
-	"manualOnly\x1aB\n" +
+	"manualOnly\x12\x1d\n" +
+	"\n" +
+	"target_url\x18\x1f \x01(\tR\ttargetUrl\x1aB\n" +
 	"\x14ParameterValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdf\t\n" +

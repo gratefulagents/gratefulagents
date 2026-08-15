@@ -559,8 +559,16 @@ func securityScanSpecFromRequest(
 		pb = &platform.SecurityScanConfigSpec{}
 	}
 	repoURL := strings.TrimSpace(pb.GetRepoUrl())
-	if repoURL == "" {
-		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("repo_url is required"))
+	targetURL := strings.TrimSpace(pb.GetTargetUrl())
+	if (repoURL == "") == (targetURL == "") {
+		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("exactly one of repo_url or target_url is required"))
+	}
+	if targetURL != "" {
+		normalized, err := triggersv1alpha1.NormalizeSecurityScanTargetURL(targetURL)
+		if err != nil {
+			return nil, "", "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("target_url %w", err))
+		}
+		targetURL = normalized
 	}
 	if err := validateSecurityScanSchedule(pb.GetSchedule(), pb.GetTimeZone()); err != nil {
 		return nil, "", "", connect.NewError(connect.CodeInvalidArgument, err)
@@ -659,6 +667,7 @@ func securityScanSpecFromRequest(
 
 	spec := &triggersv1alpha1.SecurityScanSpec{
 		RepoURL:            repoURL,
+		TargetURL:          targetURL,
 		BaseBranch:         strings.TrimSpace(pb.GetBaseBranch()),
 		Revision:           strings.TrimSpace(pb.GetRevision()),
 		AdditionalRepos:    trimmedNonEmpty(pb.GetAdditionalRepos()),
@@ -1048,6 +1057,7 @@ func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionSt
 func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.SecurityScanConfigSpec {
 	pb := &platform.SecurityScanConfigSpec{
 		RepoUrl:           spec.RepoURL,
+		TargetUrl:         spec.TargetURL,
 		BaseBranch:        spec.BaseBranch,
 		Revision:          spec.Revision,
 		AdditionalRepos:   append([]string(nil), spec.AdditionalRepos...),

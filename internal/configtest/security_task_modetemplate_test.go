@@ -24,8 +24,7 @@ func TestSecurityScanTaskModeTemplateAsset(t *testing.T) {
 	if !mode.Spec.Autonomous {
 		t.Error("scan task mode must be autonomous")
 	}
-	// Task runs need local writes for PoCs, test fixtures, mutants, and compiler
-	// caches. Workspace-write also preserves normal networked shell access.
+	// Repository task runs retain their established workspace-only clamp.
 	if mode.Spec.PermissionMode != platformv1alpha1.PermissionModeWorkspaceWrite {
 		t.Errorf("permissionMode = %q, want workspace-write", mode.Spec.PermissionMode)
 	}
@@ -70,5 +69,18 @@ func TestSecurityScanTaskModeTemplateAsset(t *testing.T) {
 		if !strings.Contains(mode.Spec.Instructions, marker) {
 			t.Errorf("scan task mode instructions must state workspace safety rule %q", marker)
 		}
+	}
+}
+
+func TestWebSecurityScanTaskModeTemplateIsFullAccess(t *testing.T) {
+	t.Parallel()
+
+	var mode platformv1alpha1.ModeTemplate
+	readBootstrapAsset(t, "modetemplates", "web-security-scan-task", &mode)
+	if mode.Name != "web-security-scan-task" || mode.Spec.Name != "web-security-scan-task" {
+		t.Fatalf("mode template name = %q/%q, want web-security-scan-task", mode.Name, mode.Spec.Name)
+	}
+	if mode.Spec.PermissionMode != platformv1alpha1.PermissionModeDangerFullAccess {
+		t.Errorf("permissionMode = %q, want danger-full-access", mode.Spec.PermissionMode)
 	}
 }

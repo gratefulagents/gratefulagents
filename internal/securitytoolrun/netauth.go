@@ -56,9 +56,9 @@ func NeedsNetworkAuthorization(tool securitytoolpacks.Tool, req Request) bool {
 
 // AuthorizeNetworkTargets checks the target locator and every scope entry of a
 // request against the operator-declared authorization list. Matching is
-// deliberately conservative: a host matches by exact name or by being an
-// address inside a declared CIDR, a declared port must match exactly, and a
-// declared URL scheme must match. There are no wildcards, and an empty
+// deliberately conservative: a host matches by exact name, an explicit
+// wildcard domain matches only that DNS suffix, or an address must be inside a
+// declared CIDR. A declared port and URL scheme must match. An empty
 // authorization list authorizes nothing.
 func AuthorizeNetworkTargets(authorized []string, req Request) error {
 	if len(authorized) == 0 {
@@ -98,10 +98,11 @@ func coveredBy(matchers []networkLocator, candidate networkLocator) bool {
 
 // networkLocator is one parsed host, host:port, CIDR prefix, or http(s) URL.
 type networkLocator struct {
-	scheme string
-	host   string
-	port   string
-	prefix netip.Prefix
+	scheme   string
+	host     string
+	port     string
+	prefix   netip.Prefix
+	wildcard bool
 }
 
 func (l networkLocator) isPrefix() bool { return l.prefix.IsValid() }
@@ -116,11 +117,16 @@ func (l networkLocator) covers(candidate networkLocator) bool {
 		address, err := netip.ParseAddr(candidate.host)
 		return err == nil && l.prefix.Contains(address)
 	}
-	// A single authorized host never authorizes a whole range.
+	// A single authorized host never authorizes a whole address range.
 	if candidate.isPrefix() {
 		return false
 	}
-	if !strings.EqualFold(l.host, candidate.host) {
+	if l.wildcard {
+		candidateHost := strings.ToLower(candidate.host)
+		if candidateHost != l.host && !strings.HasSuffix(candidateHost, "."+l.host) {
+			return false
+		}
+	} else if !strings.EqualFold(l.host, candidate.host) {
 		return false
 	}
 	// A port-qualified authorization permits exactly that port; a candidate
@@ -141,6 +147,12 @@ func parseNetworkLocator(raw string) (networkLocator, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
 		return networkLocator{}, fmt.Errorf("network target is empty")
+	}
+	if host, ok := strings.CutPrefix(value, "*."); ok {
+		if !hostnamePattern.MatchString(host) {
+			return networkLocator{}, fmt.Errorf("network target %q has an invalid wildcard domain", value)
+		}
+		return networkLocator{host: strings.ToLower(host), wildcard: true}, nil
 	}
 	if strings.Contains(value, "://") {
 		parsed, err := url.Parse(value)

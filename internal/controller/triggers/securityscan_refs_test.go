@@ -86,6 +86,7 @@ func TestAutomaticSecurityScanWorkflowName(t *testing.T) {
 		want string
 	}{
 		{name: "generic repository", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/widget.git"}, want: "default-deep-scan"},
+		{name: "website target", spec: triggersv1alpha1.SecurityScanSpec{TargetURL: "https://app.example.test"}, want: "web-recon-passive"},
 		{name: "generic smart contract wording is inconclusive", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/smart-contract-tools.git"}, want: "default-deep-scan"},
 		{name: "solidity language", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/token.git", Scope: &triggersv1alpha1.SecurityScanScope{Languages: []string{"Solidity"}}}, want: "smart-contract-review"},
 		{name: "solidity path", spec: triggersv1alpha1.SecurityScanSpec{RepoURL: "https://github.com/acme/token.git", Scope: &triggersv1alpha1.SecurityScanScope{IncludePaths: []string{"contracts/**/*.sol"}}}, want: "smart-contract-review"},

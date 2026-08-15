@@ -1,12 +1,12 @@
 apiVersion: platform.gratefulagents.dev/v1alpha1
 kind: ModeTemplate
 metadata:
-  name: security-scan
+  name: web-security-scan
 spec:
-  name: security-scan
+  name: web-security-scan
   version: v1
-  displayName: Security Scan
-  description: Autonomous vulnerability research over a repository, producing deduplicated, ranked, evidence-backed findings.
+  displayName: Web Security Scan
+  description: Full-access reconnaissance of an operator-selected website, producing deduplicated, ranked, evidence-backed findings.
   category: orchestrated
   autonomous: true
 
@@ -18,9 +18,9 @@ spec:
     maxRetries: 1
     maxConcurrentSubAgents: 5
 
-  # Repository scans retain the established workspace-only clamp. URL-driven
-  # live web scans use the separate web-security-scan template.
-  permissionMode: workspace-write
+  # Do not clamp any capability granted by the selected RuntimeProfile. Live
+  # web reconnaissance keeps browser, HTTP, shell, scanner, and mutation tools.
+  permissionMode: danger-full-access
   allowedMutatingTools:
     - report_security_finding
     - update_security_finding

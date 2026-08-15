@@ -257,7 +257,7 @@ export function SecurityConfigDetail() {
             }
             subtitle={
               <span className="font-mono text-[12.5px] text-muted-foreground">
-                {config.spec?.repoUrl || "—"}
+                {config.spec?.targetUrl || config.spec?.repoUrl || "—"}
               </span>
             }
             actions={
