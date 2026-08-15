@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 
@@ -73,6 +74,13 @@ export function Breadcrumbs() {
     );
   }
 
+  // Security is the only section with three levels (page → scan → finding), so
+  // it gets an explicit trail instead of the generic "root / last segment"
+  // fallback, which rendered a bare finding UUID with no way back to its scan.
+  if (path.startsWith("/security/")) {
+    return <SecurityCrumbs path={path} />;
+  }
+
   const match = DETAIL_PREFIX.find((d) => path.startsWith(d.prefix));
   if (!match) return null;
 
@@ -83,6 +91,66 @@ export function Breadcrumbs() {
       <Sep />
       <Crumb label={name} active mono />
     </span>
+  );
+}
+
+/**
+ * Security trail: page → scan run → finding, so a deep-linked finding always
+ * shows (and can click back to) the scan and the section it belongs to.
+ * Filters live in the query string, so the "up" links carry it along.
+ */
+function SecurityCrumbs({ path }: { path: string }) {
+  const location = useLocation();
+  const segments = path.split("/").filter(Boolean).slice(1); // drop "security"
+  const [first, second, ...rest] = segments;
+
+  const SECTION_LABELS: Record<string, string> = {
+    runs: "Scan runs",
+    configs: "Configurations",
+    library: "Library",
+  };
+
+  const wrap = (children: React.ReactNode) => (
+    <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+      <Crumb label="Security" to="/security" />
+      {children}
+    </span>
+  );
+
+  if (first in SECTION_LABELS) {
+    // /security/configs/:namespace/:name → Security / Configurations / name
+    const name = first === "configs" ? rest[0] : undefined;
+    return wrap(
+      <>
+        <Sep />
+        <Crumb label={SECTION_LABELS[first]} to={`/security/${first}`} active={!name} />
+        {name && (
+          <>
+            <Sep />
+            <Crumb label={name} active mono />
+          </>
+        )}
+      </>,
+    );
+  }
+
+  // /security/:namespace/:runName[/findings/:id]
+  if (!first || !second) return wrap(null);
+  const scanPath = `/security/${first}/${second}${location.search}`;
+  const isFinding = rest[0] === "findings" && Boolean(rest[1]);
+  return wrap(
+    <>
+      <Sep />
+      <Crumb label="Scan runs" to="/security/runs" />
+      <Sep />
+      <Crumb label={second} to={isFinding ? scanPath : undefined} active={!isFinding} mono />
+      {isFinding && (
+        <>
+          <Sep />
+          <Crumb label="Finding" active />
+        </>
+      )}
+    </>,
   );
 }
 

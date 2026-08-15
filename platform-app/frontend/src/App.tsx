@@ -55,6 +55,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { TitleBar, TitleBarDivider } from "@/components/shell/TitleBar";
 import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
+import { RedirectPreservingQuery, SectionNotFound } from "@/components/shell/routing";
 import { CommandPalette, type PaletteItem } from "@/components/shell/CommandPalette";
 import { useGlobalShortcuts, useViewport } from "@/components/shell/shortcuts";
 import { ShortcutsOverlay } from "@/components/shell/ShortcutsOverlay";
@@ -553,8 +554,35 @@ function AuthenticatedShell() {
               <Route path="/security/configs" element={<Scroll><SecurityScanConfigList /></Scroll>} />
               <Route path="/security/configs/:namespace/:name" element={<Scroll><SecurityConfigDetail /></Scroll>} />
               <Route path="/security/library" element={<Scroll><SecurityLibraryPage /></Scroll>} />
+              {/* Legacy/alias security paths. Redirects keep the query string so
+                  filtered bookmarks and notification deep links survive renames. */}
+              <Route path="/security/overview" element={<RedirectPreservingQuery to="/security" />} />
+              <Route path="/security/scans" element={<RedirectPreservingQuery to="/security/runs" />} />
+              <Route path="/security/scan-runs" element={<RedirectPreservingQuery to="/security/runs" />} />
+              <Route path="/security/findings" element={<RedirectPreservingQuery to="/security/runs" />} />
+              <Route path="/security/configurations" element={<RedirectPreservingQuery to="/security/configs" />} />
+              {/* A config link without a namespace can't be resolved client-side;
+                  land on the list pre-filtered by that name instead of 404ing. */}
+              <Route path="/security/configs/:name" element={<RedirectPreservingQuery to="/security/configs" params={{ q: ":name" }} />} />
+              <Route path="/security/library/:tab" element={<RedirectPreservingQuery to="/security/library" params={{ tab: ":tab" }} />} />
               <Route path="/security/:namespace/:runName" element={<Scroll><SecurityScanDetail /></Scroll>} />
               <Route path="/security/:namespace/:runName/findings/:findingId" element={<Scroll><SecurityFindingDetail /></Scroll>} />
+              <Route
+                path="/security/*"
+                element={(
+                  <Scroll>
+                    <SectionNotFound
+                      section="security"
+                      links={[
+                        { to: "/security", label: "Security overview" },
+                        { to: "/security/runs", label: "Scan runs" },
+                        { to: "/security/configs", label: "Configurations" },
+                        { to: "/security/library", label: "Library" },
+                      ]}
+                    />
+                  </Scroll>
+                )}
+              />
               <Route path="/settings" element={<Scroll><SettingsLayout /></Scroll>}>
                 <Route index element={<SettingsScreen />} />
                 <Route path="connection" element={<SettingsConnectionPage />} />

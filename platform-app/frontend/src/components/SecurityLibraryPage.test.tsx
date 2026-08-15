@@ -2,7 +2,7 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { ConnectError, Code } from "@connectrpc/connect";
 
 import { SecurityLibraryPage } from "@/components/SecurityLibraryPage";
@@ -94,7 +94,9 @@ function seedLists() {
         description: "payments plan",
         usageCount: 2,
         referencingScans: ["scan-a", "scan-b"],
-        tasks: [{ name: "a", objective: "t" }],
+        tasks: [
+          { name: "recon", objective: "map the sql injection surface", role: "vulnerability-hunter" },
+        ],
       }),
     ],
   });
@@ -113,7 +115,7 @@ function seedLists() {
       create(SecurityPostScriptResourceSchema, {
         namespace: "user-alice",
         name: "write-poc",
-        prompt: "write a poc",
+        prompt: "write a proof of concept for the finding",
         runOn: "high-and-above-actionable",
         usageCount: 1,
         referencingScans: ["scan-a"],
@@ -165,12 +167,58 @@ function seedLists() {
   });
 }
 
-function renderPage() {
+/** Exposes the query string and a real history "back" for URL assertions. */
+function LocationProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <span data-testid="location-search">{location.search}</span>
+      <button type="button" onClick={() => navigate(-1)}>
+        history back
+      </button>
+    </>
+  );
+}
+
+function renderPage(path = "/security/library") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <SecurityLibraryPage />
+      <LocationProbe />
     </MemoryRouter>,
   );
+}
+
+function workflowRowNames(): string[] {
+  return screen
+    .getAllByTestId(/^workflow-row-/)
+    .map((row) => row.getAttribute("data-testid")!.replace("workflow-row-", ""));
+}
+
+function seedSortableWorkflows() {
+  seedLists();
+  listSecurityWorkflows.mockResolvedValue({
+    workflows: [
+      create(SecurityWorkflowResourceSchema, {
+        name: "gamma-flow",
+        usageCount: 0,
+        createdAtUnix: 300n,
+      }),
+      create(SecurityWorkflowResourceSchema, {
+        name: "alpha-flow",
+        usageCount: 1,
+        referencingScans: ["scan-a"],
+        createdAtUnix: 900n,
+      }),
+      create(SecurityWorkflowResourceSchema, {
+        name: "beta-flow",
+        usageCount: 5,
+        referencingScans: ["scan-a", "scan-b"],
+        createdAtUnix: 100n,
+      }),
+    ],
+  });
 }
 
 describe("SecurityLibraryPage", () => {
@@ -395,5 +443,144 @@ describe("SecurityLibraryPage", () => {
       expect(screen.getByTestId("library-action-error").textContent).toContain("scan-a");
     });
     expect(deleteSecurityPolicyPack).toHaveBeenCalledWith({ namespace: "", name: "prod-policy" });
+  });
+});
+
+describe("SecurityLibraryPage URL state", () => {
+  it("opens the deep-linked tab and query", async () => {
+    seedLists();
+    renderPage("/security/library?tab=policy-packs&q=vendor");
+
+    // The query matches only through the pack's suppression matcher.
+    expect(await screen.findByTestId("policy-pack-row-prod-policy")).toBeTruthy();
+    expect(
+      screen.getByRole("tab", { name: /Policy packs/ }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect((screen.getByPlaceholderText("Search the library…") as HTMLInputElement).value).toBe(
+      "vendor",
+    );
+    // Tab labels carry the count of what the current filters leave visible.
+    expect(screen.getByRole("tab", { name: /Policy packs/ }).textContent).toContain("(1)");
+    expect(screen.getByRole("tab", { name: /Workflows/ }).textContent).toContain("(0)");
+  });
+
+  it("falls back to the first tab for an unknown tab value", async () => {
+    seedLists();
+    renderPage("/security/library?tab=bogus");
+
+    expect(await screen.findByTestId("workflow-row-payments-workflow")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Workflows/ }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+  });
+
+  it("pushes the tab into history so the back button walks tabs", async () => {
+    seedLists();
+    renderPage();
+    await screen.findByTestId("workflow-row-payments-workflow");
+
+    fireEvent.click(screen.getByRole("tab", { name: /Rankers/ }));
+    await waitFor(() =>
+      expect(screen.getByTestId("location-search").textContent).toBe("?tab=rankers"),
+    );
+    expect(await screen.findByTestId("ranker-row-payments-ranker")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "history back" }));
+    await waitFor(() => expect(screen.getByTestId("location-search").textContent).toBe(""));
+    expect(await screen.findByTestId("workflow-row-payments-workflow")).toBeTruthy();
+  });
+
+  it("searches the content that identifies each kind", async () => {
+    seedLists();
+    // Workflow task objective.
+    renderPage("/security/library?q=sql injection");
+    expect(await screen.findByTestId("workflow-row-payments-workflow")).toBeTruthy();
+    cleanup();
+
+    // Ranker rule text.
+    renderPage("/security/library?tab=rankers&q=severity-floor");
+    expect(await screen.findByTestId("ranker-row-payments-ranker")).toBeTruthy();
+    cleanup();
+
+    // Post-script prompt.
+    renderPage("/security/library?tab=post-scripts&q=proof of concept");
+    expect(await screen.findByTestId("post-script-row-write-poc")).toBeTruthy();
+    cleanup();
+
+    // Program provider.
+    renderPage("/security/library?tab=programs&q=hackerone");
+    expect(await screen.findByTestId("program-row-acme-bounty")).toBeTruthy();
+  });
+
+  it("filters a tab down to unused library content", async () => {
+    seedLists();
+    renderPage("/security/library?tab=rankers&usage=unused");
+
+    expect(await screen.findByTestId("ranker-row-payments-ranker")).toBeTruthy();
+    cleanup();
+
+    // The same ranker is excluded when only referenced content is wanted.
+    renderPage("/security/library?tab=rankers&usage=in-use");
+    expect(await screen.findByText("Nothing matches these filters")).toBeTruthy();
+    expect(screen.queryByTestId("ranker-row-payments-ranker")).toBeNull();
+  });
+
+  it("clears the filters of the current tab without leaving it", async () => {
+    seedLists();
+    renderPage("/security/library?tab=post-scripts&usage=unused&q=poc");
+
+    expect(await screen.findByText("Nothing matches these filters")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    expect(await screen.findByTestId("post-script-row-write-poc")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByTestId("location-search").textContent).toBe("?tab=post-scripts"),
+    );
+  });
+
+  it("sorts by name, most used, and recently created", async () => {
+    seedSortableWorkflows();
+    renderPage();
+    await screen.findByTestId("workflow-row-alpha-flow");
+    expect(workflowRowNames()).toEqual(["alpha-flow", "beta-flow", "gamma-flow"]);
+    cleanup();
+
+    seedSortableWorkflows();
+    renderPage("/security/library?sort=usage");
+    await screen.findByTestId("workflow-row-beta-flow");
+    expect(workflowRowNames()).toEqual(["beta-flow", "alpha-flow", "gamma-flow"]);
+    cleanup();
+
+    seedSortableWorkflows();
+    renderPage("/security/library?sort=recent");
+    await screen.findByTestId("workflow-row-alpha-flow");
+    expect(workflowRowNames()).toEqual(["alpha-flow", "gamma-flow", "beta-flow"]);
+  });
+
+  it("offers the create action when a tab has nothing in it", async () => {
+    seedLists();
+    listSecurityWorkflows.mockResolvedValue({ workflows: [] });
+    renderPage();
+
+    expect(await screen.findByText("No reusable workflows yet")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Create your first workflow/ })).toBeTruthy();
+    // The rich empty state replaces the table, not the toolbar.
+    expect(screen.getByTestId("export-pack")).toBeTruthy();
+  });
+  it("writes a filter picked in the filter bar into the URL", async () => {
+    seedLists();
+    renderPage();
+    await screen.findByTestId("workflow-row-payments-workflow");
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Usage" }));
+    const option = await screen.findByRole("option", { name: /Unused/ });
+    fireEvent.pointerDown(option, { pointerType: "mouse", button: 0 });
+    fireEvent.pointerUp(option, { pointerType: "mouse", button: 0 });
+    fireEvent.click(option);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location-search").textContent).toBe("?usage=unused"),
+    );
+    expect(screen.queryByTestId("workflow-row-payments-workflow")).toBeNull();
   });
 });

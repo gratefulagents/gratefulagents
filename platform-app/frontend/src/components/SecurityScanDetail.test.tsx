@@ -1,8 +1,8 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 import { SecurityScanDetail } from "@/components/SecurityScanDetail";
 import {
@@ -130,14 +130,36 @@ function findingEventsResponse() {
   };
 }
 
-function renderDetail() {
+function LocationProbe() {
+  return <span data-testid="search">{useLocation().search}</span>;
+}
+
+/** Current query string, as the router sees it. */
+function search(): string {
+  return screen.getByTestId("search").textContent ?? "";
+}
+
+function renderDetail(initialEntry = "/security/user-alice/nightly-1") {
   return render(
-    <MemoryRouter initialEntries={["/security/user-alice/nightly-1"]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/security/:namespace/:runName" element={<SecurityScanDetail />} />
       </Routes>
+      <LocationProbe />
     </MemoryRouter>,
   );
+}
+
+/** The findings table row whose title cell contains `title`. */
+function findingRow(title: string): HTMLElement {
+  const row = within(screen.getByRole("table")).getByText(title).closest("tr");
+  if (!row) throw new Error(`no findings row for ${title}`);
+  return row;
+}
+
+/** Open the split panel the way a mouse user does. */
+function openFinding(title: string) {
+  fireEvent.click(findingRow(title));
 }
 
 describe("SecurityScanDetail", () => {
@@ -200,7 +222,8 @@ describe("SecurityScanDetail", () => {
 
     renderDetail();
 
-    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    await screen.findByText("SQL injection in payment lookup");
+    openFinding("SQL injection in payment lookup");
 
     expect(screen.getByText("User input is concatenated into a SQL string.")).toBeTruthy();
     expect(screen.getByText("Full database read access.")).toBeTruthy();
@@ -223,7 +246,7 @@ describe("SecurityScanDetail", () => {
     renderDetail();
     await screen.findByText("SQL injection in payment lookup");
 
-    fireEvent.change(screen.getByLabelText("Filter by severity"), { target: { value: "critical" } });
+    fireEvent.click(screen.getByRole("button", { name: "Critical" }));
 
     await waitFor(() => {
       expect(listSecurityFindings).toHaveBeenLastCalledWith({
@@ -235,9 +258,11 @@ describe("SecurityScanDetail", () => {
         search: "",
         baselineState: "",
         assignee: "",
-        suppressed: "",
+        suppressed: "exclude",
+        includeDuplicates: false,
       });
     });
+    expect(search()).toBe("?severity=critical");
   });
 
   it("links each finding to its full page carrying the active filters", async () => {
@@ -245,14 +270,14 @@ describe("SecurityScanDetail", () => {
     getSecurityFindingSummary.mockResolvedValue({ counts: {} });
     listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
 
-    renderDetail();
+    renderDetail("/security/user-alice/nightly-1?tool=scanner-agent");
     await screen.findByText("SQL injection in payment lookup");
 
-    fireEvent.change(screen.getByLabelText("Filter by severity"), { target: { value: "critical" } });
+    fireEvent.click(screen.getByRole("button", { name: "Critical" }));
 
     await waitFor(() => {
       expect(screen.getByRole("link", { name: "Open full page" }).getAttribute("href")).toBe(
-        `/security/user-alice/nightly-1/findings/${FINDING_ID}?severity=critical`,
+        `/security/user-alice/nightly-1/findings/${FINDING_ID}?severity=critical&tool=scanner-agent`,
       );
     });
   });
@@ -268,12 +293,16 @@ describe("SecurityScanDetail", () => {
 
     renderDetail();
 
-    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    await screen.findByText("SQL injection in payment lookup");
+    openFinding("SQL injection in payment lookup");
     await waitFor(() => {
       expect(getSecurityFinding).toHaveBeenCalledWith({ id: FINDING_ID, namespace: "user-alice" });
     });
 
-    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "triaged" } });
+    // "Status" also names the filter dropdown; the panel control is the native select.
+    fireEvent.change(screen.getByLabelText("Status", { selector: "select" }), {
+      target: { value: "triaged" },
+    });
 
     await waitFor(() => {
       expect(updateSecurityFindingStatus).toHaveBeenCalledWith({
@@ -291,7 +320,9 @@ describe("SecurityScanDetail", () => {
     await waitFor(() => {
       expect(getSecurityFinding.mock.calls.length).toBeGreaterThan(1);
     });
-    expect((screen.getByLabelText("Status") as HTMLSelectElement).value).toBe("triaged");
+    expect(
+      (screen.getByLabelText("Status", { selector: "select" }) as HTMLSelectElement).value,
+    ).toBe("triaged");
   });
 
   it("renders the finding's audit history in the panel", async () => {
@@ -302,7 +333,8 @@ describe("SecurityScanDetail", () => {
 
     renderDetail();
 
-    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    await screen.findByText("SQL injection in payment lookup");
+    openFinding("SQL injection in payment lookup");
 
     expect(await screen.findByText("status changed")).toBeTruthy();
     expect(screen.getByText(/· alice/)).toBeTruthy();
@@ -321,7 +353,8 @@ describe("SecurityScanDetail", () => {
 
     renderDetail();
 
-    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    await screen.findByText("SQL injection in payment lookup");
+    openFinding("SQL injection in payment lookup");
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByText("events unavailable")).toBeTruthy();
@@ -422,7 +455,8 @@ describe("SecurityScanDetail", () => {
     });
 
     renderDetail();
-    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    await screen.findByText("SQL injection in payment lookup");
+    openFinding("SQL injection in payment lookup");
     fireEvent.click(screen.getByRole("button", { name: "Download bounty bundle" }));
 
     await waitFor(() => {
@@ -454,7 +488,8 @@ describe("SecurityScanDetail", () => {
       });
 
     renderDetail();
-    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    await screen.findByText("SQL injection in payment lookup");
+    openFinding("SQL injection in payment lookup");
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       fireEvent.click(screen.getByRole("button", { name: "Download bounty bundle" }));
@@ -481,7 +516,8 @@ describe("SecurityScanDetail", () => {
     });
 
     const view = renderDetail();
-    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    await screen.findByText("SQL injection in payment lookup");
+    openFinding("SQL injection in payment lookup");
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       fireEvent.click(screen.getByRole("button", { name: "Download bounty bundle" }));
@@ -510,13 +546,14 @@ describe("SecurityScanDetail", () => {
     });
 
     renderDetail();
-    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    await screen.findByText("SQL injection in payment lookup");
+    openFinding("SQL injection in payment lookup");
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       fireEvent.click(screen.getByRole("button", { name: "Download bounty bundle" }));
       expect(await screen.findByText(/download will start automatically/)).toBeTruthy();
 
-      fireEvent.change(screen.getByLabelText("Filter by severity"), { target: { value: "high" } });
+      fireEvent.click(screen.getByRole("button", { name: "High" }));
       await waitFor(() => expect(screen.queryByText("Full database read access.")).toBeNull());
       await vi.advanceTimersByTimeAsync(10_000);
 
@@ -538,14 +575,15 @@ describe("SecurityScanDetail", () => {
     });
 
     renderDetail();
-    fireEvent.click(await screen.findByRole("button", { name: "SQL injection in payment lookup" }));
+    await screen.findByText("SQL injection in payment lookup");
+    openFinding("SQL injection in payment lookup");
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       fireEvent.click(screen.getByRole("button", { name: "Download bounty bundle" }));
       expect(await screen.findByText(/download will start automatically/)).toBeTruthy();
 
       fireEvent.click(screen.getByRole("button", { name: "Close finding details" }));
-      fireEvent.click(screen.getByRole("button", { name: "SQL injection in payment lookup" }));
+      openFinding("SQL injection in payment lookup");
 
       expect(screen.queryByText(/download will start automatically/)).toBeNull();
       expect(await screen.findByRole("button", { name: "Download bounty bundle" })).toBeTruthy();
@@ -832,12 +870,8 @@ describe("SecurityScanDetail budgets, retention, and suppression", () => {
     suppressedFinding.suppressionExpiresAt = timestampFromDate(new Date(Date.now() + 30 * 86400000));
     listSecurityFindings.mockResolvedValue({ findings: [suppressedFinding] });
 
-    renderDetail();
+    renderDetail("/security/user-alice/nightly-1?suppressed=only");
     await screen.findByText("SQL injection in payment lookup");
-
-    fireEvent.change(screen.getByLabelText("Filter suppressed findings"), {
-      target: { value: "only" },
-    });
 
     await waitFor(() => {
       expect(listSecurityFindings).toHaveBeenLastCalledWith({
@@ -850,6 +884,7 @@ describe("SecurityScanDetail budgets, retention, and suppression", () => {
         baselineState: "",
         assignee: "",
         suppressed: "only",
+        includeDuplicates: false,
       });
     });
 
@@ -860,9 +895,182 @@ describe("SecurityScanDetail budgets, retention, and suppression", () => {
 
     // Selecting the row explains the suppression in the side panel.
     getSecurityFinding.mockResolvedValue({ finding: suppressedFinding, events: [] });
-    fireEvent.click(screen.getByRole("button", { name: "SQL injection in payment lookup" }));
+    openFinding("SQL injection in payment lookup");
     const note = await screen.findByTestId("finding-suppression-note");
     expect(note.textContent).toContain("rule prod-policy/vendored");
     expect(note.textContent).toContain("Reason: third-party code");
+  });
+});
+
+const OTHER_ID = "33333333-3333-3333-3333-333333333333";
+
+/** A second finding that differs on every client-side filter dimension. */
+function otherFindingFixture() {
+  const finding = findingFixture();
+  finding.id = OTHER_ID;
+  finding.title = "Path traversal in report export";
+  finding.category = "traversal";
+  finding.severity = "high";
+  finding.filePath = "cmd/report/export.go";
+  finding.sourceAgent = "sast-agent";
+  return finding;
+}
+
+function mockFindingsPage(findings = [findingFixture(), otherFindingFixture()]) {
+  getSecurityScan.mockResolvedValue(scanFixture());
+  getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+  listSecurityFindings.mockResolvedValue({ findings });
+  getSecurityFinding.mockResolvedValue(findingEventsResponse());
+}
+
+describe("SecurityScanDetail finding filters", () => {
+  it("narrows by source agent client-side and reports the result count", async () => {
+    mockFindingsPage();
+
+    renderDetail("/security/user-alice/nightly-1?tool=sast-agent");
+
+    expect(await screen.findByText("Path traversal in report export")).toBeTruthy();
+    expect(screen.queryByText("SQL injection in payment lookup")).toBeNull();
+    expect(screen.getByText("1 of 2 findings")).toBeTruthy();
+    expect(screen.getByLabelText("1 active filter")).toBeTruthy();
+    // `tool` has no server-side equivalent, so the request stays unfiltered.
+    expect(listSecurityFindings.mock.calls[0][0]).toMatchObject({
+      severity: "",
+      status: "actionable",
+    });
+  });
+
+  it("narrows by file path substring", async () => {
+    mockFindingsPage();
+
+    renderDetail("/security/user-alice/nightly-1?file=CMD/report");
+
+    expect(await screen.findByText("Path traversal in report export")).toBeTruthy();
+    expect(screen.queryByText("SQL injection in payment lookup")).toBeNull();
+  });
+
+  it("asks the server for duplicates when the dupes filter is on", async () => {
+    mockFindingsPage();
+
+    renderDetail("/security/user-alice/nightly-1?dupes=include");
+
+    await waitFor(() => {
+      expect(listSecurityFindings).toHaveBeenLastCalledWith(
+        expect.objectContaining({ includeDuplicates: true }),
+      );
+    });
+  });
+
+  it("offers a filtered-empty state that clears the filters", async () => {
+    mockFindingsPage([findingFixture()]);
+
+    renderDetail("/security/user-alice/nightly-1?tool=nobody&severity=critical");
+
+    expect(await screen.findByText("No findings match these filters")).toBeTruthy();
+    expect(screen.queryByText("This scan reported no findings.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Clear filters/ }));
+    await waitFor(() => expect(search()).toBe(""));
+    expect(await screen.findByText("SQL injection in payment lookup")).toBeTruthy();
+  });
+
+  it("keeps the plain empty state when the scan reported nothing", async () => {
+    mockFindingsPage([]);
+
+    renderDetail();
+
+    expect(await screen.findByText("This scan reported no findings.")).toBeTruthy();
+    expect(screen.queryByText("No findings match these filters")).toBeNull();
+  });
+});
+
+describe("SecurityScanDetail selected finding", () => {
+  it("opens the panel from a `selected` deep link and marks the row selected", async () => {
+    mockFindingsPage();
+
+    renderDetail(`/security/user-alice/nightly-1?selected=${FINDING_ID}`);
+
+    expect(await screen.findByText("Full database read access.")).toBeTruthy();
+    await waitFor(() => {
+      expect(getSecurityFinding).toHaveBeenCalledWith({ id: FINDING_ID, namespace: "user-alice" });
+    });
+    expect(findingRow("SQL injection in payment lookup").getAttribute("aria-selected")).toBe("true");
+    expect(findingRow("Path traversal in report export").getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("writes the selection into the URL and clears it again", async () => {
+    mockFindingsPage();
+
+    renderDetail();
+    await screen.findByText("SQL injection in payment lookup");
+
+    openFinding("SQL injection in payment lookup");
+    await waitFor(() => expect(search()).toBe(`?selected=${FINDING_ID}`));
+
+    fireEvent.click(screen.getByRole("button", { name: "Close finding details" }));
+    await waitFor(() => expect(search()).toBe(""));
+  });
+
+  it("activates a row from the keyboard with Enter and Space", async () => {
+    mockFindingsPage();
+
+    renderDetail();
+    await screen.findByText("SQL injection in payment lookup");
+
+    const row = findingRow("SQL injection in payment lookup");
+    expect(row.getAttribute("tabindex")).toBe("0");
+    fireEvent.keyDown(row, { key: "Enter" });
+    await waitFor(() => expect(search()).toBe(`?selected=${FINDING_ID}`));
+
+    fireEvent.keyDown(findingRow("Path traversal in report export"), { key: " " });
+    await waitFor(() => expect(search()).toBe(`?selected=${OTHER_ID}`));
+  });
+
+  it("carries the active filters on every link out to a finding", async () => {
+    mockFindingsPage([findingFixture()]);
+
+    renderDetail(`/security/user-alice/nightly-1?severity=critical&selected=${FINDING_ID}`);
+    await screen.findByRole("complementary", { name: "Finding details" });
+
+    const expected =
+      `/security/user-alice/nightly-1/findings/${FINDING_ID}?severity=critical&selected=${FINDING_ID}`;
+    expect(screen.getByRole("link", { name: "Open full page" }).getAttribute("href")).toBe(expected);
+    const panel = screen.getByRole("complementary", { name: "Finding details" });
+    expect(
+      within(panel).getByRole("button", { name: "Open finding full page" }).getAttribute("href"),
+    ).toBe(expected);
+  });
+});
+
+describe("SecurityScanDetail dead ends", () => {
+  it("shows a typed not-found state with recovery links and retries", async () => {
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScan.mockRejectedValue(new Error("not_found: security scan user-alice/nightly-1"));
+
+    renderDetail();
+
+    expect(await screen.findByText("Scan run not found")).toBeTruthy();
+    expect(screen.getByText(/not_found: security scan/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Back to scan runs" }).getAttribute("href"))
+      .toBe("/security/runs");
+    expect(screen.getByRole("link", { name: "Security overview" }).getAttribute("href"))
+      .toBe("/security");
+
+    getSecurityScan.mockResolvedValue(scanFixture());
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByRole("heading", { name: "nightly-1" })).toBeTruthy();
+  });
+
+  it("distinguishes a permission failure from a missing scan", async () => {
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScan.mockRejectedValue(new Error("permission_denied: not your namespace"));
+
+    renderDetail();
+
+    expect(await screen.findByText("You don't have access")).toBeTruthy();
+    expect(screen.queryByText("Scan run not found")).toBeNull();
   });
 });

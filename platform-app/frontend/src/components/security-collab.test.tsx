@@ -267,8 +267,9 @@ describe("SecurityScanDetail collaboration", () => {
     // Apply a saved view: its query lands in the filters.
     fireEvent.change(screen.getByLabelText("Saved views"), { target: { value: "criticals" } });
     await waitFor(() => {
-      const severity = screen.getByLabelText("Filter by severity") as HTMLSelectElement;
-      expect(severity.value).toBe("critical");
+      // Severity is a shared FilterChips row; the applied view presses "Critical".
+      expect(screen.getByRole("button", { name: "Critical" }).getAttribute("aria-pressed"))
+        .toBe("true");
     });
 
     // Delete the applied view.

@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Code } from "@connectrpc/connect";
 import {
   AlertTriangle,
@@ -30,6 +30,13 @@ import {
   statusLabel,
 } from "@/components/SecurityScanDetail";
 import { BaselineBadge, ExpiryBadge, SuppressedBadge } from "@/components/security-baseline";
+import {
+  DetailErrorState,
+  classifyDetailError,
+  type DetailErrorKind,
+} from "@/components/ui/detail-state";
+import { useUrlFilters } from "@/hooks/useUrlFilters";
+import { repoLabel } from "@/lib/securityFilters";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { client } from "@/lib/client";
 import { connectCodeOf, describeRpcError } from "@/lib/rpc-errors";
@@ -47,6 +54,31 @@ const MAX_COMMENT_LEN = 10000;
 
 const filterSelectClass =
   "h-8 rounded-md border border-border/70 bg-background px-2 text-[12.5px] text-foreground capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
+
+/**
+ * Canonical finding-filter contract, identical to the scan detail and
+ * configuration detail lists. The whole set matters here: prev/next must walk
+ * exactly the list the user filtered, so every key that narrows the table also
+ * narrows the sibling list.
+ */
+const FILTER_SPEC = {
+  q: "",
+  severity: "all",
+  status: "actionable",
+  category: "all",
+  tool: "all",
+  file: "",
+  baseline: "all",
+  assignee: "",
+  suppressed: "exclude",
+  dupes: "hide",
+  selected: "",
+} as const;
+
+const RECOVERY_LINKS = [
+  { to: "/security/runs", label: "Scan runs" },
+  { to: "/security", label: "Security overview" },
+];
 
 /** Only canonical CWE identifiers become links to cwe.mitre.org. */
 export function cweLinkUrl(cwe: string): string | null {
@@ -142,22 +174,23 @@ export function parseRawFinding(raw: string): {
   return out;
 }
 
-type LoadFailure = "not-found" | "forbidden" | "unsupported" | "error";
-
-function classifyLoadError(err: unknown): LoadFailure {
+/** Map a load failure to a typed dead-end state, code first, message second. */
+function classifyLoadError(err: unknown, message: string): DetailErrorKind {
   switch (connectCodeOf(err)) {
     case Code.NotFound:
       return "not-found";
     case Code.PermissionDenied:
+    case Code.Unauthenticated:
       return "forbidden";
     case Code.FailedPrecondition:
+    case Code.Unimplemented:
       return "unsupported";
     default:
-      return "error";
+      return classifyDetailError(message);
   }
 }
 
-const FAILURE_COPY: Record<LoadFailure, { title: string; description: string }> = {
+const FAILURE_COPY: Record<DetailErrorKind, { title: string; description: string }> = {
   "not-found": {
     title: "Finding not found",
     description:
@@ -198,14 +231,14 @@ export function SecurityFindingDetail() {
     runName: string;
     findingId: string;
   }>();
-  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [scan, setScan] = useState<SecurityScan | null>(null);
   const [finding, setFinding] = useState<SecurityFinding | null>(null);
   const [events, setEvents] = useState<SecurityFindingEvent[]>([]);
   const [siblingIds, setSiblingIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [failure, setFailure] = useState<LoadFailure | null>(null);
+  const [failure, setFailure] = useState<DetailErrorKind | null>(null);
   const [failureMessage, setFailureMessage] = useState("");
 
   const [statusDraft, setStatusDraft] = useState("");
@@ -228,25 +261,45 @@ export function SecurityFindingDetail() {
     commentRef.current = comment;
   }, [comment]);
 
-  // Filter context carried over from the scan table keeps prev/next
-  // deterministic and lets the back link restore the same view.
-  const severity = searchParams.get("severity") ?? "";
-  const status = searchParams.get("status") ?? "actionable";
-  const category = searchParams.get("category") ?? "";
-  const search = searchParams.get("q") ?? "";
-  const filterQuery = searchParams.toString();
+  // The full filter context carried over from the scan table. Prev/next walks
+  // exactly this list, and the back link hands it straight back.
+  const { values, queryString } = useUrlFilters(FILTER_SPEC);
+  const {
+    severity,
+    status,
+    category,
+    tool,
+    file,
+    baseline,
+    assignee: assigneeFilter,
+    suppressed,
+    dupes,
+  } = values;
+  const search = values.q;
 
-  const scanHref = `/security/${namespace}/${runName}${filterQuery ? `?${filterQuery}` : ""}`;
+  // Every hop keeps the filter query string and points `selected` at the
+  // finding on screen, so returning to the scan restores the same row.
+  const hrefFor = useCallback(
+    (path: string, selectedId: string) => {
+      const params = new URLSearchParams(queryString);
+      if (selectedId) params.set("selected", selectedId);
+      const text = params.toString();
+      return `${path}${text ? `?${text}` : ""}`;
+    },
+    [queryString],
+  );
+
+  const scanHref = hrefFor(`/security/${namespace}/${runName}`, findingId ?? "");
   const findingHref = useCallback(
-    (id: string) =>
-      `/security/${namespace}/${runName}/findings/${id}${filterQuery ? `?${filterQuery}` : ""}`,
-    [namespace, runName, filterQuery],
+    (id: string) => hrefFor(`/security/${namespace}/${runName}/findings/${id}`, id),
+    [hrefFor, namespace, runName],
   );
 
   const fetchAll = useCallback(async () => {
     if (!namespace || !runName || !findingId) return;
     setLoading(true);
     setFailure(null);
+    setFailureMessage("");
     try {
       // The scan is loaded first so the finding lookup can assert scan
       // ownership server-side (scanName must match the finding's scan).
@@ -260,26 +313,43 @@ export function SecurityFindingDetail() {
         client.listSecurityFindings({
           namespace,
           runName,
-          severity,
+          severity: severity === "all" ? "" : severity,
           status: status === "all" ? "" : status,
-          category,
+          category: category === "all" ? "" : category,
           search,
+          baselineState: baseline === "all" ? "" : baseline,
+          assignee: assigneeFilter,
+          suppressed,
+          includeDuplicates: dupes === "include",
         }),
       ]);
+      // `tool` and `file` have no server-side equivalent on
+      // listSecurityFindings, so they narrow the page it returned — the same
+      // way the scan table narrows it.
+      const needle = file.trim().toLowerCase();
+      const siblings = siblingsResp.findings.filter((f) => {
+        if (tool !== "all" && f.sourceAgent !== tool) return false;
+        if (needle && !f.filePath.toLowerCase().includes(needle)) return false;
+        return true;
+      });
       setScan(scanResp);
       setFinding(findingResp.finding ?? null);
       setEvents(findingResp.events);
-      setSiblingIds(siblingsResp.findings.map((f) => f.id));
+      setSiblingIds(siblings.map((f) => f.id));
       if (!findingResp.finding) {
         setFailure("not-found");
       }
     } catch (e: unknown) {
-      setFailure(classifyLoadError(e));
-      setFailureMessage(describeRpcError(e, "load the finding"));
+      const message = describeRpcError(e, "load the finding");
+      setFailure(classifyLoadError(e, message));
+      setFailureMessage(message);
     } finally {
       setLoading(false);
     }
-  }, [namespace, runName, findingId, severity, status, category, search]);
+  }, [
+    namespace, runName, findingId, severity, status, category, search, tool, file,
+    baseline, assigneeFilter, suppressed, dupes,
+  ]);
 
   useEffect(() => {
     void fetchAll();
@@ -308,15 +378,50 @@ export function SecurityFindingDetail() {
 
   // Warn before any in-app link on this page (back, prev/next, agent run,
   // duplicate-of) navigates away from a non-empty comment draft.
-  const guardLinkClicks = useCallback((e: React.MouseEvent) => {
-    if (!commentRef.current.trim()) return;
-    const anchor = (e.target as HTMLElement).closest("a");
-    if (!anchor) return;
-    if (!window.confirm(UNSAVED_COMMENT_WARNING)) {
+  const confirmLeave = useCallback(
+    () => !commentRef.current.trim() || window.confirm(UNSAVED_COMMENT_WARNING),
+    [],
+  );
+
+  const guardLinkClicks = useCallback(
+    (e: React.MouseEvent) => {
+      if (!commentRef.current.trim()) return;
+      const anchor = (e.target as HTMLElement).closest("a");
+      if (!anchor) return;
+      if (!confirmLeave()) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    [confirmLeave],
+  );
+
+  const position = finding ? siblingIds.indexOf(finding.id) : -1;
+  const prevId = position > 0 ? siblingIds[position - 1] : null;
+  const nextId =
+    position >= 0 && position < siblingIds.length - 1 ? siblingIds[position + 1] : null;
+
+  // Triage is a queue: j/k (and the arrow keys) step through the filtered list
+  // without leaving the keyboard. Typing in a field always wins.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.isContentEditable) return;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      const back = e.key === "k" || e.key === "ArrowLeft";
+      const forward = e.key === "j" || e.key === "ArrowRight";
+      if (!back && !forward) return;
+      const destination = back ? prevId : nextId;
+      if (!destination) return;
       e.preventDefault();
-      e.stopPropagation();
-    }
-  }, []);
+      if (!confirmLeave()) return;
+      navigate(findingHref(destination));
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [prevId, nextId, navigate, findingHref, confirmLeave]);
 
   const refreshEvents = useCallback(async () => {
     if (!namespace || !findingId || !scan) return;
@@ -478,9 +583,29 @@ export function SecurityFindingDetail() {
       .catch(() => toast.error("Couldn't copy to the clipboard"));
   }
 
+  function copyLocation() {
+    if (!finding) return;
+    const target = `${finding.filePath}${finding.startLine > 0 ? `:${finding.startLine}` : ""}`;
+    void navigator.clipboard
+      .writeText(target)
+      .then(() => toast.success("File path copied"))
+      .catch(() => toast.error("Couldn't copy to the clipboard"));
+  }
+
+  if (!namespace || !runName || !findingId) {
+    return (
+      <DetailErrorState
+        kind="not-found"
+        title="Finding not found"
+        description="This link is missing the namespace, the scan run, or the finding id."
+        links={RECOVERY_LINKS}
+      />
+    );
+  }
+
   if (loading) {
     return (
-      <div aria-label="Loading finding" className="space-y-4">
+      <div role="status" aria-label="Loading finding" className="space-y-4">
         <Skeleton className="h-7 w-2/5" />
         <Skeleton className="h-4 w-3/5" />
         <Skeleton className="h-40 w-full" />
@@ -490,36 +615,21 @@ export function SecurityFindingDetail() {
   }
 
   if (failure || !finding) {
-    const copy = FAILURE_COPY[failure ?? "not-found"];
+    const kind = failure ?? "not-found";
+    const copy = FAILURE_COPY[kind];
     return (
-      <div className="space-y-3">
-        <Link
-          to={scanHref}
-          className="inline-flex items-center gap-0.5 text-[12px] text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="size-3" />
-          Back to scan
-        </Link>
-        <div role="alert" className="rounded-xl border border-border/70 bg-muted/20 px-4 py-6">
-          <h1 className="text-[15px] font-semibold">{copy.title}</h1>
-          <p className="mt-1 max-w-[70ch] text-[13px] text-muted-foreground">{copy.description}</p>
-          {failure === "error" && failureMessage && (
-            <p className="mt-2 text-[12.5px] text-muted-foreground">{failureMessage}</p>
-          )}
-          {failure === "error" && (
-            <Button variant="outline" size="sm" className="mt-3" onClick={() => void fetchAll()}>
-              Retry
-            </Button>
-          )}
-        </div>
-      </div>
+      <DetailErrorState
+        kind={kind}
+        title={copy.title}
+        description={copy.description}
+        detail={failureMessage || undefined}
+        onRetry={() => void fetchAll()}
+        links={[{ to: scanHref, label: "Back to scan" }, ...RECOVERY_LINKS]}
+      />
     );
   }
 
   const { evidence, tags } = parseRawFinding(finding.raw);
-  const index = siblingIds.indexOf(finding.id);
-  const prevId = index > 0 ? siblingIds[index - 1] : null;
-  const nextId = index >= 0 && index < siblingIds.length - 1 ? siblingIds[index + 1] : null;
   const location = finding.filePath
     ? `${finding.filePath}${finding.startLine > 0 ? `:${finding.startLine}${finding.endLine > finding.startLine ? `-${finding.endLine}` : ""}` : ""}`
     : "";
@@ -551,9 +661,40 @@ export function SecurityFindingDetail() {
           </>
         }
         subtitle={
-          location ? (
-            <span className="font-mono text-[12.5px] text-muted-foreground">{location}</span>
-          ) : undefined
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-muted-foreground">
+            <span className="tabular-nums">
+              Score <span className="font-medium text-foreground">{finding.score.toFixed(1)}</span>
+            </span>
+            {finding.repository && (
+              <span className="font-mono" title={finding.repository}>
+                {repoLabel(finding.repository)}
+              </span>
+            )}
+            {location && (
+              <span className="inline-flex min-w-0 items-center gap-1">
+                {sourceUrl ? (
+                  <a
+                    href={sourceUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="truncate font-mono underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    {location}
+                  </a>
+                ) : (
+                  <span className="truncate font-mono">{location}</span>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Copy file and line"
+                  onClick={copyLocation}
+                >
+                  <Copy />
+                </Button>
+              </span>
+            )}
+          </div>
         }
         actions={
           <>
@@ -568,38 +709,182 @@ export function SecurityFindingDetail() {
                 Agent run
               </Button>
             )}
-            <nav aria-label="Finding navigation" className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                aria-label="Previous finding"
-                disabled={!prevId}
-                nativeButton={!prevId}
-                render={prevId ? <Link to={findingHref(prevId)} /> : undefined}
-              >
-                <ChevronLeft />
-                Prev
-              </Button>
-              {index >= 0 && (
-                <span className="px-1 text-[12px] tabular-nums text-muted-foreground">
-                  {index + 1} of {siblingIds.length}
+            <nav
+              aria-label="Finding navigation"
+              className="flex flex-col items-start gap-0.5 sm:items-end"
+            >
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label="Previous finding"
+                  disabled={!prevId}
+                  nativeButton={!prevId}
+                  render={prevId ? <Link to={findingHref(prevId)} /> : undefined}
+                >
+                  <ChevronLeft />
+                  Prev
+                </Button>
+                <span
+                  data-testid="finding-position"
+                  aria-live="polite"
+                  className="px-1 text-[12px] tabular-nums text-muted-foreground"
+                >
+                  {position >= 0
+                    ? `${position + 1} of ${siblingIds.length}`
+                    : "Not in the filtered list"}
                 </span>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                aria-label="Next finding"
-                disabled={!nextId}
-                nativeButton={!nextId}
-                render={nextId ? <Link to={findingHref(nextId)} /> : undefined}
-              >
-                Next
-                <ChevronRight />
-              </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label="Next finding"
+                  disabled={!nextId}
+                  nativeButton={!nextId}
+                  render={nextId ? <Link to={findingHref(nextId)} /> : undefined}
+                >
+                  Next
+                  <ChevronRight />
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground/70">
+                Press <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> or{" "}
+                <kbd className="font-mono">←</kbd>/<kbd className="font-mono">→</kbd> to move
+                between findings
+              </p>
             </nav>
           </>
         }
       />
+
+      {/* Sticky so the triage decision stays reachable while reading long
+          evidence: status and assignment are the actions this page exists for. */}
+      <section
+        aria-label="Triage actions"
+        className="sticky top-0 z-20 space-y-3 rounded-xl border border-border/70 bg-background/95 px-3 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+      >
+        <h2 className="sr-only">Triage</h2>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <label
+              htmlFor="finding-status"
+              className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
+            >
+              Status
+            </label>
+            <select
+              id="finding-status"
+              className={filterSelectClass}
+              value={statusDraft || finding.status}
+              disabled={statusSaving}
+              onChange={(e) => setStatusDraft(e.target.value)}
+            >
+              {FINDING_STATUSES.map((s) => (
+                <option key={s} value={s}>{statusLabel(s)}</option>
+              ))}
+            </select>
+          </div>
+          {(statusDraft || finding.status) === "accepted_risk" && (
+            <div className="space-y-1">
+              <label
+                htmlFor="finding-risk-expiry"
+                className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
+              >
+                Accepted until (optional)
+              </label>
+              <input
+                id="finding-risk-expiry"
+                type="datetime-local"
+                value={expiryDraft}
+                disabled={statusSaving}
+                onChange={(e) => setExpiryDraft(e.target.value)}
+                className="h-8 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              />
+            </div>
+          )}
+          <div className="min-w-0 flex-1 space-y-1">
+            <label
+              htmlFor="finding-status-note"
+              className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
+            >
+              Note (optional)
+            </label>
+            <input
+              id="finding-status-note"
+              type="text"
+              value={statusNote}
+              disabled={statusSaving}
+              onChange={(e) => setStatusNote(e.target.value)}
+              placeholder="Why is the status changing?"
+              className="h-8 w-full rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            />
+          </div>
+          <Button
+            size="sm"
+            disabled={statusSaving || !statusDraft || statusDraft === finding.status}
+            onClick={() => void applyStatus()}
+          >
+            {statusSaving ? "Saving…" : "Update status"}
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <label
+              htmlFor="finding-assignee"
+              className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
+            >
+              Assignee
+            </label>
+            <input
+              id="finding-assignee"
+              type="text"
+              value={assigneeDraft ?? finding.assignee}
+              disabled={assigneeSaving}
+              onChange={(e) => setAssigneeDraft(e.target.value)}
+              placeholder="Unassigned"
+              className="h-8 w-56 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={assigneeSaving || assigneeDraft === null || assigneeDraft.trim() === finding.assignee}
+            onClick={() => void applyAssignee()}
+          >
+            {assigneeSaving ? "Saving…" : "Set assignee"}
+          </Button>
+          {finding.assignee && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={assigneeSaving}
+              onClick={() => {
+                setAssigneeDraft("");
+                void (async () => {
+                  setAssigneeSaving(true);
+                  try {
+                    const updated = await client.updateSecurityFindingAssignee({
+                      id: finding.id,
+                      namespace: namespace ?? "",
+                      assignee: "",
+                    });
+                    setFinding(updated);
+                    setAssigneeDraft(null);
+                    toast.success("Assignee cleared");
+                    void refreshEvents();
+                  } catch (e: unknown) {
+                    toast.error(describeRpcError(e, "clear the assignee"));
+                  } finally {
+                    setAssigneeSaving(false);
+                  }
+                })();
+              }}
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+      </section>
 
       {finding.suppressedBy && (
         <section
@@ -629,10 +914,8 @@ export function SecurityFindingDetail() {
 
       <DetailSection title="Overview">
         <FactList>
-          <Fact label="Severity" value={<SeverityBadge severity={finding.severity} />} />
           <Fact label="Status" value={statusLabel(finding.status)} />
           <Fact label="Confidence" value={finding.confidence || ""} />
-          <Fact label="Score" mono value={finding.score.toFixed(1)} />
           <Fact label="Category" value={finding.category || ""} />
           <Fact
             label="CWE"
@@ -655,21 +938,6 @@ export function SecurityFindingDetail() {
           />
           <Fact label="Repository" mono value={finding.repository || ""} />
           <Fact label="Revision" mono value={finding.revision || ""} />
-          <Fact
-            label="Location"
-            mono
-            value={
-              location ? (
-                sourceUrl ? (
-                  <FactLink href={sourceUrl}>{location}</FactLink>
-                ) : (
-                  location
-                )
-              ) : (
-                ""
-              )
-            }
-          />
           <Fact label="Symbol" mono value={finding.symbol || ""} />
           <Fact label="Occurrences" mono value={String(finding.occurrences)} />
           <Fact label="First seen" value={formatSeen(finding.firstSeenAt)} />
@@ -762,24 +1030,6 @@ export function SecurityFindingDetail() {
               )
             }
           />
-          <Fact
-            label="References"
-            value={
-              finding.references.length > 0 ? (
-                <span className="flex flex-col gap-1">
-                  {finding.references.map((ref) =>
-                    isHttpUrl(ref) ? (
-                      <FactLink key={ref} href={ref}>{ref}</FactLink>
-                    ) : (
-                      <span key={ref} className="break-all">{ref}</span>
-                    ),
-                  )}
-                </span>
-              ) : (
-                ""
-              )
-            }
-          />
         </FactList>
       </DetailSection>
 
@@ -789,6 +1039,22 @@ export function SecurityFindingDetail() {
           <FindingMarkdownSection label="Impact" content={finding.impact} />
           <FindingMarkdownSection label="Attack vector" content={finding.attackVector} />
           <FindingMarkdownSection label="Remediation" content={finding.remediation} />
+          <section aria-label="References" className="space-y-1">
+            <h3 className="text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70">
+              References
+            </h3>
+            {finding.references.length > 0 ? (
+              <ul className="space-y-0.5 text-[12.5px]">
+                {finding.references.map((ref) => (
+                  <li key={ref} className="break-all">
+                    {isHttpUrl(ref) ? <FactLink href={ref}>{ref}</FactLink> : ref}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[12.5px] text-muted-foreground">Not provided.</p>
+            )}
+          </section>
         </div>
       </DetailSection>
 
@@ -853,132 +1119,6 @@ export function SecurityFindingDetail() {
               )}
             </>
           )}
-        </div>
-      </DetailSection>
-
-      <DetailSection title="Triage">
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1">
-              <label
-                htmlFor="finding-status"
-                className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
-              >
-                Status
-              </label>
-              <select
-                id="finding-status"
-                className={filterSelectClass}
-                value={statusDraft || finding.status}
-                disabled={statusSaving}
-                onChange={(e) => setStatusDraft(e.target.value)}
-              >
-                {FINDING_STATUSES.map((s) => (
-                  <option key={s} value={s}>{statusLabel(s)}</option>
-                ))}
-              </select>
-            </div>
-            {(statusDraft || finding.status) === "accepted_risk" && (
-              <div className="space-y-1">
-                <label
-                  htmlFor="finding-risk-expiry"
-                  className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
-                >
-                  Accepted until (optional)
-                </label>
-                <input
-                  id="finding-risk-expiry"
-                  type="datetime-local"
-                  value={expiryDraft}
-                  disabled={statusSaving}
-                  onChange={(e) => setExpiryDraft(e.target.value)}
-                  className="h-8 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-                />
-              </div>
-            )}
-            <div className="min-w-0 flex-1 space-y-1">
-              <label
-                htmlFor="finding-status-note"
-                className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
-              >
-                Note (optional)
-              </label>
-              <input
-                id="finding-status-note"
-                type="text"
-                value={statusNote}
-                disabled={statusSaving}
-                onChange={(e) => setStatusNote(e.target.value)}
-                placeholder="Why is the status changing?"
-                className="h-8 w-full rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-              />
-            </div>
-            <Button
-              size="sm"
-              disabled={statusSaving || !statusDraft || statusDraft === finding.status}
-              onClick={() => void applyStatus()}
-            >
-              {statusSaving ? "Saving…" : "Update status"}
-            </Button>
-          </div>
-
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1">
-              <label
-                htmlFor="finding-assignee"
-                className="block text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70"
-              >
-                Assignee
-              </label>
-              <input
-                id="finding-assignee"
-                type="text"
-                value={assigneeDraft ?? finding.assignee}
-                disabled={assigneeSaving}
-                onChange={(e) => setAssigneeDraft(e.target.value)}
-                placeholder="Unassigned"
-                className="h-8 w-56 rounded-md border border-border/70 bg-background px-2 text-[12.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-              />
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={assigneeSaving || assigneeDraft === null || assigneeDraft.trim() === finding.assignee}
-              onClick={() => void applyAssignee()}
-            >
-              {assigneeSaving ? "Saving…" : "Set assignee"}
-            </Button>
-            {finding.assignee && (
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={assigneeSaving}
-                onClick={() => {
-                  setAssigneeDraft("");
-                  void (async () => {
-                    setAssigneeSaving(true);
-                    try {
-                      const updated = await client.updateSecurityFindingAssignee({
-                        id: finding.id,
-                        namespace: namespace ?? "",
-                        assignee: "",
-                      });
-                      setFinding(updated);
-                      setAssigneeDraft(null);
-                      toast.success("Assignee cleared");
-                      void refreshEvents();
-                    } catch (e: unknown) {
-                      toast.error(describeRpcError(e, "clear the assignee"));
-                    } finally {
-                      setAssigneeSaving(false);
-                    }
-                  })();
-                }}
-              >
-                Clear
-              </Button>
-            )}
-          </div>
         </div>
       </DetailSection>
 

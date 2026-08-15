@@ -2,10 +2,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
-import { Copy, Pencil, Plus, Trash2, Workflow } from "lucide-react";
+import {
+  BadgeCheck, CircleDashed, Copy, ListOrdered, Pencil, Plus, ScrollText, SearchX,
+  ShieldCheck, Trash2, Workflow,
+} from "lucide-react";
 
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,9 +19,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TableRowSkeleton } from "@/components/ui/list-state";
+import { ListState, TableRowSkeleton } from "@/components/ui/list-state";
 import { filterByQuery } from "@/components/ui/list-search";
+import { FilterBar, FilterSelect, type FilterOption } from "@/components/ui/filter-bar";
 import { ResourceListPage } from "@/components/list-page";
+import { useUrlFilters, type UrlFilters } from "@/hooks/useUrlFilters";
+import { optionsFrom, SEVERITY_FILTER_OPTIONS } from "@/lib/securityFilters";
 import { SecurityNav } from "@/components/SecurityNav";
 import { FlowField } from "@/components/create-flow/create-flow";
 import {
@@ -71,11 +77,35 @@ const SNAPSHOT_COPY =
   "Scans resolve and snapshot referenced library content when each run starts, so " +
   "editing a library resource never changes runs that already happened.";
 
-function usageBadge(usageCount: number, referencingScans: string[]) {
-  if (usageCount === 0) return <span className="text-muted-foreground">unused</span>;
+/** Fields every library resource shares; enough to filter and sort on. */
+type LibraryItem = {
+  name: string;
+  usageCount: number;
+  referencingScans: string[];
+  createdAtUnix: bigint;
+};
+
+function inUse(item: LibraryItem): boolean {
+  return item.usageCount > 0 || item.referencingScans.length > 0;
+}
+
+/**
+ * Per-row usage indicator. Finding library content no scan references is the
+ * main reason to sweep this page, so "unused" reads as an explicit state
+ * instead of an empty cell.
+ */
+function UsageCell({ item }: { item: LibraryItem }) {
+  if (!inUse(item)) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-border/80 px-1.5 py-0.5 text-[11px] text-muted-foreground">
+        <CircleDashed className="size-3" aria-hidden /> unused
+      </span>
+    );
+  }
+  const count = item.usageCount || item.referencingScans.length;
   return (
-    <Badge variant="secondary" title={`Referenced by: ${referencingScans.join(", ")}`}>
-      {usageCount} scan{usageCount === 1 ? "" : "s"}
+    <Badge variant="secondary" title={`Referenced by: ${item.referencingScans.join(", ")}`}>
+      {count} scan{count === 1 ? "" : "s"}
     </Badge>
   );
 }
@@ -565,10 +595,229 @@ function PostScriptEditorDialog({
 
 /* ── Library page ────────────────────────────────────────────── */
 
+const TABS = [
+  { id: "workflows", label: "Workflows" },
+  { id: "rankers", label: "Rankers" },
+  { id: "post-scripts", label: "Post-scripts" },
+  { id: "policy-packs", label: "Policy packs" },
+  { id: "programs", label: "Programs" },
+] as const;
+
+type TabId = (typeof TABS)[number]["id"];
+
+/**
+ * URL-backed view state: the tab, the search box, the per-kind filters and
+ * the sort order. A link to /security/library?tab=policy-packs&q=owasp opens
+ * exactly the view the sender was looking at.
+ */
+const FILTER_SPEC = {
+  tab: TABS[0].id,
+  q: "",
+  usage: "all",
+  sort: "name",
+  rules: "all",
+  trigger: "any",
+  enforcement: "all",
+  severity: "all",
+  provider: "all",
+  verified: "all",
+};
+
+type FilterKey = keyof typeof FILTER_SPEC;
+type LibraryFilters = UrlFilters<typeof FILTER_SPEC>;
+
+/** Filters that narrow each tab. Drives the active count and "Clear". */
+const TAB_FILTER_KEYS: Record<TabId, FilterKey[]> = {
+  workflows: ["q", "usage"],
+  rankers: ["q", "usage", "rules"],
+  "post-scripts": ["q", "usage", "trigger"],
+  "policy-packs": ["q", "usage", "enforcement", "severity"],
+  programs: ["q", "usage", "provider", "verified"],
+};
+
+const SORT_OPTIONS: FilterOption[] = [
+  { value: "name", label: "Name" },
+  { value: "usage", label: "Most used" },
+  { value: "recent", label: "Recently created" },
+];
+
+const RULES_OPTIONS: FilterOption[] = [
+  { value: "all", label: "Any rules" },
+  { value: "custom", label: "Has custom rules" },
+  { value: "none", label: "No rules" },
+];
+
+const ENFORCEMENT_OPTIONS: FilterOption[] = [
+  { value: "all", label: "Any enforcement" },
+  { value: "enforced", label: "Enforces fields" },
+  { value: "advisory", label: "Advisory only" },
+];
+
+const VERIFIED_OPTIONS: FilterOption[] = [
+  { value: "all", label: "Any verification" },
+  { value: "verified", label: "Verified" },
+  { value: "unverified", label: "Not verified" },
+];
+
+function matchesUsage(item: LibraryItem, usage: string): boolean {
+  if (usage === "in-use") return inUse(item);
+  if (usage === "unused") return !inUse(item);
+  return true;
+}
+
+function usageOptions(items: LibraryItem[]): FilterOption[] {
+  const used = items.filter(inUse).length;
+  return [
+    { value: "all", label: "Any usage", count: items.length },
+    { value: "in-use", label: "In use", count: used },
+    { value: "unused", label: "Unused", count: items.length - used },
+  ];
+}
+
+function sortLibrary<T extends LibraryItem>(items: T[], sort: string): T[] {
+  const byName = (a: T, b: T) => a.name.localeCompare(b.name);
+  const sorted = [...items];
+  if (sort === "usage") {
+    sorted.sort((a, b) => b.usageCount - a.usageCount || byName(a, b));
+  } else if (sort === "recent") {
+    sorted.sort((a, b) => Number(b.createdAtUnix - a.createdAtUnix) || byName(a, b));
+  } else {
+    sorted.sort(byName);
+  }
+  return sorted;
+}
+
+/** Post-script triggers present in the library, plus the "any" sentinel. */
+function triggerOptions(scripts: SecurityPostScriptResource[]): FilterOption[] {
+  const counts = new Map<string, number>();
+  for (const script of scripts) {
+    const key = script.runOn || "all";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [
+    { value: "any", label: "Any trigger" },
+    ...Array.from(counts.keys())
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ value, label: value, count: counts.get(value) })),
+  ];
+}
+
+/** Shared filter strip: usage and sort always, per-kind filters in between. */
+function LibraryFilterBar({
+  label,
+  noun,
+  items,
+  visible,
+  filters,
+  activeCount,
+  onClear,
+  children,
+}: {
+  label: string;
+  noun: string;
+  items: LibraryItem[];
+  visible: number;
+  filters: LibraryFilters;
+  activeCount: number;
+  onClear: () => void;
+  children?: React.ReactNode;
+}) {
+  // Nothing to narrow yet: a first-run tab shows its empty state alone.
+  if (items.length === 0 && activeCount === 0) return null;
+  return (
+    <FilterBar
+      label={label}
+      activeCount={activeCount}
+      onClear={onClear}
+      resultLabel={`${visible} of ${items.length} ${noun}`}
+    >
+      <FilterSelect
+        label="Usage"
+        value={filters.values.usage}
+        onChange={(value) => filters.set("usage", value)}
+        options={usageOptions(items)}
+      />
+      {children}
+      <FilterSelect
+        label="Sort"
+        value={filters.values.sort}
+        defaultValue="name"
+        onChange={(value) => filters.set("sort", value)}
+        options={SORT_OPTIONS}
+      />
+    </FilterBar>
+  );
+}
+
+/**
+ * Per-tab empty surface. A library with nothing in it explains what the kind
+ * is and offers the create action; a library hidden behind filters says so
+ * and offers a way back out.
+ */
+function LibraryTabState({
+  empty,
+  filtered,
+  icon,
+  title,
+  description,
+  action,
+  onClear,
+  children,
+}: {
+  empty: boolean;
+  /** Empty because the filters excluded everything, not because it is new. */
+  filtered: boolean;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  action: React.ReactNode;
+  onClear: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <ListState
+      empty={empty}
+      emptyIcon={filtered ? <SearchX /> : icon}
+      emptyTitle={filtered ? "Nothing matches these filters" : title}
+      emptyDescription={
+        filtered
+          ? "No item in this tab matches the current search and filters."
+          : description
+      }
+      emptyAction={
+        filtered ? (
+          <Button variant="outline" size="sm" onClick={onClear}>
+            Clear filters
+          </Button>
+        ) : (
+          action
+        )
+      }
+    >
+      {children}
+    </ListState>
+  );
+}
+
+/** Resource name plus the columns that collapse away on narrow screens. */
+function NameCell({ name, meta }: { name: string; meta?: React.ReactNode }) {
+  return (
+    <TableCell className="max-w-[16rem] whitespace-normal align-top">
+      <div className="truncate font-mono text-[13px]">{name}</div>
+      {meta ? (
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground md:hidden">
+          {meta}
+        </div>
+      ) : null}
+    </TableCell>
+  );
+}
+
 /**
  * SecurityLibraryPage lists the reusable security resources (workflows,
- * severity rankers, post-scripts) with usage counts and editors. Deleting a
- * resource that scans still reference fails with an error naming the scans.
+ * severity rankers, post-scripts, policy packs, verified programs) with usage
+ * counts and editors. Tab, search, filters and sort live in the URL. Deleting
+ * a resource that scans still reference fails with an error naming the scans.
  */
 export function SecurityLibraryPage() {
   const [workflows, setWorkflows] = useState<SecurityWorkflowResource[]>([]);
@@ -580,14 +829,31 @@ export function SecurityLibraryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [tab, setTab] = useState("workflows");
   const [pendingDelete, setPendingDelete] = useState<{ kind: string; name: string } | null>(null);
   const [scanConfigNames, setScanConfigNames] = useState<string[]>([]);
   // AI drafts live only in the client until the operator saves them through
   // the normal create flow; the counter forces the editor to remount per draft.
   const [draft, setDraft] = useState<{ id: number; value: SecurityDraft } | null>(null);
   const draftSeq = useRef(0);
+
+  const filters = useUrlFilters(FILTER_SPEC);
+  const { values, set, setMany } = filters;
+  const tab: TabId = TABS.find((entry) => entry.id === values.tab)?.id ?? TABS[0].id;
+  const query = values.q;
+
+  const setQuery = useCallback((next: string) => set("q", next), [set]);
+
+  const clearFilters = useCallback(() => {
+    const cleared: Partial<Record<FilterKey, string>> = {};
+    for (const key of TAB_FILTER_KEYS[tab]) cleared[key] = FILTER_SPEC[key];
+    setMany(cleared);
+  }, [setMany, tab]);
+
+  const activeFilterCount = filters.activeCount(
+    (Object.keys(FILTER_SPEC) as FilterKey[]).filter(
+      (key) => !TAB_FILTER_KEYS[tab].includes(key),
+    ),
+  );
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -685,17 +951,96 @@ export function SecurityLibraryPage() {
     </div>
   );
 
-  const visibleWorkflows = filterByQuery(workflows, query, (w) => [w.name, w.description]);
-  const visibleRankers = filterByQuery(rankers, query, (r) => [r.name, r.description]);
-  const visiblePostScripts = filterByQuery(postScripts, query, (p) => [p.name, p.description]);
-  const visiblePolicyPacks = filterByQuery(policyPacks, query, (p) => [p.name, p.description]);
-  const visiblePrograms = filterByQuery(programs, query, (program) => [
-    program.name,
-    program.provider,
-    program.displayName,
-    program.programUrl,
-    program.scopePolicy,
-  ]);
+  // Search reaches the content that identifies each kind, not just its name:
+  // an operator hunting "sql injection" means the task objectives, ranker
+  // rules and prompts that mention it, wherever they live.
+  const visibleWorkflows = sortLibrary(
+    filterByQuery(workflows, query, (w) => [
+      w.name,
+      w.description,
+      ...w.tasks.flatMap((task) => [task.name, task.objective, task.role]),
+    ]).filter((w) => matchesUsage(w, values.usage)),
+    values.sort,
+  );
+
+  const visibleRankers = sortLibrary(
+    filterByQuery(rankers, query, (r) => [r.name, r.description, ...r.rules])
+      .filter((r) => matchesUsage(r, values.usage))
+      .filter((r) =>
+        values.rules === "all"
+          ? true
+          : values.rules === "custom"
+            ? r.rules.length > 0
+            : r.rules.length === 0,
+      ),
+    values.sort,
+  );
+
+  const visiblePostScripts = sortLibrary(
+    filterByQuery(postScripts, query, (p) => [p.name, p.description, p.prompt, p.runOn])
+      .filter((p) => matchesUsage(p, values.usage))
+      .filter((p) => values.trigger === "any" || (p.runOn || "all") === values.trigger),
+    values.sort,
+  );
+
+  const visiblePolicyPacks = sortLibrary(
+    filterByQuery(policyPacks, query, (p) => [
+      p.name,
+      p.description,
+      p.minSeverity,
+      p.failOnSeverity,
+      ...p.enforced,
+      ...p.requiredCategories,
+      ...p.suppressions.flatMap((rule) => [
+        rule.name,
+        rule.reason,
+        rule.owner,
+        rule.matcher?.category,
+        rule.matcher?.cwe,
+        rule.matcher?.pathGlob,
+      ]),
+    ])
+      .filter((p) => matchesUsage(p, values.usage))
+      .filter((p) =>
+        values.enforcement === "all"
+          ? true
+          : values.enforcement === "enforced"
+            ? p.enforced.length > 0
+            : p.enforced.length === 0,
+      )
+      .filter((p) => values.severity === "all" || p.minSeverity === values.severity),
+    values.sort,
+  );
+
+  const visiblePrograms = sortLibrary(
+    filterByQuery(programs, query, (program) => [
+      program.name,
+      program.provider,
+      program.displayName,
+      program.programUrl,
+      program.scopePolicy,
+      ...program.scanTargets.map((target) => target.repositoryUrl),
+    ])
+      .filter((p) => matchesUsage(p, values.usage))
+      .filter((p) => values.provider === "all" || p.provider === values.provider)
+      .filter((p) =>
+        values.verified === "all"
+          ? true
+          : values.verified === "verified"
+            ? Boolean(p.verifiedAt)
+            : !p.verifiedAt,
+      ),
+    values.sort,
+  );
+
+  const tabCounts: Record<TabId, number> = {
+    workflows: visibleWorkflows.length,
+    rankers: visibleRankers.length,
+    "post-scripts": visiblePostScripts.length,
+    "policy-packs": visiblePolicyPacks.length,
+    programs: visiblePrograms.length,
+  };
+  const filtersActive = activeFilterCount > 0;
 
   return (
     <ResourceListPage
@@ -707,25 +1052,27 @@ export function SecurityLibraryPage() {
       loading={loading}
       error={error || undefined}
       onRetry={fetchAll}
-      empty={false}
+      empty={Boolean(error)}
       skeleton={<TableRowSkeleton cols={5} />}
       nav={<SecurityNav />}
+      toolbar={
+        <div className="flex flex-wrap gap-2">
+          <ExportSecurityPackDialog
+            workflows={workflows.map((w) => w.name)}
+            rankers={rankers.map((r) => r.name)}
+            postScripts={postScripts.map((p) => p.name)}
+            scanConfigs={scanConfigNames}
+            policyPacks={policyPacks.map((p) => p.name)}
+          />
+          <ImportSecurityPackDialog onImported={onSaved} />
+        </div>
+      }
     >
       {actionError && (
         <p className="rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-sm text-destructive" data-testid="library-action-error">
           {actionError}
         </p>
       )}
-      <div className="flex flex-wrap gap-2">
-        <ExportSecurityPackDialog
-          workflows={workflows.map((w) => w.name)}
-          rankers={rankers.map((r) => r.name)}
-          postScripts={postScripts.map((p) => p.name)}
-          scanConfigs={scanConfigNames}
-          policyPacks={policyPacks.map((p) => p.name)}
-        />
-        <ImportSecurityPackDialog onImported={onSaved} />
-      </div>
       {draft?.value.workflow && (
         <WorkflowEditorDialog
           key={`draft-workflow-${draft.id}`}
@@ -748,13 +1095,19 @@ export function SecurityLibraryPage() {
           onSaved={onSaved}
         />
       )}
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs
+        value={tab}
+        onValueChange={(next) => {
+          // Tabs are a place, not a filter: the back button should walk them.
+          if (typeof next === "string") set("tab", next, { history: "push" });
+        }}
+      >
         <TabsList>
-          <TabsTrigger value="workflows">Workflows ({workflows.length})</TabsTrigger>
-          <TabsTrigger value="rankers">Rankers ({rankers.length})</TabsTrigger>
-          <TabsTrigger value="post-scripts">Post-scripts ({postScripts.length})</TabsTrigger>
-          <TabsTrigger value="policy-packs">Policy packs ({policyPacks.length})</TabsTrigger>
-          <TabsTrigger value="programs">Programs ({programs.length})</TabsTrigger>
+          {TABS.map((entry) => (
+            <TabsTrigger key={entry.id} value={entry.id}>
+              {entry.label} ({tabCounts[entry.id]})
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         <TabsContent value="workflows" className="space-y-3 pt-3">
@@ -770,68 +1123,104 @@ export function SecurityLibraryPage() {
             />
             <GenerateSecurityDraftDialog kind="workflow" onDraft={acceptDraft} />
           </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Tasks</TableHead>
-                <TableHead>Used by</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visibleWorkflows.length === 0 && !loading && (
+          <LibraryFilterBar
+            label="Workflow filters"
+            noun="workflows"
+            items={workflows}
+            visible={visibleWorkflows.length}
+            filters={filters}
+            activeCount={activeFilterCount}
+            onClear={clearFilters}
+          />
+          <LibraryTabState
+            empty={visibleWorkflows.length === 0}
+            filtered={filtersActive}
+            onClear={clearFilters}
+            icon={<Workflow />}
+            title="No reusable workflows yet"
+            description="A workflow is a named task graph — recon, exploit, triage — that any scan can reference instead of restating it."
+            action={
+              <WorkflowEditorDialog
+                mode="create"
+                onSaved={onSaved}
+                trigger={
+                  <Button size="sm">
+                    <Plus className="size-3.5" /> Create your first workflow
+                  </Button>
+                }
+              />
+            }
+          >
+            <Table>
+              <TableCaption className="mt-2 px-3 pb-2 text-left text-[11.5px]">
+                Reusable task graphs referenced by security scans.
+              </TableCaption>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Workflow className="size-3.5" /> No reusable workflows yet.
-                    </span>
-                  </TableCell>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="hidden md:table-cell">Description</TableHead>
+                  <TableHead className="hidden sm:table-cell">Tasks</TableHead>
+                  <TableHead className="hidden sm:table-cell">Used by</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              )}
-              {visibleWorkflows.map((workflow) => (
-                <TableRow key={workflow.name} data-testid={`workflow-row-${workflow.name}`}>
-                  <TableCell className="font-mono text-[13px]">{workflow.name}</TableCell>
-                  <TableCell className="max-w-72 truncate text-muted-foreground">{workflow.description}</TableCell>
-                  <TableCell>{workflow.tasks.length}</TableCell>
-                  <TableCell>{usageBadge(workflow.usageCount, workflow.referencingScans)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex items-center gap-1">
-                      <WorkflowEditorDialog
-                        mode="edit"
-                        source={workflow}
-                        onSaved={onSaved}
-                        trigger={
-                          <Button variant="ghost" size="icon-sm" aria-label={`Edit ${workflow.name}`}>
-                            <Pencil className="size-3.5" />
-                          </Button>
-                        }
-                      />
-                      <WorkflowEditorDialog
-                        mode="duplicate"
-                        source={workflow}
-                        onSaved={onSaved}
-                        trigger={
-                          <Button variant="ghost" size="icon-sm" aria-label={`Duplicate ${workflow.name}`}>
-                            <Copy className="size-3.5" />
-                          </Button>
-                        }
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Delete ${workflow.name}`}
-                        onClick={() => setPendingDelete({ kind: "workflow", name: workflow.name })}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {visibleWorkflows.map((workflow) => (
+                  <TableRow key={workflow.name} data-testid={`workflow-row-${workflow.name}`}>
+                    <NameCell
+                      name={workflow.name}
+                      meta={
+                        <>
+                          <span className="basis-full truncate">{workflow.description}</span>
+                          <span>{workflow.tasks.length} tasks</span>
+                          <UsageCell item={workflow} />
+                        </>
+                      }
+                    />
+                    <TableCell className="hidden max-w-72 truncate text-muted-foreground md:table-cell">
+                      {workflow.description}
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">{workflow.tasks.length}</TableCell>
+                    <TableCell className="hidden sm:table-cell">
+                      <UsageCell item={workflow} />
+                    </TableCell>
+                    <TableCell className="text-right align-top">
+                      <div className="inline-flex items-center gap-1">
+                        <WorkflowEditorDialog
+                          mode="edit"
+                          source={workflow}
+                          onSaved={onSaved}
+                          trigger={
+                            <Button variant="ghost" size="icon-sm" aria-label={`Edit ${workflow.name}`}>
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          }
+                        />
+                        <WorkflowEditorDialog
+                          mode="duplicate"
+                          source={workflow}
+                          onSaved={onSaved}
+                          trigger={
+                            <Button variant="ghost" size="icon-sm" aria-label={`Duplicate ${workflow.name}`}>
+                              <Copy className="size-3.5" />
+                            </Button>
+                          }
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${workflow.name}`}
+                          onClick={() => setPendingDelete({ kind: "workflow", name: workflow.name })}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </LibraryTabState>
         </TabsContent>
 
         <TabsContent value="rankers" className="space-y-3 pt-3">
@@ -844,66 +1233,111 @@ export function SecurityLibraryPage() {
               </Button>
             }
           />
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Rules</TableHead>
-                <TableHead>Used by</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visibleRankers.length === 0 && !loading && (
+          <LibraryFilterBar
+            label="Ranker filters"
+            noun="rankers"
+            items={rankers}
+            visible={visibleRankers.length}
+            filters={filters}
+            activeCount={activeFilterCount}
+            onClear={clearFilters}
+          >
+            <FilterSelect
+              label="Rules"
+              value={values.rules}
+              onChange={(value) => set("rules", value)}
+              options={RULES_OPTIONS}
+            />
+          </LibraryFilterBar>
+          <LibraryTabState
+            empty={visibleRankers.length === 0}
+            filtered={filtersActive}
+            onClear={clearFilters}
+            icon={<ListOrdered />}
+            title="No severity rankers yet"
+            description="Rankers re-rank findings with severity floors and prose rules so every scan that references them agrees on what matters."
+            action={
+              <RankerEditorDialog
+                mode="create"
+                onSaved={onSaved}
+                trigger={
+                  <Button size="sm">
+                    <Plus className="size-3.5" /> Create your first ranker
+                  </Button>
+                }
+              />
+            }
+          >
+            <Table>
+              <TableCaption className="mt-2 px-3 pb-2 text-left text-[11.5px]">
+                Severity rankers referenced by security scans.
+              </TableCaption>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
-                    No reusable rankers yet.
-                  </TableCell>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="hidden md:table-cell">Description</TableHead>
+                  <TableHead className="hidden sm:table-cell">Rules</TableHead>
+                  <TableHead className="hidden sm:table-cell">Used by</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              )}
-              {visibleRankers.map((ranker) => (
-                <TableRow key={ranker.name} data-testid={`ranker-row-${ranker.name}`}>
-                  <TableCell className="font-mono text-[13px]">{ranker.name}</TableCell>
-                  <TableCell className="max-w-72 truncate text-muted-foreground">{ranker.description}</TableCell>
-                  <TableCell>{ranker.rules.length}</TableCell>
-                  <TableCell>{usageBadge(ranker.usageCount, ranker.referencingScans)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex items-center gap-1">
-                      <RankerEditorDialog
-                        mode="edit"
-                        source={ranker}
-                        onSaved={onSaved}
-                        trigger={
-                          <Button variant="ghost" size="icon-sm" aria-label={`Edit ${ranker.name}`}>
-                            <Pencil className="size-3.5" />
-                          </Button>
-                        }
-                      />
-                      <RankerEditorDialog
-                        mode="duplicate"
-                        source={ranker}
-                        onSaved={onSaved}
-                        trigger={
-                          <Button variant="ghost" size="icon-sm" aria-label={`Duplicate ${ranker.name}`}>
-                            <Copy className="size-3.5" />
-                          </Button>
-                        }
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Delete ${ranker.name}`}
-                        onClick={() => setPendingDelete({ kind: "ranker", name: ranker.name })}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {visibleRankers.map((ranker) => (
+                  <TableRow key={ranker.name} data-testid={`ranker-row-${ranker.name}`}>
+                    <NameCell
+                      name={ranker.name}
+                      meta={
+                        <>
+                          <span className="basis-full truncate">{ranker.description}</span>
+                          <span>{ranker.rules.length} rules</span>
+                          <UsageCell item={ranker} />
+                        </>
+                      }
+                    />
+                    <TableCell className="hidden max-w-72 truncate text-muted-foreground md:table-cell">
+                      {ranker.description}
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">{ranker.rules.length}</TableCell>
+                    <TableCell className="hidden sm:table-cell">
+                      <UsageCell item={ranker} />
+                    </TableCell>
+                    <TableCell className="text-right align-top">
+                      <div className="inline-flex items-center gap-1">
+                        <RankerEditorDialog
+                          mode="edit"
+                          source={ranker}
+                          onSaved={onSaved}
+                          trigger={
+                            <Button variant="ghost" size="icon-sm" aria-label={`Edit ${ranker.name}`}>
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          }
+                        />
+                        <RankerEditorDialog
+                          mode="duplicate"
+                          source={ranker}
+                          onSaved={onSaved}
+                          trigger={
+                            <Button variant="ghost" size="icon-sm" aria-label={`Duplicate ${ranker.name}`}>
+                              <Copy className="size-3.5" />
+                            </Button>
+                          }
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${ranker.name}`}
+                          onClick={() => setPendingDelete({ kind: "ranker", name: ranker.name })}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </LibraryTabState>
         </TabsContent>
 
         <TabsContent value="post-scripts" className="space-y-3 pt-3">
@@ -919,66 +1353,112 @@ export function SecurityLibraryPage() {
             />
             <GenerateSecurityDraftDialog kind="post-script" onDraft={acceptDraft} />
           </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Runs on</TableHead>
-                <TableHead>Used by</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visiblePostScripts.length === 0 && !loading && (
+          <LibraryFilterBar
+            label="Post-script filters"
+            noun="post-scripts"
+            items={postScripts}
+            visible={visiblePostScripts.length}
+            filters={filters}
+            activeCount={activeFilterCount}
+            onClear={clearFilters}
+          >
+            <FilterSelect
+              label="Trigger"
+              value={values.trigger}
+              defaultValue="any"
+              onChange={(value) => set("trigger", value)}
+              options={triggerOptions(postScripts)}
+            />
+          </LibraryFilterBar>
+          <LibraryTabState
+            empty={visiblePostScripts.length === 0}
+            filtered={filtersActive}
+            onClear={clearFilters}
+            icon={<ScrollText />}
+            title="No post-scripts yet"
+            description="Post-scripts run one prompt per matching finding after the workflow finishes: proofs of concept, fix suggestions, triage notes."
+            action={
+              <PostScriptEditorDialog
+                mode="create"
+                onSaved={onSaved}
+                trigger={
+                  <Button size="sm">
+                    <Plus className="size-3.5" /> Create your first post-script
+                  </Button>
+                }
+              />
+            }
+          >
+            <Table>
+              <TableCaption className="mt-2 px-3 pb-2 text-left text-[11.5px]">
+                Prompts run against matching findings after a scan's workflow.
+              </TableCaption>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
-                    No reusable post-scripts yet.
-                  </TableCell>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="hidden md:table-cell">Description</TableHead>
+                  <TableHead className="hidden sm:table-cell">Runs on</TableHead>
+                  <TableHead className="hidden sm:table-cell">Used by</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              )}
-              {visiblePostScripts.map((script) => (
-                <TableRow key={script.name} data-testid={`post-script-row-${script.name}`}>
-                  <TableCell className="font-mono text-[13px]">{script.name}</TableCell>
-                  <TableCell className="max-w-72 truncate text-muted-foreground">{script.description}</TableCell>
-                  <TableCell>{script.runOn || "all"}</TableCell>
-                  <TableCell>{usageBadge(script.usageCount, script.referencingScans)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex items-center gap-1">
-                      <PostScriptEditorDialog
-                        mode="edit"
-                        source={script}
-                        onSaved={onSaved}
-                        trigger={
-                          <Button variant="ghost" size="icon-sm" aria-label={`Edit ${script.name}`}>
-                            <Pencil className="size-3.5" />
-                          </Button>
-                        }
-                      />
-                      <PostScriptEditorDialog
-                        mode="duplicate"
-                        source={script}
-                        onSaved={onSaved}
-                        trigger={
-                          <Button variant="ghost" size="icon-sm" aria-label={`Duplicate ${script.name}`}>
-                            <Copy className="size-3.5" />
-                          </Button>
-                        }
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Delete ${script.name}`}
-                        onClick={() => setPendingDelete({ kind: "post-script", name: script.name })}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {visiblePostScripts.map((script) => (
+                  <TableRow key={script.name} data-testid={`post-script-row-${script.name}`}>
+                    <NameCell
+                      name={script.name}
+                      meta={
+                        <>
+                          <span className="basis-full truncate">{script.description}</span>
+                          <span>{script.runOn || "all"}</span>
+                          <UsageCell item={script} />
+                        </>
+                      }
+                    />
+                    <TableCell className="hidden max-w-72 truncate text-muted-foreground md:table-cell">
+                      {script.description}
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">{script.runOn || "all"}</TableCell>
+                    <TableCell className="hidden sm:table-cell">
+                      <UsageCell item={script} />
+                    </TableCell>
+                    <TableCell className="text-right align-top">
+                      <div className="inline-flex items-center gap-1">
+                        <PostScriptEditorDialog
+                          mode="edit"
+                          source={script}
+                          onSaved={onSaved}
+                          trigger={
+                            <Button variant="ghost" size="icon-sm" aria-label={`Edit ${script.name}`}>
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          }
+                        />
+                        <PostScriptEditorDialog
+                          mode="duplicate"
+                          source={script}
+                          onSaved={onSaved}
+                          trigger={
+                            <Button variant="ghost" size="icon-sm" aria-label={`Duplicate ${script.name}`}>
+                              <Copy className="size-3.5" />
+                            </Button>
+                          }
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${script.name}`}
+                          onClick={() => setPendingDelete({ kind: "post-script", name: script.name })}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </LibraryTabState>
         </TabsContent>
 
         <TabsContent value="policy-packs" className="space-y-3 pt-3">
@@ -993,99 +1473,140 @@ export function SecurityLibraryPage() {
               }
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            Policy packs supply scan defaults, floors that referencing scans may not relax
-            (enforced fields), governed finding suppressions, data retention, and budgets.
-          </p>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Enforced</TableHead>
-                <TableHead>Suppressions</TableHead>
-                <TableHead>Retention / budgets</TableHead>
-                <TableHead>Used by</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visiblePolicyPacks.length === 0 && !loading && (
+          <LibraryFilterBar
+            label="Policy pack filters"
+            noun="policy packs"
+            items={policyPacks}
+            visible={visiblePolicyPacks.length}
+            filters={filters}
+            activeCount={activeFilterCount}
+            onClear={clearFilters}
+          >
+            <FilterSelect
+              label="Enforcement"
+              value={values.enforcement}
+              onChange={(value) => set("enforcement", value)}
+              options={ENFORCEMENT_OPTIONS}
+            />
+            <FilterSelect
+              label="Min severity"
+              value={values.severity}
+              onChange={(value) => set("severity", value)}
+              options={SEVERITY_FILTER_OPTIONS}
+            />
+          </LibraryFilterBar>
+          <LibraryTabState
+            empty={visiblePolicyPacks.length === 0}
+            filtered={filtersActive}
+            onClear={clearFilters}
+            icon={<ShieldCheck />}
+            title="No policy packs yet"
+            description="Policy packs supply scan defaults, floors that referencing scans may not relax, governed finding suppressions, data retention, and budgets."
+            action={
+              <PolicyPackEditorDialog
+                mode="create"
+                onSaved={onSaved}
+                trigger={
+                  <Button size="sm">
+                    <Plus className="size-3.5" /> Create your first policy pack
+                  </Button>
+                }
+              />
+            }
+          >
+            <Table>
+              <TableCaption className="mt-2 px-3 pb-2 text-left text-[11.5px]">
+                Scan defaults, enforced floors, suppressions, retention, and budgets.
+              </TableCaption>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
-                    No policy packs yet.
-                  </TableCell>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="hidden lg:table-cell">Description</TableHead>
+                  <TableHead className="hidden sm:table-cell">Enforced</TableHead>
+                  <TableHead className="hidden md:table-cell">Suppressions</TableHead>
+                  <TableHead className="hidden lg:table-cell">Retention / budgets</TableHead>
+                  <TableHead className="hidden sm:table-cell">Used by</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              )}
-              {visiblePolicyPacks.map((pack) => {
-                const retention = packRetentionSummary(pack.retention);
-                const budgets = packBudgetSummary(pack.budgets);
-                return (
-                  <TableRow key={pack.name} data-testid={`policy-pack-row-${pack.name}`}>
-                    <TableCell className="font-mono text-[13px]">{pack.name}</TableCell>
-                    <TableCell className="max-w-60 truncate text-muted-foreground">{pack.description}</TableCell>
-                    <TableCell>
-                      {pack.enforced.length === 0 ? (
-                        <span className="text-muted-foreground">none</span>
-                      ) : (
-                        <span className="flex flex-wrap gap-1" title="Scans may not relax these fields.">
-                          {pack.enforced.map((field) => (
-                            <Badge key={field} variant="secondary" className="text-[11px]">
-                              {field}
-                            </Badge>
-                          ))}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {pack.suppressions.length === 0
-                        ? "—"
-                        : `${pack.suppressions.length} rule${pack.suppressions.length === 1 ? "" : "s"}`}
-                    </TableCell>
-                    <TableCell className="max-w-64 text-[12px] text-muted-foreground">
-                      <div className="space-y-0.5">
-                        <div className="truncate">{retention ? `retention: ${retention}` : "retention: keep forever"}</div>
-                        <div className="truncate">{budgets ? `budgets: ${budgets}` : "budgets: unlimited"}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell>{usageBadge(pack.usageCount, pack.referencingScans)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="inline-flex items-center gap-1">
-                        <PolicyPackEditorDialog
-                          mode="edit"
-                          source={pack}
-                          onSaved={onSaved}
-                          trigger={
-                            <Button variant="ghost" size="icon-sm" aria-label={`Edit ${pack.name}`}>
-                              <Pencil className="size-3.5" />
-                            </Button>
-                          }
-                        />
-                        <PolicyPackEditorDialog
-                          mode="duplicate"
-                          source={pack}
-                          onSaved={onSaved}
-                          trigger={
-                            <Button variant="ghost" size="icon-sm" aria-label={`Duplicate ${pack.name}`}>
-                              <Copy className="size-3.5" />
-                            </Button>
-                          }
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Delete ${pack.name}`}
-                          onClick={() => setPendingDelete({ kind: "policy-pack", name: pack.name })}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {visiblePolicyPacks.map((pack) => {
+                  const retention = packRetentionSummary(pack.retention);
+                  const budgets = packBudgetSummary(pack.budgets);
+                  return (
+                    <TableRow key={pack.name} data-testid={`policy-pack-row-${pack.name}`}>
+                      <NameCell
+                        name={pack.name}
+                        meta={
+                          <>
+                            <span className="basis-full truncate">{pack.description}</span>
+                            <span>
+                              {pack.enforced.length === 0
+                                ? "advisory"
+                                : `enforces ${pack.enforced.join(", ")}`}
+                            </span>
+                            <UsageCell item={pack} />
+                          </>
+                        }
+                      />
+                      <TableCell className="hidden max-w-60 truncate text-muted-foreground lg:table-cell">
+                        {pack.description}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        {pack.enforced.length === 0 ? (
+                          <span className="text-muted-foreground">none</span>
+                        ) : (
+                          <span className="flex flex-wrap gap-1" title="Scans may not relax these fields.">
+                            {pack.enforced.map((field) => (
+                              <Badge key={field} variant="secondary" className="text-[11px]">
+                                {field}
+                              </Badge>
+                            ))}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
+                        {pack.suppressions.length === 0
+                          ? "—"
+                          : `${pack.suppressions.length} rule${pack.suppressions.length === 1 ? "" : "s"}`}
+                      </TableCell>
+                      <TableCell className="hidden max-w-64 text-[12px] text-muted-foreground lg:table-cell">
+                        <div className="space-y-0.5">
+                          <div className="truncate">{retention ? `retention: ${retention}` : "retention: keep forever"}</div>
+                          <div className="truncate">{budgets ? `budgets: ${budgets}` : "budgets: unlimited"}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <UsageCell item={pack} />
+                      </TableCell>
+                      <TableCell className="text-right align-top">
+                        <div className="inline-flex items-center gap-1">
+                          <PolicyPackEditorDialog
+                            mode="edit"
+                            source={pack}
+                            onSaved={onSaved}
+                            trigger={
+                              <Button variant="ghost" size="icon-sm" aria-label={`Edit ${pack.name}`}>
+                                <Pencil className="size-3.5" />
+                              </Button>
+                            }
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Delete ${pack.name}`}
+                            onClick={() => setPendingDelete({ kind: "policy-pack", name: pack.name })}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </LibraryTabState>
         </TabsContent>
 
         <TabsContent value="programs" className="space-y-3 pt-3">
@@ -1106,82 +1627,131 @@ export function SecurityLibraryPage() {
               Security programs are unavailable: {programsError}
             </div>
           )}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Program</TableHead>
-                <TableHead>Provider</TableHead>
-                <TableHead>Provenance URL</TableHead>
-                <TableHead>Scope policy snapshot</TableHead>
-                <TableHead>Repositories</TableHead>
-                <TableHead>Verified</TableHead>
-                <TableHead>Used by</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visiblePrograms.length === 0 && !loading && (
+          <LibraryFilterBar
+            label="Program filters"
+            noun="programs"
+            items={programs}
+            visible={visiblePrograms.length}
+            filters={filters}
+            activeCount={activeFilterCount}
+            onClear={clearFilters}
+          >
+            <FilterSelect
+              label="Provider"
+              value={values.provider}
+              onChange={(value) => set("provider", value)}
+              options={optionsFrom(programs.map((program) => program.provider), "Any provider")}
+            />
+            <FilterSelect
+              label="Verification"
+              value={values.verified}
+              onChange={(value) => set("verified", value)}
+              options={VERIFIED_OPTIONS}
+            />
+          </LibraryFilterBar>
+          <LibraryTabState
+            empty={visiblePrograms.length === 0}
+            filtered={filtersActive}
+            onClear={clearFilters}
+            icon={<BadgeCheck />}
+            title="No security programs yet"
+            description="A program records an operator-verified scope policy snapshot — what is in scope, what is excluded — that scan prompts quote verbatim."
+            action={
+              <SecurityProgramDialog
+                onSaved={onSaved}
+                trigger={
+                  <Button size="sm">
+                    <Plus className="size-3.5" /> Create your first program
+                  </Button>
+                }
+              />
+            }
+          >
+            <Table>
+              <TableCaption className="mt-2 px-3 pb-2 text-left text-[11.5px]">
+                Verified program scope snapshots referenced by security scans.
+              </TableCaption>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-sm text-muted-foreground">
-                    No security programs yet.
-                  </TableCell>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="hidden md:table-cell">Program</TableHead>
+                  <TableHead className="hidden sm:table-cell">Provider</TableHead>
+                  <TableHead className="hidden xl:table-cell">Provenance URL</TableHead>
+                  <TableHead className="hidden xl:table-cell">Scope policy snapshot</TableHead>
+                  <TableHead className="hidden lg:table-cell">Repositories</TableHead>
+                  <TableHead className="hidden lg:table-cell">Verified</TableHead>
+                  <TableHead className="hidden sm:table-cell">Used by</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              )}
-              {visiblePrograms.map((program) => (
-                <TableRow key={program.name} data-testid={`program-row-${program.name}`}>
-                  <TableCell className="font-mono text-[13px]">{program.name}</TableCell>
-                  <TableCell className="font-medium">{program.displayName}</TableCell>
-                  <TableCell>{program.provider}</TableCell>
-                  <TableCell className="max-w-64">
-                    <a
-                      href={program.programUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block truncate font-mono text-[12px] underline underline-offset-2"
-                      title={program.programUrl}
-                    >
-                      {program.programUrl}
-                    </a>
-                  </TableCell>
-                  <TableCell
-                    className="max-w-72 whitespace-pre-line text-[12px] text-muted-foreground"
-                    title={program.scopePolicy}
-                  >
-                    <span className="line-clamp-2">{program.scopePolicy}</span>
-                  </TableCell>
-                  <TableCell className="text-[12px] text-muted-foreground">
-                    {programTargetLabel(program)}
-                  </TableCell>
-                  <TableCell className="text-[12px] text-muted-foreground">
-                    {program.verifiedAt ? timestampDate(program.verifiedAt).toLocaleString() : "—"}
-                  </TableCell>
-                  <TableCell>{usageBadge(program.usageCount, program.referencingScans)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex items-center gap-1">
-                      <SecurityProgramDialog
-                        source={program}
-                        onSaved={onSaved}
-                        trigger={
-                          <Button variant="ghost" size="icon-sm" aria-label={`Edit ${program.name}`}>
-                            <Pencil className="size-3.5" />
-                          </Button>
-                        }
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Delete ${program.name}`}
-                        onClick={() => setPendingDelete({ kind: "program", name: program.name })}
+              </TableHeader>
+              <TableBody>
+                {visiblePrograms.map((program) => (
+                  <TableRow key={program.name} data-testid={`program-row-${program.name}`}>
+                    <NameCell
+                      name={program.name}
+                      meta={
+                        <>
+                          <span className="basis-full truncate">{program.displayName}</span>
+                          <span>{program.provider}</span>
+                          <span>{programTargetLabel(program)}</span>
+                          <UsageCell item={program} />
+                        </>
+                      }
+                    />
+                    <TableCell className="hidden font-medium md:table-cell">{program.displayName}</TableCell>
+                    <TableCell className="hidden sm:table-cell">{program.provider}</TableCell>
+                    <TableCell className="hidden max-w-64 xl:table-cell">
+                      <a
+                        href={program.programUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block truncate font-mono text-[12px] underline underline-offset-2"
+                        title={program.programUrl}
                       >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                        {program.programUrl}
+                      </a>
+                    </TableCell>
+                    <TableCell
+                      className="hidden max-w-72 whitespace-pre-line text-[12px] text-muted-foreground xl:table-cell"
+                      title={program.scopePolicy}
+                    >
+                      <span className="line-clamp-2">{program.scopePolicy}</span>
+                    </TableCell>
+                    <TableCell className="hidden text-[12px] text-muted-foreground lg:table-cell">
+                      {programTargetLabel(program)}
+                    </TableCell>
+                    <TableCell className="hidden text-[12px] text-muted-foreground lg:table-cell">
+                      {program.verifiedAt ? timestampDate(program.verifiedAt).toLocaleString() : "—"}
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">
+                      <UsageCell item={program} />
+                    </TableCell>
+                    <TableCell className="text-right align-top">
+                      <div className="inline-flex items-center gap-1">
+                        <SecurityProgramDialog
+                          source={program}
+                          onSaved={onSaved}
+                          trigger={
+                            <Button variant="ghost" size="icon-sm" aria-label={`Edit ${program.name}`}>
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          }
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${program.name}`}
+                          onClick={() => setPendingDelete({ kind: "program", name: program.name })}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </LibraryTabState>
         </TabsContent>
       </Tabs>
 
