@@ -76,16 +76,16 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"bugcrowd-openai": "authenticated Bugcrowd",
 	}
 	expectedCatalogTargetCounts := map[string]int{
-		"bugcrowd-atlassian":    30,
-		"bugcrowd-opera":        49,
+		"bugcrowd-atlassian":    8,
+		"bugcrowd-opera":        37,
 		"hackerone-cloudflare":  6,
 		"hackerone-coinbase":    2,
-		"hackerone-gitlab":      13,
-		"hackerone-playstation": 16,
-		"hackerone-security":    22,
-		"hackerone-shopify":     8,
+		"hackerone-gitlab":      9,
+		"hackerone-playstation": 12,
+		"hackerone-security":    7,
+		"hackerone-shopify":     6,
 		"hackerone-uber":        1,
-		"intigriti-dropbox":     10,
+		"intigriti-dropbox":     6,
 	}
 	expectedImmunefiTargets := map[string]string{
 		"immunefi-1inch":  "https://github.com/1inch/limit-order-protocol",

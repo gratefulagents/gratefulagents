@@ -4,13 +4,6 @@ metadata:
   name: hackerone-security
 spec:
   scanTargets:
-    - targetURL: "https://a5s.hackerone-ext-content.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-a5s-content
-      displayName: "HackerOne — A5S external content"
-      priority: 7000
-      featured: false
     - targetURL: "https://api.hackerone.com"
       workflowRef: web-api-assessment
       policyPackRef: web-application
@@ -24,27 +17,6 @@ spec:
       scanName: hackerone-pullrequest-app
       displayName: "HackerOne — PullRequest app"
       priority: 7002
-      featured: false
-    - targetURL: "https://b5s.hackerone-ext-content.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-b5s-content
-      displayName: "HackerOne — B5S external content"
-      priority: 7003
-      featured: false
-    - targetURL: "https://cover-photos-us-east-2.hackerone-user-content.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-cover-photos-us-east-2
-      displayName: "HackerOne — Cover photos US East 2"
-      priority: 7004
-      featured: false
-    - targetURL: "https://cover-photos.hackerone-user-content.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-cover-photos
-      displayName: "HackerOne — Cover photos"
-      priority: 7005
       featured: false
     - targetURL: "https://ctf.hacker101.com"
       workflowRef: web-app-full-assessment
@@ -60,41 +32,6 @@ spec:
       displayName: "HackerOne — Errors"
       priority: 7007
       featured: false
-    - targetURL: "https://hackathon-photos-us-east-2.hackerone-user-content.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-hackathon-photos-us-east-2
-      displayName: "HackerOne — Hackathon photos US East 2"
-      priority: 7008
-      featured: false
-    - targetURL: "https://hackathon-photos.hackerone-user-content.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-hackathon-photos
-      displayName: "HackerOne — Hackathon photos"
-      priority: 7009
-      featured: false
-    - targetURL: "https://hackerone-ext-content.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-external-content
-      displayName: "HackerOne — External content"
-      priority: 7010
-      featured: false
-    - targetURL: "https://hackerone-us-west-2-production-attachments.s3.us-west-2.amazonaws.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-production-attachments
-      displayName: "HackerOne — Production attachments"
-      priority: 7011
-      featured: false
-    - targetURL: "https://hackerone-user-content.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-user-content
-      displayName: "HackerOne — User content"
-      priority: 7012
-      featured: false
     - targetURL: "https://hackerone.com"
       workflowRef: web-app-full-assessment
       policyPackRef: web-application
@@ -102,54 +39,12 @@ spec:
       displayName: "HackerOne — Web"
       priority: 7013
       featured: true
-    - targetURL: "https://hackerone.live"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-live
-      displayName: "HackerOne — Live"
-      priority: 7014
-      featured: false
-    - targetURL: "https://mta-sts.wearehackerone.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-mta-sts
-      displayName: "HackerOne — MTA-STS"
-      priority: 7015
-      featured: false
-    - targetURL: "https://profile-photos-us-east-2.hackerone-user-content.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-profile-photos-us-east-2
-      displayName: "HackerOne — Profile photos US East 2"
-      priority: 7016
-      featured: false
-    - targetURL: "https://profile-photos.hackerone-user-content.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-profile-photos
-      displayName: "HackerOne — Profile photos"
-      priority: 7017
-      featured: false
     - targetURL: "https://reviewer.pullrequest.com"
       workflowRef: web-app-full-assessment
       policyPackRef: web-application
       scanName: hackerone-pullrequest-reviewer
       displayName: "HackerOne — PullRequest reviewer"
       priority: 7018
-      featured: false
-    - targetURL: "https://www.hackerone.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-web-www
-      displayName: "HackerOne — Web (www)"
-      priority: 7019
-      featured: false
-    - targetURL: "https://www.wearehackerone.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: hackerone-wearehackerone
-      displayName: "HackerOne — We Are HackerOne"
-      priority: 7020
       featured: false
     - repositoryURL: "https://github.com/Hacker0x01/react-datepicker"
       baseBranch: main
@@ -186,7 +81,7 @@ spec:
     DoS testing is limited to a single request, user, or IP; no automation or high-volume traffic; Monday through Thursday, 21:00-06:00 UTC only; immediate stop on impact; and disclosure of source IP, timezone, and timing. DDoS, multiple source IPs, resource exhaustion, and data corruption remain prohibited.
 
     Importable target boundary
-    The 21 exact first-party web/API URLs and the explicitly listed repository are exposed as individual import targets. Wildcard content and VPN rows remain policy-only scope. The catalog does not inject the mandatory X-Bug-Bounty header or authorize conditional DoS testing; operators remain responsible for those live-program requirements.
+    Six actionable first-party platform, API, application, CTF, and error-collection URLs plus the explicitly listed repository are exposed as individual import targets. Exact rows that currently resolve only to marketing, static content/storage, event information, mail policy, or legacy aliases remain policy-only scope, together with wildcard content and VPN rows. The catalog does not inject the mandatory X-Bug-Bounty header or authorize conditional DoS testing; operators remain responsible for those live-program requirements.
 
     Operator gate
     Re-open the live policy before testing and configure the mandatory header, a HackerOne-provided sandbox where applicable, and every current rate limit. Customer programs and customer assets are never inherited.

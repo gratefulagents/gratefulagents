@@ -25,33 +25,12 @@ spec:
       displayName: "PlayStation — Checkout"
       priority: 6002
       featured: false
-    - targetURL: "https://compete.playstation.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: playstation-compete
-      displayName: "PlayStation — Compete"
-      priority: 6003
-      featured: false
     - targetURL: "https://direct.playstation.com"
       workflowRef: web-app-full-assessment
       policyPackRef: web-application
       scanName: playstation-direct
       displayName: "PlayStation — Direct"
       priority: 6004
-      featured: false
-    - targetURL: "https://my.account.sony.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: playstation-account
-      displayName: "PlayStation — Account"
-      priority: 6005
-      featured: false
-    - targetURL: "https://my.playstation.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: playstation-my
-      displayName: "PlayStation — My PlayStation"
-      priority: 6006
       featured: false
     - targetURL: "https://profile.playstation.com"
       workflowRef: web-app-full-assessment
@@ -109,13 +88,6 @@ spec:
       displayName: "PlayStation — Web network"
       priority: 6014
       featured: false
-    - targetURL: "https://www.playstation.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: playstation-web
-      displayName: "PlayStation — Web"
-      priority: 6015
-      featured: true
   provider: HackerOne
   displayName: PlayStation
   programURL: https://hackerone.com/playstation
@@ -139,7 +111,7 @@ spec:
     Zero explicit asset rows does not mean all Sony assets are in scope. Sony directs vulnerabilities in other Sony products to Secure@Sony, and vulnerabilities in third-party games or software are handled by their publishers.
 
     Importable target boundary
-    The 16 exact first-party web and API URLs are exposed as individual import targets. Wildcards, the broad no-bounty API row, consoles, hardware, mobile apps, and descriptive product rows remain policy-only scope. Imported account, store, wallet, and session targets still require current policy review and researcher-controlled accounts and data.
+    The 12 actionable exact first-party application, account, commerce, network, and API URLs are exposed as individual import targets. The discontinued My PlayStation host, a 404-only account root, the redirect-only Competition Center host, and the general marketing apex remain policy-only scope, together with wildcards, the broad no-bounty API row, consoles, hardware, mobile apps, and descriptive product rows. Imported account, store, wallet, and session targets still require current policy review and researcher-controlled accounts and data.
 
     Operator gate
     Re-open HackerOne before testing, confirm that the exact product/host row is still listed and bounty eligible, and use only researcher-controlled consoles, accounts, purchases, wallets, sessions, and data.

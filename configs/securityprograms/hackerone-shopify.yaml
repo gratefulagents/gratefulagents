@@ -32,20 +32,6 @@ spec:
       displayName: "Shopify — Shop app web"
       priority: 8003
       featured: false
-    - targetURL: "https://shopifyinbox.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: shopify-inbox
-      displayName: "Shopify — Inbox"
-      priority: 8004
-      featured: false
-    - targetURL: "https://linkpop.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: shopify-linkpop
-      displayName: "Shopify — Linkpop"
-      priority: 8005
-      featured: false
     - targetURL: "https://accounts.shopify.com"
       workflowRef: web-app-full-assessment
       policyPackRef: web-application
@@ -86,7 +72,7 @@ spec:
     Create test stores only through the HackerOne signup path and register them with YOURHANDLE@wearehackerone.com. Never interact with a live merchant store or a store you did not create. Shopify judges many common platform behaviors as intended or ineligible; examples are transcribed below so they are not promoted as findings.
 
     Importable target boundary
-    The eight exact shared first-party web/API URLs are exposed as individual import targets. Wildcards, mobile and developed-app rows, the GitHub organization wildcard, third-party stores and apps, and the researcher-specific your-store.myshopify.com placeholder remain policy-only scope. Imported shared hosts never authorize touching a live merchant storefront or merchant data.
+    Six actionable exact shared first-party administration, account, commerce-platform, partner, and API URLs are exposed as individual import targets. The retired Linkpop host and legacy Shopify Inbox domain, which now resolve away from their former applications, remain policy-only scope, together with wildcards, mobile and developed-app rows, the GitHub organization wildcard, third-party stores and apps, and the researcher-specific your-store.myshopify.com placeholder. Imported shared hosts never authorize touching a live merchant storefront or merchant data.
 
     Operator gate
     Re-open the official criteria and HackerOne engagement before every test, use only the assigned research identity and researcher-created stores, and verify any current rate limits or special campaign rules.

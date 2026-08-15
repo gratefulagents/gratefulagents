@@ -25,13 +25,6 @@ spec:
       displayName: "Atlassian — Bitbucket"
       priority: 1002
       featured: false
-    - targetURL: "https://confluence.atlassian.com/doc/install-atlassian-companion-992678880.html"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-companion
-      displayName: "Atlassian — Companion"
-      priority: 1003
-      featured: false
     - targetURL: "https://id.atlassian.com/login"
       workflowRef: web-app-full-assessment
       policyPackRef: web-application
@@ -60,159 +53,12 @@ spec:
       displayName: "Atlassian — Start"
       priority: 1007
       featured: false
-    - targetURL: "https://www.atlassian.com/enterprise/data-center/bitbucket"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-data-center-bitbucket
-      displayName: "Atlassian — Bitbucket Data Center"
-      priority: 1008
-      featured: false
-    - targetURL: "https://www.atlassian.com/enterprise/data-center/confluence"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-data-center-confluence
-      displayName: "Atlassian — Confluence Data Center"
-      priority: 1009
-      featured: false
-    - targetURL: "https://www.atlassian.com/enterprise/data-center/crowd"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-data-center-crowd
-      displayName: "Atlassian — Crowd Data Center"
-      priority: 1010
-      featured: false
-    - targetURL: "https://www.atlassian.com/enterprise/data-center/jira"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-data-center-jira
-      displayName: "Atlassian — Jira Data Center"
-      priority: 1011
-      featured: false
-    - targetURL: "https://www.atlassian.com/enterprise/data-center/jira/service-management"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-data-center-jsm
-      displayName: "Atlassian — Jira Service Management Data Center"
-      priority: 1012
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/atlas"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-atlas
-      displayName: "Atlassian — Atlas"
-      priority: 1013
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/bamboo"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-bamboo
-      displayName: "Atlassian — Bamboo"
-      priority: 1014
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/compass"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-compass
-      displayName: "Atlassian — Compass"
-      priority: 1015
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/confluence"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-confluence
-      displayName: "Atlassian — Confluence"
-      priority: 1016
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/confluence/premium"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-confluence-premium
-      displayName: "Atlassian — Confluence Premium"
-      priority: 1017
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/crucible"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-crucible
-      displayName: "Atlassian — Crucible"
-      priority: 1018
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/fisheye"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-fisheye
-      displayName: "Atlassian — Fisheye"
-      priority: 1019
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/jira"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-jira
-      displayName: "Atlassian — Jira"
-      priority: 1020
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/jira/product-discovery"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-jira-product-discovery
-      displayName: "Atlassian — Jira Product Discovery"
-      priority: 1021
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/jira/service-management"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-jira-service-management
-      displayName: "Atlassian — Jira Service Management"
-      priority: 1022
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/jira/work-management"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-jira-work-management
-      displayName: "Atlassian — Jira Work Management"
-      priority: 1023
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/rovo"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-rovo
-      displayName: "Atlassian — Rovo"
-      priority: 1024
-      featured: false
-    - targetURL: "https://www.atlassian.com/software/rovo-dev"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-rovo-dev
-      displayName: "Atlassian — Rovo Dev"
-      priority: 1025
-      featured: false
     - targetURL: "https://www.loom.com"
       workflowRef: web-app-full-assessment
       policyPackRef: web-application
       scanName: atlassian-loom
       displayName: "Atlassian — Loom"
       priority: 1026
-      featured: false
-    - targetURL: "https://www.loom.com/download"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-loom-download
-      displayName: "Atlassian — Loom download"
-      priority: 1027
-      featured: false
-    - targetURL: "https://www.sourcetreeapp.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-sourcetree
-      displayName: "Atlassian — Sourcetree"
-      priority: 1028
-      featured: false
-    - targetURL: "https://support.atlassian.com/rovo/docs/use-rovo-dev-cli/"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: atlassian-rovo-dev-cli-docs
-      displayName: "Atlassian — Rovo Dev CLI documentation"
-      priority: 1029
       featured: false
   provider: Bugcrowd
   displayName: Atlassian
@@ -244,7 +90,7 @@ spec:
     Atlassian runs separate Bugcrowd engagements for Atlassian-built Marketplace apps and separate programs for Trello, Opsgenie, and Statuspage. Those are not silently inherited by this record. Customer cloud sites are eligible only when they are the researcher's own test instance. Product-page rows identify the covered product, not permission to scan unrelated customer deployments. The specifically listed Rovo Dev CLI documentation path is an in-scope exception; support.atlassian.com generally remains excluded.
 
     Importable target boundary
-    The 30 exact first-party web URLs that can be represented without a wildcard, customer tenant, or placeholder are exposed as individual import targets. Client binaries, mobile apps, CLI and npm packages, wildcard tenant surfaces, customer instances, and the templated GraphQL hostname remain policy-only scope. Importing a target does not remove the researcher-owned test-tenant or program-identity requirements.
+    Eight actionable first-party administration, authentication, API, marketplace, and product-platform URLs are exposed as individual import targets. Exact rows that currently resolve only to marketing, documentation, support, or download pages remain policy-only scope, together with client binaries, mobile apps, CLI and npm packages, wildcard tenant surfaces, customer instances, and the templated GraphQL hostname. Importing a target does not remove the researcher-owned test-tenant or program-identity requirements.
 
     Operator gate
     This is a dated scope snapshot, not standing network authorization. Re-open the authoritative engagement immediately before testing and stop if any row, account requirement, or rule differs.

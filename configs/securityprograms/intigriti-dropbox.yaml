@@ -11,33 +11,12 @@ spec:
       displayName: "Dropbox — Web"
       priority: 10000
       featured: true
-    - targetURL: "https://sign.dropbox.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: dropbox-sign
-      displayName: "Dropbox — Sign"
-      priority: 10001
-      featured: false
-    - targetURL: "https://www.hellosign.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: dropbox-hellosign
-      displayName: "Dropbox — HelloSign"
-      priority: 10002
-      featured: false
     - targetURL: "https://dash.ai"
       workflowRef: web-app-full-assessment
       policyPackRef: web-application
       scanName: dropbox-dash-ai
       displayName: "Dropbox — Dash.ai"
       priority: 10003
-      featured: false
-    - targetURL: "https://dash.dropbox.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: dropbox-dash
-      displayName: "Dropbox — Dash"
-      priority: 10004
       featured: false
     - targetURL: "https://api.dropbox.com"
       workflowRef: web-api-assessment
@@ -46,13 +25,6 @@ spec:
       displayName: "Dropbox — API"
       priority: 10005
       featured: true
-    - targetURL: "https://www.hellofax.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: dropbox-hellofax
-      displayName: "Dropbox — HelloFax"
-      priority: 10006
-      featured: false
     - targetURL: "https://www.docsend.com"
       workflowRef: web-app-full-assessment
       policyPackRef: web-application
@@ -110,7 +82,7 @@ spec:
     Tier 3: Low $100; Medium $100-$500; High $500-$2,000; Critical $2,000-$5,000; Exceptional $5,000-$7,500.
 
     Importable target boundary
-    The ten exact first-party Tier 1 and Tier 2 web/API URLs are exposed as individual import targets. Wildcard Tier 3 rows, mobile apps, the desktop application, and product-only rows remain policy-only scope. The catalog does not inject the two mandatory identity headers or enforce the aggregate request ceiling; operators remain responsible for those live-program requirements.
+    Six actionable exact first-party Tier 1 and Tier 2 platform/API URLs are exposed as individual import targets. The sign.dropbox.com and dash.dropbox.com marketing roots plus the legacy www.hellosign.com and www.hellofax.com redirects remain policy-only scope, together with wildcard Tier 3 rows, mobile apps, the desktop application, and product-only rows. The catalog does not inject the two mandatory identity headers or enforce the aggregate request ceiling; operators remain responsible for those live-program requirements.
 
     Operator gate
     Re-open Intigriti immediately before testing, verify the asset tier and all current rules, configure the required identity and headers, and enforce the global request ceiling across every tool and worker.

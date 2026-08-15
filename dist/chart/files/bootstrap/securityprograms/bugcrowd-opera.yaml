@@ -151,13 +151,6 @@ spec:
       displayName: "Opera — Cashback"
       priority: 2020
       featured: false
-    - targetURL: "https://cdn-store.opera-api.com"
-      workflowRef: web-api-assessment
-      policyPackRef: web-application
-      scanName: opera-cdn-store
-      displayName: "Opera — CDN store API"
-      priority: 2021
-      featured: false
     - targetURL: "https://cms.adx.opera.com"
       workflowRef: web-api-assessment
       policyPackRef: web-application
@@ -179,13 +172,6 @@ spec:
       displayName: "Opera — Crypto wallet API"
       priority: 2024
       featured: false
-    - targetURL: "https://download.opera.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: opera-download
-      displayName: "Opera — Downloads"
-      priority: 2025
-      featured: false
     - targetURL: "https://features.opera-api.com"
       workflowRef: web-api-assessment
       policyPackRef: web-application
@@ -200,13 +186,6 @@ spec:
       displayName: "Opera — Flow API"
       priority: 2027
       featured: false
-    - targetURL: "https://get.geo.opera.com"
-      workflowRef: web-api-assessment
-      policyPackRef: web-application
-      scanName: opera-get-geo
-      displayName: "Opera — Geo download service"
-      priority: 2028
-      featured: false
     - targetURL: "https://gx.games"
       workflowRef: web-app-full-assessment
       policyPackRef: web-application
@@ -214,13 +193,6 @@ spec:
       displayName: "Opera — GX Games"
       priority: 2029
       featured: true
-    - targetURL: "https://gx.me"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: opera-gx-me
-      displayName: "Opera — GX.me"
-      priority: 2030
-      featured: false
     - targetURL: "https://gx.opera-api.com"
       workflowRef: web-api-assessment
       policyPackRef: web-application
@@ -234,13 +206,6 @@ spec:
       scanName: opera-neon-cards
       displayName: "Opera — Neon cards"
       priority: 2032
-      featured: false
-    - targetURL: "https://net.geo.opera.com"
-      workflowRef: web-api-assessment
-      policyPackRef: web-application
-      scanName: opera-net-geo
-      displayName: "Opera — Geo network service"
-      priority: 2033
       featured: false
     - targetURL: "https://ofa.adx.opera.com"
       workflowRef: web-api-assessment
@@ -256,13 +221,6 @@ spec:
       displayName: "Opera — ADX OFP"
       priority: 2035
       featured: false
-    - targetURL: "https://operaneon.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: opera-neon
-      displayName: "Opera — Opera Neon"
-      priority: 2036
-      featured: false
     - targetURL: "https://speeddials.opera.com"
       workflowRef: web-api-assessment
       policyPackRef: web-application
@@ -276,48 +234,6 @@ spec:
       scanName: opera-suggestions
       displayName: "Opera — Suggestions API"
       priority: 2038
-      featured: false
-    - targetURL: "https://www.gamemaker.io"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: opera-gamemaker
-      displayName: "Opera — GameMaker"
-      priority: 2039
-      featured: false
-    - targetURL: "https://www.opera.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: opera-web
-      displayName: "Opera — Opera web"
-      priority: 2040
-      featured: true
-    - targetURL: "https://www.opera.com/computer/thanks?ni=eapgx&os=windows"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: opera-gx-windows-download
-      displayName: "Opera — Opera GX Windows download"
-      priority: 2041
-      featured: false
-    - targetURL: "https://www.opera.com/computer/thanks?ni=opera_air&os=windows"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: opera-air-windows-download
-      displayName: "Opera — Opera Air Windows download"
-      priority: 2042
-      featured: false
-    - targetURL: "https://www.opera.com/computer/thanks?ni=stable&os=windows"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: opera-stable-windows-download
-      displayName: "Opera — Opera Windows download"
-      priority: 2043
-      featured: false
-    - targetURL: "https://www.operaneon.com"
-      workflowRef: web-app-full-assessment
-      policyPackRef: web-application
-      scanName: opera-neon-www
-      displayName: "Opera — Opera Neon (www)"
-      priority: 2044
       featured: false
     - targetURL: "https://marketplace.gamemaker.io"
       workflowRef: web-app-full-assessment
@@ -377,7 +293,7 @@ spec:
     Chromium-inherited vulnerabilities must be reported to Chromium and are not eligible for an Opera bounty. Unsupported Opera versions are not eligible. Android vulnerabilities may also qualify under Google's Play Security Reward Program, but Opera asks researchers to report to Opera first. Reports need a clear proof of concept and reproduction steps, and publication must wait for coordinated disclosure.
 
     Importable target boundary
-    The 49 exact first-party web and API URLs are exposed as individual import targets. Wildcard domains, CIDRs, mobile and desktop clients, and the GameMaker Studio product row remain policy-only scope. Imported URLs must not be expanded into adjacent hosts or network ranges, and the two-month-old browser-readable table still requires live re-verification.
+    The 37 actionable first-party application, authentication, API, and operational-service URLs are exposed as individual import targets. Exact rows that currently resolve only to marketing, download, CDN/static, directory-listing, retired, or redirect-only pages remain policy-only scope, together with wildcard domains, CIDRs, mobile and desktop clients, and the GameMaker Studio product row. Imported URLs must not be expanded into adjacent hosts or network ranges, and the two-month-old browser-readable table still requires live re-verification.
 
     Operator gate
     Re-open the authenticated Bugcrowd engagement immediately before testing and confirm the exact row, bounty flag, supported version, identity requirements, and rate limits.
