@@ -39,12 +39,11 @@ func testSecurityProgramResource(namespace string) *platform.SecurityProgramReso
 				Featured:        true,
 			},
 			{
-				RepositoryUrl: "https://github.com/acme/contracts",
-				BaseBranch:    "develop",
-				WorkflowRef:   "smart-contract-review",
+				TargetUrl:     "https://app.acme.example",
+				WorkflowRef:   "web-app-full-assessment",
 				PolicyPackRef: "bug-bounty",
-				ScanName:      "acme-contracts",
-				DisplayName:   "Acme Contracts",
+				ScanName:      "acme-web",
+				DisplayName:   "Acme Web",
 				Priority:      4,
 			},
 		},
@@ -69,7 +68,7 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 		created.ScanTargets[0].WorkflowRef != "blockchain-protocol-audit" || created.ScanTargets[0].PolicyPackRef != "bug-bounty" ||
 		created.ScanTargets[0].ScanName != "acme-widget" || created.ScanTargets[0].DisplayName != "Acme Widget" ||
 		created.ScanTargets[0].Priority != 3 || !created.ScanTargets[0].Featured ||
-		created.ScanTargets[1].RepositoryUrl != "https://github.com/acme/contracts" || created.ScanTargets[1].BaseBranch != "develop" {
+		created.ScanTargets[1].TargetUrl != "https://app.acme.example" || created.ScanTargets[1].RepositoryUrl != "" || created.ScanTargets[1].BaseBranch != "" {
 		t.Fatalf("created scan targets = %+v", created.ScanTargets)
 	}
 	owner, err := ms.GetResourceOwner(context.Background(), securityProgramResourceType, created.Name, created.Namespace)
@@ -85,7 +84,7 @@ func TestSecurityProgramCRUDAndReferenceGuard(t *testing.T) {
 	}
 	if len(cr.Spec.ScanTargets) != 2 || cr.Spec.ScanTargets[0].RepositoryURL != "https://github.com/acme/widget" || cr.Spec.ScanTargets[0].BaseBranch != "main" ||
 		cr.Spec.ScanTargets[0].Priority != 3 || !cr.Spec.ScanTargets[0].Featured ||
-		cr.Spec.ScanTargets[1].RepositoryURL != "https://github.com/acme/contracts" {
+		cr.Spec.ScanTargets[1].TargetURL != "https://app.acme.example" || cr.Spec.ScanTargets[1].RepositoryURL != "" {
 		t.Fatalf("stored scan targets = %+v", cr.Spec.ScanTargets)
 	}
 

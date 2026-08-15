@@ -30,12 +30,62 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"immunefi-wormhole":  {"Blockchain/DLT", "Smart Contract"},
 	}
 	expectedProgramURLs := map[string]string{
-		"solana-agave": "https://github.com/anza-xyz/agave/security",
-		"firedancer":   "https://bounty.firedancer.io/",
+		"solana-agave":          "https://github.com/anza-xyz/agave/security",
+		"firedancer":            "https://bounty.firedancer.io/",
+		"hackerone-gitlab":      "https://hackerone.com/gitlab",
+		"hackerone-shopify":     "https://hackerone.com/shopify",
+		"hackerone-uber":        "https://hackerone.com/uber",
+		"hackerone-coinbase":    "https://hackerone.com/coinbase",
+		"hackerone-cloudflare":  "https://hackerone.com/cloudflare",
+		"hackerone-playstation": "https://hackerone.com/playstation",
+		"hackerone-security":    "https://hackerone.com/security",
+		"bugcrowd-openai":       "https://bugcrowd.com/engagements/openai",
+		"bugcrowd-atlassian":    "https://bugcrowd.com/engagements/atlassian",
+		"bugcrowd-opera":        "https://bugcrowd.com/engagements/opera",
+		"intigriti-dropbox":     "https://app.intigriti.com/programs/dropbox/dropbox/detail",
 	}
 	expectedVerbatimMarkers := map[string][]string{
-		"solana-agave": {"## Reporting security problems in the Agave Validator", "### Out of Scope:", "### Payment of Bug Bounties:"},
-		"firedancer":   {"Version effective: 2026-08-06", "Scope\nAny reachable code in the firedancer/fdctl", "Submission and Conduct"},
+		"solana-agave":          {"## Reporting security problems in the Agave Validator", "### Out of Scope:", "### Payment of Bug Bounties:"},
+		"firedancer":            {"Version effective: 2026-08-06", "Scope\nAny reachable code in the firedancer/fdctl", "Submission and Conduct"},
+		"hackerone-gitlab":      {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 19", "Out-of-scope asset rows captured: 25", "yourhandle@wearehackerone.com"},
+		"hackerone-shopify":     {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 20", "Out-of-scope asset rows captured: 9", "YOURHANDLE@wearehackerone.com"},
+		"hackerone-uber":        {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 4", "Out-of-scope asset rows captured: 19", "*.uberinternal.com"},
+		"hackerone-coinbase":    {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 16", "Out-of-scope asset rows captured: 3", "Low and Medium findings are out of scope"},
+		"hackerone-cloudflare":  {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 51", "Out-of-scope asset rows captured: 20", "Customer zones and properties"},
+		"hackerone-playstation": {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 24", "Out-of-scope asset rows captured: 0", "*.api.playstation.com"},
+		"hackerone-security":    {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 25", "Out-of-scope asset rows captured: 8", "X-Bug-Bounty: HackerOne-<username>"},
+		"bugcrowd-openai":       {"Browser-verified program boundary (2026-08-15)", "Security Bug Bounty boundary", "Safety Bug Bounty is separate", "historical 25-row table"},
+		"bugcrowd-atlassian":    {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 48", "Out-of-scope asset rows captured: 13", "bugbounty-test-<bugcrowd-name>"},
+		"bugcrowd-opera":        {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 89", "Out-of-scope asset rows captured: 22", "com.opera.minipay"},
+		"intigriti-dropbox":     {"Public Intigriti scope snapshot verified 2026-08-15", "Tier 1 assets", "Explicit out-of-scope asset rows", "X-Intigriti-Username: <username>"},
+	}
+	browserResearchedCatalogPrograms := map[string]struct{}{
+		"hackerone-gitlab":      {},
+		"hackerone-shopify":     {},
+		"hackerone-uber":        {},
+		"hackerone-coinbase":    {},
+		"hackerone-cloudflare":  {},
+		"hackerone-playstation": {},
+		"hackerone-security":    {},
+		"bugcrowd-openai":       {},
+		"bugcrowd-atlassian":    {},
+		"bugcrowd-opera":        {},
+		"intigriti-dropbox":     {},
+	}
+	catalogProgramsWithoutImportTargets := map[string]string{
+		"bugcrowd-openai": "authenticated Bugcrowd",
+	}
+	expectedCatalogTargetCounts := map[string]int{
+		"bugcrowd-atlassian":    8,
+		"bugcrowd-opera":        37,
+		"hackerone-cloudflare":  6,
+		"hackerone-coinbase":    2,
+		"hackerone-gitlab":      9,
+		"hackerone-playstation": 12,
+		"hackerone-security":    7,
+		"hackerone-shopify":     6,
+		"hackerone-uber":        1,
+		"intigriti-dropbox":     6,
 	}
 	expectedImmunefiTargets := map[string]string{
 		"immunefi-1inch":  "https://github.com/1inch/limit-order-protocol",
@@ -101,6 +151,60 @@ func TestSecurityProgramLibrary(t *testing.T) {
 				t.Error("shipped programs must use scanTargets instead of deprecated scanTarget")
 			}
 			targets := program.Spec.EffectiveScanTargets()
+			if reason, ok := catalogProgramsWithoutImportTargets[program.Name]; ok {
+				if len(targets) != 0 {
+					t.Errorf("program with unenforced testing prerequisite has %d importable scan targets", len(targets))
+				}
+				if !strings.Contains(program.Spec.ScopePolicy, reason) {
+					t.Errorf("scopePolicy does not explain non-importable target boundary %q", reason)
+				}
+			}
+			if _, ok := browserResearchedCatalogPrograms[program.Name]; ok {
+				if len(program.Spec.OutOfScope) == 0 {
+					t.Error("browser-researched catalog program has no typed out-of-scope boundary")
+				}
+				if len(program.Spec.ProhibitedTesting) == 0 {
+					t.Error("browser-researched catalog program has no typed testing restrictions")
+				}
+				if strings.Contains(program.Spec.ScopePolicy, "Verification boundary") {
+					t.Error("catalog program still contains the pre-research placeholder scope")
+				}
+			}
+			if want, ok := expectedCatalogTargetCounts[program.Name]; ok {
+				if got := len(targets); got != want {
+					t.Fatalf("importable scan target count = %d, want %d", got, want)
+				}
+				for index, target := range targets {
+					candidate := target.TargetURL
+					if target.RepositoryURL != "" {
+						candidate = target.RepositoryURL
+					}
+					if !strings.HasPrefix(candidate, "https://") {
+						t.Errorf("scanTargets[%d] is not an explicit HTTPS target: %q", index, candidate)
+					}
+					if strings.ContainsAny(candidate, "*<>{}") {
+						t.Errorf("scanTargets[%d] promotes a wildcard or placeholder: %q", index, candidate)
+					}
+					if target.RepositoryURL != "" {
+						if target.BaseBranch == "" {
+							t.Errorf("scanTargets[%d] repository has no verified default branch", index)
+						}
+						if target.WorkflowRef != "default-deep-scan" || target.PolicyPackRef != "bug-bounty" {
+							t.Errorf("scanTargets[%d] repository uses workflow/policy %q/%q", index, target.WorkflowRef, target.PolicyPackRef)
+						}
+						continue
+					}
+					if target.BaseBranch != "" {
+						t.Errorf("scanTargets[%d] web target unexpectedly declares baseBranch %q", index, target.BaseBranch)
+					}
+					if target.WorkflowRef != "web-app-full-assessment" && target.WorkflowRef != "web-api-assessment" {
+						t.Errorf("scanTargets[%d] web target uses workflow %q", index, target.WorkflowRef)
+					}
+					if target.PolicyPackRef != "web-application" {
+						t.Errorf("scanTargets[%d] web target uses policy %q", index, target.PolicyPackRef)
+					}
+				}
+			}
 			if program.Name == "firedancer" && len(targets) != 0 {
 				t.Error("Firedancer must not suggest a scan target without a selected in-scope release")
 			}

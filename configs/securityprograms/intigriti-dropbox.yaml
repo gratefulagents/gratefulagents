@@ -1,0 +1,148 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: intigriti-dropbox
+spec:
+  scanTargets:
+    - targetURL: "https://www.dropbox.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-web
+      displayName: "Dropbox — Web"
+      priority: 10000
+      featured: true
+    - targetURL: "https://dash.ai"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-dash-ai
+      displayName: "Dropbox — Dash.ai"
+      priority: 10003
+      featured: false
+    - targetURL: "https://api.dropbox.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: dropbox-api
+      displayName: "Dropbox — API"
+      priority: 10005
+      featured: true
+    - targetURL: "https://www.docsend.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-docsend
+      displayName: "Dropbox — DocSend"
+      priority: 10007
+      featured: false
+    - targetURL: "https://app.reclaim.ai"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-reclaim
+      displayName: "Dropbox — Reclaim"
+      priority: 10008
+      featured: false
+    - targetURL: "https://www.dropbox.com/paper"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: dropbox-paper
+      displayName: "Dropbox — Paper"
+      priority: 10009
+      featured: false
+  provider: Intigriti
+  displayName: Dropbox
+  programURL: https://app.intigriti.com/programs/dropbox/dropbox/detail
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  scopePolicy: |-
+    Public Intigriti scope snapshot verified 2026-08-15
+
+    Authoritative live engagement: https://app.intigriti.com/programs/dropbox/dropbox/detail
+
+    Tier 1 assets
+    Dropbox.com; sign.dropbox.com; HelloSign.com; dash.ai; dash.dropbox.com; api.dropbox.com; Dropbox Desktop Application.
+
+    Tier 2 assets
+    iOS 327630330; iOS 6450553960; iOS 1080074001; Android com.dropbox.dash; Android com.dropbox.android; HelloFax.com; docsend.com; app.Reclaim.ai; dropbox.com/paper.
+
+    Tier 3 assets
+    *.dropbox.com; *.dropboxer.net; *.dropboxforum.com; *.dropboxpartners.com; *.hellofax.com; *.docsend.com; *.reclaim.ai; *.helloworks.com; *.hellosign.com; *.dash.ai.
+
+    Explicit out-of-scope asset rows
+    replay.dropbox.com; Boxcryptor; Formswift; Dropbox Passwords; Dropbox Capture for Windows; Dropbox Capture for macOS; Android com.dropbox.paper; iOS 1126623662.
+
+    Rules of engagement
+    Use an @intigriti.me identity. Every request must send User-Agent "Intigriti - <username> - <user agent>" and X-Intigriti-Username: <username>. Automated tooling is capped at 5 requests per second. Use only test accounts and manually verify all automated results. A valid report must demonstrate security impact to a listed asset. Ask Intigriti before conducting a limited-scope targeted penetration test across multiple endpoints.
+
+    Eligibility and evidence
+    The first eligible reporter is rewarded and duplicates are not split. Alpha and beta findings may receive lower rewards; variants with the same root cause are duplicates; mitigation bypasses are assessed case by case. Do not disclose publicly. For RCE, include timestamp, source IP, command-and-control details, a testing timeline, and the authenticated account email or session ID. Dash offers a free trial; other business/pro testing can use a free trial that must be deactivated before billing.
+
+    Reward tiers at verification
+    Tier 1: Low $100-$500; Medium $500-$1,000; High $1,000-$5,000; Critical $5,000-$10,000; Exceptional $10,000-$15,000.
+    Tier 2: Low $100-$250; Medium $250-$750; High $750-$2,500; Critical $2,500-$7,500; Exceptional $7,500-$10,000.
+    Tier 3: Low $100; Medium $100-$500; High $500-$2,000; Critical $2,000-$5,000; Exceptional $5,000-$7,500.
+
+    Importable target boundary
+    Six actionable exact first-party Tier 1 and Tier 2 platform/API URLs are exposed as individual import targets. The sign.dropbox.com and dash.dropbox.com marketing roots plus the legacy www.hellosign.com and www.hellofax.com redirects remain policy-only scope, together with wildcard Tier 3 rows, mobile apps, the desktop application, and product-only rows. The catalog does not inject the two mandatory identity headers or enforce the aggregate request ceiling; operators remain responsible for those live-program requirements.
+
+    Operator gate
+    Re-open Intigriti immediately before testing, verify the asset tier and all current rules, configure the required identity and headers, and enforce the global request ceiling across every tool and worker.
+  outOfScope:
+    - Any domain not listed in the program's Domains section
+    - Any domain or application with a public or private planned deprecation plan
+    - replay.dropbox.com
+    - Boxcryptor
+    - Formswift
+    - Dropbox Passwords
+    - Dropbox Capture for Windows
+    - Dropbox Capture for macOS
+    - Android com.dropbox.paper
+    - iOS 1126623662
+    - Abuse of third-party AI services, leaked third-party AI keys, and third-party AI reporting routes
+    - AI plugin tokens without a Dropbox security impact
+    - Same-organization or same-team permission behavior without a security-boundary bypass
+    - Session invalidation issues unless a session remains valid for more than 24 hours
+    - Password-reset tokens unless valid for more than one hour or still valid after a password reset
+    - Erroneous customer uploads, EXIF metadata, broken links, malware or content hosting, and malware-URL bypasses
+    - Vulnerabilities affecting only old or unsupported browsers or software
+    - XSS on dropboxusercontent.com and other intended hosted-content behavior
+    - Vulnerable-library or outdated-component reports without a working exploit
+    - Automated scan output that is not manually verified
+    - Spam, email bombing, tapjacking, autocomplete, banners, version disclosure, and verbose errors without impact
+    - Weak cipher or TLS configuration observations without a proof of impact
+    - Product limits, expected features, and business-policy-only issues without security impact
+    - DLL hijacking without privilege escalation
+    - Blog issues below critical severity
+    - Shared-link behavior that does not verify the recipient's email
+    - Reflected file download without demonstrated impact
+    - Public IP addresses or open ports unless they expose a private or Dropbox-owned service with impact
+    - Device unlinking behavior after a password change and expected email-link behavior
+    - Attacks requiring two accounts with the same email address
+    - Unicode, Punycode, right-to-left override, homograph, and same-site-scripting reports without demonstrated impact
+    - Incorrect file extensions returned by Chooser
+    - Editable GitHub wikis and third-party integrations not owned by Dropbox
+    - Demo environments and WordPress user enumeration
+    - Pre-authentication account takeover or OAuth account squatting without demonstrated impact
+    - Self-XSS without a viable victim path
+    - CORS on non-sensitive resources; cookie flags; missing headers; and no- or low-impact CSRF
+    - Reverse tabnabbing, clickjacking, CSV injection, content injection without HTML, and enumeration without demonstrated impact
+    - Absence or bypass of rate limiting without demonstrated security impact
+    - Password complexity or other password best-practice observations
+    - Tokens belonging to third parties and Google Maps API keys
+    - SPF, DMARC, or DKIM configuration observations
+    - Request smuggling, host-header injection, blind SSRF, arbitrary upload, or subdomain takeover without demonstrated business impact and actual control where required
+    - XML-RPC behavior and metadata disclosure without demonstrated impact
+    - Theoretical attacks, unrealistic user interaction, and attacks requiring physical access, man-in-the-middle position, or a compromised account
+    - Newly patched zero-days within the program's 14-day grace period
+    - Mobile hardening findings such as rooted or jailbroken devices, emulator-only behavior, certificate pinning, binary protection, local storage, and screenshots without exploit impact
+  prohibitedTesting:
+    - Do not send traffic without an @intigriti.me identity
+    - "Every request must send User-Agent: Intigriti - <username> - <user agent>"
+    - "Every request must send X-Intigriti-Username: <username>"
+    - Do not exceed 5 requests per second in aggregate across all tools and workers
+    - Configure both mandatory headers and the aggregate rate limit before sending testing traffic to an imported target
+    - Use only researcher-controlled test accounts, devices, files, integrations, and data
+    - No denial of service, distributed denial of service, brute force, spam, email bombing, social engineering, or physical intrusion
+    - Do not access another user's private information; stop immediately on accidental access and retain only minimum evidence
+    - Ask the program before a limited-scope targeted penetration test across multiple endpoints
+    - Manually reproduce all automated or AI-assisted results
+    - Do not publicly disclose before the report is closed and Dropbox grants permission

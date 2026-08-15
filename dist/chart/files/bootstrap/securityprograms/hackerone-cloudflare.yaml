@@ -1,0 +1,108 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackerone-cloudflare
+spec:
+  scanTargets:
+    - targetURL: "https://api.cloudflare.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: cloudflare-api
+      displayName: "Cloudflare — API"
+      priority: 3000
+      featured: true
+    - targetURL: "https://cloudflareworkers.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: cloudflare-workers
+      displayName: "Cloudflare — Workers"
+      priority: 3001
+      featured: false
+    - targetURL: "https://dash.cloudflare.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: cloudflare-dashboard
+      displayName: "Cloudflare — Dashboard"
+      priority: 3002
+      featured: true
+    - targetURL: "https://one.dash.cloudflare.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: cloudflare-one-dashboard
+      displayName: "Cloudflare — One dashboard"
+      priority: 3003
+      featured: false
+    - repositoryURL: "https://github.com/cloudflare/vinext"
+      baseBranch: main
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: cloudflare-vinext
+      displayName: "Cloudflare — vinext"
+      priority: 3004
+      featured: false
+    - repositoryURL: "https://github.com/cloudflare/workerd"
+      baseBranch: main
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: cloudflare-workerd
+      displayName: "Cloudflare — workerd"
+      priority: 3005
+      featured: true
+  provider: HackerOne
+  displayName: Cloudflare
+  programURL: https://hackerone.com/cloudflare
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  scopePolicy: |-
+    Browser-verified public scope snapshot (2026-08-15)
+
+    Authoritative engagement: https://hackerone.com/cloudflare
+    Official disclosure policy: https://www.cloudflare.com/disclosure/
+    Official scanning guidance: https://developers.cloudflare.com/fundamentals/reference/scans-penetration/
+    Browser-readable asset-table source: https://bbscope.com/program/h1/cloudflare (crawled one week before verification).
+
+    In-scope asset rows captured: 51
+    Domains and dashboards: *.cloudflare.com; *.cloudflarepartners.com; *.teams.cloudflare.com; api.cloudflare.com; cloudflareworkers.com; dash.cloudflare.com; one.dash.cloudflare.com.
+    Product rows: 1.1.1.1 Resolver; AI Gateway; AMP Real URL; API Shield; Area 1; Bot Management; Browser Isolation; CDNJS; China Network; Cloudflare Access; Cloudflare Analytics; Cloudflare CASB; Cloudflare Cache; Cloudflare D1; Cloudflare DNS; Cloudflare Durable Objects; Cloudflare Pages; Cloudflare R2; Cloudflare Tunnel; Cloudflare Workers CI; Cloudflare Zaraz; Cloudflare Zero Trust/One; Data Loss Prevention; Gateway; Hyperdrive; Images; Load Balancing; Magic Firewall; Magic Transit; Magic WAN; Open-source tools from Cloudflare; SSL/TLS; Spectrum; Stream; Vectorize; WARP mobile apps; WARP desktop client; Waiting Room; Workers; Workers AI; Workers KV.
+    Code rows: github.com/cloudflare; github.com/cloudflare/vinext; github.com/cloudflare/workerd.
+
+    Out-of-scope asset rows captured: 20
+    The exact exclusions are transcribed into outOfScope below. Customer zones and properties merely proxied by Cloudflare are not Cloudflare assets and are never authorized by this program.
+
+    Importable target boundary
+    Four exact Cloudflare-operated web/API hosts and the two explicitly listed repositories are exposed as individual import targets. Wildcards, product labels, the GitHub organization row, and Cloudflare customer properties remain policy-only scope; an imported target never authorizes scanning adjacent hosts, customer zones, or customer traffic.
+
+    Operator gate
+    Re-open the HackerOne engagement before every test. Confirm the specific product or Cloudflare-operated host, current exclusions, identity requirements, and rate limits. Customer authorization is separate from Cloudflare authorization.
+  outOfScope:
+    - 172.65.0.0/16
+    - Cloudflare Turnstile
+    - api.staging.realtime.cloudflare.com
+    - app.dyte.io
+    - community.cloudflare.com
+    - demo.realtime.cloudflare.com
+    - events.www.cloudflare.com
+    - examples.realtime.cloudflare.com
+    - files.plugins.realtime.cloudflare.com
+    - github.com/cloudflare/moq-rs
+    - github.com/cloudflare/privacy-gateway-server-go
+    - github.com/cloudflare/realtimekit-web-examples
+    - github.com/cloudflare/recapn
+    - github.com/cloudflare/saffron.git
+    - github.com/cloudflare/vinext-private
+    - react-examples.realtime.cloudflare.com
+    - support.cloudflare.com
+    - support.cloudflarewarp.com
+    - test.realtime.cloudflare.com
+    - waf.cumulusfire.net
+    - Customer websites, zones, applications, and infrastructure that use Cloudflare but are not operated by Cloudflare
+  prohibitedTesting:
+    - Do not scan or attack Cloudflare customer properties under this program
+    - Do not turn wildcard scope into indiscriminate subdomain or IP-range scanning
+    - No denial of service, distributed denial of service, traffic flooding, brute force, spam, social engineering, or physical testing
+    - Use only researcher-controlled Cloudflare accounts, zones, Workers, tunnels, and data
+    - Manually validate automated or AI-assisted results and submit a reproducible proof of impact
+    - Stop if another customer's data or traffic is encountered and retain only minimum evidence
+    - Do not publicly disclose without coordinated approval

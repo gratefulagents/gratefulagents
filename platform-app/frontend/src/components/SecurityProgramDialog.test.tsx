@@ -134,7 +134,7 @@ describe("SecurityProgramDialog", () => {
     );
     expect((screen.getByLabelText(/^Default branch/) as HTMLInputElement).value).toBe("main");
 
-    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add target" }));
     const repositoryInputs = screen.getAllByLabelText(/^Repository URL/);
     const displayNameInputs = screen.getAllByLabelText(/^Target display name/);
     const scanNameInputs = screen.getAllByLabelText(/^Scan name/);

@@ -50,6 +50,7 @@ vi.mock("@/components/SecurityScanFormDialog", () => ({
               : "create-dialog"
       }
       data-repo-url={initialConfig?.spec?.repoUrl}
+      data-target-url={initialConfig?.spec?.targetUrl}
       data-workflow-ref={initialConfig?.spec?.workflowRef}
       data-policy-pack-ref={initialConfig?.spec?.policyPackRef}
       data-program-ref={initialConfig?.spec?.securityProgramRef}
@@ -179,6 +180,38 @@ describe("SecurityScanConfigList", () => {
       deployment_manifest: "operator-verified deployment required",
     });
     expect(createSecurityScan).not.toHaveBeenCalled();
+  });
+
+  it("seeds each website program URL as its own repoless scan", async () => {
+    listSecurityScanConfigs.mockResolvedValue({ configs: [] });
+    listSecurityPrograms.mockResolvedValue({
+      programs: [{
+        name: "web-bounty",
+        scanTargets: [
+          {
+            priority: 1, displayName: "Web app", scanName: "web-app",
+            targetUrl: "https://app.example.com", workflowRef: "web-app-full-assessment",
+            policyPackRef: "web-application",
+          },
+          {
+            priority: 2, displayName: "API", scanName: "web-api",
+            targetUrl: "https://api.example.com", workflowRef: "web-api-assessment",
+            policyPackRef: "web-application",
+          },
+        ],
+      }],
+    });
+    renderList();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Import scan target" }));
+    expect(screen.getByText("Web app")).toBeTruthy();
+    expect(screen.getByText("API")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Configure scan for API" }));
+
+    const seed = screen.getByTestId("seed-dialog-web-api");
+    expect(seed.getAttribute("data-target-url")).toBe("https://api.example.com");
+    expect(seed.getAttribute("data-repo-url")).toBe("");
+    expect(seed.getAttribute("data-base-branch")).toBe("");
   });
 
   it("shows Run now only for non-suspended configurations", async () => {

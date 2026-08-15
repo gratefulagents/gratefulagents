@@ -1,0 +1,335 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: bugcrowd-opera
+spec:
+  scanTargets:
+    - targetURL: "https://api.gx.games/dc"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-dc
+      displayName: "Opera — GX API /dc"
+      priority: 2000
+      featured: false
+    - targetURL: "https://api.gx.games/dev"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-dev
+      displayName: "Opera — GX API /dev"
+      priority: 2001
+      featured: false
+    - targetURL: "https://api.gx.games/gms"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-gms
+      displayName: "Opera — GX API /gms"
+      priority: 2002
+      featured: false
+    - targetURL: "https://api.gx.games/gx"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-gx
+      displayName: "Opera — GX API /gx"
+      priority: 2003
+      featured: false
+    - targetURL: "https://api.gx.games/gxc"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-gxc
+      displayName: "Opera — GX API /gxc"
+      priority: 2004
+      featured: false
+    - targetURL: "https://api.gx.games/profile"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-profile
+      displayName: "Opera — GX API /profile"
+      priority: 2005
+      featured: false
+    - targetURL: "https://api.gx.games/pub"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-pub
+      displayName: "Opera — GX API /pub"
+      priority: 2006
+      featured: false
+    - targetURL: "https://api.gx.games/session"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-api-session
+      displayName: "Opera — GX API /session"
+      priority: 2007
+      featured: false
+    - targetURL: "https://api.gx.me/me"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-me-api
+      displayName: "Opera — GX.me API"
+      priority: 2008
+      featured: false
+    - targetURL: "https://api.neon.opera.com/neon/pub"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-neon-api-neon-pub
+      displayName: "Opera — Neon API /neon/pub"
+      priority: 2009
+      featured: false
+    - targetURL: "https://api.neon.opera.com/neon/store"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-neon-api-neon-store
+      displayName: "Opera — Neon API /neon/store"
+      priority: 2010
+      featured: false
+    - targetURL: "https://api.neon.opera.com/pub"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-neon-api-pub
+      displayName: "Opera — Neon API /pub"
+      priority: 2011
+      featured: false
+    - targetURL: "https://blocklist.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-blocklist
+      displayName: "Opera — Blocklist API"
+      priority: 2012
+      featured: false
+    - targetURL: "https://exchange.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-exchange
+      displayName: "Opera — Exchange"
+      priority: 2013
+      featured: false
+    - targetURL: "https://accounts.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-accounts
+      displayName: "Opera — Accounts"
+      priority: 2014
+      featured: false
+    - targetURL: "https://auth-adx.op-mobile.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-auth-adx
+      displayName: "Opera — ADX authentication"
+      priority: 2015
+      featured: false
+    - targetURL: "https://auth.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-auth
+      displayName: "Opera — Authentication"
+      priority: 2016
+      featured: false
+    - targetURL: "https://autoupdate.geo.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-autoupdate
+      displayName: "Opera — Autoupdate"
+      priority: 2017
+      featured: false
+    - targetURL: "https://browser-notifications.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-browser-notifications
+      displayName: "Opera — Browser notifications"
+      priority: 2018
+      featured: false
+    - targetURL: "https://bugs.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-bugs
+      displayName: "Opera — Bug tracker"
+      priority: 2019
+      featured: false
+    - targetURL: "https://cashback.opera.com"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-cashback
+      displayName: "Opera — Cashback"
+      priority: 2020
+      featured: false
+    - targetURL: "https://cms.adx.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-cms-adx
+      displayName: "Opera — ADX CMS"
+      priority: 2022
+      featured: false
+    - targetURL: "https://create.gx.games"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-create-gx
+      displayName: "Opera — Create GX"
+      priority: 2023
+      featured: false
+    - targetURL: "https://cryptowallet.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-crypto-wallet
+      displayName: "Opera — Crypto wallet API"
+      priority: 2024
+      featured: false
+    - targetURL: "https://features.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-features
+      displayName: "Opera — Features API"
+      priority: 2026
+      featured: false
+    - targetURL: "https://flow.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-flow
+      displayName: "Opera — Flow API"
+      priority: 2027
+      featured: false
+    - targetURL: "https://gx.games"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-games
+      displayName: "Opera — GX Games"
+      priority: 2029
+      featured: true
+    - targetURL: "https://gx.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-gx-service
+      displayName: "Opera — GX service API"
+      priority: 2031
+      featured: false
+    - targetURL: "https://neon.opera.com/cards/"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-neon-cards
+      displayName: "Opera — Neon cards"
+      priority: 2032
+      featured: false
+    - targetURL: "https://ofa.adx.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-ofa-adx
+      displayName: "Opera — ADX OFA"
+      priority: 2034
+      featured: false
+    - targetURL: "https://ofp.adx.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-ofp-adx
+      displayName: "Opera — ADX OFP"
+      priority: 2035
+      featured: false
+    - targetURL: "https://speeddials.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-speeddials
+      displayName: "Opera — Speed dials API"
+      priority: 2037
+      featured: false
+    - targetURL: "https://suggestions.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-suggestions
+      displayName: "Opera — Suggestions API"
+      priority: 2038
+      featured: false
+    - targetURL: "https://marketplace.gamemaker.io"
+      workflowRef: web-app-full-assessment
+      policyPackRef: web-application
+      scanName: opera-gamemaker-marketplace
+      displayName: "Opera — GameMaker Marketplace"
+      priority: 2045
+      featured: false
+    - targetURL: "https://merchandise.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-merchandise
+      displayName: "Opera — Merchandise API"
+      priority: 2046
+      featured: false
+    - targetURL: "https://push.opera.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-push
+      displayName: "Opera — Push API"
+      priority: 2047
+      featured: false
+    - targetURL: "https://weather.opera-api.com"
+      workflowRef: web-api-assessment
+      policyPackRef: web-application
+      scanName: opera-weather
+      displayName: "Opera — Weather API"
+      priority: 2048
+      featured: false
+  provider: Bugcrowd
+  displayName: Opera
+  programURL: https://bugcrowd.com/engagements/opera
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  scopePolicy: |-
+    Browser-verified public scope snapshot (2026-08-15)
+
+    Authoritative engagement: https://bugcrowd.com/engagements/opera
+    Official Opera policy: https://security.opera.com/en/bug-bounty/
+    Browser-readable asset-table source: https://bbscope.com/program/bc/%2Fengagements%2Fopera (source crawl was two months old at verification).
+
+    In-scope asset rows captured: 89
+    Wildcards: *.adx.opera.com; *.apex-football.com; *.apexnews.com; *.apexscores.io; *.dailyadvent.com; *.feednews.com; *.opera-mini.net; *.opera.com; *.opera.news; *.opera.software; *.opera.technology; *.operafootball.com; *.operanewsapp.com; *.opr.news; *.osite99.com; *.osp.opera.software; *.rtbscale.com; *.savi.xyz; *.sec-tunnel.com; *.yoyogames.com.
+    Network ranges: 102.23.96.0/22; 103.83.120.0/22; 107.167.96.0/19; 141.0.8.0/21; 185.26.180.0/22; 195.189.143.0/24; 203.89.100.0/22; 37.228.104.0/21; 77.111.244.0/22; 82.145.208.0/20; 91.203.96.0/22.
+    GameMaker: GameMaker Studio 2; marketplace.gamemaker.io; www.gamemaker.io.
+    GX and Neon APIs: api.gx.games/dc; api.gx.games/dev; api.gx.games/gms; api.gx.games/gx; api.gx.games/gxc; api.gx.games/profile; api.gx.games/pub; api.gx.games/session; api.gx.me/me; api.neon.opera.com/neon/pub; api.neon.opera.com/neon/store; api.neon.opera.com/pub; create.gx.games; gx.games; gx.me; gx.opera-api.com; neon.opera.com/cards; operaneon.com; www.operaneon.com.
+    Opera services: blocklist.opera-api.com; exchange.opera.com; accounts.opera.com; auth-adx.op-mobile.opera.com; auth.opera.com; autoupdate.geo.opera.com; browser-notifications.opera.com; bugs.opera.com; cashback.opera.com; cdn-store.opera-api.com; cms.adx.opera.com; cryptowallet.opera-api.com; download.opera.com; features.opera-api.com; flow.opera.com; get.geo.opera.com; net.geo.opera.com; ofa.adx.opera.com; ofp.adx.opera.com; speeddials.opera.com; suggestions.opera-api.com; www.opera.com; merchandise.opera-api.com; push.opera.com; weather.opera-api.com.
+    Mobile: Opera GX iOS 1559740799; Opera AI Browser with VPN iOS 1411869974; Android com.opera.app.news; com.opera.app.sports; com.opera.browser; com.opera.gx; com.opera.mini.native; com.opera.minipay.
+    Desktop download rows: www.opera.com/computer/thanks?ni=eapgx&os=windows; www.opera.com/computer/thanks?ni=opera_air&os=windows; www.opera.com/computer/thanks?ni=stable&os=windows.
+
+    Out-of-scope asset rows captured: 22
+    The exact asset exclusions are transcribed into outOfScope below.
+
+    Eligibility boundaries
+    Chromium-inherited vulnerabilities must be reported to Chromium and are not eligible for an Opera bounty. Unsupported Opera versions are not eligible. Android vulnerabilities may also qualify under Google's Play Security Reward Program, but Opera asks researchers to report to Opera first. Reports need a clear proof of concept and reproduction steps, and publication must wait for coordinated disclosure.
+
+    Importable target boundary
+    The 37 actionable first-party application, authentication, API, and operational-service URLs are exposed as individual import targets. Exact rows that currently resolve only to marketing, download, CDN/static, directory-listing, retired, or redirect-only pages remain policy-only scope, together with wildcard domains, CIDRs, mobile and desktop clients, and the GameMaker Studio product row. Imported URLs must not be expanded into adjacent hosts or network ranges, and the two-month-old browser-readable table still requires live re-verification.
+
+    Operator gate
+    Re-open the authenticated Bugcrowd engagement immediately before testing and confirm the exact row, bounty flag, supported version, identity requirements, and rate limits.
+  outOfScope:
+    - 107.167.127.4{0,1}
+    - 32s.opera.com
+    - accountsstage.yoyogames.com
+    - admanager.opera.com
+    - bugs.yoyogames.com
+    - catch.opera.com
+    - certs.opera.com
+    - checkout.opera.com
+    - concurso.opera.com
+    - contest.opera.com
+    - control.gx-servers.opera.com
+    - help.gx-servers.opera.com
+    - help.yoyogames.com
+    - interstitial.opera-mini.net
+    - investor.opera.com
+    - jobs.opera.com
+    - s2{1,2}-05-08-v09.opera-mini.net
+    - tabfulness.opera.com
+    - verizon-us-lvs-ashburn.opera-mini.net
+    - verizon-us-lvs-seattle.opera-mini.net
+    - verizon-us-seattle.opera-mini.net
+    - wallpaper.opera.com
+    - Vulnerabilities inherited from Chromium
+    - Unsupported Opera versions
+    - Any asset not present in the current authenticated Bugcrowd table
+  prohibitedTesting:
+    - Do not expand an imported exact URL into wildcard, CIDR, adjacent-host, or IP-range scanning
+    - Verify the live Bugcrowd asset row, bounty flag, supported product version, identity requirements, and rate limit before testing
+    - Use only researcher-controlled accounts, devices, content, and data
+    - No denial of service, distributed denial of service, traffic flooding, brute force, spam, social engineering, or physical testing
+    - Report Chromium-inherited vulnerabilities to Chromium instead of testing them as Opera-specific issues
+    - Report Android issues to Opera first before seeking any Google Play reward
+    - Human-review automated and AI-assisted findings and provide clear reproduction steps and proof of impact
+    - Stop on unintended access to another user's data and retain only minimum evidence
+    - Do not publicly disclose until Opera coordinates publication
