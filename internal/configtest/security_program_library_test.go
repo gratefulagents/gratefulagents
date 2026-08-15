@@ -30,12 +30,34 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"immunefi-wormhole":  {"Blockchain/DLT", "Smart Contract"},
 	}
 	expectedProgramURLs := map[string]string{
-		"solana-agave": "https://github.com/anza-xyz/agave/security",
-		"firedancer":   "https://bounty.firedancer.io/",
+		"solana-agave":          "https://github.com/anza-xyz/agave/security",
+		"firedancer":            "https://bounty.firedancer.io/",
+		"hackerone-gitlab":      "https://hackerone.com/gitlab",
+		"hackerone-shopify":     "https://hackerone.com/shopify",
+		"hackerone-uber":        "https://hackerone.com/uber",
+		"hackerone-coinbase":    "https://hackerone.com/coinbase",
+		"hackerone-cloudflare":  "https://hackerone.com/cloudflare",
+		"hackerone-playstation": "https://hackerone.com/playstation",
+		"hackerone-security":    "https://hackerone.com/security",
+		"bugcrowd-openai":       "https://bugcrowd.com/engagements/openai",
+		"bugcrowd-atlassian":    "https://bugcrowd.com/engagements/atlassian",
+		"bugcrowd-opera":        "https://bugcrowd.com/engagements/opera",
+		"intigriti-dropbox":     "https://app.intigriti.com/programs/dropbox/dropbox/detail",
 	}
 	expectedVerbatimMarkers := map[string][]string{
-		"solana-agave": {"## Reporting security problems in the Agave Validator", "### Out of Scope:", "### Payment of Bug Bounties:"},
-		"firedancer":   {"Version effective: 2026-08-06", "Scope\nAny reachable code in the firedancer/fdctl", "Submission and Conduct"},
+		"solana-agave":          {"## Reporting security problems in the Agave Validator", "### Out of Scope:", "### Payment of Bug Bounties:"},
+		"firedancer":            {"Version effective: 2026-08-06", "Scope\nAny reachable code in the firedancer/fdctl", "Submission and Conduct"},
+		"hackerone-gitlab":      {"Verification boundary (2026-08-15)", "No scan target is shipped"},
+		"hackerone-shopify":     {"Verification boundary (2026-08-15)", "No scan target is shipped"},
+		"hackerone-uber":        {"Verification boundary (2026-08-15)", "no scan target is shipped"},
+		"hackerone-coinbase":    {"Verification boundary (2026-08-15)", "No scan target is shipped"},
+		"hackerone-cloudflare":  {"Verification boundary (2026-08-15)", "No scan target is shipped"},
+		"hackerone-playstation": {"Verification boundary (2026-08-15)", "No scan target is shipped"},
+		"hackerone-security":    {"Verification boundary (2026-08-15)", "No scan target is shipped"},
+		"bugcrowd-openai":       {"Verification boundary (2026-08-15)", "No scan target is shipped"},
+		"bugcrowd-atlassian":    {"Verification boundary (2026-08-15)", "No scan target is shipped"},
+		"bugcrowd-opera":        {"Verification boundary (2026-08-15)", "No scan target is shipped"},
+		"intigriti-dropbox":     {"Public Intigriti scope snapshot verified 2026-08-15", "Tier 1 web assets", "Explicit out-of-scope web asset"},
 	}
 	expectedImmunefiTargets := map[string]string{
 		"immunefi-1inch":  "https://github.com/1inch/limit-order-protocol",

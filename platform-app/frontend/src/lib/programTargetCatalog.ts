@@ -4,6 +4,7 @@ export type ProgramScanTarget = {
   name: string;
   displayName: string;
   repoUrl: string;
+  targetUrl: string;
   baseBranch: string;
   workflowRef: string;
   policyPackRef: string;
@@ -26,7 +27,8 @@ export function importableProgramTargets(
         name: target.scanName,
         displayName: target.displayName,
         repoUrl: target.repositoryUrl,
-        baseBranch: target.baseBranch || "main",
+        targetUrl: target.targetUrl,
+        baseBranch: target.repositoryUrl ? target.baseBranch || "main" : "",
         workflowRef: target.workflowRef,
         policyPackRef: target.policyPackRef,
         securityProgramRef: program.name,

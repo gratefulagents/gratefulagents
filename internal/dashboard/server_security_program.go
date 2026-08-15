@@ -106,11 +106,12 @@ func securityProgramSubmissionBudgetFromProto(budget *platform.SecurityProgramSu
 
 func securityProgramScanTargetFromProto(target *platform.SecurityProgramScanTarget) triggersv1alpha1.SecurityProgramScanTarget {
 	baseBranch := strings.TrimSpace(target.GetBaseBranch())
-	if baseBranch == "" {
+	if baseBranch == "" && strings.TrimSpace(target.GetRepositoryUrl()) != "" {
 		baseBranch = "main"
 	}
 	return triggersv1alpha1.SecurityProgramScanTarget{
 		RepositoryURL:   strings.TrimSpace(target.GetRepositoryUrl()),
+		TargetURL:       strings.TrimSpace(target.GetTargetUrl()),
 		BaseBranch:      baseBranch,
 		WorkflowRef:     strings.TrimSpace(target.GetWorkflowRef()),
 		PolicyPackRef:   strings.TrimSpace(target.GetPolicyPackRef()),
@@ -128,6 +129,7 @@ func securityProgramScanTargetToProto(target *triggersv1alpha1.SecurityProgramSc
 	}
 	return &platform.SecurityProgramScanTarget{
 		RepositoryUrl:   target.RepositoryURL,
+		TargetUrl:       target.TargetURL,
 		BaseBranch:      target.BaseBranch,
 		WorkflowRef:     target.WorkflowRef,
 		PolicyPackRef:   target.PolicyPackRef,

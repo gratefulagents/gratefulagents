@@ -77,13 +77,22 @@ func ValidateSecurityProgramSpec(spec SecurityProgramSpec) []SecurityWorkflowFie
 		target := &targets[index]
 		fieldPrefix := prefix(index)
 		repositoryURL := strings.TrimSpace(target.RepositoryURL)
+		targetURL := strings.TrimSpace(target.TargetURL)
+		if (repositoryURL == "") == (targetURL == "") {
+			add(fieldPrefix, "must set exactly one of repositoryURL or targetURL")
+		}
 		parsed, err := url.ParseRequestURI(repositoryURL)
-		if repositoryURL == "" {
-			add(fieldPrefix+".repositoryURL", "is required")
-		} else if len(repositoryURL) > MaxSecurityProgramURLLength {
+		if len(repositoryURL) > MaxSecurityProgramURLLength {
 			add(fieldPrefix+".repositoryURL", "must be at most %d bytes", MaxSecurityProgramURLLength)
-		} else if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		} else if repositoryURL != "" && (err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil) {
 			add(fieldPrefix+".repositoryURL", "must be an absolute HTTPS URL without user information")
+		}
+		if targetURL != "" {
+			if len(targetURL) > MaxSecurityProgramURLLength {
+				add(fieldPrefix+".targetURL", "must be at most %d bytes", MaxSecurityProgramURLLength)
+			} else if _, err := NormalizeSecurityScanTargetURL(targetURL); err != nil {
+				add(fieldPrefix+".targetURL", "must be an HTTP(S) URL or bare domain without user information")
+			}
 		}
 		baseBranch := strings.TrimSpace(target.BaseBranch)
 		if len(baseBranch) > 255 {

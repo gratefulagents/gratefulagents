@@ -1,0 +1,24 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackerone-uber
+spec:
+  provider: HackerOne
+  displayName: Uber
+  programURL: https://hackerone.com/uber
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  scopePolicy: |-
+    Verification boundary (2026-08-15)
+
+    The public HackerOne program URL and scope navigation are confirmed. The live policy, asset rows, exclusions, and testing restrictions were not renderable during verification. No Uber domain is inferred to be authorized, and no scan target is shipped until an operator verifies a current scope row.
+
+    Operator gate
+    This catalog record is provenance and policy context only. It grants no network authorization. Re-check the authoritative program immediately before testing because bounty scope changes without notice.
+  outOfScope:
+    - Any asset not explicitly listed in the current authoritative program scope
+    - Any customer-owned or third-party asset not expressly included by the program
+  prohibitedTesting:
+    - Do not test any network target from this catalog record until an operator verifies and configures a current in-scope asset
+    - No denial of service, social engineering, spam, physical intrusion, or access to another user's data

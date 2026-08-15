@@ -1,0 +1,24 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: bugcrowd-openai
+spec:
+  provider: Bugcrowd
+  displayName: OpenAI
+  programURL: https://bugcrowd.com/engagements/openai
+  verifiedAt: 2026-08-15T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  scopePolicy: |-
+    Verification boundary (2026-08-15)
+
+    Bugcrowd identifies this engagement as Bug Bounty: OpenAI, but the current asset and reward tables require an authenticated Bugcrowd view. Do not infer that every openai.com or chatgpt.com host is eligible. No scan target is shipped until an operator verifies a current scope row.
+
+    Operator gate
+    This catalog record is provenance and policy context only. It grants no network authorization. Re-check the authoritative program immediately before testing because bounty scope changes without notice.
+  outOfScope:
+    - Any asset not explicitly listed in the current authoritative program scope
+    - Any customer-owned or third-party asset not expressly included by the program
+  prohibitedTesting:
+    - Do not test any network target from this catalog record until an operator verifies and configures a current in-scope asset
+    - No denial of service, social engineering, spam, physical intrusion, or access to another user's data
