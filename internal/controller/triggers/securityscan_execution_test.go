@@ -128,6 +128,77 @@ func TestSecurityScanDeterministicExecutionSchedulesDependenciesWithinParallelis
 	}
 }
 
+func TestSecurityScanTaskConditionOmitsAgentRunAndPublishesOutput(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "detect", Objective: "detect platforms", OutputSchema: `{"type":"object"}`},
+		{
+			Name:         "specialist",
+			Objective:    "review the detected platform",
+			DependsOn:    []string{"detect"},
+			OutputSchema: `{"type":"object"}`,
+			When: &triggersv1alpha1.SecurityScanTaskCondition{
+				Task:            "detect",
+				Path:            "specialists.evm",
+				Equals:          "true",
+				OtherwiseOutput: `{"area":"evm","status":"skipped"}`,
+			},
+		},
+		{Name: "report", Objective: "report {{tasks.specialist.output}}", DependsOn: []string{"specialist"}},
+	}, 2)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	planned := getSecurityScan(t, k8sClient, scan).Status.LastExecution.Plan
+	if len(planned) != 3 || planned[1].When == nil || planned[1].When.Path != "specialists.evm" {
+		t.Fatalf("execution plan did not snapshot task condition: %#v", planned)
+	}
+	detectRun := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "detect")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, detectRun.Name, platformv1alpha1.AgentRunPhaseSucceeded,
+		`{"specialists":{"evm":false}}`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	entry := executionTask(t, updated.Status.LastExecution, "specialist", 0)
+	if entry.State != triggersv1alpha1.SecurityScanTaskStateSucceeded || entry.Attempts != 0 || entry.RunName != "" {
+		t.Fatalf("conditioned task = %#v, want controller-completed task with no AgentRun", entry)
+	}
+	if entry.StructuredOutput != `{"area":"evm","status":"skipped"}` {
+		t.Fatalf("conditioned output = %q", entry.StructuredOutput)
+	}
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 2 || taskRunByTask(t, runs, "report").Name == "" {
+		t.Fatalf("AgentRuns = %#v, want detect and downstream report only", runs)
+	}
+}
+
+func TestSecurityScanTaskConditionLaunchesWhenMatched(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "detect", Objective: "detect platforms", OutputSchema: `{"type":"object"}`},
+		{
+			Name:      "specialist",
+			Objective: "review the detected platform",
+			DependsOn: []string{"detect"},
+			When: &triggersv1alpha1.SecurityScanTaskCondition{
+				Task: "detect", Path: "specialists.evm", Equals: "true",
+			},
+		},
+	}, 2)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	detectRun := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "detect")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, detectRun.Name, platformv1alpha1.AgentRunPhaseSucceeded,
+		`{"specialists":{"evm":true}}`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 2 || taskRunByTask(t, runs, "specialist").Name == "" {
+		t.Fatalf("AgentRuns = %#v, want matched specialist launch", runs)
+	}
+}
+
 func TestSecurityScanDeterministicTaskRunAppliesTaskConfiguration(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{

@@ -4413,6 +4413,17 @@ message SecurityScanTaskConfig {
   // skill_refs lists Skill names loaded only for this task, in addition to
   // the SecurityScan defaults.
   repeated string skill_refs = 18;
+  // when omits the task before AgentRun creation when a dependency's
+  // structured-output value does not match.
+  SecurityScanTaskCondition when = 19;
+}
+
+// SecurityScanTaskCondition is a controller-side launch predicate.
+message SecurityScanTaskCondition {
+  string task = 1;
+  string path = 2;
+  string equals = 3;
+  string otherwise_output = 4;
 }
 
 // SecurityScanTaskTools narrows which tools a task's run may use in
@@ -4553,11 +4564,10 @@ message SecurityScanTaskExecutionState {
   string last_error = 8; // Most recent failure summary
   int64 started_at_unix = 9;
   int64 finished_at_unix = 10;
-  // output_json is the structured output the task's AgentRun submitted via
-  // the submit_task_output tool (validated against the task's outputSchema).
-  // Populated only by GetSecurityScanConfig — list responses omit it — and
-  // read from the task's AgentRun status at response time (empty when the
-  // run produced no structured output or has been deleted).
+  // output_json is the structured output submitted by the task's AgentRun or
+  // published by the controller when a launch condition is false. Populated
+  // only by GetSecurityScanConfig — list responses omit ordinary AgentRun
+  // output and fetch it from the run status at response time.
   string output_json = 11;
   // record_start and record_end are the half-open source-record range
   // assigned to a chunked fan-out task instance.
@@ -4623,6 +4633,7 @@ message SecurityScanExecutionPlanNode {
   repeated string depends_on = 2;
   string for_each = 3; // dependency this task fans out over, when set
   int32 target_runs = 4; // snapshotted chunk-mode setting for this execution
+  SecurityScanTaskCondition when = 5; // snapshotted launch condition
 }
 
 // SecurityScanPostScriptJobState is one durable per-finding post-script

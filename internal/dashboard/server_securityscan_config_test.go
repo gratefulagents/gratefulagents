@@ -1243,6 +1243,7 @@ func TestGetSecurityScanConfigPopulatesTaskOutputs(t *testing.T) {
 					{Name: "hunt", State: triggersv1alpha1.SecurityScanTaskStateFailed, RunName: "nightly-hunt-1"},
 					{Name: "gone", State: triggersv1alpha1.SecurityScanTaskStateSucceeded, RunName: "nightly-gone-1"},
 					{Name: "triage", State: triggersv1alpha1.SecurityScanTaskStateBlocked},
+					{Name: "solana", State: triggersv1alpha1.SecurityScanTaskStateSucceeded, StructuredOutput: `{"area":"solana","status":"skipped"}`},
 				},
 			},
 		},
@@ -1284,6 +1285,9 @@ func TestGetSecurityScanConfigPopulatesTaskOutputs(t *testing.T) {
 	}
 	if got := byName["triage"].OutputJson; got != "" {
 		t.Fatalf("triage output = %q, want empty without a run", got)
+	}
+	if got := byName["solana"].OutputJson; got != `{"area":"solana","status":"skipped"}` {
+		t.Fatalf("solana output = %q, want controller-published skip output", got)
 	}
 
 	// The list path stays lean: no outputs are populated.

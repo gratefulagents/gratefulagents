@@ -1140,6 +1140,43 @@ spec:
                           type: array
                           x-kubernetes-list-type: atomic
                       type: object
+                    when:
+                      description: |-
+                        when conditionally omits this task before an AgentRun is created. The
+                        condition reads a scalar value from a dependency's structured output.
+                        A false condition completes the task with otherwiseOutput, allowing
+                        downstream coverage accounting to consume an explicit skipped record
+                        without paying for a model invocation.
+                      properties:
+                        equals:
+                          description: equals is the JSON boolean or string spelling
+                            that enables the task.
+                          maxLength: 256
+                          type: string
+                        otherwiseOutput:
+                          description: |-
+                            otherwiseOutput is the structured output published when the condition
+                            is false. It must be valid JSON when set and should satisfy the task's
+                            outputSchema.
+                          maxLength: 16384
+                          type: string
+                        path:
+                          description: |-
+                            path is a dot-separated path through JSON objects in the dependency
+                            output. Array traversal is intentionally unsupported so conditions stay
+                            deterministic and easy to validate.
+                          maxLength: 256
+                          type: string
+                        task:
+                          description: task names the dependency whose structured
+                            output is inspected.
+                          maxLength: 63
+                          type: string
+                      required:
+                      - equals
+                      - path
+                      - task
+                      type: object
                   required:
                   - name
                   - objective
@@ -1520,6 +1557,40 @@ spec:
                             one-record-per-run path even if the referenced workflow later changes.
                           format: int32
                           type: integer
+                        when:
+                          description: |-
+                            when snapshots the controller-side launch condition so an in-flight
+                            execution is unaffected by edits to its referenced workflow.
+                          properties:
+                            equals:
+                              description: equals is the JSON boolean or string spelling
+                                that enables the task.
+                              maxLength: 256
+                              type: string
+                            otherwiseOutput:
+                              description: |-
+                                otherwiseOutput is the structured output published when the condition
+                                is false. It must be valid JSON when set and should satisfy the task's
+                                outputSchema.
+                              maxLength: 16384
+                              type: string
+                            path:
+                              description: |-
+                                path is a dot-separated path through JSON objects in the dependency
+                                output. Array traversal is intentionally unsupported so conditions stay
+                                deterministic and easy to validate.
+                              maxLength: 256
+                              type: string
+                            task:
+                              description: task names the dependency whose structured
+                                output is inspected.
+                              maxLength: 63
+                              type: string
+                          required:
+                          - equals
+                          - path
+                          - task
+                          type: object
                       type: object
                     maxItems: 64
                     type: array
@@ -1842,6 +1913,20 @@ spec:
                             description: featured includes the target in featured
                               target catalogs.
                             type: boolean
+                          parameterValues:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              parameterValues are scan-time workflow values copied into imported
+                              SecurityScan spec.parameterValues.
+                            maxProperties: 32
+                            type: object
+                            x-kubernetes-validations:
+                            - message: parameter names must be identifiers of at most
+                                63 characters
+                              rule: self.all(k, k.size() <= 63 && k.matches('^[a-zA-Z_][a-zA-Z0-9_]*$'))
+                            - message: parameter values must be at most 4096 characters
+                              rule: self.all(k, self[k].size() <= 4096)
                           policyPackRef:
                             description: policyPackRef names the SecurityPolicyPack
                               to use.
@@ -1910,6 +1995,20 @@ spec:
                               description: featured includes the target in featured
                                 target catalogs.
                               type: boolean
+                            parameterValues:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                parameterValues are scan-time workflow values copied into imported
+                                SecurityScan spec.parameterValues.
+                              maxProperties: 32
+                              type: object
+                              x-kubernetes-validations:
+                              - message: parameter names must be identifiers of at
+                                  most 63 characters
+                                rule: self.all(k, k.size() <= 63 && k.matches('^[a-zA-Z_][a-zA-Z0-9_]*$'))
+                              - message: parameter values must be at most 4096 characters
+                                rule: self.all(k, self[k].size() <= 4096)
                             policyPackRef:
                               description: policyPackRef names the SecurityPolicyPack
                                 to use.
@@ -2129,6 +2228,11 @@ spec:
                           description: |-
                             state is the task instance's current state: Pending, Blocked,
                             Running, Succeeded, Failed, or Skipped.
+                          type: string
+                        structuredOutput:
+                          description: |-
+                            structuredOutput stores controller-published output for a conditionally
+                            omitted task. Regular task output remains on the AgentRun status.
                           type: string
                       type: object
                     type: array
