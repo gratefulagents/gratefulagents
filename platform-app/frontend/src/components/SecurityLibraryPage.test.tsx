@@ -116,7 +116,7 @@ function seedLists() {
         namespace: "user-alice",
         name: "write-poc",
         prompt: "write a proof of concept for the finding",
-        runOn: "high-and-above-actionable",
+        runOn: "low-and-above-actionable",
         usageCount: 1,
         referencingScans: ["scan-a"],
       }),
@@ -251,13 +251,13 @@ describe("SecurityLibraryPage", () => {
     expect((await screen.findByTestId("ranker-row-payments-ranker")).textContent).toContain("unused");
     fireEvent.click(screen.getByRole("tab", { name: /Post-scripts/ }));
     const row = await screen.findByTestId("post-script-row-write-poc");
-    expect(row.textContent).toContain("high-and-above-actionable");
+    expect(row.textContent).toContain("low-and-above-actionable");
     expect(row.textContent).toContain("1 scan");
 
     fireEvent.click(screen.getByRole("button", { name: "Edit write-poc" }));
     const runOn = await screen.findByLabelText("Runs on");
-    expect((runOn as HTMLSelectElement).value).toBe("high-and-above-actionable");
-    expect(screen.getByRole("option", { name: "high-and-above while actionable" })).toBeTruthy();
+    expect((runOn as HTMLSelectElement).value).toBe("low-and-above-actionable");
+    expect(screen.getByRole("option", { name: "low-and-above while actionable" })).toBeTruthy();
     expect(screen.getByText(/successful earlier stage already marked/i).textContent).toContain("finalizers");
   });
 

@@ -60,8 +60,8 @@ func TestSecurityPolicyPackLibraryAssets(t *testing.T) {
 				t.Errorf("enforced = %v, want an advisory pack that never silently overrides a scan", pack.Spec.Enforced)
 			}
 			if tc.name == "bug-bounty" {
-				if got := pack.Spec.MinSeverity; got != "high" {
-					t.Errorf("effective minSeverity = %q, want high so bounty reports contain only high and critical findings", got)
+				if got := pack.Spec.MinSeverity; got != "low" {
+					t.Errorf("effective minSeverity = %q, want low so all in-scope vulnerabilities remain reportable", got)
 				}
 			}
 

@@ -25,8 +25,8 @@ var securityTriagePostScripts = []struct {
 	runOn string
 }{
 	{"report-writer", "all"},
-	{"poc-builder", "medium-and-above-actionable"},
-	{"poc-validator", "medium-and-above-actionable"},
+	{"poc-builder", "low-and-above-actionable"},
+	{"poc-validator", "low-and-above-actionable"},
 	{"bounty-worthiness-check", "all"},
 	{"exploitability-score", "all"},
 	{"patched-since-check", "all"},
@@ -242,7 +242,7 @@ func TestBugBountyAcceptanceGuards(t *testing.T) {
 	var gate triggersv1alpha1.SecurityPostScript
 	readBootstrapAsset(t, "securitypostscripts", "bounty-worthiness-check", &gate)
 	gatePrompt := strings.ToLower(strings.Join(strings.Fields(gate.Spec.Prompt), " "))
-	for _, marker := range []string{"final bounty acceptance gate", "severity is high or critical", "complete code trace", "unavailable sandbox validation is inconclusive", "missing evidence", "set status `confirmed` for accepted", "`false_positive` for disproved", "`accepted_risk` for out-of-scope", "`triaged` for inconclusive"} {
+	for _, marker := range []string{"final bounty acceptance gate", "severity is low, medium, high, or critical", "severity alone is never a rejection reason", "complete code trace", "unavailable sandbox validation is inconclusive", "missing evidence", "set status `confirmed` for accepted", "`false_positive` for disproved", "`accepted_risk` for out-of-scope", "`triaged` for inconclusive"} {
 		if !strings.Contains(gatePrompt, marker) {
 			t.Errorf("bounty worthiness check must contain final guard %q", marker)
 		}

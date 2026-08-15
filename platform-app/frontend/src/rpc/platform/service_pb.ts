@@ -16808,7 +16808,7 @@ export type SecurityPostScriptConfig = Message<"platform.v1.SecurityPostScriptCo
   prompt: string;
 
   /**
-   * all | confirmed | high-and-above | high-and-above-actionable | medium-and-above-actionable; empty = all
+   * all | confirmed | high-and-above | high-and-above-actionable | medium-and-above-actionable | low-and-above-actionable; empty = all
    *
    * @generated from field: string run_on = 3;
    */

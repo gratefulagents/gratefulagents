@@ -607,11 +607,11 @@ func ValidateSecurityPostScriptSpec(spec SecurityPostScriptSpec) []SecurityWorkf
 		errs = append(errs, SecurityWorkflowFieldError{Field: "prompt", Message: "a prompt is required"})
 	}
 	switch spec.RunOn {
-	case "", "all", "confirmed", "high-and-above", "high-and-above-actionable", "medium-and-above-actionable":
+	case "", "all", "confirmed", "high-and-above", "high-and-above-actionable", "medium-and-above-actionable", "low-and-above-actionable":
 	default:
 		errs = append(errs, SecurityWorkflowFieldError{
 			Field:   "runOn",
-			Message: fmt.Sprintf("invalid runOn %q (want all, confirmed, high-and-above, high-and-above-actionable, or medium-and-above-actionable)", spec.RunOn),
+			Message: fmt.Sprintf("invalid runOn %q (want all, confirmed, high-and-above, high-and-above-actionable, medium-and-above-actionable, or low-and-above-actionable)", spec.RunOn),
 		})
 	}
 	return errs

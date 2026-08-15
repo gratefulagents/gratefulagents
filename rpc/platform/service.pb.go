@@ -31626,7 +31626,7 @@ type SecurityPostScriptConfig struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Prompt        string                 `protobuf:"bytes,2,opt,name=prompt,proto3" json:"prompt,omitempty"`
-	RunOn         string                 `protobuf:"bytes,3,opt,name=run_on,json=runOn,proto3" json:"run_on,omitempty"` // all | confirmed | high-and-above | high-and-above-actionable | medium-and-above-actionable; empty = all
+	RunOn         string                 `protobuf:"bytes,3,opt,name=run_on,json=runOn,proto3" json:"run_on,omitempty"` // all | confirmed | high-and-above | high-and-above-actionable | medium-and-above-actionable | low-and-above-actionable; empty = all
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

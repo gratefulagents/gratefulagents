@@ -22,10 +22,11 @@ spec:
     2. Class and preconditions: reject excluded or accepted-risk classes and
        findings needing physical access, a compromised administrator, or social
        engineering. Hardening, rate limits, and version disclosure do not qualify.
-    3. Acceptance: require an external or low-privilege attacker to cross a real
-       boundary and gain serious data, privilege, code execution, deployment,
-       publication, or funds. A proved best-practice-only gap is ineligible; an
-       attacker path that is merely unestablished is unknown pending validation.
+    3. Acceptance: require concrete security impact that maps to the supplied
+       program's in-scope impact or vulnerability list. Low severity remains
+       eligible when it is explicitly in scope. A proved best-practice-only gap
+       with no in-scope impact is ineligible; an attacker path that is merely
+       unestablished is unknown pending validation.
     4. Repository automation: for GitHub Actions, CI/CD, release scripts, and
        repository configuration, require an end-to-end path from an
        untrusted actor-controlled event to a privileged job and production impact:

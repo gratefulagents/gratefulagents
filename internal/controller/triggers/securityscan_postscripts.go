@@ -660,7 +660,9 @@ func securityScanPostScriptsActionableOnly(scripts []triggersv1alpha1.SecuritySc
 // carries the 'actionable' semantics: the stage is skipped once a successful
 // predecessor has already settled the finding.
 func securityScanPostScriptRunOnActionable(runOn string) bool {
-	return runOn == "high-and-above-actionable" || runOn == "medium-and-above-actionable"
+	return runOn == "high-and-above-actionable" ||
+		runOn == "medium-and-above-actionable" ||
+		runOn == "low-and-above-actionable"
 }
 
 func (e *securityScanExecutionEngine) postScriptHasSuccessfulPredecessor(job triggersv1alpha1.SecurityScanPostScriptJobStatus) bool {
@@ -726,9 +728,9 @@ func securityProgramPayableFloor(program *triggersv1alpha1.SecurityProgramSpec) 
 // securityScanPostScriptMatches evaluates a post-script's runOn predicate
 // against a finding, returning the reason on a non-match so the skip states
 // which status or severity failed the selector. payableFloor is the governing
-// program's own lowest published severity; the medium selector never dispatches
-// below it, because two expensive AgentRuns whose result the bundle gate will
-// refuse are worse than not running them.
+// program's own lowest published severity; actionable severity selectors never
+// dispatch below it, because two expensive AgentRuns whose result the bundle
+// gate will refuse are worse than not running them.
 func securityScanPostScriptMatches(runOn string, rec store.SecurityFindingRecord, payableFloor string) (bool, string) {
 	switch runOn {
 	case "confirmed":
@@ -741,6 +743,14 @@ func securityScanPostScriptMatches(runOn string, rec store.SecurityFindingRecord
 		}
 	case "medium-and-above-actionable":
 		floor := security.SeverityMedium
+		if payableFloor != "" && security.SeverityRank(payableFloor) > security.SeverityRank(floor) {
+			floor = payableFloor
+		}
+		if !security.SeverityAtLeast(rec.Severity, floor) {
+			return false, fmt.Sprintf("skipped: runOn %q does not match the finding's current severity %q at the governing program's lowest published severity %q (status %q)", runOn, rec.Severity, floor, rec.Status)
+		}
+	case "low-and-above-actionable":
+		floor := security.SeverityLow
 		if payableFloor != "" && security.SeverityRank(payableFloor) > security.SeverityRank(floor) {
 			floor = payableFloor
 		}
