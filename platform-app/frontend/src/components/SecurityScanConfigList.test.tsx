@@ -15,19 +15,20 @@ import {
   type SecurityScanConfig,
 } from "@/rpc/platform/service_pb";
 
-const { listSecurityScanConfigs, listSecurityPrograms, listMyCredentials, createSecurityScan, runSecurityScanNow, deleteSecurityScan, updateSecurityScan } =
+const { listSecurityScanConfigs, listSecurityPrograms, listMyCredentials, createSecurityScan, runSecurityScanNow, cancelSecurityScanRun, deleteSecurityScan, updateSecurityScan } =
   vi.hoisted(() => ({
     listSecurityScanConfigs: vi.fn(),
     listSecurityPrograms: vi.fn().mockResolvedValue({ programs: [] }),
     listMyCredentials: vi.fn().mockResolvedValue({ namespace: "user-alice" }),
     createSecurityScan: vi.fn().mockResolvedValue({}),
     runSecurityScanNow: vi.fn(),
+    cancelSecurityScanRun: vi.fn(),
     deleteSecurityScan: vi.fn(),
     updateSecurityScan: vi.fn(),
   }));
 
 vi.mock("@/lib/client", () => ({
-  client: { listSecurityScanConfigs, listSecurityPrograms, listMyCredentials, createSecurityScan, runSecurityScanNow, deleteSecurityScan, updateSecurityScan },
+  client: { listSecurityScanConfigs, listSecurityPrograms, listMyCredentials, createSecurityScan, runSecurityScanNow, cancelSecurityScanRun, deleteSecurityScan, updateSecurityScan },
 }));
 
 // The full form dialog is covered by SecurityScanFormDialog.test.tsx; here a
@@ -84,6 +85,8 @@ function configFixture(overrides: {
   conditionReady?: string;
   lastScanTimeUnix?: bigint;
   findingCounts?: Record<string, number>;
+  phase?: string;
+  lastExecutionPhase?: string;
 } = {}): SecurityScanConfig {
   return create(SecurityScanConfigSchema, {
     namespace: overrides.namespace ?? "user-alice",
@@ -95,7 +98,10 @@ function configFixture(overrides: {
       suspend: overrides.suspend ?? false,
       securityProgramRef: overrides.securityProgramRef ?? "",
     }),
-    phase: "Scheduled",
+    phase: overrides.phase ?? "Scheduled",
+    lastExecution: overrides.lastExecutionPhase
+      ? { phase: overrides.lastExecutionPhase }
+      : undefined,
     conditionReady: overrides.conditionReady ?? "True",
     lastScanTimeUnix: overrides.lastScanTimeUnix ?? BigInt(Math.floor(Date.now() / 1000)),
     findingCounts: overrides.findingCounts ?? {},
@@ -236,7 +242,7 @@ describe("SecurityScanConfigList", () => {
     listSecurityScanConfigs.mockResolvedValue({ configs: [] });
     renderList();
 
-    const importButton = await screen.findByRole("button", { name: "Import scan target" });
+    const importButton = await screen.findByRole("button", { name: "Import scan targets" });
     expect(importButton.className).toContain("border-border");
     expect(screen.getByRole("button", { name: "New scan" })).toBeTruthy();
     expect(createSecurityScan).not.toHaveBeenCalled();
@@ -263,7 +269,7 @@ describe("SecurityScanConfigList", () => {
     });
     renderList();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Import scan target" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Import scan targets" }));
 
     expect(screen.getByText("Custom metadata target")).toBeTruthy();
     expect(screen.getByText("https://example.com/custom · main")).toBeTruthy();
@@ -295,7 +301,7 @@ describe("SecurityScanConfigList", () => {
     });
     renderList();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Import scan target" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Import scan targets" }));
     expect(screen.queryByText("Existing configuration")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Configure scan for Custom target" }));
 
@@ -333,7 +339,7 @@ describe("SecurityScanConfigList", () => {
     });
     renderList();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Import scan target" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Import scan targets" }));
     expect(screen.getByText("Web app")).toBeTruthy();
     expect(screen.getByText("API")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Configure scan for API" }));
@@ -452,9 +458,10 @@ describe("SecurityScanConfigList", () => {
     expect(within(summary).getByText("high")).toBeTruthy();
     expect(summary.textContent).toContain("Scanned");
     const cells = within(screen.getAllByRole("row")[1]).getAllByRole("cell");
-    expect(cells[0].contains(summary)).toBe(true);
+    // Cell 0 is the selection checkbox, cell 1 the primary name cell.
+    expect(cells[1].contains(summary)).toBe(true);
     // Status, findings and last scan fold away below `sm`; actions stay.
-    for (const cell of cells.slice(2, 5)) {
+    for (const cell of cells.slice(3, 6)) {
       expect(cell.className).toContain("hidden");
       expect(cell.className).toContain("sm:table-cell");
     }
@@ -483,6 +490,10 @@ describe("SecurityScanConfigList", () => {
 
     await openRowMenu("nightly");
     fireEvent.click(await screen.findByRole("menuitem", { name: /Delete/ }));
+    const dialog = await screen.findByRole("dialog");
+    // Deleting a scan purges its recorded runs and findings, so the dialog
+    // must not promise the findings survive.
+    expect(dialog.textContent).toContain("also removes its recorded scan runs and findings");
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(deleteSecurityScan).toHaveBeenCalledWith({ namespace: "user-alice", name: "nightly" }),
@@ -654,5 +665,258 @@ describe("SecurityScanConfigList", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     await waitFor(() => expect(search()).toBe(""));
     expect(screen.getByText("nightly")).toBeTruthy();
+  });
+
+  it("runs every selected configuration once from the bulk toolbar", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [configFixture({ name: "nightly" }), configFixture({ name: "weekly" })],
+    });
+    runSecurityScanNow.mockResolvedValue({});
+    renderList();
+
+    await screen.findByText("weekly");
+    // Nothing selected: no toolbar over the list.
+    expect(screen.queryByRole("toolbar", { name: "Bulk actions" })).toBeNull();
+
+    fireEvent.click(screen.getByLabelText("Select all configurations"));
+    const toolbar = screen.getByRole("toolbar", { name: "Bulk actions" });
+    expect(within(toolbar).getByText("2 selected")).toBeTruthy();
+
+    fireEvent.click(within(toolbar).getByRole("button", { name: /Run now/ }));
+
+    await waitFor(() => expect(runSecurityScanNow).toHaveBeenCalledTimes(2));
+    expect(runSecurityScanNow.mock.calls.map(([request]) => request)).toEqual([
+      { namespace: "user-alice", name: "nightly" },
+      { namespace: "user-alice", name: "weekly" },
+    ]);
+    expect(screen.getByText("Run now applied to 2 configurations")).toBeTruthy();
+    // Everything succeeded, so the selection — and the toolbar — clears.
+    await waitFor(() =>
+      expect(screen.queryByRole("toolbar", { name: "Bulk actions" })).toBeNull(),
+    );
+  });
+
+  it("stops only the selected configurations that have a run in flight", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [
+        configFixture({ name: "nightly", phase: "Running" }),
+        configFixture({ name: "weekly", lastExecutionPhase: "Running" }),
+        configFixture({ name: "recent" }),
+      ],
+    });
+    cancelSecurityScanRun.mockResolvedValue({});
+    renderList();
+
+    await screen.findByText("recent");
+    fireEvent.click(screen.getByLabelText("Select all configurations"));
+    fireEvent.click(
+      within(screen.getByRole("toolbar", { name: "Bulk actions" })).getByRole("button", { name: /Stop/ }),
+    );
+
+    await waitFor(() => expect(cancelSecurityScanRun).toHaveBeenCalledTimes(2));
+    expect(cancelSecurityScanRun.mock.calls.map(([request]) => request.name)).toEqual([
+      "nightly",
+      "weekly",
+    ]);
+    expect(screen.getByText("Stop applied to 2 configurations")).toBeTruthy();
+    const failure = screen.getByRole("alert");
+    expect(failure.textContent).toContain("recent");
+    expect(failure.textContent).toContain("nothing is running");
+    // The row that could not be stopped stays selected for a retry.
+    expect(
+      within(screen.getByRole("toolbar", { name: "Bulk actions" })).getByText("1 selected"),
+    ).toBeTruthy();
+    expect((screen.getByLabelText("Select recent") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Select nightly") as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("lists the configuration a bulk action failed on while the others succeed", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [configFixture({ name: "nightly" }), configFixture({ name: "weekly" })],
+    });
+    runSecurityScanNow.mockImplementation(({ name }: { name: string }) =>
+      name === "weekly"
+        ? Promise.reject(new Error("scan is already running"))
+        : Promise.resolve({}),
+    );
+    renderList();
+
+    await screen.findByText("weekly");
+    fireEvent.click(screen.getByLabelText("Select nightly"));
+    fireEvent.click(screen.getByLabelText("Select weekly"));
+    fireEvent.click(
+      within(screen.getByRole("toolbar", { name: "Bulk actions" })).getByRole("button", { name: /Run now/ }),
+    );
+
+    await waitFor(() => expect(runSecurityScanNow).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Run now applied to 1 configuration")).toBeTruthy();
+    const failure = screen.getByRole("alert");
+    expect(failure.textContent).toContain("weekly: scan is already running");
+    expect(failure.textContent).not.toContain("nightly");
+    expect((screen.getByLabelText("Select weekly") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Select nightly") as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("suspends and deletes the selection, naming the count before deleting", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [configFixture({ name: "nightly" }), configFixture({ name: "paused", suspend: true })],
+    });
+    updateSecurityScan.mockResolvedValue({});
+    deleteSecurityScan.mockResolvedValue({});
+    renderList();
+
+    await screen.findByText("paused");
+    fireEvent.click(screen.getByLabelText("Select all configurations"));
+    fireEvent.click(
+      within(screen.getByRole("toolbar", { name: "Bulk actions" })).getByRole("button", { name: /Suspend/ }),
+    );
+
+    // "paused" is already suspended, so only the active configuration is sent.
+    await waitFor(() => expect(updateSecurityScan).toHaveBeenCalledTimes(1));
+    expect(updateSecurityScan.mock.calls[0][0].name).toBe("nightly");
+    expect(updateSecurityScan.mock.calls[0][0].spec.suspend).toBe(true);
+
+    fireEvent.click(screen.getByLabelText("Select all configurations"));
+    fireEvent.click(
+      within(screen.getByRole("toolbar", { name: "Bulk actions" })).getByRole("button", { name: /Delete/ }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("Delete 2 configurations?");
+    expect(dialog.textContent).toContain("also removes their recorded scan runs and findings");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(deleteSecurityScan).toHaveBeenCalledTimes(2));
+    expect(deleteSecurityScan.mock.calls.map(([request]) => request.name)).toEqual([
+      "nightly",
+      "paused",
+    ]);
+  });
+
+  it("applies a bulk action to the whole selection, including rows the filters hide", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [
+        configFixture({ name: "matching", repoUrl: "https://github.com/acme/payments" }),
+        configFixture({ name: "clean-once", repoUrl: "https://github.com/acme/ledger" }),
+      ],
+    });
+    runSecurityScanNow.mockResolvedValue({});
+    renderList();
+
+    await screen.findByText("clean-once");
+    fireEvent.click(screen.getByLabelText("Select all configurations"));
+
+    // Narrowing the list hides one selected row; the selection is unchanged,
+    // so the count — and the action — still cover both configurations.
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "ledger" } });
+    await waitFor(() => expect(screen.queryByText("matching")).toBeNull());
+    const toolbar = screen.getByRole("toolbar", { name: "Bulk actions" });
+    expect(within(toolbar).getByText("2 selected")).toBeTruthy();
+
+    fireEvent.click(within(toolbar).getByRole("button", { name: /Run now/ }));
+
+    await waitFor(() => expect(runSecurityScanNow).toHaveBeenCalledTimes(2));
+    expect(runSecurityScanNow.mock.calls.map(([request]) => request.name)).toEqual([
+      "matching",
+      "clean-once",
+    ]);
+    expect(screen.getByText("Run now applied to 2 configurations")).toBeTruthy();
+  });
+
+  it("stops a suspended configuration whose run is still in flight", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [configFixture({ name: "paused", suspend: true, phase: "Running" })],
+    });
+    cancelSecurityScanRun.mockResolvedValue({});
+    renderList();
+
+    await screen.findByText("paused");
+    fireEvent.click(screen.getByLabelText("Select paused"));
+    fireEvent.click(
+      within(screen.getByRole("toolbar", { name: "Bulk actions" })).getByRole("button", { name: /Stop/ }),
+    );
+
+    // Suspension stops future runs; it does not cancel the one already going.
+    await waitFor(() => expect(cancelSecurityScanRun).toHaveBeenCalledTimes(1));
+    expect(cancelSecurityScanRun).toHaveBeenCalledWith({ namespace: "user-alice", name: "paused" });
+    expect(screen.getByText("Stop applied to 1 configuration")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("locks the row actions while a bulk action runs", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [configFixture({ name: "nightly" }), configFixture({ name: "weekly" })],
+    });
+    let resolveRun: (value: unknown) => void = () => {};
+    runSecurityScanNow.mockReturnValue(new Promise((resolve) => { resolveRun = resolve; }));
+    renderList();
+
+    await screen.findByText("weekly");
+    fireEvent.click(screen.getByLabelText("Select nightly"));
+    fireEvent.click(
+      within(screen.getByRole("toolbar", { name: "Bulk actions" })).getByRole("button", { name: /Run now/ }),
+    );
+
+    await waitFor(() => {
+      const rowRuns = within(screen.getByRole("table")).getAllByRole("button", {
+        name: /Run now/,
+      }) as HTMLButtonElement[];
+      expect(rowRuns.length).toBe(2);
+      expect(rowRuns.every((button) => button.disabled)).toBe(true);
+    });
+
+    resolveRun({});
+    await waitFor(() => expect(listSecurityScanConfigs).toHaveBeenCalledTimes(2));
+  });
+
+  it("marks the select-all checkbox mixed for a partial selection and announces the result politely", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [configFixture({ name: "nightly" }), configFixture({ name: "weekly" })],
+    });
+    runSecurityScanNow.mockResolvedValue({});
+    renderList();
+
+    await screen.findByText("weekly");
+    const selectAll = screen.getByLabelText("Select all configurations") as HTMLInputElement;
+    expect(selectAll.indeterminate).toBe(false);
+
+    fireEvent.click(screen.getByLabelText("Select nightly"));
+    await waitFor(() => expect(selectAll.indeterminate).toBe(true));
+    expect(selectAll.getAttribute("aria-checked")).toBe("mixed");
+
+    fireEvent.click(screen.getByLabelText("Select weekly"));
+    await waitFor(() => expect(selectAll.indeterminate).toBe(false));
+    expect(selectAll.checked).toBe(true);
+
+    fireEvent.click(
+      within(screen.getByRole("toolbar", { name: "Bulk actions" })).getByRole("button", { name: /Run now/ }),
+    );
+    const notice = await screen.findByText("Run now applied to 2 configurations");
+    expect(notice.getAttribute("role")).toBe("status");
+    expect(notice.getAttribute("aria-live")).toBe("polite");
+  });
+
+  it("offers Stop instead of Run now while a scan is running", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [
+        configFixture({ name: "nightly", phase: "Running" }),
+        configFixture({ name: "weekly" }),
+      ],
+    });
+    let resolveStop: (value: unknown) => void = () => {};
+    cancelSecurityScanRun.mockReturnValue(new Promise((resolve) => { resolveStop = resolve; }));
+    renderList();
+
+    await screen.findByText("nightly");
+    const stop = screen.getByRole("button", { name: /^Stop$/ });
+    // The running row drops Run now; the idle row keeps it.
+    expect(screen.getAllByRole("button", { name: /Run now/ })).toHaveLength(1);
+
+    fireEvent.click(stop);
+    expect(cancelSecurityScanRun).toHaveBeenCalledWith({ namespace: "user-alice", name: "nightly" });
+    const pending = screen.getByRole("button", { name: /Stopping…/ }) as HTMLButtonElement;
+    expect(pending.disabled).toBe(true);
+
+    resolveStop({});
+    await waitFor(() => expect(listSecurityScanConfigs).toHaveBeenCalledTimes(2));
   });
 });

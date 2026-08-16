@@ -1377,6 +1377,21 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              lastCancelToken:
+                description: |-
+                  lastCancelToken is the most recent cancel-scan annotation token the
+                  controller has processed. A token equal to this value never cancels
+                  anything again, making stop requests idempotent across controller
+                  restarts.
+                type: string
+              lastCancelledRunName:
+                description: |-
+                  lastCancelledRunName is the coordinator AgentRun the most recent stop
+                  actually cancelled. It binds the stop to one run: without it, a
+                  consumed cancel token would make every later run that ends Cancelled —
+                  including budget- and platform-driven cancellations, which report
+                  themselves their own way — look like a user stop.
+                type: string
               lastCheck:
                 description: lastCheck records the most recent GitHub check publish
                   attempt.

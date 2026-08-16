@@ -471,8 +471,14 @@ func (r *SecurityScanReconciler) publishExecutionCheck(ctx context.Context, scan
 	}
 
 	runPhase := platformv1alpha1.AgentRunPhaseFailed
-	if exec.Phase == triggersv1alpha1.SecurityScanExecutionPhaseSucceeded {
+	switch exec.Phase {
+	case triggersv1alpha1.SecurityScanExecutionPhaseSucceeded:
 		runPhase = platformv1alpha1.AgentRunPhaseSucceeded
+	case triggersv1alpha1.SecurityScanExecutionPhaseCancelled:
+		// The check title names the phase, so a scan the user stopped must
+		// read "cancelled" and not "failed". The conclusion is unchanged:
+		// anything short of Succeeded stays neutral.
+		runPhase = platformv1alpha1.AgentRunPhaseCancelled
 	}
 	summary := r.summarizeFindings(ctx, scan)
 	openBySeverity := map[string]int32{}

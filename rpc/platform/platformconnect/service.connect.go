@@ -584,6 +584,9 @@ const (
 	// PlatformServiceResumeSecurityScanProcedure is the fully-qualified name of the PlatformService's
 	// ResumeSecurityScan RPC.
 	PlatformServiceResumeSecurityScanProcedure = "/platform.v1.PlatformService/ResumeSecurityScan"
+	// PlatformServiceCancelSecurityScanRunProcedure is the fully-qualified name of the
+	// PlatformService's CancelSecurityScanRun RPC.
+	PlatformServiceCancelSecurityScanRunProcedure = "/platform.v1.PlatformService/CancelSecurityScanRun"
 	// PlatformServiceListSecurityWorkflowsProcedure is the fully-qualified name of the
 	// PlatformService's ListSecurityWorkflows RPC.
 	PlatformServiceListSecurityWorkflowsProcedure = "/platform.v1.PlatformService/ListSecurityWorkflows"
@@ -997,6 +1000,15 @@ type PlatformServiceClient interface {
 	// idempotent. Rejected with FailedPrecondition unless the last execution
 	// is deterministic and Failed.
 	ResumeSecurityScan(context.Context, *connect.Request[platform.ResumeSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
+	// CancelSecurityScanRun stops the scan's in-flight run. The dashboard
+	// stamps a cancel-scan annotation token on the CR; the controller consumes
+	// each token exactly once (recorded in status.lastCancelToken), so retried
+	// or concurrent duplicate requests never cancel a later run by surprise.
+	// Cancelling stops scheduling further work: deterministic executions cancel
+	// every running task/post-script AgentRun and settle as Cancelled,
+	// coordinator runs cancel their AgentRun. Findings already recorded are
+	// kept. Rejected with FailedPrecondition when the scan has nothing running.
+	CancelSecurityScanRun(context.Context, *connect.Request[platform.CancelSecurityScanRunRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	// Reusable security library resources: SecurityWorkflow, SecurityRanker,
 	// and SecurityPostScript CRs referenced by SecurityScan configurations via
 	// workflow_ref / ranker_refs / post_script_refs. Referenced content is
@@ -2203,6 +2215,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("ResumeSecurityScan")),
 			connect.WithClientOptions(opts...),
 		),
+		cancelSecurityScanRun: connect.NewClient[platform.CancelSecurityScanRunRequest, platform.SecurityScanConfig](
+			httpClient,
+			baseURL+PlatformServiceCancelSecurityScanRunProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CancelSecurityScanRun")),
+			connect.WithClientOptions(opts...),
+		),
 		listSecurityWorkflows: connect.NewClient[platform.ListSecurityWorkflowsRequest, platform.ListSecurityWorkflowsResponse](
 			httpClient,
 			baseURL+PlatformServiceListSecurityWorkflowsProcedure,
@@ -2614,6 +2632,7 @@ type platformServiceClient struct {
 	deleteSecurityScan                     *connect.Client[platform.DeleteSecurityScanRequest, emptypb.Empty]
 	runSecurityScanNow                     *connect.Client[platform.RunSecurityScanNowRequest, platform.SecurityScanConfig]
 	resumeSecurityScan                     *connect.Client[platform.ResumeSecurityScanRequest, platform.SecurityScanConfig]
+	cancelSecurityScanRun                  *connect.Client[platform.CancelSecurityScanRunRequest, platform.SecurityScanConfig]
 	listSecurityWorkflows                  *connect.Client[platform.ListSecurityWorkflowsRequest, platform.ListSecurityWorkflowsResponse]
 	getSecurityWorkflow                    *connect.Client[platform.GetSecurityWorkflowRequest, platform.SecurityWorkflowResource]
 	createSecurityWorkflow                 *connect.Client[platform.CreateSecurityWorkflowRequest, platform.SecurityWorkflowResource]
@@ -3579,6 +3598,11 @@ func (c *platformServiceClient) ResumeSecurityScan(ctx context.Context, req *con
 	return c.resumeSecurityScan.CallUnary(ctx, req)
 }
 
+// CancelSecurityScanRun calls platform.v1.PlatformService.CancelSecurityScanRun.
+func (c *platformServiceClient) CancelSecurityScanRun(ctx context.Context, req *connect.Request[platform.CancelSecurityScanRunRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	return c.cancelSecurityScanRun.CallUnary(ctx, req)
+}
+
 // ListSecurityWorkflows calls platform.v1.PlatformService.ListSecurityWorkflows.
 func (c *platformServiceClient) ListSecurityWorkflows(ctx context.Context, req *connect.Request[platform.ListSecurityWorkflowsRequest]) (*connect.Response[platform.ListSecurityWorkflowsResponse], error) {
 	return c.listSecurityWorkflows.CallUnary(ctx, req)
@@ -4064,6 +4088,15 @@ type PlatformServiceHandler interface {
 	// idempotent. Rejected with FailedPrecondition unless the last execution
 	// is deterministic and Failed.
 	ResumeSecurityScan(context.Context, *connect.Request[platform.ResumeSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error)
+	// CancelSecurityScanRun stops the scan's in-flight run. The dashboard
+	// stamps a cancel-scan annotation token on the CR; the controller consumes
+	// each token exactly once (recorded in status.lastCancelToken), so retried
+	// or concurrent duplicate requests never cancel a later run by surprise.
+	// Cancelling stops scheduling further work: deterministic executions cancel
+	// every running task/post-script AgentRun and settle as Cancelled,
+	// coordinator runs cancel their AgentRun. Findings already recorded are
+	// kept. Rejected with FailedPrecondition when the scan has nothing running.
+	CancelSecurityScanRun(context.Context, *connect.Request[platform.CancelSecurityScanRunRequest]) (*connect.Response[platform.SecurityScanConfig], error)
 	// Reusable security library resources: SecurityWorkflow, SecurityRanker,
 	// and SecurityPostScript CRs referenced by SecurityScan configurations via
 	// workflow_ref / ranker_refs / post_script_refs. Referenced content is
@@ -5266,6 +5299,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("ResumeSecurityScan")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceCancelSecurityScanRunHandler := connect.NewUnaryHandler(
+		PlatformServiceCancelSecurityScanRunProcedure,
+		svc.CancelSecurityScanRun,
+		connect.WithSchema(platformServiceMethods.ByName("CancelSecurityScanRun")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceListSecurityWorkflowsHandler := connect.NewUnaryHandler(
 		PlatformServiceListSecurityWorkflowsProcedure,
 		svc.ListSecurityWorkflows,
@@ -5858,6 +5897,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceRunSecurityScanNowHandler.ServeHTTP(w, r)
 		case PlatformServiceResumeSecurityScanProcedure:
 			platformServiceResumeSecurityScanHandler.ServeHTTP(w, r)
+		case PlatformServiceCancelSecurityScanRunProcedure:
+			platformServiceCancelSecurityScanRunHandler.ServeHTTP(w, r)
 		case PlatformServiceListSecurityWorkflowsProcedure:
 			platformServiceListSecurityWorkflowsHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityWorkflowProcedure:
@@ -6675,6 +6716,10 @@ func (UnimplementedPlatformServiceHandler) RunSecurityScanNow(context.Context, *
 
 func (UnimplementedPlatformServiceHandler) ResumeSecurityScan(context.Context, *connect.Request[platform.ResumeSecurityScanRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ResumeSecurityScan is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CancelSecurityScanRun(context.Context, *connect.Request[platform.CancelSecurityScanRunRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CancelSecurityScanRun is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) ListSecurityWorkflows(context.Context, *connect.Request[platform.ListSecurityWorkflowsRequest]) (*connect.Response[platform.ListSecurityWorkflowsResponse], error) {

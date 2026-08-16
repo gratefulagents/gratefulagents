@@ -313,6 +313,15 @@ service PlatformService {
   // idempotent. Rejected with FailedPrecondition unless the last execution
   // is deterministic and Failed.
   rpc ResumeSecurityScan(ResumeSecurityScanRequest) returns (SecurityScanConfig);
+  // CancelSecurityScanRun stops the scan's in-flight run. The dashboard
+  // stamps a cancel-scan annotation token on the CR; the controller consumes
+  // each token exactly once (recorded in status.lastCancelToken), so retried
+  // or concurrent duplicate requests never cancel a later run by surprise.
+  // Cancelling stops scheduling further work: deterministic executions cancel
+  // every running task/post-script AgentRun and settle as Cancelled,
+  // coordinator runs cancel their AgentRun. Findings already recorded are
+  // kept. Rejected with FailedPrecondition when the scan has nothing running.
+  rpc CancelSecurityScanRun(CancelSecurityScanRunRequest) returns (SecurityScanConfig);
 
   // Reusable security library resources: SecurityWorkflow, SecurityRanker,
   // and SecurityPostScript CRs referenced by SecurityScan configurations via
@@ -4851,6 +4860,11 @@ message RunSecurityScanNowRequest {
 }
 
 message ResumeSecurityScanRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message CancelSecurityScanRunRequest {
   string namespace = 1;
   string name = 2;
 }

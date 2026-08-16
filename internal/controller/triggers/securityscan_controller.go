@@ -45,6 +45,14 @@ const (
 	// enough for the controller to purge persisted findings from the store.
 	securityScanCleanupFinalizer = "triggers.gratefulagents.dev/cleanup"
 
+	// securityScanReasonCancelled is the Ready-condition reason reported for
+	// a user-requested stop.
+	securityScanReasonCancelled = "Cancelled"
+	// securityScanCancelMessage explains the stop wherever it is recorded:
+	// the Ready condition, the emitted event, and the tasks and post-script
+	// jobs the stop terminated.
+	securityScanCancelMessage = "scan stopped by user"
+
 	// securityScanCleanupDeadline bounds how long a failing findings store can
 	// delay SecurityScan deletion. Past this deadline the finalizer is removed
 	// even when the purge keeps failing, so a permanently broken store cannot
@@ -105,7 +113,23 @@ func (r *SecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
+	// A stop request is honoured before suspension, spec validation, and every
+	// dispatch decision below: suspending a scan does not stop the run already
+	// in flight, so a stop must not be blocked (or, worse, left pending and
+	// applied to a later run) just because the scan was suspended or its spec
+	// drifted while its runs were still executing.
+	if token := pendingSecurityScanCancelToken(scan); token != "" {
+		return r.reconcileCancel(ctx, scan, token)
+	}
+
 	if scan.Spec.Suspend {
+		// Suspension only stops future dispatch; work that already ended —
+		// including a run stopped moments ago — still has to settle, and the
+		// paths that settle it all live below this gate. Without this a
+		// suspended scan keeps a "running" row in the scans list forever and
+		// never publishes its aggregate check. Both settlers are idempotent
+		// and self-gated, so best-effort repeats here are no-ops.
+		r.settleTerminalWorkWhileSuspended(ctx, scan)
 		if err := r.updateStatus(ctx, scan, nil, func(fresh *triggersv1alpha1.SecurityScan) {
 			fresh.Status.Phase = "Suspended"
 			fresh.Status.NextScheduleTime = nil
@@ -146,6 +170,26 @@ func (r *SecurityScanReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		res.RequeueAfter = retentionRequeue
 	}
 	return res, nil
+}
+
+// settleTerminalWorkWhileSuspended runs the terminal side effects of work a
+// suspended scan already finished: the deterministic execution's aggregate
+// check, notifications, and scan-record finalization, and the coordinator
+// run's baseline/record finalization. Errors are best-effort — a suspended
+// scan must still end up Suspended — and every call is idempotent, so a
+// later resume repeating them changes nothing.
+func (r *SecurityScanReconciler) settleTerminalWorkWhileSuspended(ctx context.Context, scan *triggersv1alpha1.SecurityScan) {
+	if exec := scan.Status.LastExecution; exec != nil &&
+		exec.Mode == triggersv1alpha1.SecurityScanExecutionModeDeterministic &&
+		securityScanExecutionTerminal(exec.Phase) {
+		r.finishTerminalExecution(ctx, scan, exec)
+	}
+	if scan.Status.LastRunName == "" {
+		return
+	}
+	if terminal, err := r.lastRunTerminal(ctx, scan); err == nil && terminal {
+		r.finalizeCompletedRun(ctx, scan)
+	}
 }
 
 // reconcileInvalidSpec reports a statically invalid spec on the Ready
@@ -274,6 +318,92 @@ func pendingManualRunToken(scan *triggersv1alpha1.SecurityScan) string {
 		return ""
 	}
 	return token
+}
+
+// pendingSecurityScanCancelToken returns the cancel-scan annotation token
+// when it has not been consumed yet. Consumed-token semantics mirror
+// LastManualRunToken: the token is recorded in status.lastCancelToken once
+// processed, so a stop request is idempotent and a stale annotation left on
+// the scan can never stop a later run by surprise.
+func pendingSecurityScanCancelToken(scan *triggersv1alpha1.SecurityScan) string {
+	token := strings.TrimSpace(scan.Annotations[triggersv1alpha1.SecurityScanCancelAnnotation])
+	if token == "" || token == scan.Status.LastCancelToken {
+		return ""
+	}
+	return token
+}
+
+// reconcileCancel consumes one cancel token, stopping whichever kind of work
+// the scan currently has in flight. The token is recorded in the same
+// conflict-safe status write that records the outcome, so the request is
+// consumed exactly once even if the controller restarts mid-cancel.
+func (r *SecurityScanReconciler) reconcileCancel(ctx context.Context, scan *triggersv1alpha1.SecurityScan, token string) (ctrl.Result, error) {
+	if exec := scan.Status.LastExecution; securityScanExecutionActive(exec) {
+		return r.cancelDeterministicExecution(ctx, scan, exec, token)
+	}
+	return r.cancelCoordinatorRun(ctx, scan, token)
+}
+
+// cancelCoordinatorRun stops a live coordinator run: the AgentRun is asked to
+// cancel exactly like the budget enforcement path does, and the existing run
+// finalization maps its Cancelled phase to a "cancelled" scan record. With
+// nothing in flight the token is still recorded — a consumed token cannot
+// fire later — but the scan keeps its current phase and condition, since
+// nothing was actually stopped.
+func (r *SecurityScanReconciler) cancelCoordinatorRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, token string) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+	stopped := ""
+	if scan.Status.LastRunName != "" {
+		run := &platformv1alpha1.AgentRun{}
+		err := r.Get(ctx, client.ObjectKey{Namespace: scan.Namespace, Name: scan.Status.LastRunName}, run)
+		switch {
+		case err == nil:
+			if !isCronRunTerminal(run.Status.Phase) {
+				if _, cancelErr := r.cancelScanRun(ctx, run); cancelErr != nil {
+					return ctrl.Result{}, fmt.Errorf("cancelling scan AgentRun %s: %w", run.Name, cancelErr)
+				}
+				stopped = run.Name
+			}
+		case !apierrors.IsNotFound(err):
+			return ctrl.Result{}, err
+		}
+	}
+
+	oneShot := strings.TrimSpace(scan.Spec.Schedule) == ""
+	generation := scan.Generation
+	// A run-now token queued before the stop must not survive it: the very
+	// next reconcile would dispatch a replacement for the run the user just
+	// stopped, so the stop supersedes the queued request by consuming it.
+	supersededManualToken := pendingManualRunToken(scan)
+	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
+		fresh.Status.LastCancelToken = token
+		if supersededManualToken != "" {
+			fresh.Status.LastManualRunToken = supersededManualToken
+		}
+		if stopped == "" {
+			return
+		}
+		// Bind the stop to the run it cancelled so the dispatch paths can
+		// tell a user stop apart from any later cancellation.
+		fresh.Status.LastCancelledRunName = stopped
+		fresh.Status.LastError = ""
+		fresh.Status.Phase = "Completed"
+		if oneShot {
+			// The cancelled run satisfies the current generation, so the
+			// run-once-per-generation path does not immediately start a
+			// replacement for the run the user just stopped.
+			fresh.Status.ObservedGeneration = generation
+		}
+		setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonCancelled, securityScanCancelMessage)
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+	if stopped != "" {
+		log.Info("cancelled scan AgentRun on user request", "run", stopped)
+		r.recordScanEvent(scan, corev1.EventTypeWarning, "ScanCancelled",
+			fmt.Sprintf("%s: cancelled run %s (recorded findings are preserved)", securityScanCancelMessage, stopped))
+	}
+	return ctrl.Result{RequeueAfter: time.Second}, nil
 }
 
 // reconcileRunNow processes a manual run-now request. The request is
@@ -412,9 +542,16 @@ func (r *SecurityScanReconciler) reconcileOneShot(ctx context.Context, scan *tri
 			r.finalizeCompletedRun(ctx, scan)
 			retryPostRun = r.finishTerminalRun(ctx, scan)
 		}
+		stopped := terminal && r.lastRunEndedInUserStop(ctx, scan)
 		if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
 			fresh.Status.Phase = phase
 			fresh.Status.LastError = ""
+			if stopped {
+				// The generation was satisfied by a run the user stopped:
+				// reporting it as up to date would erase the stop.
+				setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonCancelled, securityScanCancelMessage)
+				return
+			}
 			setSecurityScanCondition(fresh, metav1.ConditionTrue, "ScanUpToDate", "Scan already ran for the current spec generation")
 		}); err != nil {
 			return ctrl.Result{}, err
@@ -505,6 +642,7 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 			r.finalizeCompletedRun(ctx, scan)
 			retryPostRun = r.finishTerminalRun(ctx, scan)
 		}
+		stopped := lastRunDone && r.lastRunEndedInUserStop(ctx, scan)
 		next := metav1.NewTime(scheduledTime)
 		if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
 			if lastRunDone && fresh.Status.Phase == "Running" {
@@ -518,6 +656,12 @@ func (r *SecurityScanReconciler) reconcileScheduled(ctx context.Context, scan *t
 			fresh.Status.ObservedTimeZone = observedTimeZone
 			fresh.Status.ObservedGeneration = scan.Generation
 			fresh.Status.LastError = ""
+			if stopped {
+				// The schedule stays valid, but the run the user stopped is
+				// the scan's current outcome: do not report it as Ready.
+				setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonCancelled, securityScanCancelMessage)
+				return
+			}
 			setSecurityScanCondition(fresh, metav1.ConditionTrue, "Scheduled", "SecurityScan schedule is valid")
 		}); err != nil {
 			return ctrl.Result{}, err
@@ -959,6 +1103,25 @@ func (r *SecurityScanReconciler) lastRunTerminal(ctx context.Context, scan *trig
 		return false, fmt.Errorf("getting scan AgentRun: %w", err)
 	}
 	return isCronRunTerminal(run.Status.Phase), nil
+}
+
+// lastRunEndedInUserStop reports whether the scan's last coordinator run was
+// ended by a user stop, so the dispatch paths do not re-mark a stopped scan
+// Ready on their next pass — the coordinator counterpart of
+// applySecurityScanExecutionOutcomeCondition. The stop is matched by the run
+// it actually cancelled: a consumed cancel token stays set forever, so
+// keying off the token alone would also claim every later run that ends
+// Cancelled — including budget or platform cancellations, which report
+// themselves their own way.
+func (r *SecurityScanReconciler) lastRunEndedInUserStop(ctx context.Context, scan *triggersv1alpha1.SecurityScan) bool {
+	if scan.Status.LastRunName == "" || scan.Status.LastCancelledRunName != scan.Status.LastRunName {
+		return false
+	}
+	run := &platformv1alpha1.AgentRun{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: scan.Namespace, Name: scan.Status.LastRunName}, run); err != nil {
+		return false
+	}
+	return run.Status.Phase == platformv1alpha1.AgentRunPhaseCancelled
 }
 
 // finalizeCompletedRun sweeps expired accepted-risk findings and finalizes
