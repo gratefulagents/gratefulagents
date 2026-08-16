@@ -928,9 +928,15 @@ describe("SecurityScanFormDialog execution & parameter values", () => {
       useSavedCredentials: false,
       spec: legacy.spec,
     });
+    const prefixedExplicit = create(SecurityScanConfigSchema, {
+      spec: create(SecurityScanConfigSpecSchema, {
+        defaults: { openaiOauthSecret: "usercred-team-openai" },
+      }),
+    });
 
     expect(scanConfigUsesSavedCredentials(legacy)).toBe(true);
     expect(scanConfigUsesSavedCredentials(explicitlyDisabled)).toBe(false);
+    expect(scanConfigUsesSavedCredentials(prefixedExplicit)).toBe(false);
   });
 
   it("keeps saved credentials checked when editing a materialized bulk import", async () => {

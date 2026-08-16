@@ -42,7 +42,7 @@ import { cn } from "@/lib/utils";
 import { toneText } from "@/lib/status";
 import { applyModelDefaults, hasActiveModelDefaults } from "@/lib/modelDefaults";
 import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
-import { isSavedCredentialSecretName } from "@/lib/projectCredentialForm";
+import { savedCredentialSecretName } from "@/lib/projectCredentialForm";
 import {
   AgentRunDefaultsSchema,
   CreateSecurityScanRequestSchema,
@@ -275,13 +275,35 @@ export function scanConfigUsesSavedCredentials(config: SecurityScanConfig): bool
   if (config.useSavedCredentials !== undefined) return config.useSavedCredentials;
   const defaults = config.spec?.defaults;
   if (!defaults) return true;
-  const refs = [
-    defaults.claudeApiKeySecret,
-    defaults.openaiOauthSecret,
-    defaults.githubTokenSecret,
-    ...defaults.providerKeys.map((key) => key.secretName),
-  ].filter(Boolean);
-  return refs.length === 0 || refs.every(isSavedCredentialSecretName);
+  if (
+    defaults.claudeApiKeySecret &&
+    defaults.claudeApiKeySecret !== savedCredentialSecretName("anthropic")
+  ) {
+    return false;
+  }
+  if (
+    defaults.openaiOauthSecret &&
+    !["anthropic", "openai", "copilot"]
+      .map(savedCredentialSecretName)
+      .includes(defaults.openaiOauthSecret)
+  ) {
+    return false;
+  }
+  if (
+    defaults.githubTokenSecret &&
+    defaults.githubTokenSecret !== savedCredentialSecretName("github")
+  ) {
+    return false;
+  }
+  return defaults.providerKeys.every((key) => {
+    const provider = ["gemini", "groq"].includes(key.provider.toLowerCase())
+      ? "openai"
+      : key.provider.toLowerCase();
+    return (
+      ["anthropic", "openai", "openrouter", "xai"].includes(provider) &&
+      key.secretName === savedCredentialSecretName(provider)
+    );
+  });
 }
 
 function scheduleSummary(spec: SpecState): string {

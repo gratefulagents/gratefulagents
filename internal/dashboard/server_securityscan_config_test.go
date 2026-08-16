@@ -519,6 +519,13 @@ func TestSecurityScanConfigProtoReportsSavedCredentialSource(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "explicit ref with reserved prefix",
+			secrets: triggersv1alpha1.AgentRunSecrets{
+				OpenAIOAuthSecret: "usercred-team-openai",
+			},
+			want: false,
+		},
+		{
 			name: "mixed saved and explicit refs",
 			secrets: triggersv1alpha1.AgentRunSecrets{
 				OpenAIOAuthSecret: "usercred-openai",

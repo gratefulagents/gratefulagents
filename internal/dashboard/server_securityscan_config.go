@@ -937,14 +937,42 @@ func trimmedNonEmpty(values []string) []string {
 // securityScanUsesSavedCredentials reconstructs the credential source after
 // saved credentials have been materialized into the persisted trigger spec.
 // Empty refs retain the historical default (saved credentials); otherwise all
-// refs must point at the platform-managed usercred-* Secrets.
+// refs must point at the exact deterministic platform-managed Secrets.
 func securityScanUsesSavedCredentials(secrets triggersv1alpha1.AgentRunSecrets) bool {
-	refs := []string{secrets.ClaudeApiKey, secrets.OpenAIOAuthSecret, secrets.GithubToken}
-	for _, key := range secrets.ProviderKeys {
-		refs = append(refs, key.SecretName)
+	if secrets.ClaudeApiKey != "" && secrets.ClaudeApiKey != userCredentialSecretName(triggersv1alpha1.ProviderAnthropic) {
+		return false
 	}
-	for _, ref := range refs {
-		if ref != "" && !strings.HasPrefix(ref, userCredentialSecretPrefix) {
+	if secrets.OpenAIOAuthSecret != "" {
+		managed := false
+		for _, provider := range []string{
+			triggersv1alpha1.ProviderAnthropic,
+			triggersv1alpha1.ProviderOpenAI,
+			triggersv1alpha1.ProviderCopilot,
+		} {
+			if secrets.OpenAIOAuthSecret == userCredentialSecretName(provider) {
+				managed = true
+				break
+			}
+		}
+		if !managed {
+			return false
+		}
+	}
+	if secrets.GithubToken != "" && secrets.GithubToken != userCredentialSecretName(credentialGitHub) {
+		return false
+	}
+	for _, key := range secrets.ProviderKeys {
+		provider := triggersv1alpha1.NormalizeProvider(key.Provider)
+		if provider == triggersv1alpha1.ProviderGemini || provider == triggersv1alpha1.ProviderGroq {
+			provider = triggersv1alpha1.ProviderOpenAI
+		}
+		switch provider {
+		case triggersv1alpha1.ProviderAnthropic, triggersv1alpha1.ProviderOpenAI,
+			triggersv1alpha1.ProviderOpenRouter, triggersv1alpha1.ProviderXAI:
+			if key.SecretName != userCredentialSecretName(provider) {
+				return false
+			}
+		default:
 			return false
 		}
 	}
