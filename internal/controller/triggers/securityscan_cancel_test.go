@@ -15,6 +15,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// securityScanTestCancelToken is the opaque stop token these tests stamp.
+const securityScanTestCancelToken = "stop-1"
+
 // recordedScanEvent is one event emitted through the reconciler's recorder.
 type recordedScanEvent struct {
 	eventType string
@@ -26,7 +29,7 @@ type recordingScanEventRecorder struct {
 	events []recordedScanEvent
 }
 
-func (r *recordingScanEventRecorder) Eventf(_ runtime.Object, _ runtime.Object, eventType, reason, _ string, note string, _ ...interface{}) {
+func (r *recordingScanEventRecorder) Eventf(_ runtime.Object, _ runtime.Object, eventType, reason, _ string, note string, _ ...any) {
 	r.events = append(r.events, recordedScanEvent{eventType: eventType, reason: reason, note: note})
 }
 
@@ -39,9 +42,11 @@ func (r *recordingScanEventRecorder) has(eventType, reason string) bool {
 	return false
 }
 
-func annotateSecurityScanCancel(t *testing.T, k8sClient client.Client, scan *triggersv1alpha1.SecurityScan, token string) {
+// annotateSecurityScanCancel stamps the stop request the dashboard's
+// CancelSecurityScanRun handler writes.
+func annotateSecurityScanCancel(t *testing.T, k8sClient client.Client, scan *triggersv1alpha1.SecurityScan) {
 	t.Helper()
-	annotateSecurityScan(t, k8sClient, scan, triggersv1alpha1.SecurityScanCancelAnnotation, token)
+	annotateSecurityScan(t, k8sClient, scan, triggersv1alpha1.SecurityScanCancelAnnotation, securityScanTestCancelToken)
 }
 
 func annotateSecurityScan(t *testing.T, k8sClient client.Client, scan *triggersv1alpha1.SecurityScan, key, value string) {
@@ -79,7 +84,7 @@ func TestSecurityScanCancelStopsDeterministicExecution(t *testing.T) {
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	running := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
 
-	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	annotateSecurityScanCancel(t, k8sClient, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	if got := getAgentRun(t, k8sClient, scan.Namespace, running.Name).Annotations[cancelRequestedAnnotation]; got == "" {
@@ -96,7 +101,7 @@ func TestSecurityScanCancelStopsDeterministicExecution(t *testing.T) {
 	if got := executionTask(t, exec, "a", 0).LastError; got != securityScanCancelMessage {
 		t.Fatalf("cancelled task a LastError = %q, want %q", got, securityScanCancelMessage)
 	}
-	if updated.Status.LastCancelToken != "stop-1" || updated.Status.Phase != "Completed" || updated.Status.LastError != "" {
+	if updated.Status.LastCancelToken != securityScanTestCancelToken || updated.Status.Phase != "Completed" || updated.Status.LastError != "" {
 		t.Fatalf("status after cancel = %+v, want consumed token, phase Completed, no error", updated.Status)
 	}
 	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, securityScanReasonCancelled)
@@ -124,7 +129,7 @@ func TestSecurityScanCancelTokenIsConsumedExactlyOnce(t *testing.T) {
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	running := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
 
-	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	annotateSecurityScanCancel(t, k8sClient, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	// Clear the run's cancel request and revive the execution: only a token
@@ -167,7 +172,7 @@ func TestSecurityScanCancelStopsCoordinatorRun(t *testing.T) {
 		t.Fatalf("status = %+v, want a dispatched coordinator run", dispatched.Status)
 	}
 
-	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	annotateSecurityScanCancel(t, k8sClient, scan)
 	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
@@ -177,7 +182,7 @@ func TestSecurityScanCancelStopsCoordinatorRun(t *testing.T) {
 		t.Fatalf("coordinator run %s has no %s annotation", run.Name, cancelRequestedAnnotation)
 	}
 	updated := getSecurityScan(t, k8sClient, scan)
-	if updated.Status.LastCancelToken != "stop-1" || updated.Status.Phase != "Completed" || updated.Status.LastError != "" {
+	if updated.Status.LastCancelToken != securityScanTestCancelToken || updated.Status.Phase != "Completed" || updated.Status.LastError != "" {
 		t.Fatalf("status after cancel = %+v, want consumed token, phase Completed, no error", updated.Status)
 	}
 	assertSecurityScanCondition(t, updated, metav1.ConditionFalse, securityScanReasonCancelled)
@@ -203,7 +208,7 @@ func TestSecurityScanCancelledExecutionIsNotResumable(t *testing.T) {
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
-	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	annotateSecurityScanCancel(t, k8sClient, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	before := len(securityScanRuns(t, k8sClient, scan.Namespace))
 
@@ -247,7 +252,7 @@ func TestSecurityScanCancelIsHonouredWhileSuspended(t *testing.T) {
 	if err := k8sClient.Update(context.Background(), suspended); err != nil {
 		t.Fatalf("Update(SecurityScan suspend) error = %v", err)
 	}
-	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	annotateSecurityScanCancel(t, k8sClient, scan)
 	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
@@ -256,7 +261,7 @@ func TestSecurityScanCancelIsHonouredWhileSuspended(t *testing.T) {
 		t.Fatalf("running task run %s was not cancelled while the scan was suspended", running.Name)
 	}
 	updated := getSecurityScan(t, k8sClient, scan)
-	if updated.Status.LastCancelToken != "stop-1" {
+	if updated.Status.LastCancelToken != securityScanTestCancelToken {
 		t.Fatalf("LastCancelToken = %q, want the token consumed while suspended", updated.Status.LastCancelToken)
 	}
 	if phase := updated.Status.LastExecution.Phase; phase != triggersv1alpha1.SecurityScanExecutionPhaseCancelled {
@@ -299,7 +304,7 @@ func TestSecurityScanCancelStopsRunningPostScriptJob(t *testing.T) {
 	}
 	jobRun := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "validate", "fp-alpha")
 
-	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	annotateSecurityScanCancel(t, k8sClient, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	if got := getAgentRun(t, k8sClient, scan.Namespace, jobRun.Name).Annotations[cancelRequestedAnnotation]; got == "" {
@@ -367,7 +372,7 @@ func TestSecurityScanCancelSupersedesPendingRunNowToken(t *testing.T) {
 	before := len(securityScanRuns(t, k8sClient, scan.Namespace))
 
 	annotateSecurityScan(t, k8sClient, scan, triggersv1alpha1.SecurityScanRunNowAnnotation, "run-2")
-	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	annotateSecurityScanCancel(t, k8sClient, scan)
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	updated := getSecurityScan(t, k8sClient, scan)
@@ -395,7 +400,7 @@ func TestSecurityScanCancelSupersedesPendingRunNowTokenForCoordinatorRun(t *test
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	annotateSecurityScan(t, k8sClient, scan, triggersv1alpha1.SecurityScanRunNowAnnotation, "run-2")
-	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	annotateSecurityScanCancel(t, k8sClient, scan)
 	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
@@ -424,7 +429,7 @@ func TestSecurityScanStoppedCoordinatorRunStaysCancelled(t *testing.T) {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	runName := getSecurityScan(t, k8sClient, scan).Status.LastRunName
-	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	annotateSecurityScanCancel(t, k8sClient, scan)
 	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
@@ -470,7 +475,7 @@ func TestSecurityScanCancelRetriesWhenRunCancellationFails(t *testing.T) {
 	running := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
 
 	faulty.fail = true
-	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	annotateSecurityScanCancel(t, k8sClient, scan)
 	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err == nil {
 		t.Fatalf("Reconcile() error = nil, want the failed run cancellation surfaced")
 	}
@@ -491,7 +496,7 @@ func TestSecurityScanCancelRetriesWhenRunCancellationFails(t *testing.T) {
 		t.Fatalf("running task run %s was never cancelled after the retry", running.Name)
 	}
 	stopped := getSecurityScan(t, k8sClient, scan)
-	if stopped.Status.LastCancelToken != "stop-1" {
+	if stopped.Status.LastCancelToken != securityScanTestCancelToken {
 		t.Fatalf("LastCancelToken = %q, want stop-1 consumed on the successful retry", stopped.Status.LastCancelToken)
 	}
 	if phase := stopped.Status.LastExecution.Phase; phase != triggersv1alpha1.SecurityScanExecutionPhaseCancelled {
@@ -512,7 +517,7 @@ func TestSecurityScanLaterCancelledRunIsNotReportedAsUserStop(t *testing.T) {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	stoppedRun := getSecurityScan(t, k8sClient, scan).Status.LastRunName
-	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	annotateSecurityScanCancel(t, k8sClient, scan)
 	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
