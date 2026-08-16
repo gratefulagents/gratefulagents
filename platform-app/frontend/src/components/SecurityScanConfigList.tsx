@@ -6,6 +6,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  CircleStop,
   Copy,
   History,
   MoreHorizontal,
@@ -15,6 +16,7 @@ import {
   Plus,
   ShieldCheck,
   Trash2,
+  X,
 } from "lucide-react";
 
 import {
@@ -153,6 +155,29 @@ function isSuspended(config: SecurityScanConfig): boolean {
   return config.spec?.suspend ?? false;
 }
 
+/**
+ * A coordinator run reports through the trigger's own phase; a deterministic
+ * execution reports through `lastExecution`, so a scan is running when either
+ * says so.
+ */
+function isRunning(config: SecurityScanConfig): boolean {
+  return config.phase === "Running" || config.lastExecution?.phase === "Running";
+}
+
+function configKey(config: SecurityScanConfig): string {
+  return `${config.namespace}/${config.name}`;
+}
+
+type BulkAction = "run" | "stop" | "suspend" | "resume" | "delete";
+
+const BULK_LABELS: Record<BulkAction, string> = {
+  run: "Run now",
+  stop: "Stop",
+  suspend: "Suspend",
+  resume: "Resume",
+  delete: "Delete",
+};
+
 function isReady(config: SecurityScanConfig): boolean {
   return !isSuspended(config) && config.conditionReady.toLowerCase() === "true";
 }
@@ -286,8 +311,15 @@ export function SecurityScanConfigList() {
   const [pendingDelete, setPendingDelete] = useState<SecurityScanConfig | null>(null);
   const [pendingDuplicate, setPendingDuplicate] = useState<SecurityScanConfig | null>(null);
   const [runNowPending, setRunNowPending] = useState<string | null>(null);
+  const [stopPending, setStopPending] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState("");
+  const [bulkFailures, setBulkFailures] = useState<{ key: string; name: string; error: string }[]>([]);
+  const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
   const [selectedProgramScanTarget, setSelectedProgramScanTarget] = useState<ProgramScanTarget | null>(null);
   const importTriggerRef = useRef<HTMLButtonElement>(null);
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const now = useNow();
   const { values, set, reset, activeCount } = useUrlFilters(FILTER_SPEC);
 
@@ -305,6 +337,11 @@ export function SecurityScanConfigList() {
         client.listMyCredentials({}),
       ]);
       setConfigs(resp.configs);
+      // A refresh can drop rows (deleted elsewhere, or by a bulk delete here);
+      // a selection pointing at rows that no longer exist would keep the bulk
+      // toolbar open over nothing.
+      const live = new Set(resp.configs.map(configKey));
+      setSelected((current) => new Set([...current].filter((key) => live.has(key))));
       setPersonalNamespace(credentials.namespace);
       try {
         const programList = await client.listSecurityPrograms({ namespace: "" });
@@ -323,21 +360,25 @@ export function SecurityScanConfigList() {
     void fetchConfigs();
   }, [fetchConfigs]);
 
-  async function toggleSuspend(config: SecurityScanConfig) {
-    setActionError(null);
+  async function updateSuspend(config: SecurityScanConfig, suspend: boolean) {
     const spec = config.spec
       ? clone(SecurityScanConfigSpecSchema, config.spec)
       : create(SecurityScanConfigSpecSchema, {});
-    spec.suspend = !spec.suspend;
+    spec.suspend = suspend;
+    await client.updateSecurityScan(
+      create(UpdateSecurityScanRequestSchema, {
+        namespace: config.namespace,
+        name: config.name,
+        spec,
+        useSavedCredentials: scanConfigUsesSavedCredentials(config),
+      }),
+    );
+  }
+
+  async function toggleSuspend(config: SecurityScanConfig) {
+    setActionError(null);
     try {
-      await client.updateSecurityScan(
-        create(UpdateSecurityScanRequestSchema, {
-          namespace: config.namespace,
-          name: config.name,
-          spec,
-          useSavedCredentials: scanConfigUsesSavedCredentials(config),
-        }),
-      );
+      await updateSuspend(config, !isSuspended(config));
       await fetchConfigs();
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : "Failed to update security scan");
@@ -364,6 +405,111 @@ export function SecurityScanConfigList() {
       await fetchConfigs();
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : "Failed to delete security scan");
+    }
+  }
+
+  async function handleStop(config: SecurityScanConfig) {
+    setActionError(null);
+    setStopPending(configKey(config));
+    try {
+      await client.cancelSecurityScanRun({ namespace: config.namespace, name: config.name });
+      await fetchConfigs();
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : "Failed to stop the security scan");
+    } finally {
+      setStopPending(null);
+    }
+  }
+
+  function toggleSelected(key: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelected(new Set());
+    setBulkFailures([]);
+    setBulkNotice("");
+  }
+
+  function toggleSelectAllVisible() {
+    setSelected((current) => {
+      const keys = visible.map(configKey);
+      const next = new Set(current);
+      if (keys.every((key) => next.has(key))) {
+        for (const key of keys) next.delete(key);
+      } else {
+        for (const key of keys) next.add(key);
+      }
+      return next;
+    });
+  }
+
+  async function applyToConfig(action: BulkAction, config: SecurityScanConfig) {
+    // Actions that cannot apply are reported per item instead of being sent as
+    // an RPC the backend is guaranteed to reject.
+    if (action === "run") {
+      if (isSuspended(config)) throw new Error("suspended — resume it before requesting a run");
+      await client.runSecurityScanNow({ namespace: config.namespace, name: config.name });
+      return;
+    }
+    if (action === "stop") {
+      if (!isRunning(config)) throw new Error("nothing is running");
+      await client.cancelSecurityScanRun({ namespace: config.namespace, name: config.name });
+      return;
+    }
+    if (action === "delete") {
+      await client.deleteSecurityScan({ namespace: config.namespace, name: config.name });
+      return;
+    }
+    await updateSuspend(config, action === "suspend");
+  }
+
+  async function applyBulk(action: BulkAction) {
+    // The selection survives search and filter changes, so an action applies
+    // to everything the user picked — not only the rows currently on screen.
+    const targets = selectedConfigs;
+    if (!targets.length) return;
+    setBulkBusy(true);
+    setActionError(null);
+    setBulkNotice("");
+    setBulkFailures([]);
+    const failures: { key: string; name: string; error: string }[] = [];
+    let applied = 0;
+    try {
+      for (const config of targets) {
+        // Suspend/Resume name a target state, so a configuration already in it
+        // is left alone rather than flipped back.
+        if ((action === "suspend" || action === "resume") && isSuspended(config) === (action === "suspend")) {
+          continue;
+        }
+        try {
+          await applyToConfig(action, config);
+          applied += 1;
+        } catch (e: unknown) {
+          failures.push({
+            key: configKey(config),
+            name: config.name,
+            error: e instanceof Error ? e.message : `Failed to apply ${BULK_LABELS[action]}`,
+          });
+        }
+      }
+      setBulkFailures(failures);
+      setBulkNotice(
+        `${BULK_LABELS[action]} applied to ${applied} configuration${applied === 1 ? "" : "s"}`,
+      );
+      // Rows that failed stay selected so the action can be retried on exactly
+      // those; everything that succeeded drops out of the selection.
+      setSelected(new Set(failures.map((failure) => failure.key)));
+    } finally {
+      // The toolbar stays disabled until the refreshed list is in hand, so a
+      // second bulk action can never run against the stale rows.
+      await fetchConfigs();
+      setBulkBusy(false);
     }
   }
 
@@ -399,6 +545,18 @@ export function SecurityScanConfigList() {
     values.sort,
   );
   const filterCount = activeCount(["q", "sort"]);
+  const visibleSelectedCount = visible.filter((config) => selected.has(configKey(config))).length;
+  const allVisibleSelected = visible.length > 0 && visibleSelectedCount === visible.length;
+  // The toolbar counts — and acts on — the whole selection, including rows the
+  // current search or filters hide.
+  const selectedConfigs = configs.filter((config) => selected.has(configKey(config)));
+  const selectedCount = selectedConfigs.length;
+  const someVisibleSelected = visibleSelectedCount > 0 && visibleSelectedCount < visible.length;
+  // React has no `indeterminate` prop, so the checkbox's own DOM property
+  // carries the mixed state for a partial selection.
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someVisibleSelected;
+  }, [someVisibleSelected]);
   const narrowedView = Boolean(values.q.trim()) || filterCount > 0;
   // Nothing configured and nothing asked for: a search box and a filter strip
   // over an empty page imply the list is narrowed when it is simply empty.
@@ -454,8 +612,9 @@ export function SecurityScanConfigList() {
                 .filter((config) => config.namespace === personalNamespace)
                 .map((config) => config.name),
             )}
-            trigger={<Button ref={importTriggerRef} variant="outline" size="sm">Import scan target</Button>}
+            trigger={<Button ref={importTriggerRef} variant="outline" size="sm">Import scan targets</Button>}
             onTargetSelected={setSelectedProgramScanTarget}
+            onImported={() => void fetchConfigs()}
           />
           {selectedProgramScanTarget && (
             <SecurityScanFormDialog
@@ -548,10 +707,82 @@ export function SecurityScanConfigList() {
           {actionError}
         </p>
       )}
+      {selectedCount > 0 && (
+        <div
+          role="toolbar"
+          aria-label="Bulk actions"
+          className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2"
+        >
+          <span className="text-[12.5px] font-medium">{selectedCount} selected</span>
+          <Button variant="outline" size="sm" disabled={bulkBusy} onClick={() => void applyBulk("run")}>
+            <Play />
+            Run now
+          </Button>
+          <Button variant="outline" size="sm" disabled={bulkBusy} onClick={() => void applyBulk("stop")}>
+            <CircleStop />
+            Stop
+          </Button>
+          <Button variant="outline" size="sm" disabled={bulkBusy} onClick={() => void applyBulk("suspend")}>
+            <Pause />
+            Suspend
+          </Button>
+          <Button variant="outline" size="sm" disabled={bulkBusy} onClick={() => void applyBulk("resume")}>
+            <Play />
+            Resume
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={bulkBusy}
+            onClick={() => setPendingBulkDelete(true)}
+          >
+            <Trash2 />
+            Delete
+          </Button>
+          <Button variant="ghost" size="sm" disabled={bulkBusy} onClick={clearSelection}>
+            <X />
+            Clear selection
+          </Button>
+        </div>
+      )}
+      {bulkNotice && (
+        <p role="status" aria-live="polite" className="mb-3 text-sm text-muted-foreground">
+          {bulkNotice}
+        </p>
+      )}
+      {bulkFailures.length > 0 && (
+        <div
+          role="alert"
+          className="mb-3 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-[12.5px]"
+        >
+          <span className="font-medium">
+            {bulkFailures.length === 1
+              ? "1 configuration was not changed."
+              : `${bulkFailures.length} configurations were not changed.`}
+          </span>
+          <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+            {bulkFailures.map((failure) => (
+              <li key={failure.key} className="text-[11.5px]">
+                <span className="font-mono">{failure.name}</span>: {failure.error}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <Table>
         <TableCaption className="sr-only">Security scan configurations</TableCaption>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-8">
+              <input
+                ref={selectAllRef}
+                type="checkbox"
+                aria-label="Select all configurations"
+                aria-checked={someVisibleSelected ? "mixed" : allVisibleSelected}
+                checked={allVisibleSelected}
+                onChange={toggleSelectAllVisible}
+              />
+            </TableHead>
             {/* The name cell holds the repository, schedule and (on narrow
                 viewports) the last scan, so it keeps the widest share; the
                 icon-only action column only needs its buttons. */}
@@ -580,8 +811,9 @@ export function SecurityScanConfigList() {
         </TableHeader>
         <TableBody>
           {visible.map((config) => {
-            const key = `${config.namespace}/${config.name}`;
+            const key = configKey(config);
             const suspended = isSuspended(config);
+            const running = isRunning(config);
             const programRef = config.spec?.securityProgramRef ?? "";
             const programUrl = programUrls.get(programRef);
             const repository = configRepoUrl(config);
@@ -592,6 +824,14 @@ export function SecurityScanConfigList() {
             );
             return (
               <TableRow key={key}>
+                <TableCell className="align-top">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${config.name}`}
+                    checked={selected.has(key)}
+                    onChange={() => toggleSelected(key)}
+                  />
+                </TableCell>
                 <TableCell className="max-w-[26rem] align-top whitespace-normal">
                   <Link
                     to={`/security/configs/${config.namespace}/${config.name}`}
@@ -655,15 +895,30 @@ export function SecurityScanConfigList() {
                 <TableCell className="align-top text-right">
                   <div className="inline-flex items-center justify-end gap-1">
                     {suspended ? (
-                      <Button variant="ghost" size="sm" onClick={() => void toggleSuspend(config)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={bulkBusy}
+                        onClick={() => void toggleSuspend(config)}
+                      >
                         <Play />
                         Resume
+                      </Button>
+                    ) : running ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={bulkBusy || stopPending === key}
+                        onClick={() => void handleStop(config)}
+                      >
+                        <CircleStop />
+                        {stopPending === key ? "Stopping…" : "Stop"}
                       </Button>
                     ) : (
                       <Button
                         variant="ghost"
                         size="sm"
-                        disabled={runNowPending !== null}
+                        disabled={bulkBusy || runNowPending !== null}
                         onClick={() => void handleRunNow(config)}
                       >
                         <Play />
@@ -692,7 +947,10 @@ export function SecurityScanConfigList() {
                         <MoreHorizontal />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="min-w-[180px]">
-                        <DropdownMenuItem onClick={() => setPendingDuplicate(config)}>
+                        <DropdownMenuItem
+                          disabled={bulkBusy}
+                          onClick={() => setPendingDuplicate(config)}
+                        >
                           <Copy />
                           Duplicate
                         </DropdownMenuItem>
@@ -708,7 +966,10 @@ export function SecurityScanConfigList() {
                           View runs
                         </DropdownMenuItem>
                         {!suspended && (
-                          <DropdownMenuItem onClick={() => void toggleSuspend(config)}>
+                          <DropdownMenuItem
+                            disabled={bulkBusy}
+                            onClick={() => void toggleSuspend(config)}
+                          >
                             <Pause />
                             Suspend
                           </DropdownMenuItem>
@@ -716,6 +977,7 @@ export function SecurityScanConfigList() {
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           variant="destructive"
+                          disabled={bulkBusy}
                           onClick={() => setPendingDelete(config)}
                         >
                           <Trash2 />
@@ -747,12 +1009,26 @@ export function SecurityScanConfigList() {
           if (!open) setPendingDelete(null);
         }}
         title={`Delete ${pendingDelete?.name ?? "scan"}?`}
-        description="The scan configuration is removed; recorded findings stay available."
+        description="Deleting the configuration also removes its recorded scan runs and findings."
         confirmLabel="Delete"
         destructive
         onConfirm={async () => {
           if (pendingDelete) await handleDelete(pendingDelete);
           setPendingDelete(null);
+        }}
+      />
+      <ConfirmDialog
+        open={pendingBulkDelete}
+        onOpenChange={(open) => {
+          if (!open) setPendingBulkDelete(false);
+        }}
+        title={`Delete ${selectedCount} configuration${selectedCount === 1 ? "" : "s"}?`}
+        description="Deleting these configurations also removes their recorded scan runs and findings."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          setPendingBulkDelete(false);
+          await applyBulk("delete");
         }}
       />
     </ResourceListPage>

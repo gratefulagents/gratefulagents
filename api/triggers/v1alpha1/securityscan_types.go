@@ -110,6 +110,13 @@ const SecurityScanRunNowAnnotation = "security.gratefulagents.dev/run-now"
 // durable across controller restarts.
 const SecurityScanResumeAnnotation = "security.gratefulagents.dev/resume-scan"
 
+// SecurityScanCancelAnnotation is set on a SecurityScan (not its runs) to stop
+// the scan's in-flight run. Its value is an opaque request token; the
+// controller cancels at most one run per token and records the consumed token
+// in status.lastCancelToken, so the request is idempotent across controller
+// restarts and a stale token can never cancel a later run by surprise.
+const SecurityScanCancelAnnotation = "security.gratefulagents.dev/cancel-scan"
+
 // SecurityScanEventAnnotation is set on a SecurityScan (not its runs) by the
 // GitHub webhook ingress when an authorized pull_request or push delivery
 // matches the scan's spec.triggers. Its value is a JSON-encoded
@@ -868,6 +875,11 @@ const (
 	// SecurityScanExecutionPhaseFailed means at least one task failed
 	// terminally.
 	SecurityScanExecutionPhaseFailed = "Failed"
+	// SecurityScanExecutionPhaseCancelled means a user stopped the execution:
+	// running task runs were cancelled and nothing further is scheduled.
+	// Terminal, and never resumable (a stopped campaign is restarted with a
+	// fresh run, not resumed mid-flight).
+	SecurityScanExecutionPhaseCancelled = "Cancelled"
 	// SecurityScanExecutionPhaseResuming is reserved for a resume request
 	// that is resetting failed tasks. The controller does not set it today:
 	// consuming a resume token flips a Failed execution straight back to
@@ -1272,6 +1284,13 @@ type SecurityScanStatus struct {
 	// restarts.
 	// +optional
 	LastManualRunToken string `json:"lastManualRunToken,omitempty"`
+
+	// lastCancelToken is the most recent cancel-scan annotation token the
+	// controller has processed. A token equal to this value never cancels
+	// anything again, making stop requests idempotent across controller
+	// restarts.
+	// +optional
+	LastCancelToken string `json:"lastCancelToken,omitempty"`
 
 	// manualRunsCreated is the cumulative number of AgentRuns created from
 	// run-now requests (a subset of runsCreated).

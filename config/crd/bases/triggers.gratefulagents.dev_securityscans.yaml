@@ -1376,6 +1376,13 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              lastCancelToken:
+                description: |-
+                  lastCancelToken is the most recent cancel-scan annotation token the
+                  controller has processed. A token equal to this value never cancels
+                  anything again, making stop requests idempotent across controller
+                  restarts.
+                type: string
               lastCheck:
                 description: lastCheck records the most recent GitHub check publish
                   attempt.

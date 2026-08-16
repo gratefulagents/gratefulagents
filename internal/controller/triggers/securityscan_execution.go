@@ -80,9 +80,12 @@ const (
 )
 
 // securityScanExecutionTerminal reports whether an execution phase is final.
+// A cancelled execution is terminal like a failed one: the engine must stop
+// advancing it, and the terminal side effects must run exactly once.
 func securityScanExecutionTerminal(phase string) bool {
 	return phase == triggersv1alpha1.SecurityScanExecutionPhaseSucceeded ||
-		phase == triggersv1alpha1.SecurityScanExecutionPhaseFailed
+		phase == triggersv1alpha1.SecurityScanExecutionPhaseFailed ||
+		phase == triggersv1alpha1.SecurityScanExecutionPhaseCancelled
 }
 
 // securityScanExecutionActive reports whether exec is a live deterministic
@@ -159,7 +162,9 @@ func pendingSecurityScanResumeToken(scan *triggersv1alpha1.SecurityScan) string 
 // in resumeBaselineAttempts; the full failure history stays in retries and
 // run names of the resumed cycle carry a resume-token discriminator so they
 // never collide with earlier attempts. A token arriving in any other phase
-// is recorded without action so it cannot fire later by surprise.
+// is recorded without action so it cannot fire later by surprise — notably a
+// Cancelled execution, which is never resurrected: a stopped campaign is
+// restarted with a fresh run, not resumed mid-flight.
 func (r *SecurityScanReconciler) reconcileExecutionResume(ctx context.Context, scan *triggersv1alpha1.SecurityScan, token string) (ctrl.Result, error) {
 	execID := scan.Status.LastExecution.ID
 	resumed := scan.Status.LastExecution.Phase == triggersv1alpha1.SecurityScanExecutionPhaseFailed
@@ -743,12 +748,19 @@ func (r *SecurityScanReconciler) advanceDeterministicExecution(ctx context.Conte
 	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
-// applySecurityScanExecutionOutcomeCondition surfaces a terminal Failed
-// execution on the Ready condition; a Succeeded one leaves the condition set
-// by the caller in place.
+// applySecurityScanExecutionOutcomeCondition surfaces a terminal Failed or
+// Cancelled execution on the Ready condition; a Succeeded one leaves the
+// condition set by the caller in place. A cancelled execution keeps its stop
+// reported by every later reconcile of the same execution, so the "already
+// ran for this generation" paths cannot report a stopped campaign as Ready.
 func applySecurityScanExecutionOutcomeCondition(fresh *triggersv1alpha1.SecurityScan) {
 	exec := fresh.Status.LastExecution
 	if exec == nil || exec.Mode != triggersv1alpha1.SecurityScanExecutionModeDeterministic {
+		return
+	}
+	if exec.Phase == triggersv1alpha1.SecurityScanExecutionPhaseCancelled {
+		// No LastError: a user-requested stop is not a scan error.
+		setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonCancelled, securityScanCancelMessage)
 		return
 	}
 	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
@@ -824,6 +836,122 @@ func failSecurityScanExecution(exec *triggersv1alpha1.SecurityScanExecutionStatu
 	}
 	exec.Phase = triggersv1alpha1.SecurityScanExecutionPhaseFailed
 	exec.CompletedAt = &now
+}
+
+// cancelSecurityScanExecution marks the whole execution Cancelled once its
+// live runs have been asked to stop. Running work is recorded as Failed
+// rather than through a state of its own: the task states are a published
+// contract every consumer (reports, checks, dashboard) switches on, and the
+// stop reason on LastError already tells a stopped task apart from a failed
+// one. Nothing that never started is charged with a failure, so Pending and
+// Blocked work becomes Skipped, and the post-script jobs follow the same
+// rule so no job entry survives that the engine would keep polling.
+func cancelSecurityScanExecution(exec *triggersv1alpha1.SecurityScanExecutionStatus, now metav1.Time, reason string) {
+	reason = truncateSecurityScanError(reason)
+	for i := range exec.Tasks {
+		task := &exec.Tasks[i]
+		switch task.State {
+		case triggersv1alpha1.SecurityScanTaskStateRunning:
+			task.State = triggersv1alpha1.SecurityScanTaskStateFailed
+			task.LastError = reason
+			task.FinishedAt = &now
+		case triggersv1alpha1.SecurityScanTaskStatePending, triggersv1alpha1.SecurityScanTaskStateBlocked:
+			task.State = triggersv1alpha1.SecurityScanTaskStateSkipped
+			task.LastError = reason
+			task.FinishedAt = &now
+		}
+	}
+	for i := range exec.PostScriptJobs {
+		job := &exec.PostScriptJobs[i]
+		switch job.State {
+		case triggersv1alpha1.SecurityScanPostScriptStateRunning:
+			job.State = triggersv1alpha1.SecurityScanPostScriptStateFailed
+			job.LastError = reason
+			job.FinishedAt = &now
+		case triggersv1alpha1.SecurityScanPostScriptStatePending:
+			job.State = triggersv1alpha1.SecurityScanPostScriptStateSkipped
+			job.Result = reason
+			job.FinishedAt = &now
+		}
+	}
+	exec.Phase = triggersv1alpha1.SecurityScanExecutionPhaseCancelled
+	exec.CompletedAt = &now
+}
+
+// cancelDeterministicExecution stops a live deterministic execution on user
+// request: every running task run and post-script job run is cancelled the
+// same way the budget enforcement cancels its runs, then the execution is
+// marked Cancelled — terminal and, unlike Failed, never resumable — and the
+// token is consumed in the same conflict-safe status write. Cancelling the
+// runs is best-effort like failForBudget: a run that already finished or
+// vanished needs no cancellation, and a transient API error must not leave
+// the execution advancing after the user asked it to stop.
+func (r *SecurityScanReconciler) cancelDeterministicExecution(ctx context.Context, scan *triggersv1alpha1.SecurityScan, active *triggersv1alpha1.SecurityScanExecutionStatus, token string) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+	exec := active.DeepCopy()
+	now := metav1.NewTime(r.now())
+
+	cancelRun := func(runName string) {
+		if runName == "" {
+			return
+		}
+		run := &platformv1alpha1.AgentRun{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: scan.Namespace, Name: runName}, run); err != nil {
+			if !apierrors.IsNotFound(err) {
+				log.Error(err, "failed to get scan run for cancellation", "run", runName)
+			}
+			return
+		}
+		if _, err := r.cancelScanRun(ctx, run); err != nil {
+			log.Error(err, "failed to cancel scan run on user request", "run", runName)
+		}
+	}
+	for _, entry := range exec.Tasks {
+		if entry.State == triggersv1alpha1.SecurityScanTaskStateRunning {
+			cancelRun(entry.RunName)
+		}
+	}
+	for _, job := range exec.PostScriptJobs {
+		if job.State == triggersv1alpha1.SecurityScanPostScriptStateRunning {
+			cancelRun(job.RunName)
+		}
+	}
+	cancelSecurityScanExecution(exec, now, securityScanCancelMessage)
+
+	execID := exec.ID
+	// A run-now token queued before the stop must not survive it: the very
+	// next reconcile would dispatch a replacement for the run the user just
+	// stopped, so the stop supersedes the queued request by consuming it.
+	supersededManualToken := pendingManualRunToken(scan)
+	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
+		fresh.Status.LastCancelToken = token
+		if supersededManualToken != "" {
+			fresh.Status.LastManualRunToken = supersededManualToken
+		}
+		if securityScanExecutionActive(fresh.Status.LastExecution) && fresh.Status.LastExecution.ID == execID {
+			fresh.Status.LastExecution = exec
+			fresh.Status.Phase = "Completed"
+		}
+		fresh.Status.LastError = ""
+		setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonCancelled, securityScanCancelMessage)
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+	log.Info("cancelled deterministic execution on user request", "execution", execID)
+	r.recordScanEvent(scan, corev1.EventTypeWarning, "ScanCancelled",
+		fmt.Sprintf("%s: execution %s stopped (recorded findings are preserved)", securityScanCancelMessage, execID))
+	// The terminal side effects run HERE, not on the next reconcile: a stop
+	// is honoured above the suspend gate, so a scan stopped while suspended
+	// never reaches the dispatch paths that would otherwise settle the scan
+	// record and publish the aggregate check. finishTerminalExecution is
+	// idempotent and self-gated, so the dispatch paths repeating it later
+	// are no-ops.
+	requeue := time.Second
+	if r.finishTerminalExecution(ctx, scan, exec) {
+		// Failed deliveries retry on whichever reconcile comes first.
+		requeue = min(requeue, time.Minute)
+	}
+	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
 // securityScanExecutionEngine is one scheduler pass over a deterministic
@@ -2348,18 +2476,24 @@ func (r *SecurityScanReconciler) ensureSecurityScanRecord(ctx context.Context, s
 // scans-list row every task run reports into) plus any legacy per-run rows
 // created before the shared record key existed. A row still "running" with
 // no completion time inherits the execution's outcome (Succeeded ->
-// completed, Failed -> failed) and its completion time; a row the sink's
-// submit_security_scan_report already finalized is never touched. Idempotent
-// and best-effort: a failed lookup or upsert only leaves that row for the
-// lazy paths or a later reconcile.
+// completed, Cancelled -> cancelled, Failed -> failed) and its completion
+// time; a row the sink's submit_security_scan_report already finalized is
+// never touched. Idempotent and best-effort: a failed lookup or upsert only
+// leaves that row for the lazy paths or a later reconcile.
 func (r *SecurityScanReconciler) finalizeExecutionScanRecords(ctx context.Context, scan *triggersv1alpha1.SecurityScan, exec *triggersv1alpha1.SecurityScanExecutionStatus) {
 	if r.Findings == nil || exec == nil {
 		return
 	}
 	namespace := scan.Namespace
 	status := "failed"
-	if exec.Phase == triggersv1alpha1.SecurityScanExecutionPhaseSucceeded {
+	switch exec.Phase {
+	case triggersv1alpha1.SecurityScanExecutionPhaseSucceeded:
 		status = "completed"
+	case triggersv1alpha1.SecurityScanExecutionPhaseCancelled:
+		// A stopped campaign is not a failed one: the scans list already
+		// carries "cancelled" rows from the coordinator path, so the
+		// deterministic one reports the stop the same way.
+		status = "cancelled"
 	}
 	completed := r.now().UTC()
 	if exec.CompletedAt != nil {

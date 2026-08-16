@@ -425,7 +425,15 @@ When the scan submits its report, two artifacts are saved on the scan's agent ru
 
 In the dashboard, **Security** in the sidebar opens an overview of active and recent scans, open critical/high finding counts, and any scan configurations that are failing, blocked, or suspended, with shortcuts to the full run history and to scan configurations. Each scan run links to a detail page where you can filter findings by severity, status, category, and text search, change a finding's status inline — for example, marking a validated non-issue as `false_positive` or a real one as `confirmed` — download the Markdown report and SARIF artifact, and jump to the underlying agent run.
 
-While a scan is running, the detail page also shows the live state of the run behind it: the workflow's sub-agent graph (pending, running, completed, failed), run phase, retries, model, runtime, token/cost usage, and the most recent error. Owners can stop an active scan run or retry a failed one from the same panel — retrying resumes from the run's persisted session, and findings already recorded are preserved (re-observed findings update in place without losing triage decisions). On the **Scan configurations** page, **Run now** starts an immediate run of a configuration without editing its spec (`concurrencyPolicy: Forbid` still applies: the request is skipped with a `ConcurrencyBlocked` status while a previous run is active), and **Duplicate** opens the scan form pre-filled from an existing configuration so you can review the copied settings and create it under a new name.
+While a scan is running, the detail page also shows the live state of the run behind it: the workflow's sub-agent graph (pending, running, completed, failed), run phase, retries, model, runtime, token/cost usage, and the most recent error. Collaborators can stop an active scan run from this panel. Stopping cancels every running child AgentRun, marks the deterministic execution **Cancelled** (running tasks become **Failed** and unstarted tasks **Skipped**), settles the scan-run record as `cancelled`, and prevents further work from being scheduled. Stop is rejected when nothing is running. Findings recorded before the stop remain available. A cancelled execution cannot be resumed; start a new run instead. **Resume** applies only to a **Failed** deterministic execution.
+
+### Scan configurations
+
+On **Scan configurations**, select individual rows or select all visible rows, then use **Run now**, **Stop**, **Suspend**, **Resume**, or **Delete**. The bulk toolbar reports the number changed and lists each configuration that failed, so you can retry those items. Deleting a configuration also removes its recorded scan runs and findings, so export them first if you need them.
+
+Select **Import scan targets** to import security-program targets in bulk. Select individual targets or **Select all**; targets that already have a configuration are unavailable and skipped. Import creates every selected configuration but starts no scans. Imported configurations use saved credentials and default model settings, a manual-only schedule, workspace-write access, unrestricted network egress, minimum severity `high`, parallelism `4`, and deduplication enabled. Select **Configure scan** for one target when you want to review its prefilled configuration before creating it.
+
+**Run now** starts an immediate run of a configuration without editing its spec (`concurrencyPolicy: Forbid` still applies: the request is skipped with a `ConcurrencyBlocked` status while a previous run is active), and **Duplicate** opens the scan form pre-filled from an existing configuration so you can review the copied settings and create it under a new name.
 
 On the cluster side, `kubectl get securityscans` shows the repository, schedule, last scan time, and critical/high/total finding counts. The resource status also records the last run name, next scheduled time, cumulative runs created, scan-scoped finding counts, and a `Ready` condition. With `failOnSeverity` set, `Ready` turns `False` with reason `FindingsExceedThreshold` while open scan findings at or above that severity exist — useful for alerting on scan results.
 
@@ -439,7 +447,7 @@ A malformed schedule sets `Ready=False` with reason `InvalidSchedule`. A schedul
 
 Skipped ticks are not backfilled, matching [Cron schedule](./cron.md) semantics.
 
-**Deletion.** Deleting a SecurityScan removes its stored scans, findings, and triage history: the controller holds a cleanup finalizer and purges the persisted data before the resource disappears. If the findings store is unreachable, deletion is retried with backoff and released after a bounded grace period so a failing store cannot wedge the resource; the run artifacts (Markdown report and SARIF) live with their agent runs and follow the run's own lifecycle.
+**Deletion.** Deleting a SecurityScan also removes its recorded scan runs and findings, so export them first if you need them. The run artifacts (Markdown report and SARIF) live with their agent runs and follow the run's own lifecycle.
 
 ## Retention and budgets
 

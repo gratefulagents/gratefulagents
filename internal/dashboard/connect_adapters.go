@@ -1320,6 +1320,14 @@ func (h *PlatformServiceConnectHandler) ResumeSecurityScan(ctx context.Context, 
 	return connect.NewResponse(resp), nil
 }
 
+func (h *PlatformServiceConnectHandler) CancelSecurityScanRun(ctx context.Context, req *connect.Request[platform.CancelSecurityScanRunRequest]) (*connect.Response[platform.SecurityScanConfig], error) {
+	resp, err := h.srv.CancelSecurityScanRun(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 // --- Reusable security library resources ---
 
 func (h *PlatformServiceConnectHandler) ListSecurityWorkflows(ctx context.Context, req *connect.Request[platform.ListSecurityWorkflowsRequest]) (*connect.Response[platform.ListSecurityWorkflowsResponse], error) {

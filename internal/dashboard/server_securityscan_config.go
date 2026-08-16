@@ -372,6 +372,77 @@ func (s *Server) ResumeSecurityScan(
 	return pb, nil
 }
 
+// CancelSecurityScanRun stamps a cancel-scan annotation token on a
+// SecurityScan so the controller stops its in-flight run: running task runs
+// are cancelled and nothing further is scheduled. The token is opaque and
+// unique per request; the controller records the consumed token in
+// status.lastCancelToken, so retried or concurrent duplicate requests cancel
+// at most one run and a stale token can never stop a later run. Findings
+// already recorded by completed tasks are preserved. Requests are rejected
+// with FailedPrecondition when the scan has no run in progress.
+func (s *Server) CancelSecurityScanRun(
+	ctx context.Context, req *platform.CancelSecurityScanRunRequest,
+) (*platform.SecurityScanConfig, error) {
+	namespace := strings.TrimSpace(req.GetNamespace())
+	name := strings.TrimSpace(req.GetName())
+	if namespace == "" || name == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("namespace and name are required"))
+	}
+	err := s.requireResourceAccess(
+		ctx, securityScanResourceType, name, namespace, AccessCollaborator, "stop this security scan")
+	if err != nil {
+		return nil, err
+	}
+
+	token := time.Now().UTC().Format(time.RFC3339Nano)
+	var updated *triggersv1alpha1.SecurityScan
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		cr := &triggersv1alpha1.SecurityScan{}
+		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, cr); err != nil {
+			return err
+		}
+		if !securityScanHasRunInProgress(cr) {
+			return connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("security scan %s/%s has no run in progress to stop", namespace, name))
+		}
+		if cr.Annotations == nil {
+			cr.Annotations = map[string]string{}
+		}
+		cr.Annotations[triggersv1alpha1.SecurityScanCancelAnnotation] = token
+		if err := s.k8sClient.Update(ctx, cr); err != nil {
+			return err
+		}
+		updated = cr
+		return nil
+	})
+	if err != nil {
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
+		return nil, mapK8sError(fmt.Sprintf("cancel SecurityScan run %s/%s", namespace, name), err)
+	}
+	pb := securityScanConfigProto(updated)
+	pb.Owner, pb.MyPermission = s.resourceACL(ctx, securityScanResourceType, updated.Name, updated.Namespace)
+	return pb, nil
+}
+
+// securityScanHasRunInProgress reports whether the scan currently has work a
+// cancel request can stop: a live deterministic execution, or a coordinator
+// AgentRun still in flight.
+func securityScanHasRunInProgress(cr *triggersv1alpha1.SecurityScan) bool {
+	if exec := cr.Status.LastExecution; exec != nil &&
+		exec.Mode == triggersv1alpha1.SecurityScanExecutionModeDeterministic {
+		switch exec.Phase {
+		case triggersv1alpha1.SecurityScanExecutionPhaseSucceeded,
+			triggersv1alpha1.SecurityScanExecutionPhaseFailed,
+			triggersv1alpha1.SecurityScanExecutionPhaseCancelled:
+		default:
+			return true
+		}
+	}
+	return cr.Status.Phase == "Running" && cr.Status.LastRunName != ""
+}
+
 // DeleteSecurityScan deletes a SecurityScan trigger.
 func (s *Server) DeleteSecurityScan(ctx context.Context, req *platform.DeleteSecurityScanRequest) (*emptypb.Empty, error) {
 	namespace := strings.TrimSpace(req.GetNamespace())
