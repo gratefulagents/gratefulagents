@@ -1292,6 +1292,14 @@ type SecurityScanStatus struct {
 	// +optional
 	LastCancelToken string `json:"lastCancelToken,omitempty"`
 
+	// lastCancelledRunName is the coordinator AgentRun the most recent stop
+	// actually cancelled. It binds the stop to one run: without it, a
+	// consumed cancel token would make every later run that ends Cancelled —
+	// including budget- and platform-driven cancellations, which report
+	// themselves their own way — look like a user stop.
+	// +optional
+	LastCancelledRunName string `json:"lastCancelledRunName,omitempty"`
+
 	// manualRunsCreated is the cumulative number of AgentRuns created from
 	// run-now requests (a subset of runsCreated).
 	// +optional

@@ -882,38 +882,49 @@ func cancelSecurityScanExecution(exec *triggersv1alpha1.SecurityScanExecutionSta
 // request: every running task run and post-script job run is cancelled the
 // same way the budget enforcement cancels its runs, then the execution is
 // marked Cancelled — terminal and, unlike Failed, never resumable — and the
-// token is consumed in the same conflict-safe status write. Cancelling the
-// runs is best-effort like failForBudget: a run that already finished or
-// vanished needs no cancellation, and a transient API error must not leave
-// the execution advancing after the user asked it to stop.
+// token is consumed in the same conflict-safe status write. A run that
+// already finished or vanished needs no cancellation, but a transient API
+// error is returned instead of logged: terminalizing the execution consumes
+// the token, so nothing would ever retry the cancellation and the run the
+// user asked to stop would keep working. Returning leaves the token pending
+// and the next reconcile stops the run.
 func (r *SecurityScanReconciler) cancelDeterministicExecution(ctx context.Context, scan *triggersv1alpha1.SecurityScan, active *triggersv1alpha1.SecurityScanExecutionStatus, token string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	exec := active.DeepCopy()
 	now := metav1.NewTime(r.now())
 
-	cancelRun := func(runName string) {
+	cancelRun := func(runName string) error {
 		if runName == "" {
-			return
+			return nil
 		}
 		run := &platformv1alpha1.AgentRun{}
 		if err := r.Get(ctx, client.ObjectKey{Namespace: scan.Namespace, Name: runName}, run); err != nil {
-			if !apierrors.IsNotFound(err) {
-				log.Error(err, "failed to get scan run for cancellation", "run", runName)
+			if apierrors.IsNotFound(err) {
+				// A run that no longer exists cannot keep working.
+				return nil
 			}
-			return
+			return fmt.Errorf("getting scan run %s for cancellation: %w", runName, err)
+		}
+		if isCronRunTerminal(run.Status.Phase) {
+			return nil
 		}
 		if _, err := r.cancelScanRun(ctx, run); err != nil {
-			log.Error(err, "failed to cancel scan run on user request", "run", runName)
+			return fmt.Errorf("cancelling scan run %s: %w", runName, err)
 		}
+		return nil
 	}
 	for _, entry := range exec.Tasks {
 		if entry.State == triggersv1alpha1.SecurityScanTaskStateRunning {
-			cancelRun(entry.RunName)
+			if err := cancelRun(entry.RunName); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 	}
 	for _, job := range exec.PostScriptJobs {
 		if job.State == triggersv1alpha1.SecurityScanPostScriptStateRunning {
-			cancelRun(job.RunName)
+			if err := cancelRun(job.RunName); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 	}
 	cancelSecurityScanExecution(exec, now, securityScanCancelMessage)

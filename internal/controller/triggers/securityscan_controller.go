@@ -383,6 +383,9 @@ func (r *SecurityScanReconciler) cancelCoordinatorRun(ctx context.Context, scan 
 		if stopped == "" {
 			return
 		}
+		// Bind the stop to the run it cancelled so the dispatch paths can
+		// tell a user stop apart from any later cancellation.
+		fresh.Status.LastCancelledRunName = stopped
 		fresh.Status.LastError = ""
 		fresh.Status.Phase = "Completed"
 		if oneShot {
@@ -1105,12 +1108,13 @@ func (r *SecurityScanReconciler) lastRunTerminal(ctx context.Context, scan *trig
 // lastRunEndedInUserStop reports whether the scan's last coordinator run was
 // ended by a user stop, so the dispatch paths do not re-mark a stopped scan
 // Ready on their next pass — the coordinator counterpart of
-// applySecurityScanExecutionOutcomeCondition. Both signals are required: a
-// consumed cancel token alone would also match a stop of an earlier run, and
-// a Cancelled AgentRun alone would also match a budget or platform cancel
-// that the budget path already reports its own way.
+// applySecurityScanExecutionOutcomeCondition. The stop is matched by the run
+// it actually cancelled: a consumed cancel token stays set forever, so
+// keying off the token alone would also claim every later run that ends
+// Cancelled — including budget or platform cancellations, which report
+// themselves their own way.
 func (r *SecurityScanReconciler) lastRunEndedInUserStop(ctx context.Context, scan *triggersv1alpha1.SecurityScan) bool {
-	if scan.Status.LastCancelToken == "" || scan.Status.LastRunName == "" {
+	if scan.Status.LastRunName == "" || scan.Status.LastCancelledRunName != scan.Status.LastRunName {
 		return false
 	}
 	run := &platformv1alpha1.AgentRun{}

@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -434,4 +435,113 @@ func TestSecurityScanStoppedCoordinatorRunStaysCancelled(t *testing.T) {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	assertSecurityScanCondition(t, getSecurityScan(t, k8sClient, scan), metav1.ConditionFalse, securityScanReasonCancelled)
+}
+
+// failingRunPatchClient makes AgentRun patches fail, simulating a transient
+// Kubernetes API error while a stop is cancelling live task runs.
+type failingRunPatchClient struct {
+	client.Client
+	fail bool
+}
+
+func (c *failingRunPatchClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if c.fail {
+		if _, isRun := obj.(*platformv1alpha1.AgentRun); isRun {
+			return errors.New("etcdserver: request timed out")
+		}
+	}
+	return c.Client.Patch(ctx, obj, patch, opts...)
+}
+
+// A stop that could not reach every live run must not terminalize the
+// execution: consuming the token would leave the "stopped" task running with
+// nothing left to retry the cancellation.
+func TestSecurityScanCancelRetriesWhenRunCancellationFails(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "a", Objective: "inspect a"},
+		{Name: "b", Objective: "join", DependsOn: []string{"a"}},
+	}, 1)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	faulty := &failingRunPatchClient{Client: reconciler.Client}
+	reconciler.Client = faulty
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	running := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
+
+	faulty.fail = true
+	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err == nil {
+		t.Fatalf("Reconcile() error = nil, want the failed run cancellation surfaced")
+	}
+	pending := getSecurityScan(t, k8sClient, scan)
+	if pending.Status.LastCancelToken != "" {
+		t.Fatalf("LastCancelToken = %q, want the token left pending for a retry", pending.Status.LastCancelToken)
+	}
+	if phase := pending.Status.LastExecution.Phase; phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning {
+		t.Fatalf("execution phase = %q, want it to stay Running until the runs are stopped", phase)
+	}
+
+	// The API recovers: the still-pending token stops the scan for real.
+	faulty.fail = false
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if got := getAgentRun(t, k8sClient, scan.Namespace, running.Name).Annotations[cancelRequestedAnnotation]; got == "" {
+		t.Fatalf("running task run %s was never cancelled after the retry", running.Name)
+	}
+	stopped := getSecurityScan(t, k8sClient, scan)
+	if stopped.Status.LastCancelToken != "stop-1" {
+		t.Fatalf("LastCancelToken = %q, want stop-1 consumed on the successful retry", stopped.Status.LastCancelToken)
+	}
+	if phase := stopped.Status.LastExecution.Phase; phase != triggersv1alpha1.SecurityScanExecutionPhaseCancelled {
+		t.Fatalf("execution phase = %q, want Cancelled", phase)
+	}
+}
+
+// A consumed cancel token stays on the status forever, so a LATER run that
+// ends Cancelled for another reason (budget enforcement, platform eviction)
+// must not be reported as a user stop.
+func TestSecurityScanLaterCancelledRunIsNotReportedAsUserStop(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Generation = 1
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	stoppedRun := getSecurityScan(t, k8sClient, scan).Status.LastRunName
+	annotateSecurityScanCancel(t, k8sClient, scan, "stop-1")
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, stoppedRun, platformv1alpha1.AgentRunPhaseCancelled, "", "")
+
+	// A new generation dispatches a fresh run, which something other than the
+	// user cancels.
+	next := getSecurityScan(t, k8sClient, scan)
+	next.Generation = 2
+	next.Spec.Revision = "deadbeef"
+	if err := k8sClient.Update(context.Background(), next); err != nil {
+		t.Fatalf("Update(SecurityScan) error = %v", err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	latestRun := getSecurityScan(t, k8sClient, scan).Status.LastRunName
+	if latestRun == stoppedRun {
+		t.Fatalf("run = %q, want a new run for generation 2", latestRun)
+	}
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, latestRun, platformv1alpha1.AgentRunPhaseCancelled, "", "")
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.LastCancelledRunName != stoppedRun {
+		t.Fatalf("LastCancelledRunName = %q, want it bound to the run the user stopped (%q)",
+			updated.Status.LastCancelledRunName, stoppedRun)
+	}
+	assertSecurityScanCondition(t, updated, metav1.ConditionTrue, "ScanUpToDate")
 }
