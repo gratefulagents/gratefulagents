@@ -1810,9 +1810,10 @@ func TestSecurityScanDeterministicTaskRunsApplyDistinctRoleContracts(t *testing.
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
 		{Name: "model", Objective: "map the attack surface", Role: "threat-modeler"},
-		{Name: "validate", Objective: "prove exploitability", Role: "exploit-validator"},
+		{Name: "validate", Objective: "prove exploitability", Role: "exploit-validator", Model: "gpt-task-override"},
 		{Name: "triage", Objective: "rank findings", Role: "finding-triager"},
 	}, 3)
+	scan.Spec.Defaults.Model = "gpt-daybreak-blue-latest"
 	scan.Spec.Defaults.CustomInstructions = "Scan-level house rules."
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
@@ -1845,13 +1846,16 @@ func TestSecurityScanDeterministicTaskRunsApplyDistinctRoleContracts(t *testing.
 		t.Fatalf("exploit-validator instructions = %q, want its own role prompt", got)
 	}
 
-	// threat-modeler routes its own provider model and reasoning level; the
-	// execution role keeps the scan's model and full tool access.
-	if modelRun.Spec.Model != "gpt-5.4-threat" || modelRun.Spec.ReasoningLevel != platformv1alpha1.ReasoningHigh {
-		t.Fatalf("threat-modeler run model/reasoning = %q/%q, want the role's routing", modelRun.Spec.Model, modelRun.Spec.ReasoningLevel)
+	// The scan's selected model wins over role defaults; only an explicit task
+	// model overrides it. Role reasoning and tool policy still apply.
+	if modelRun.Spec.Model != "gpt-daybreak-blue-latest" || modelRun.Spec.ReasoningLevel != platformv1alpha1.ReasoningHigh {
+		t.Fatalf("threat-modeler run model/reasoning = %q/%q, want the scan model and role reasoning", modelRun.Spec.Model, modelRun.Spec.ReasoningLevel)
 	}
-	if validateRun.Spec.Model != "gpt-5.4" || validateRun.Spec.ToolPolicy != nil {
-		t.Fatalf("exploit-validator run model/toolPolicy = %q/%#v, want the scan model and no narrowing", validateRun.Spec.Model, validateRun.Spec.ToolPolicy)
+	if validateRun.Spec.Model != "gpt-task-override" || validateRun.Spec.ToolPolicy != nil {
+		t.Fatalf("exploit-validator run model/toolPolicy = %q/%#v, want the task model and no narrowing", validateRun.Spec.Model, validateRun.Spec.ToolPolicy)
+	}
+	if triageRun.Spec.Model != "gpt-daybreak-blue-latest" {
+		t.Fatalf("finding-triager run model = %q, want the scan model", triageRun.Spec.Model)
 	}
 	if triageRun.Spec.ReasoningLevel != platformv1alpha1.ReasoningLow {
 		t.Fatalf("finding-triager reasoning = %q, want the role's low level", triageRun.Spec.ReasoningLevel)

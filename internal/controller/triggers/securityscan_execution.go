@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -2223,11 +2222,6 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 	d.SkillRefs = mergeSecurityScanTaskSkillRefs(d.SkillRefs, task.SkillRefs)
 	if model := strings.TrimSpace(task.Model); model != "" {
 		d.Model = model
-	} else if roleModel := securityScanRoleModelForProvider(role.spec, d.EffectiveProvider()); roleModel != "" {
-		// The task states no model, so the role's provider-specific routing
-		// decides. A model configured for another provider must never leak
-		// into this run: the role otherwise inherits the scan's model.
-		d.Model = roleModel
 	}
 	if level := role.spec.ReasoningLevel; level != "" && d.ReasoningLevel == "" {
 		// The scan pins reasoning explicitly or not at all; only the latter
@@ -2663,34 +2657,6 @@ func securityScanApplyRoleToolAccess(policy *platformv1alpha1.AgentRunToolPolicy
 		policy.AllowedTools = allowed
 	}
 	return policy
-}
-
-// securityScanRoleModelForProvider mirrors the platform role-model precedence
-// (provider-specific entry, then empty so the run keeps the scan's model). A
-// model configured for one provider must never be routed to another provider's
-// run. Keys are matched case-insensitively in a stable order so hand-written
-// GitOps objects stay deterministic.
-func securityScanRoleModelForProvider(spec platformv1alpha1.RoleInstructionSpec, provider string) string {
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	if provider == "" || len(spec.ModelsByProvider) == 0 {
-		return ""
-	}
-	if model, ok := spec.ModelsByProvider[provider]; ok {
-		return strings.TrimSpace(model)
-	}
-	keys := make([]string, 0, len(spec.ModelsByProvider))
-	for key := range spec.ModelsByProvider {
-		if strings.EqualFold(strings.TrimSpace(key), provider) {
-			keys = append(keys, key)
-		}
-	}
-	slices.Sort(keys)
-	for _, key := range keys {
-		if model := strings.TrimSpace(spec.ModelsByProvider[key]); model != "" {
-			return model
-		}
-	}
-	return ""
 }
 
 // securityScanTaskRunName derives the deterministic task-run name
