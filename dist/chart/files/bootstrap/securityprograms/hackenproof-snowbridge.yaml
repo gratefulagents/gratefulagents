@@ -1,0 +1,87 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-snowbridge
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/Snowfork/snowbridge
+      baseBranch: main
+      workflowRef: substrate-xcm-security-review
+      policyPackRef: bug-bounty
+      scanName: hackenproof-snowbridge-ethereum-contracts
+      displayName: Snowbridge Ethereum on-chain contracts
+      priority: 14
+      featured: true
+    - repositoryURL: https://github.com/paritytech/polkadot-sdk
+      baseBranch: master
+      workflowRef: substrate-xcm-security-review
+      policyPackRef: bug-bounty
+      scanName: hackenproof-snowbridge-bridgehub
+      displayName: Snowbridge BridgeHub pallets and support crates
+      priority: 15
+      featured: true
+  provider: HackenProof
+  displayName: Snowbridge On-Chain Code
+  programURL: https://hackenproof.com/programs/snowbridge-on-chain-code
+  verifiedAt: 2026-08-16T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: project-test-suite
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/Snowfork/snowbridge
+      displayName: Ethereum contracts for Snowbridge on-chain functionality
+    - repositoryURL: https://github.com/paritytech/polkadot-sdk
+      displayName: bridges/snowbridge pallets and support crates deployed to BridgeHub
+  outOfScope:
+    - "Theoretical vulnerabilities without any proof or demonstration"
+    - "Old compiler version"
+    - "The compiler version is not locked"
+    - "Vulnerabilities in imported contracts"
+    - "Code style guide violations"
+    - "Redundant code"
+    - "Gas optimizations"
+    - "Best practice issues"
+    - "Vulnerabilities that can be exploited through front-run attacks only"
+    - "Usage of delegatecall in Agent.sol"
+    - "Relayer incentivization economics in the legacy V1 protocol"
+    - "Off-chain code; only Solidity and Rust code deployed on chain is in scope"
+    - "Missing access control claims for SnowbridgeL1Adaptor or SnowbridgeL2Adaptor depositToken, depositNativeEther, sendTokenAndCall, or residual sweeps that rely on pre-funding outside the atomic production V2 message batch"
+    - "Missing message.origin checks in Gateway V2 handlers without a runnable Polkadot-side PoC showing that a malicious outbound message can be committed to BridgeHub's outbound queue"
+    - "BEEFY signature-usage counter inflation via repeated submitInitial"
+  prohibitedTesting:
+    - "Perform testing only within the published scope and make every effort not to damage or restrict product, service, or infrastructure availability."
+    - "Do not access or modify other users' data; localize all tests to researcher-owned accounts and data."
+    - "Do not exploit DoS or DDoS vulnerabilities, use social engineering, or spam."
+    - "Avoid web application scanners that generate massive traffic and do not spam forms or account-creation flows with automated scanners."
+    - "Report through HackenProof no later than 24 hours after discovery and do not disclose or discuss any vulnerability without express consent."
+    - "Do not test off-chain code or any repository path that is not deployed on chain."
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-16.
+
+    Live Program is active now.
+    Range of bounty: $200 - $75,000.
+    Critical: $30,000 - $75,000; High: $6,000 - $20,000; Medium: $2,000 - $5,000; Low: $200 - $1,000.
+    KYC, a working PoC, and 100 HackenProof reputation points are required by the displayed program.
+
+    Exact source scope and import boundaries
+    - https://github.com/Snowfork/snowbridge on branch main: only Ethereum contracts covering the BEEFY Light Client, Parachain Light Client, Gateway, Agent, Messaging Protocol, and asset-transfer functionality (Smart Contract, Critical). Importing the repository does not place its off-chain code, tooling, or unrelated files in scope.
+    - https://github.com/paritytech/polkadot-sdk/tree/master/bridges/snowbridge: only the pallets and support crates deployed to the BridgeHub parachain (Smart Contract, Critical). The polkadot-sdk import is restricted to bridges/snowbridge and production wiring needed to establish reachability; the rest of polkadot-sdk is not claimed as an eligible asset.
+    - Off-chain code is expressly excluded. Only Solidity and Rust code deployed on chain is eligible.
+
+    ROI order for imports
+    1. Snowfork Ethereum contracts: prioritize loss or theft of bridged funds, unauthorized Gateway behavior, BEEFY/parachain light-client verification failures, message manipulation, and asset-transfer accounting.
+    2. polkadot-sdk bridges/snowbridge: prioritize BridgeHub origin/barrier bypass, outbound-queue commitment integrity, XCM routing, message authorization, replay/reordering, and asset conservation. Cross-side findings must establish the full Polkadot-to-Ethereum path where applicable.
+
+    In-scope vulnerability impacts
+    The program seeks evidence of incorrect on-chain behavior causing stealing or loss of funds, unauthorized transactions, transaction manipulation, logic that differs from the business description, reentrancy, reordering, or overflows/underflows. The page does not assign a fixed severity to each generic class; demonstrated impact determines the award within the published severity ranges.
+
+    Full-path PoC requirements
+    Where applicable, analyze or prove both the Polkadot and Ethereum sides. Only BridgeHub can directly send messages to the Gateway and it is in Snowbridge's trust domain. A claim that Gateway V2 message.origin can be forged must include a runnable Polkadot-side PoC that:
+    - uses the xcm-emulator integration framework under cumulus/parachains/integration-tests/emulated against Westend Asset Hub and Bridge Hub;
+    - begins with a realistic attacker-controlled signed-user or sibling-parachain origin rather than a handcrafted XCM vector, pallet helper, or mocked MessageQueue origin;
+    - traverses the real AssetHub router and BridgeHub barrier stacks; and
+    - creates an entry in snowbridge-pallet-outbound-queue-v2::Messages on BridgeHub with the allegedly forged Message.origin.
+
+    Direct XcmConverter calls on handcrafted XCM, Foundry tests that bypass real BEEFY verification, and witness tests that assert only a forwarded XCM shape do not prove reachability and are invalid under the published rules.

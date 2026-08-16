@@ -1,0 +1,68 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-kaia
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/kaiachain/kaia
+      baseBranch: dev
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: kaia-protocol
+      displayName: Kaia Protocol
+      priority: 18
+      featured: true
+  provider: HackenProof
+  displayName: Kaia Protocol
+  programURL: https://hackenproof.com/programs/kaia-protocol
+  verifiedAt: 2026-08-16T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/kaiachain/kaia
+      displayName: Kaia Protocol (Protocol, Critical)
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-16.
+
+    Live Program is active now.
+    Range of bounty: $100 - $30,000.
+    Critical: $8,000 - $30,000; High: $2,000 - $8,000; Medium: $300 - $1,000; Low: $100 - $300.
+    The program requires 150 reputation points, KYC, and a runnable proof of concept.
+
+    In-scope target
+    - https://github.com/kaiachain/kaia (Protocol, Critical)
+
+    The imported source ref is the dev branch. Findings in development-only code are not eligible by themselves: the report must demonstrate reachability and security impact in Kaia's production protocol. A code path, feature, flag, or component that is only used for development or testing and cannot affect production is outside the bounty boundary.
+
+    Key in-scope impacts include stealing or loss of funds, unauthorized or manipulated transactions, price or balance manipulation, fee-payment bypass, tokenomics violations, privacy violations, cryptographic flaws, authentication/authorization bypass, consensus-safety violations, state or execution divergence, and loss of block/transaction-data integrity.
+
+    Production testing boundary
+    Kairos Testnet and Kaia Mainnet are production infrastructure used by real users and services. All research and testing must run on a local private Kaia network. System contracts may be tested on a local fork network; do not target either public network.
+
+    Severity uses HackenProof's Blockchain Protocol classification as a maximum for the demonstrated impact. Kaia may lower severity based on trigger difficulty, assumptions, duration, and recovery. Issues requiring a malicious validator are Medium at most.
+
+    Eligibility and disclosure
+    The first reporter must submit a qualifying vulnerability exclusively through HackenProof within 24 hours of discovery using the registered account email. Reports require a clear description, detailed reproduction steps, and a runnable PoC. Current or former employees and contractors are ineligible. AI-generated reports without a runnable PoC are not accepted. Do not publish or discuss vulnerabilities without permission.
+  outOfScope:
+    - Network-level DoS
+    - Unused or unoperated components such as ServiceChain or MEV Auction
+    - Computation cost and the first-transaction timeout exemption
+    - Capability a trusted role already has by design
+    - Governance misconfiguration where an authorized actor sets a nonsense value
+    - Findings premised on chain reorganization or non-final blocks
+    - Findings with no net gain or no realistic incentive to the attacker
+    - Node configuration using a non-default, undocumented, or testing-only flag
+    - An operator exposing admin, debug, or subbridge namespaces
+    - Development-only code without demonstrated production reach and impact
+  prohibitedTesting:
+    - Do not test, stress, or attempt exploitation against Kaia Mainnet or Kairos Testnet
+    - Perform all vulnerability research and testing on a local private network only
+    - Avoid automated web application scanning that generates massive traffic
+    - Do not damage or restrict availability or interrupt or degrade any service
+    - Do not access or modify other users' data; localize all tests to your accounts
+    - Do not exploit DoS/DDoS vulnerabilities, use social engineering, or send spam
+    - Do not disclose or discuss vulnerabilities outside the program without express permission
+

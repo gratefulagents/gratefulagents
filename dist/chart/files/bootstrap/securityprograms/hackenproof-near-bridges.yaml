@@ -1,0 +1,117 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-near-bridges
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/near/mpc
+      baseBranch: main
+      workflowRef: bridge-l2-zk-security-review
+      policyPackRef: bug-bounty
+      scanName: near-intents-mpc
+      displayName: NEAR Intents MPC
+      priority: 6
+      featured: true
+    - repositoryURL: https://github.com/near/threshold-signatures
+      baseBranch: main
+      workflowRef: bridge-l2-zk-security-review
+      policyPackRef: bug-bounty
+      scanName: near-intents-threshold-signatures
+      displayName: NEAR Threshold Signatures
+      priority: 7
+      featured: true
+    - repositoryURL: https://github.com/Near-One/omni-bridge
+      baseBranch: main
+      workflowRef: bridge-l2-zk-security-review
+      policyPackRef: bug-bounty
+      scanName: near-intents-omni-bridge
+      displayName: NEAR Omni Bridge
+      priority: 8
+      featured: true
+    - repositoryURL: https://github.com/Near-One/btc-bridge
+      baseBranch: omni-main
+      workflowRef: bridge-l2-zk-security-review
+      policyPackRef: bug-bounty
+      scanName: near-intents-btc-bridge
+      displayName: NEAR BTC Bridge
+      priority: 9
+      featured: true
+    - repositoryURL: https://github.com/Near-One/btc-light-client-contract
+      baseBranch: main
+      workflowRef: bridge-l2-zk-security-review
+      policyPackRef: bug-bounty
+      scanName: near-intents-btc-light-client
+      displayName: NEAR BTC Light Client Contract
+      priority: 10
+      featured: true
+  provider: HackenProof
+  displayName: "NEAR Intents: Bridges"
+  programURL: https://hackenproof.com/programs/near-intents-bridges
+  verifiedAt: 2026-08-16T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: project-test-suite
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/near/mpc
+      displayName: NEAR MPC main (Infrastructure, Critical)
+    - repositoryURL: https://github.com/near/threshold-signatures
+      displayName: NEAR Threshold Signatures main (Infrastructure, Critical)
+    - repositoryURL: https://github.com/Near-One/omni-bridge
+      displayName: NEAR Omni Bridge main (Smart Contract, Critical)
+    - repositoryURL: https://github.com/Near-One/btc-bridge
+      displayName: NEAR BTC Bridge omni-main (Smart Contract, Critical)
+    - repositoryURL: https://github.com/Near-One/btc-light-client-contract
+      displayName: NEAR BTC Light Client Contract main (Smart Contract, Critical)
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-16.
+
+    Live Program is active now.
+    The rewards table advertises a $100 - $300,000 range: Critical $10,000 - $300,000; High $5,000 - $10,000; Medium $1,000 - $5,000; Low $100 - $1,000.
+    Explicit reward contradiction: the program rules separately state that every finding is limited by its severity cap—Low up to $1,000, Medium up to $5,000, High up to $10,000, and Critical up to $100,000—and that the total maximum reward for High and Critical findings is 10% of the funds practically affected. The operative formula is maxReward = min(10% TVL, maxSeverityBudget). Therefore the rules cap Critical at $100,000 despite the rewards table advertising up to $300,000.
+    KYC and a proof of concept are required, and HackenProof charges a $5 submission fee. The company may pay in its native NEAR token vested over one year, and a valid finding may require extra KYC before payment.
+
+    Exact source scope
+    - https://github.com/near/mpc at its verified default branch, main (Infrastructure, Critical)
+    - https://github.com/near/threshold-signatures at its verified default branch, main (Infrastructure, Critical)
+    - https://github.com/Near-One/omni-bridge at its verified default branch, main (Smart Contract, Critical)
+    - https://github.com/Near-One/btc-bridge at its verified default branch, omni-main (Smart Contract, Critical)
+    - https://github.com/Near-One/btc-light-client-contract at its verified default branch, main (Smart Contract, Critical)
+
+    These five published repository roots are the complete imported source scope. Do not infer eligibility for another NEAR, Near-One, dependency, fork-parent, SDK, relayer, treasury, website, or documentation repository. The program description mentions supporting SDKs and relayers, but the source target table lists only these five exact roots.
+
+    In-scope vulnerabilities
+    The program's list is non-exhaustive and includes stealing or loss of funds; unauthorized transactions; balance manipulation; contract-execution-flow flaws; cryptographic flaws; unauthorized access to MPC key shares or signing capability; disclosure of sensitive MPC state; bypass of threshold-signature requirements; theft or permanent freezing of funds; cross-chain replay attacks enabling double-spending; and light-client verification bypass. For a chain of vulnerabilities, only the vulnerability with the highest severity is paid.
+
+    Testing rules
+    Perform testing on a private testnet wherever possible and only within the published scope. Make every effort not to damage or restrict availability. Avoid personal-data compromise and service interruption or degradation. Do not access or modify another user's data; localize all testing to researcher-owned accounts. Do not exploit DoS/DDoS vulnerabilities, use social engineering, or send spam. Do not break any law.
+
+    Eligibility, reporting, and disclosure
+    The first reporter must submit a qualifying vulnerability exclusively through HackenProof no later than 24 hours after discovery and must use only their HackenProof address. Reports require a clear textual description, concise detailed reproduction steps, and screenshots or PoC code as necessary. Employees, former employees, spouses, partners, and family members of employees of Pagoda, NEAR, the NEAR Foundation, Aurora, Defuse Labs, or any subsidiary or contractor are ineligible. Do not communicate vulnerability details to anyone outside the HackenProof team or an authorized company employee without permission. No full or partial disclosure, including discussion of resolved vulnerabilities, is allowed without express organizational consent; do not publish or discuss bugs.
+  outOfScope:
+    - All vulnerabilities already discovered by Audit reports
+    - Unbounded gas or storage consumption
+    - Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)
+    - Network-level DoS
+    - Vulnerabilities in the protocol that are unrelated to smart contract execution
+    - Wormhole guardian network (report to Wormhole)
+    - Social engineering or physical attacks including physical attacks on TEE hardware
+    - Mock attestation acceptance — TEE enforcement is in a grace period. Findings about non-TEE nodes being accepted are tracked separately and not considered vulnerabilities for this audit.
+    - Attacks requiring ≥ threshold colluding nodes
+    - NEAR chain attacks — validator collusion, chain reorgs, or finality failures.
+    - Test-only code paths — e.g. code gated behind `#[cfg(test)]` or test utilities not reachable in production.
+    - Non-default feature-only paths — e.g. findings that depend on `network-hardship-simulation`, `dev-utils`, `test-utils`, benchmark features, or similar non-production feature gates.
+    - Deployment / operational issues — misconfigured infrastructure, key management procedures, etc.
+    - Planned backup-service hard-launch design without code
+    - In-memory secret zeroization — e.g. key material is not wiped from memory after use
+    - RNG quality
+  prohibitedTesting:
+    - Make every effort not to damage or restrict the availability of products, services, or infrastructure
+    - Avoid compromising any personal data, interruption, or degradation of any service
+    - Don't access or modify other user data, localize all tests to your accounts
+    - Perform testing only within the scope
+    - Don't exploit any DoS/DDoS vulnerabilities, social engineering attacks, or spam
+    - Don't break any law and stay in the defined scope
+    - Perform testing on a private testnet wherever possible
+    - Any details of found vulnerabilities must not be communicated to anyone who is not a HackenProof Team or an authorized employee of this Company without appropriate permission

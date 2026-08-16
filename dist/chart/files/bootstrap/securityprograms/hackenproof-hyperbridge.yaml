@@ -1,0 +1,65 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-hyperbridge
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/polytope-labs/hyperbridge
+      baseBranch: main
+      workflowRef: substrate-xcm-security-review
+      policyPackRef: bug-bounty
+      scanName: hyperbridge-protocol
+      displayName: Hyperbridge Protocol
+      priority: 16
+      featured: true
+  provider: HackenProof
+  displayName: Hyperbridge Protocol
+  programURL: https://hackenproof.com/programs/hyperbridge-protocol
+  verifiedAt: 2026-08-16T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  assets:
+    - repositoryURL: https://github.com/polytope-labs/hyperbridge
+      displayName: Hyperbridge (Bridge, Critical)
+    - repositoryURL: https://github.com/polytope-labs/solidity-merkle-trees
+      displayName: Solidity Merkle Trees (Smart Contract, Critical)
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-16.
+
+    Live Program is active now.
+    Range of bounty: $200 - $50,000.
+    Critical: $30,000 - $50,000; High: $5,000 - $15,000; Medium: $2,000 - $5,000; Low: $200 - $1,000.
+    A proof of concept is required, and HackenProof charges a $5 submission fee.
+
+    In-scope targets
+    - https://github.com/polytope-labs/hyperbridge (Bridge, Critical)
+    - https://github.com/polytope-labs/solidity-merkle-trees (Smart Contract, Critical)
+
+    The runtime, pallets, and smart contracts are in scope for incorrect behavior that can cause stealing or loss of funds, unauthorized transactions, transaction manipulation, logic attacks where code behavior differs from the business description, reentrancy, reordering, or overflows/underflows.
+
+    Importable target boundary
+    Only polytope-labs/hyperbridge at main is imported. The Solidity-only solidity-merkle-trees repository remains an in-scope policy asset but is not an imported scan target.
+
+    Eligibility and disclosure
+    The first reporter must submit a qualifying vulnerability exclusively through HackenProof within 24 hours of discovery, using the email registered to the HackenProof account. The report must contain a clear description, detailed reproduction steps, and necessary screenshots or runnable PoC code. Current or former employees and contractors are ineligible. AI-generated reports without a runnable PoC are not accepted. All communication must remain on HackenProof; disclosure requires explicit mutual approval through HackenProof's disclosure function.
+  outOfScope:
+    - Theoretical vulnerabilities without any proof or demonstration
+    - Old compiler version
+    - The compiler version is not locked
+    - Vulnerabilities in imported contracts
+    - Code style guide violations
+    - Redundant code
+    - Gas optimizations
+    - Best practice issues
+    - Vulnerabilities that can be exploited through front-run attacks only
+  prohibitedTesting:
+    - Avoid using web application scanners for automatic vulnerability searching which generates massive traffic
+    - Make every effort not to damage or restrict the availability of products, services, or infrastructure
+    - Avoid compromising any personal data, interruption, or degradation of any service
+    - Do not access or modify other user data; localize all tests to your accounts
+    - Perform testing only within the scope
+    - Do not exploit any DoS/DDoS vulnerabilities, social engineering attacks, or spam
+    - Do not spam forms or account creation flows using automated scanners
+    - Do not communicate vulnerability details outside HackenProof or authorized company employees without permission
+

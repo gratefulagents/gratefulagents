@@ -1,0 +1,51 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-vechainthor
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/vechain/thor
+      baseBranch: master
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: vechainthor
+      displayName: VeChainThor
+      priority: 17
+      featured: true
+  provider: HackenProof
+  displayName: VeChainThor
+  programURL: https://hackenproof.com/programs/vechainthor
+  verifiedAt: 2026-08-16T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  assets:
+    - repositoryURL: https://github.com/vechain/thor
+      displayName: VeChainThor (Protocol, Critical)
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-16.
+
+    Live Program is active now and is marked Trusted Payer.
+    Range of bounty: $1,000 - $35,000.
+    Critical: $20,000 - $35,000; High: $8,000 - $12,000; Medium: $5,000; Low: $1,000.
+    The program requires 100 reputation points, a proof of concept, and a $1 submission fee.
+
+    Exact in-scope source
+    - https://github.com/vechain/thor (Protocol, Critical), on its verified default branch master.
+
+    This bug bounty is limited only to that code. The program page provides no separate general out-of-scope list beyond this code-only scope and its conduct rules; do not infer or add exclusions that the program does not publish.
+
+    Focus areas
+    Review the Go implementation for conceptual or practical protocol flaws; unintended economic incentives; P2P and Proof of Authority consensus attacks; block, transaction, chain, and message validation failures; transaction or message malleability; EVM built-in contract, native function, contract-creation, and message-call execution; fee calculation and enforcement; integer overflow or wraparound; panics and improperly handled errors; concurrency, synchronization, state, and race issues; vulnerable external libraries; and incorrect implementation, use, or configuration of secp256k1, ECDSA, ECDH, ECIES, Keccak-256, Blake2b, and Merkle Patricia trees.
+
+    Eligibility, reporting, and disclosure
+    Only the first submitted issue is eligible for a bounty. If a researcher finds chain vulnerabilities, the program pays only for the vulnerability with the highest severity. A report must provide a clear textual description, reproduction steps, and the required proof of concept. Reports and all related artifacts must remain private after submission; public disclosure makes the vulnerability ineligible.
+  outOfScope:
+    - Any repository, website, service, deployment, or asset other than the code at https://github.com/vechain/thor
+  prohibitedTesting:
+    - Do not violate any law or test outside the defined code scope
+    - Do not disrupt any service
+    - Do not compromise personal data
+    - Do not disclose a submitted vulnerability publicly or tell anyone about it
+    - Do not store related screenshots, executable code, or scripts on publicly available services or resources

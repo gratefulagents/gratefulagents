@@ -1,0 +1,75 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-aptos-network
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/aptos-labs/aptos-core
+      baseBranch: mainnet
+      workflowRef: aptos-move-security-review
+      policyPackRef: bug-bounty
+      scanName: hackenproof-aptos-core-mainnet
+      displayName: Aptos Core mainnet
+      priority: 13
+      featured: true
+  provider: HackenProof
+  displayName: Aptos Network
+  programURL: https://hackenproof.com/programs/aptos-network
+  verifiedAt: 2026-08-16T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/aptos-labs/aptos-core
+      displayName: Aptos Core mainnet branch
+  outOfScope:
+    - "https://github.com/aptos-labs/aptos-core/tree/mainnet/consensus/src/dag"
+    - "https://github.com/aptos-labs/aptos-core/tree/mainnet/experimental"
+    - "https://github.com/aptos-labs/aptos-core/tree/mainnet/keyless/pepper"
+    - "[AIP-103] Permissioned Signer"
+    - "[AIP-104] Account Abstraction"
+    - "Test / Build Infrastructure Attacks"
+    - "Vulnerabilities based on social engineering"
+    - "Network Denial of Service (DoS) attacks are considered out of scope and are not eligible for Rewards under this program"
+    - "Any DOS that affects a downstream Consensus Observer node and requires a Validator Node"
+    - "Features that are neither enabled in the current mainnet configuration nor set to be enabled via a governance proposal."
+  prohibitedTesting:
+    - "Avoid any testing on live systems serving mainnet, testnet or devnet; all testing must be done locally."
+    - "Report any vulnerability within 24 hours from discovery and use only HackenProof to report and discuss it."
+    - "Avoid disrupting systems, destroying data, or harming users."
+    - "Limit access to private data or secrets to the minimum required to demonstrate the proof of concept."
+    - "Do not engage in extortion."
+    - "Do not discuss or disclose any vulnerability, even after resolution, without the Aptos Foundation's written consent."
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-16.
+
+    Live Program is active now.
+    Range of bounty: $0 - $250,000.
+    Critical: up to $250,000; High: up to $50,000; Medium: up to $10,000; Low: $0.
+    KYC and a reproducible PoC are required. The displayed program also requires a $100 submission fee. Rewards are denominated in USD and may be paid partly or fully in digital assets, potentially subject to a lock-up.
+
+    Exact source scope and import boundary
+    - https://github.com/aptos-labs/aptos-core/tree/mainnet (Code, Critical)
+
+    The import uses aptos-labs/aptos-core branch mainnet. The published root target does not mean every path or dormant feature qualifies. The following are explicitly excluded: consensus/src/dag, experimental, keyless/pepper, AIP-103 Permissioned Signer, and AIP-104 Account Abstraction. A report must reproduce against code currently in scope using the current mainnet configuration and affect a feature that is enabled or set to be enabled through a governance proposal. Security issues rooted in external code dependencies are in scope when they impact the Aptos Network under those conditions.
+
+    ROI priority
+    Prioritize mainnet-reachable Move framework/runtime and node paths that can demonstrate the program's named high-impact outcomes. Deprioritize excluded paths, test/build infrastructure, dormant features, and findings without a current-mainnet reproduction.
+
+    Vulnerabilities that interest the program
+    - Loss of Funds (Theft or Minting)
+    - Consensus / Safety Violations
+    - Non-recoverable network partition (fix requires hardfork)
+    - Total Loss of Liveness / Network Availability
+    - Permanent freezing of funds (fix requires hardfork)
+    - Remote Code Execution on Validator Node
+    - Cryptographic Vulnerabilities (with proven impact)
+    - Validator Node Slowdowns
+    - API Crash
+
+    Severity and DoS boundary
+    Aptos determines severity and reward at its sole discretion. The page states that DoS issues fixable without a hardfork are accepted as Medium, while also explicitly excluding network DoS attacks and downstream Consensus Observer DoS that requires a Validator Node. Do not broaden that exception: demonstrate an eligible code-path impact locally and never perform DoS testing against a live network.
+
+    Reports must contain detailed information and clear reproduction steps. Duplicate reporters share one bounty pot; priority and allocation depend on report quality, ease of reproduction in Aptos's existing test frameworks, and actionable fixes. Reports submitted after an issue has been fully triaged and resolved are ineligible.

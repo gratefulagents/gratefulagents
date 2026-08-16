@@ -1,0 +1,63 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-linear
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/linear-protocol/LiNEAR
+      baseBranch: main
+      workflowRef: default-deep-scan
+      policyPackRef: bug-bounty
+      scanName: linear-protocol
+      displayName: LiNEAR Protocol
+      priority: 23
+      featured: true
+  provider: HackenProof
+  displayName: LiNEAR Protocol
+  programURL: https://hackenproof.com/programs/linear-protocol
+  verifiedAt: 2026-08-16T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  assets:
+    - repositoryURL: https://github.com/linear-protocol/LiNEAR
+      displayName: LiNEAR protocol (Protocol, Critical)
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-16.
+
+    Live Program is active now.
+    Range of bounty: $100 - $5,000.
+    Critical: $3,000 - $5,000; High: $2,000 - $3,000; Medium: $500 - $2,000; Low: $100 - $500. The program also describes Note findings as up to $100.
+    The program requires 50 reputation points and a proof of concept. Payouts are handled directly by the LiNEAR team in USD-denominated USDT, LiNEAR, or LNR at its discretion.
+
+    In-scope target
+    - https://github.com/linear-protocol/LiNEAR (LiNEAR protocol, Protocol, Critical)
+
+    In-scope vulnerability classes include reentrancy; logic and authentication errors; trust, dependency, and composability flaws; novel governance attacks; economic and financial attacks; congestion and scalability issues such as out-of-gas, block stuffing, and frontrunning susceptibility; cryptographic problems including replay and weak encryption; block-timestamp manipulation; and missing access controls or exposed internal/debug interfaces.
+
+    Key impact examples
+    Critical includes emptying or freezing contract holdings and cryptographic flaws. High includes temporarily preventing token-holder transfers, user spoofing, theft of yield, and transient consensus failures. Medium includes unbounded gas consumption, block stuffing, griefing denial of service, and gas griefing. Low includes failure to deliver promised returns without loss of value. Best-practice findings are Note severity. Severity can be downgraded for elevated privileges or uncommon interactions.
+
+    Testing boundary
+    All testing must use private testnets. Mainnet contracts, public testnet contracts, pricing oracles, third-party smart contracts, third-party systems and applications, and websites are prohibited testing targets.
+
+    Eligibility and disclosure
+    The first reporter must submit a qualifying vulnerability exclusively through HackenProof within 24 hours of discovery using the registered account email. Reports require a clear description, detailed reproduction steps, and necessary PoC attachments. Current or former employees and contractors are ineligible. Do not publish or discuss vulnerabilities without permission.
+  outOfScope:
+    - Attacks that the reporter has already exploited themselves, leading to damage
+    - Attacks requiring access to leaked keys or credentials
+    - Attacks requiring access to privileged addresses such as governance or strategist addresses
+    - Basic economic governance attacks such as a 51% attack
+    - Lack of liquidity
+    - Sybil attacks
+  prohibitedTesting:
+    - Do not test mainnet or public testnet contracts; perform all testing on private testnets
+    - Do not test pricing oracles or third-party smart contracts
+    - Do not phish or socially engineer employees or customers
+    - Do not test third-party systems, applications, browser extensions, websites, SSO providers, or advertising networks
+    - Do not perform denial-of-service attacks
+    - Do not use automated testing that generates significant traffic
+    - Do not publicly disclose an unpatched vulnerability in an embargoed bounty
+    - Do not access or modify other users' data or communicate vulnerability details without permission
+

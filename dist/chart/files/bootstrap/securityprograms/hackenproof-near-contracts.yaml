@@ -1,0 +1,75 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-near-contracts
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/near/core-contracts
+      baseBranch: master
+      workflowRef: smart-contract-review
+      policyPackRef: bug-bounty
+      scanName: near-core-contracts
+      displayName: NEAR Core Contracts in-scope roots
+      priority: 11
+      featured: true
+    - repositoryURL: https://github.com/near-daos/sputnik-dao-contract
+      baseBranch: main
+      workflowRef: smart-contract-review
+      policyPackRef: bug-bounty
+      scanName: near-sputnik-dao-contract
+      displayName: Sputnik DAO Contract
+      priority: 12
+      featured: true
+  provider: HackenProof
+  displayName: NEAR Smart Contracts
+  programURL: https://hackenproof.com/programs/near-smart-contracts-1
+  verifiedAt: 2026-08-16T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: project-test-suite
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/near/core-contracts
+      displayName: NEAR Core Contracts master, restricted to five published contract roots (Smart Contract, Critical)
+    - repositoryURL: https://github.com/near-daos/sputnik-dao-contract
+      displayName: Sputnik DAO Contract main (Smart Contract, Critical)
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-16.
+
+    Live Program is active now.
+    Range of bounty: $100 - $300,000.
+    Critical: $100,000 - $300,000; High: $10,000 - $100,000; Medium: $2,500 - $10,000; Low: $50 - $100.
+    KYC and a proof of concept are required, and HackenProof charges a $5 submission fee. NEAR may make payment in its native NEAR token, and a valid finding may require extra KYC before payment.
+
+    Exact source scope and import boundaries
+    - https://github.com/near/core-contracts/tree/master/lockup (Smart Contract, Critical)
+    - https://github.com/near/core-contracts/tree/master/staking-pool (Smart Contract, Critical)
+    - https://github.com/near/core-contracts/tree/master/staking-pool-factory (Smart Contract, Critical)
+    - https://github.com/near/core-contracts/tree/master/whitelist (Smart Contract, Critical)
+    - https://github.com/near/core-contracts/tree/master/multisig (Smart Contract, Critical)
+    - https://github.com/near-daos/sputnik-dao-contract at its verified default branch, main (Smart Contract, Critical)
+
+    The near/core-contracts import is strictly restricted to lockup, staking-pool, staking-pool-factory, whitelist, and multisig. No other directory or contract in that repository is eligible. The Sputnik DAO target is the published repository root. Repository default branches were verified as master for near/core-contracts and main for near-daos/sputnik-dao-contract.
+
+    In-scope vulnerabilities
+    The program's list is non-exhaustive and includes stealing or loss of funds; unauthorized transactions; transaction manipulation; price manipulation; fee-payment bypass; balance manipulation; contract-execution-flow flaws; and cryptographic flaws. Eligibility remains limited to the exact source targets above. For a chain of vulnerabilities, only the vulnerability with the highest severity is paid.
+
+    Testing rules
+    Perform testing on a private testnet wherever possible and only within the published scope. Make every effort not to damage or restrict availability. Avoid personal-data compromise and service interruption or degradation. Do not access or modify another user's data; localize all testing to researcher-owned accounts. Do not exploit DoS/DDoS vulnerabilities, use social engineering, or send spam. Do not break any law.
+
+    Eligibility, reporting, and disclosure
+    The first reporter must submit a qualifying vulnerability exclusively through HackenProof no later than 24 hours after discovery and must use only their HackenProof address. Reports require a clear textual description, concise detailed reproduction steps, and screenshots or PoC code as necessary. Employees, former employees, spouses, partners, and family members of employees of Pagoda, NEAR, the NEAR Foundation, or any subsidiary are ineligible. Do not communicate vulnerability details to anyone outside the HackenProof team or an authorized company employee without permission. No full or partial disclosure, including discussion of resolved vulnerabilities, is allowed without express organizational consent; do not publish or discuss bugs.
+  outOfScope:
+    - Network-level DoS
+    - Vulnerabilities in the protocol that are unrelated to smart contract execution
+  prohibitedTesting:
+    - Make every effort not to damage or restrict the availability of products, services, or infrastructure
+    - Avoid compromising any personal data, interruption, or degradation of any service
+    - Don't access or modify other user data, localize all tests to your accounts
+    - Perform testing only within the scope
+    - Don't exploit any DoS/DDoS vulnerabilities, social engineering attacks, or spam
+    - Don't break any law and stay in the defined scope
+    - Perform testing on a private testnet wherever possible
+    - Any details of found vulnerabilities must not be communicated to anyone who is not a HackenProof Team or an authorized employee of this Company without appropriate permission
+
