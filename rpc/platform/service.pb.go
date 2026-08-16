@@ -33300,6 +33300,10 @@ type SecurityScanConfig struct {
 	Namespace string                  `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Name      string                  `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Spec      *SecurityScanConfigSpec `protobuf:"bytes,3,opt,name=spec,proto3" json:"spec,omitempty"`
+	// use_saved_credentials reports that every persisted credential reference
+	// is one of the caller's managed usercred-* Secrets. This keeps the edit
+	// form on the saved-credential path after the server materializes refs.
+	UseSavedCredentials *bool `protobuf:"varint,4,opt,name=use_saved_credentials,json=useSavedCredentials,proto3,oneof" json:"use_saved_credentials,omitempty"`
 	// status
 	Phase                string `protobuf:"bytes,10,opt,name=phase,proto3" json:"phase,omitempty"`
 	LastRunName          string `protobuf:"bytes,11,opt,name=last_run_name,json=lastRunName,proto3" json:"last_run_name,omitempty"`
@@ -33393,6 +33397,13 @@ func (x *SecurityScanConfig) GetSpec() *SecurityScanConfigSpec {
 		return x.Spec
 	}
 	return nil
+}
+
+func (x *SecurityScanConfig) GetUseSavedCredentials() bool {
+	if x != nil && x.UseSavedCredentials != nil {
+		return *x.UseSavedCredentials
+	}
+	return false
 }
 
 func (x *SecurityScanConfig) GetPhase() string {
@@ -42179,11 +42190,13 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"target_url\x18\x1f \x01(\tR\ttargetUrl\x1aB\n" +
 	"\x14ParameterValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdf\t\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb2\n" +
+	"\n" +
 	"\x12SecurityScanConfig\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x127\n" +
-	"\x04spec\x18\x03 \x01(\v2#.platform.v1.SecurityScanConfigSpecR\x04spec\x12\x14\n" +
+	"\x04spec\x18\x03 \x01(\v2#.platform.v1.SecurityScanConfigSpecR\x04spec\x127\n" +
+	"\x15use_saved_credentials\x18\x04 \x01(\bH\x00R\x13useSavedCredentials\x88\x01\x01\x12\x14\n" +
 	"\x05phase\x18\n" +
 	" \x01(\tR\x05phase\x12\"\n" +
 	"\rlast_run_name\x18\v \x01(\tR\vlastRunName\x12-\n" +
@@ -42209,7 +42222,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x0elast_execution\x18\x1d \x01(\v2'.platform.v1.SecurityScanExecutionStateR\rlastExecution\x1a@\n" +
 	"\x12FindingCountsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xfc\x02\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01B\x18\n" +
+	"\x16_use_saved_credentials\"\xfc\x02\n" +
 	"\x1aSecurityScanRetentionState\x12/\n" +
 	"\x14last_sweep_time_unix\x18\x01 \x01(\x03R\x11lastSweepTimeUnix\x12!\n" +
 	"\fscans_purged\x18\x02 \x01(\x03R\vscansPurged\x12'\n" +
@@ -44270,6 +44284,7 @@ func file_rpc_platform_service_proto_init() {
 	file_rpc_platform_service_proto_msgTypes[345].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[380].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[391].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[399].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

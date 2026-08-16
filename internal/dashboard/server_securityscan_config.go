@@ -934,16 +934,63 @@ func trimmedNonEmpty(values []string) []string {
 	return out
 }
 
+// securityScanUsesSavedCredentials reconstructs the credential source after
+// saved credentials have been materialized into the persisted trigger spec.
+// Empty refs retain the historical default (saved credentials); otherwise all
+// refs must point at the exact deterministic platform-managed Secrets.
+func securityScanUsesSavedCredentials(secrets triggersv1alpha1.AgentRunSecrets) bool {
+	if secrets.ClaudeApiKey != "" && secrets.ClaudeApiKey != userCredentialSecretName(triggersv1alpha1.ProviderAnthropic) {
+		return false
+	}
+	if secrets.OpenAIOAuthSecret != "" {
+		managed := false
+		for _, provider := range []string{
+			triggersv1alpha1.ProviderAnthropic,
+			triggersv1alpha1.ProviderOpenAI,
+			triggersv1alpha1.ProviderCopilot,
+		} {
+			if secrets.OpenAIOAuthSecret == userCredentialSecretName(provider) {
+				managed = true
+				break
+			}
+		}
+		if !managed {
+			return false
+		}
+	}
+	if secrets.GithubToken != "" && secrets.GithubToken != userCredentialSecretName(credentialGitHub) {
+		return false
+	}
+	for _, key := range secrets.ProviderKeys {
+		provider := triggersv1alpha1.NormalizeProvider(key.Provider)
+		if provider == triggersv1alpha1.ProviderGemini || provider == triggersv1alpha1.ProviderGroq {
+			provider = triggersv1alpha1.ProviderOpenAI
+		}
+		switch provider {
+		case triggersv1alpha1.ProviderAnthropic, triggersv1alpha1.ProviderOpenAI,
+			triggersv1alpha1.ProviderOpenRouter, triggersv1alpha1.ProviderXAI:
+			if key.SecretName != userCredentialSecretName(provider) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func securityScanConfigProto(cr *triggersv1alpha1.SecurityScan) *platform.SecurityScanConfig {
+	useSavedCredentials := securityScanUsesSavedCredentials(cr.Spec.Defaults.Secrets)
 	pb := &platform.SecurityScanConfig{
-		Namespace:     cr.Namespace,
-		Name:          cr.Name,
-		Spec:          securityScanSpecToProto(&cr.Spec),
-		Phase:         cr.Status.Phase,
-		LastRunName:   cr.Status.LastRunName,
-		RunsCreated:   cr.Status.RunsCreated,
-		LastError:     cr.Status.LastError,
-		CreatedAtUnix: cr.CreationTimestamp.Unix(),
+		Namespace:           cr.Namespace,
+		Name:                cr.Name,
+		Spec:                securityScanSpecToProto(&cr.Spec),
+		UseSavedCredentials: &useSavedCredentials,
+		Phase:               cr.Status.Phase,
+		LastRunName:         cr.Status.LastRunName,
+		RunsCreated:         cr.Status.RunsCreated,
+		LastError:           cr.Status.LastError,
+		CreatedAtUnix:       cr.CreationTimestamp.Unix(),
 	}
 	if cr.Status.LastScanTime != nil {
 		pb.LastScanTimeUnix = cr.Status.LastScanTime.Unix()

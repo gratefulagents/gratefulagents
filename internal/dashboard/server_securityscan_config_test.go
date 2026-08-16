@@ -487,6 +487,66 @@ func TestCreateSecurityScanUsesSavedCredentials(t *testing.T) {
 	}
 }
 
+func TestSecurityScanConfigProtoReportsSavedCredentialSource(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		secrets triggersv1alpha1.AgentRunSecrets
+		want    bool
+	}{
+		{name: "no refs keeps historical saved default", want: true},
+		{
+			name: "materialized saved refs",
+			secrets: triggersv1alpha1.AgentRunSecrets{
+				OpenAIOAuthSecret: "usercred-openai",
+				GithubToken:       "usercred-github",
+			},
+			want: true,
+		},
+		{
+			name: "materialized saved provider key",
+			secrets: triggersv1alpha1.AgentRunSecrets{ProviderKeys: []platformv1alpha1.ProviderKeyRef{
+				{Provider: "openai", SecretName: "usercred-openai", SecretKey: "api-key"},
+			}},
+			want: true,
+		},
+		{
+			name: "explicit ref",
+			secrets: triggersv1alpha1.AgentRunSecrets{
+				OpenAIOAuthSecret: "team-openai-oauth",
+			},
+			want: false,
+		},
+		{
+			name: "explicit ref with reserved prefix",
+			secrets: triggersv1alpha1.AgentRunSecrets{
+				OpenAIOAuthSecret: "usercred-team-openai",
+			},
+			want: false,
+		},
+		{
+			name: "mixed saved and explicit refs",
+			secrets: triggersv1alpha1.AgentRunSecrets{
+				OpenAIOAuthSecret: "usercred-openai",
+				GithubToken:       "team-github-token",
+			},
+			want: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cr := &triggersv1alpha1.SecurityScan{
+				Spec: triggersv1alpha1.SecurityScanSpec{
+					Defaults: triggersv1alpha1.AgentRunDefaults{Secrets: tc.secrets},
+				},
+			}
+			if got := securityScanConfigProto(cr).GetUseSavedCredentials(); got != tc.want {
+				t.Fatalf("UseSavedCredentials = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestUpdateSecurityScanReplacesSpecAndPreservesAdminDefaults(t *testing.T) {
 	ns := testUserNS()
 	existing := &triggersv1alpha1.SecurityScan{

@@ -25,7 +25,7 @@ import {
 } from "@/components/create-flow/create-flow";
 import { RunDefaultsRows } from "@/components/run-defaults/RunDefaultsRows";
 import { TriggerPolicyRows } from "@/components/run-defaults/TriggerPolicyRows";
-import { buildCronRequest, emptyDefaults, hasExplicitCredentials } from "@/components/run-defaults/helpers";
+import { buildCronRequest, emptyDefaults } from "@/components/run-defaults/helpers";
 import { resolvedTriggerPolicies } from "@/components/TriggerDefaultsDialog";
 import {
   BudgetFields,
@@ -42,6 +42,7 @@ import { cn } from "@/lib/utils";
 import { toneText } from "@/lib/status";
 import { applyModelDefaults, hasActiveModelDefaults } from "@/lib/modelDefaults";
 import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
+import { savedCredentialSecretName } from "@/lib/projectCredentialForm";
 import {
   AgentRunDefaultsSchema,
   CreateSecurityScanRequestSchema,
@@ -271,8 +272,38 @@ function configPolicySource(config?: SecurityScanConfig) {
 
 /** Best guess at whether an existing scan uses the caller's saved credentials. */
 export function scanConfigUsesSavedCredentials(config: SecurityScanConfig): boolean {
+  if (config.useSavedCredentials !== undefined) return config.useSavedCredentials;
   const defaults = config.spec?.defaults;
-  return !defaults || !hasExplicitCredentials(defaults);
+  if (!defaults) return true;
+  if (
+    defaults.claudeApiKeySecret &&
+    defaults.claudeApiKeySecret !== savedCredentialSecretName("anthropic")
+  ) {
+    return false;
+  }
+  if (
+    defaults.openaiOauthSecret &&
+    !["anthropic", "openai", "copilot"]
+      .map(savedCredentialSecretName)
+      .includes(defaults.openaiOauthSecret)
+  ) {
+    return false;
+  }
+  if (
+    defaults.githubTokenSecret &&
+    defaults.githubTokenSecret !== savedCredentialSecretName("github")
+  ) {
+    return false;
+  }
+  return defaults.providerKeys.every((key) => {
+    const provider = ["gemini", "groq"].includes(key.provider.toLowerCase())
+      ? "openai"
+      : key.provider.toLowerCase();
+    return (
+      ["anthropic", "openai", "openrouter", "xai"].includes(provider) &&
+      key.secretName === savedCredentialSecretName(provider)
+    );
+  });
 }
 
 function scheduleSummary(spec: SpecState): string {
