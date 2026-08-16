@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 
-import { SecurityScanFormDialog } from "@/components/SecurityScanFormDialog";
+import {
+  SecurityScanFormDialog,
+  scanConfigUsesSavedCredentials,
+} from "@/components/SecurityScanFormDialog";
 import { client } from "@/lib/client";
 import {
   SecurityScanConfigSchema,
@@ -910,5 +913,51 @@ describe("SecurityScanFormDialog execution & parameter values", () => {
     expect(task?.outputSchema).toBe('{"type":"object"}');
     expect(task?.maxInstances).toBe(5);
     expect(task?.repeats).toBe(2);
+  });
+
+  it("recognizes materialized saved refs from servers without the response marker", () => {
+    const legacy = create(SecurityScanConfigSchema, {
+      spec: create(SecurityScanConfigSpecSchema, {
+        defaults: {
+          openaiOauthSecret: "usercred-openai",
+          githubTokenSecret: "usercred-github",
+        },
+      }),
+    });
+    const explicitlyDisabled = create(SecurityScanConfigSchema, {
+      useSavedCredentials: false,
+      spec: legacy.spec,
+    });
+
+    expect(scanConfigUsesSavedCredentials(legacy)).toBe(true);
+    expect(scanConfigUsesSavedCredentials(explicitlyDisabled)).toBe(false);
+  });
+
+  it("keeps saved credentials checked when editing a materialized bulk import", async () => {
+    const config = create(SecurityScanConfigSchema, {
+      namespace: "ns",
+      name: "bulk-imported-scan",
+      useSavedCredentials: true,
+      spec: create(SecurityScanConfigSpecSchema, {
+        repoUrl: "https://github.com/acme/repo",
+        defaults: {
+          provider: "openai",
+          authMode: "oauth",
+          openaiOauthSecret: "usercred-openai",
+        },
+      }),
+    });
+    vi.mocked(client.updateSecurityScan).mockResolvedValue(config);
+
+    render(<SecurityScanFormDialog config={config} trigger={<button>Edit scan</button>} defaultOpen />);
+    fireEvent.click(screen.getByRole("button", { name: /^Model/ }));
+
+    expect(
+      screen.getByRole("switch", { name: "Use my saved credentials" }).getAttribute("aria-checked"),
+    ).toBe("true");
+
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    await waitFor(() => expect(client.updateSecurityScan).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(client.updateSecurityScan).mock.calls[0][0].useSavedCredentials).toBe(true);
   });
 });

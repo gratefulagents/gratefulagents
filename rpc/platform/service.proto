@@ -4748,6 +4748,10 @@ message SecurityScanConfig {
   string namespace = 1;
   string name = 2;
   SecurityScanConfigSpec spec = 3;
+  // use_saved_credentials reports that every persisted credential reference
+  // is one of the caller's managed usercred-* Secrets. This keeps the edit
+  // form on the saved-credential path after the server materializes refs.
+  optional bool use_saved_credentials = 4;
   // status
   string phase = 10;
   string last_run_name = 11;

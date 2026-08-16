@@ -934,16 +934,35 @@ func trimmedNonEmpty(values []string) []string {
 	return out
 }
 
+// securityScanUsesSavedCredentials reconstructs the credential source after
+// saved credentials have been materialized into the persisted trigger spec.
+// Empty refs retain the historical default (saved credentials); otherwise all
+// refs must point at the platform-managed usercred-* Secrets.
+func securityScanUsesSavedCredentials(secrets triggersv1alpha1.AgentRunSecrets) bool {
+	refs := []string{secrets.ClaudeApiKey, secrets.OpenAIOAuthSecret, secrets.GithubToken}
+	for _, key := range secrets.ProviderKeys {
+		refs = append(refs, key.SecretName)
+	}
+	for _, ref := range refs {
+		if ref != "" && !strings.HasPrefix(ref, userCredentialSecretPrefix) {
+			return false
+		}
+	}
+	return true
+}
+
 func securityScanConfigProto(cr *triggersv1alpha1.SecurityScan) *platform.SecurityScanConfig {
+	useSavedCredentials := securityScanUsesSavedCredentials(cr.Spec.Defaults.Secrets)
 	pb := &platform.SecurityScanConfig{
-		Namespace:     cr.Namespace,
-		Name:          cr.Name,
-		Spec:          securityScanSpecToProto(&cr.Spec),
-		Phase:         cr.Status.Phase,
-		LastRunName:   cr.Status.LastRunName,
-		RunsCreated:   cr.Status.RunsCreated,
-		LastError:     cr.Status.LastError,
-		CreatedAtUnix: cr.CreationTimestamp.Unix(),
+		Namespace:           cr.Namespace,
+		Name:                cr.Name,
+		Spec:                securityScanSpecToProto(&cr.Spec),
+		UseSavedCredentials: &useSavedCredentials,
+		Phase:               cr.Status.Phase,
+		LastRunName:         cr.Status.LastRunName,
+		RunsCreated:         cr.Status.RunsCreated,
+		LastError:           cr.Status.LastError,
+		CreatedAtUnix:       cr.CreationTimestamp.Unix(),
 	}
 	if cr.Status.LastScanTime != nil {
 		pb.LastScanTimeUnix = cr.Status.LastScanTime.Unix()

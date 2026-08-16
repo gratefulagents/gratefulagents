@@ -25,7 +25,7 @@ import {
 } from "@/components/create-flow/create-flow";
 import { RunDefaultsRows } from "@/components/run-defaults/RunDefaultsRows";
 import { TriggerPolicyRows } from "@/components/run-defaults/TriggerPolicyRows";
-import { buildCronRequest, emptyDefaults, hasExplicitCredentials } from "@/components/run-defaults/helpers";
+import { buildCronRequest, emptyDefaults } from "@/components/run-defaults/helpers";
 import { resolvedTriggerPolicies } from "@/components/TriggerDefaultsDialog";
 import {
   BudgetFields,
@@ -42,6 +42,7 @@ import { cn } from "@/lib/utils";
 import { toneText } from "@/lib/status";
 import { applyModelDefaults, hasActiveModelDefaults } from "@/lib/modelDefaults";
 import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
+import { isSavedCredentialSecretName } from "@/lib/projectCredentialForm";
 import {
   AgentRunDefaultsSchema,
   CreateSecurityScanRequestSchema,
@@ -271,8 +272,16 @@ function configPolicySource(config?: SecurityScanConfig) {
 
 /** Best guess at whether an existing scan uses the caller's saved credentials. */
 export function scanConfigUsesSavedCredentials(config: SecurityScanConfig): boolean {
+  if (config.useSavedCredentials !== undefined) return config.useSavedCredentials;
   const defaults = config.spec?.defaults;
-  return !defaults || !hasExplicitCredentials(defaults);
+  if (!defaults) return true;
+  const refs = [
+    defaults.claudeApiKeySecret,
+    defaults.openaiOauthSecret,
+    defaults.githubTokenSecret,
+    ...defaults.providerKeys.map((key) => key.secretName),
+  ].filter(Boolean);
+  return refs.length === 0 || refs.every(isSavedCredentialSecretName);
 }
 
 function scheduleSummary(spec: SpecState): string {
