@@ -1,0 +1,58 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-near-intents
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/near/intents
+      baseBranch: main
+      workflowRef: smart-contract-review
+      policyPackRef: bug-bounty
+      scanName: near-intents-contracts
+      displayName: NEAR Intents smart contracts
+      priority: 5
+      featured: true
+  provider: HackenProof
+  displayName: "NEAR Intents: Smart Contracts"
+  programURL: https://hackenproof.com/programs/near-intents-smart-contracts
+  verifiedAt: 2026-08-16T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/near/intents
+      displayName: NEAR Intents smart contracts excluding escrow-swap
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-16.
+
+    Live Program is active now.
+    Range of bounty: $100 - $300,000.
+    Critical: $100,000 - $300,000; High: $20,000 - $100,000; Medium: $1,000 - $20,000; Low: $100 - $1,000.
+    KYC and a working PoC are required, and the displayed program charges a $5 submission fee. High and Critical rewards are capped at 10% of the funds practically affected. Payment may be made in NEAR vested over one year.
+
+    Exact source scope
+    - https://github.com/near/intents (Smart Contract, Critical)
+    - https://github.com/near/intents/tree/main/escrow-swap is explicitly out of scope.
+
+    The main contract under defuse is known as the Verifier and can operate independently. In-scope classes include stealing or loss of funds, unauthorized transactions, transaction manipulation, price manipulation, fee-payment bypass, balance manipulation, contract execution flows, and cryptographic flaws.
+
+    Importable target boundary
+    The near/intents main branch is imported, but escrow-swap must be excluded from every hunt and report. Importing the repository does not make network-level protocol behavior or unrelated infrastructure eligible. Prioritize the Verifier and production contract paths with a direct, locally reproducible financial or cryptographic impact.
+
+    Eligibility and disclosure
+    Submit a qualifying first report exclusively through HackenProof within 24 hours of discovery using the registered HackenProof address. Include a clear description, detailed reproduction, and runnable PoC. Employees and specified affiliates or family members of Pagoda, NEAR, NEAR Foundation, Aurora, Defuse Labs, subsidiaries, and contractors are ineligible. Do not disclose any vulnerability without express consent.
+  outOfScope:
+    - https://github.com/near/intents/tree/main/escrow-swap
+    - Unbounded gas or storage consumption
+    - Griefing where the attacker has no profit motive
+    - Network-level denial of service
+    - Protocol vulnerabilities unrelated to smart contract execution
+    - Assets and repository paths not listed by the program
+  prohibitedTesting:
+    - Perform testing on a private testnet wherever possible
+    - Do not damage or restrict availability or interrupt or degrade any service
+    - Do not access or modify other users' data; localize tests to researcher-owned accounts
+    - Do not exploit DoS or DDoS vulnerabilities, use social engineering, or spam
+    - Report through HackenProof within 24 hours and keep all vulnerability details private without express consent

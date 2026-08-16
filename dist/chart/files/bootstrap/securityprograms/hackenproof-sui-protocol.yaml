@@ -1,0 +1,186 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-sui-protocol
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/MystenLabs/sui
+      baseBranch: testnet
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: hackenproof-sui-testnet-protocol
+      displayName: Sui testnet protocol paths
+      priority: 1
+      featured: true
+    - repositoryURL: https://github.com/MystenLabs/sui
+      baseBranch: main
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: hackenproof-sui-main-protocol
+      displayName: Sui main Move framework and bridge paths
+      priority: 2
+      featured: true
+    - repositoryURL: https://github.com/MystenLabs/seal
+      baseBranch: main
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: hackenproof-sui-seal
+      displayName: Seal in-scope paths
+      priority: 3
+      featured: false
+    - repositoryURL: https://github.com/MystenLabs/deepbookv3
+      baseBranch: main
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: hackenproof-sui-deepbookv3
+      displayName: DeepBook v3
+      priority: 4
+      featured: false
+  provider: HackenProof
+  displayName: Sui Protocol
+  programURL: https://hackenproof.com/programs/sui-protocol
+  verifiedAt: 2026-08-16T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: project-test-suite
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/MystenLabs/sui
+      displayName: Sui testnet protocol paths
+    - repositoryURL: https://github.com/MystenLabs/sui
+      displayName: Sui main Move framework and bridge paths
+    - repositoryURL: https://github.com/MystenLabs/deepbookv3
+      displayName: DeepBook v3 smart contracts
+    - repositoryURL: https://github.com/MystenLabs/seal
+      displayName: Seal key server and Move package
+  inScopeImpacts:
+    - impact: "Exceeding the maximum supply of 10 billion SUI + allowing the attacker to claim the excess funds"
+      level: critical
+      assetType: "Blockchain/DLT - Sui Core"
+    - impact: "Significant Loss of Funds"
+      level: critical
+      assetType: "Blockchain/DLT - Sui Core"
+    - impact: "Violating BFT assumptions, acquiring voting power vastly disproportionate (20x) to stake, or any issue that can meaningfully compromise proof-of-stake governance integrity"
+      level: critical
+      assetType: "Blockchain/DLT - Sui Core"
+    - impact: "Arbitrary, non-Move remote code execution on unmodified validator software"
+      level: critical
+      assetType: "Blockchain/DLT - Sui Core"
+    - impact: "User fund exploits causing permanent locking, loss, or theft of funds greater than $20M"
+      level: critical
+      assetType: "Blockchain/DLT - Sui Core"
+    - impact: "Forging of Native Bridge Messages enabling theft or illegitimate minting of assets greater than $3M with fully working PoC"
+      level: critical
+      assetType: "Blockchain/DLT - Sui Core"
+    - impact: "Governance / Upgrade Bypass of Bridge Contract enabling theft or illegitimate minting of assets"
+      level: critical
+      assetType: "Blockchain/DLT - Sui Core"
+    - impact: "Remote Code Execution on Bridge Nodes"
+      level: critical
+      assetType: "Blockchain/DLT - Sui Core"
+    - impact: "Network unable to confirm new transactions (total shutdown) requiring a hard fork to resolve"
+      level: medium
+      assetType: "Blockchain/DLT - Sui Core"
+    - impact: "Temporary total network shutdown or unintended chain split (duration greater than 10 minutes)"
+      level: medium
+      assetType: "Blockchain/DLT - Sui Core"
+    - impact: "Payout Bugs or attacks resulting in significant loss of funds"
+      level: critical
+      assetType: "DeepBook v3"
+    - impact: "Permanent freezing of funds, or permanent DoS/interruption on the CLOB requiring a protocol upgrade"
+      level: high
+      assetType: "DeepBook v3"
+    - impact: "Retrieving a derived key without satisfying policies (or spoofing identity)"
+      level: critical
+      assetType: "Seal"
+    - impact: "Remote extraction of the master key from key servers"
+      level: critical
+      assetType: "Seal"
+    - impact: "Decryption of an encrypted blob without knowing the associated derived key or symmetric key"
+      level: critical
+      assetType: "Seal"
+    - impact: "On-chain decryption misuse leading to forgery of encrypted decisions"
+      level: high
+      assetType: "Seal"
+  outOfScope:
+    - "https://github.com/MystenLabs/sui/tree/testnet/crates/json-rpc"
+    - "https://github.com/MystenLabs/sui/tree/testnet/crates/json-rpc-types"
+    - "Bugs only in undeployed packages (published-at = 0x0 / not on mainnet), including pre-mainnet modules such as Predict."
+    - "Fullnode JSON-RPC or GraphQL-only DoS, OOM, panic, or rate-limit bypass (simulate, dryRun, devInspect, suix_*, and similar). Exceptions: direct fund theft via RPC, bridge RPC fund theft, or crashing the validator process itself."
+    - "Claims that full TransactionEffects can be forged or substituted because effects are not rebound to the effects digest; digest binding on the execution path makes this not applicable."
+    - "DeepBook limitation to filling 100 orders per trade where gas costs increase dramatically."
+    - "Seal key-server DoS against open-mode or public-goods servers; only permissioned servers qualify for the published DoS impact."
+    - "Assets, branches, and repository paths not explicitly listed by the program."
+  knownIssues:
+    - source: Sui Protocol known issues
+      summary: "Staking pool 1-MIST rounding: repeated tiny unstakes can depreciate the pool token, but the attacker gains nothing and rewards remain as dust in the pool."
+      reference: https://github.com/MystenLabs/sui/pull/9961
+    - source: Sui Protocol known issues
+      summary: "Excessive storage rebate on 0x5 after epoch change is under investigation for even distribution."
+    - source: Sui Protocol known issues
+      summary: "DeepBook fills at most 100 orders per trade; the associated gas-cost growth is a known design constraint."
+    - source: Previous audits and known issues
+      summary: "Reports duplicating published Sui security-audit findings are ineligible."
+      reference: https://github.com/sui-foundation/security-audits
+  prohibitedTesting:
+    - "Perform testing only within the published scope and make every effort not to damage or restrict product, service, or infrastructure availability."
+    - "Do not access or modify other users' data; localize all tests to researcher-owned accounts and data."
+    - "Do not exploit DoS or DDoS vulnerabilities, use social engineering, or spam."
+    - "Avoid web application scanners that generate massive traffic and do not spam forms or account-creation flows with automated scanners."
+    - "Submit through HackenProof and do not communicate vulnerability details to anyone outside HackenProof or an authorized company employee without permission."
+    - "Do not break any law and do not test outside the defined scope."
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-16.
+
+    Live Program is active now.
+    Range of bounty: $5,000 - $1,000,000.
+    Critical: $50,000 - $1,000,000; High: $5,000 - $50,000; Medium: $2,500 - $5,000; Low: $500 - $2,500.
+    KYC and a working PoC are required. The displayed program also requires a $20 anti-spam submission fee. Payouts are denominated in USD, and Sui may pay in SUI.
+
+    Exact source scope and import boundaries
+    - https://github.com/MystenLabs/sui/tree/testnet/crates/sui-node (Protocol, Critical)
+    - https://github.com/MystenLabs/sui/tree/testnet/crates/sui-core (Protocol, Critical)
+    - https://github.com/MystenLabs/sui/tree/testnet/crates/sui-types (Protocol, Critical)
+    - https://github.com/MystenLabs/sui/tree/testnet/external-crates/move (Protocol, Critical)
+    The testnet import is restricted to those four roots. In particular, crates/json-rpc and crates/json-rpc-types are explicitly out of scope.
+
+    - https://github.com/MystenLabs/sui/tree/main/sui-execution/latest/sui-adapter (Protocol, Critical)
+    - https://github.com/MystenLabs/sui/tree/main/sui-execution/latest/sui-verifier (Protocol, Critical)
+    - https://github.com/MystenLabs/sui/tree/main/crates/sui-framework (Protocol, Critical)
+    - https://github.com/MystenLabs/sui/tree/main/crates/sui-bridge (Protocol, Critical)
+    - https://github.com/MystenLabs/sui/tree/main/bridge (Protocol, High)
+    The main import is restricted to those five roots and does not make the rest of the Sui monorepo eligible.
+
+    - https://github.com/MystenLabs/deepbookv3 (Smart Contract, High). The program publishes the repository root as its DeepBook v3 target. Eligibility remains limited to deployed DeepBook v3 behavior and the program's listed impacts; do not infer unrelated Mysten Labs assets.
+    - https://github.com/MystenLabs/seal/tree/main/crates/key-server (Protocol, Critical)
+    - https://github.com/MystenLabs/seal/tree/main/move/seal/sources/ (Smart Contract, Critical)
+    The Seal import is restricted to those two roots; the rest of the Seal repository is not claimed in scope.
+    - github.com/MystenLabs/sui/tree/bella-ciao is separately listed as a Smart Contract, Critical target. It is a distinct branch and is not covered by either the testnet or main import.
+
+    ROI order for imports
+    1. Sui testnet validator, consensus, type, and Move protocol paths: critical consensus, supply, validator RCE, and fund-loss exposure up to the program maximum.
+    2. Sui main execution, verifier, framework, and bridge paths: critical verifier, fund-loss, and native-bridge impacts.
+    3. Seal key-server and Move source paths: published critical key extraction, policy bypass, and decryption impacts, with Seal-specific payouts up to $100,000.
+    4. DeepBook v3: deployed CLOB fund-loss and freezing risks, with DeepBook-specific payouts up to $100,000.
+
+    Qualifying-impact boundary
+    Only the impacts published by the program qualify; other impacts are out of scope even when they affect an in-scope asset. Severity is independently scored under the program's impact matrix. Previous audits and published known issues must be checked before reporting. For chain vulnerabilities, only the highest-severity vulnerability in a chain is paid.
+
+    Published impact clauses represented in typed scope
+    - Exceeding the maximum supply of 10 billion SUI + allowing the attacker to claim the excess funds
+    - Significant Loss of Funds
+    - Violating BFT assumptions, acquiring voting power vastly disproportionate (20x) to stake, or any issue that can meaningfully compromise proof-of-stake governance integrity
+    - Arbitrary, non-Move remote code execution on unmodified validator software
+    - User fund exploits causing permanent locking, loss, or theft of funds greater than $20M
+    - Forging of Native Bridge Messages enabling theft or illegitimate minting of assets greater than $3M with fully working PoC
+    - Governance / Upgrade Bypass of Bridge Contract enabling theft or illegitimate minting of assets
+    - Remote Code Execution on Bridge Nodes
+    - Network unable to confirm new transactions (total shutdown) requiring a hard fork to resolve
+    - Temporary total network shutdown or unintended chain split (duration greater than 10 minutes)
+    - Payout Bugs or attacks resulting in significant loss of funds
+    - Permanent freezing of funds, or permanent DoS/interruption on the CLOB requiring a protocol upgrade
+    - Retrieving a derived key without satisfying policies (or spoofing identity)
+    - Remote extraction of the master key from key servers
+    - Decryption of an encrypted blob without knowing the associated derived key or symmetric key
+    - On-chain decryption misuse leading to forgery of encrypted decisions

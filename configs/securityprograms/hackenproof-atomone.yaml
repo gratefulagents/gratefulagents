@@ -1,0 +1,76 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-atomone
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/atomone-hub/atomone
+      baseBranch: main
+      workflowRef: cosmos-abci-halt-review
+      policyPackRef: bug-bounty
+      scanName: atomone
+      displayName: AtomOne
+      priority: 19
+      featured: true
+  provider: HackenProof
+  displayName: AtomOne
+  programURL: https://hackenproof.com/programs/atomone
+  verifiedAt: 2026-08-16T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/atomone-hub/atomone
+      displayName: AtomOne (Code, Critical)
+  inScopeImpacts:
+    - impact: An issue resulting in the loss of funds, such as exfiltration of ATOME private keys.
+      level: critical
+      assetType: Code
+    - impact: An issue resulting in the subversion of the AtomOne voting process.
+      level: high
+      assetType: Code
+    - impact: An issue resulting in chain halting, network partitioning, etc.
+      level: medium
+      assetType: Code
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-16.
+
+    Live Program is active now and is marked Hidden Gem and Trusted Payer.
+    Range of bounty: $200 - $10,000.
+    Critical: $2,000 - $10,000; High: $1,000 - $2,000; Medium: $400 - $1,000; Low: $200 - $400.
+    The program requires 120 reputation points, KYC, and a proof of concept.
+
+    In-scope target
+    - https://github.com/atomone-hub/atomone (Code, Critical)
+
+    Focus includes AtomOne changes beginning around app.go; inherited Tendermint consensus-stack behavior including P2P messaging, gossiping, and memory handling; and process defects in submit-tx-securely.md that could cause loss of funds or subvert voting. Disabled Cosmos Hub features such as ICS are not a reason to ignore inherited consensus-stack security issues.
+
+    Severity is determined by All in Bits from impact, likelihood, exploitation complexity, and other factors. The published samples classify loss of funds such as ATOME private-key exfiltration as Critical, voting-process subversion as High, and chain halting or network partitioning as Medium because ATOME is currently non-transferable and AtomOne is more delay-tolerant.
+
+    Sample issues by severity in AtomOne
+    - An issue resulting in the loss of funds, such as exfiltration of ATOME private keys.
+    - An issue resulting in the subversion of the AtomOne voting process.
+    - An issue resulting in chain halting, network partitioning, etc.
+
+    PoC requirement for node behavior
+    Panics, consensus failures, state corruption, and halts require an executable, non-interactive sequence of shell commands that starts one or more real nodes (for example with atomoned start), submits transactions or messages, reliably triggers the failure, and terminates with a clear failure signal. Prose-only descriptions, synthetic tests, and unit tests that do not demonstrate the system-level vulnerability may be downgraded or rejected. Reproductions that pass on an unpatched build and fail on a patched build receive highest consideration.
+
+    Eligibility and KYC
+    Submit one vulnerability per report unless chaining is needed to show impact. Only the first reporter is eligible, and one bounty is paid for multiple vulnerabilities with one root cause. Submitters must complete KYC, be legally of age, provide truthful information, comply with applicable laws, and not be domiciled in prohibited OFAC/FATF jurisdictions. All in Bits employees, affiliated-group employees, their immediate family or household members, and undisclosed conflicts of interest are ineligible. Reports and vulnerabilities must remain private absent explicit consent.
+  outOfScope:
+    - Any activity that could lead to disruption of service (DoS or DDoS); DoS issues may be submitted but must not be tested in a disruptive fashion
+    - Attacks requiring MITM or physical access to a user's device
+    - Issues that depend on third-party services or out-of-scope assets
+    - Issues that require unlikely user interaction
+    - Duplicate findings previously reported externally or identified internally
+  prohibitedTesting:
+    - Do not negatively impact production systems
+    - Do not test a DoS issue in a manner that disrupts service
+    - Do not engage in phishing, vishing, smishing, or other social engineering
+    - Avoid privacy violations, destruction of data, and interruption or degradation of service
+    - Interact only with accounts you own
+    - Submit only one vulnerability per report unless a chain is necessary to demonstrate impact
+    - Do not discuss the program or vulnerabilities outside the program without explicit consent from All in Bits
+

@@ -1,0 +1,103 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-adi-zkvm
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/ADI-Foundation-Labs/ADI-Stack-Airbender-Prover
+      baseBranch: v0.5.1-b
+      workflowRef: bridge-l2-zk-security-review
+      policyPackRef: bug-bounty
+      scanName: adi-airbender-prover
+      displayName: ADI Stack Airbender Prover v0.5.1-b
+      priority: 20
+      featured: true
+    - repositoryURL: https://github.com/ADI-Foundation-Labs/ADI-Stack-Airbender-System
+      baseBranch: v0.5.1-b
+      workflowRef: bridge-l2-zk-security-review
+      policyPackRef: bug-bounty
+      scanName: adi-airbender-system
+      displayName: ADI Stack Airbender System v0.5.1-b
+      priority: 21
+      featured: true
+    - repositoryURL: https://github.com/ADI-Foundation-Labs/ADI-Stack-Contracts
+      baseBranch: zkos-v0.29.11
+      workflowRef: bridge-l2-zk-security-review
+      policyPackRef: bug-bounty
+      scanName: adi-stack-contracts
+      displayName: ADI Stack Contracts zkos-v0.29.11
+      priority: 22
+      featured: true
+  provider: HackenProof
+  displayName: ADI Foundation zkVM Verification
+  programURL: https://hackenproof.com/programs/adi-foundation-zkvm-verification
+  verifiedAt: 2026-08-16T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: project-test-suite
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/ADI-Foundation-Labs/ADI-Stack-Airbender-Prover
+      displayName: ADI Stack Airbender Prover at v0.5.1-b (4f0cf4cd1a0d7cf48d366135e53da7960b936932)
+    - repositoryURL: https://github.com/ADI-Foundation-Labs/ADI-Stack-Airbender-System
+      displayName: ADI Stack Airbender System at v0.5.1-b (357b836552d72550b20a341e1b45b730bef87806)
+    - repositoryURL: https://github.com/ADI-Foundation-Labs/ADI-Stack-Contracts
+      displayName: ADI Stack Contracts state-transition at zkos-v0.29.11 (04346d566e7625ae42ec74861da409329f9f4a3d)
+    - repositoryURL: https://github.com/ADI-Foundation-Labs/ADI-Stack-Protocol
+      displayName: ADI Stack Protocol pinned to 767759541cd018e4271f9774f0d760ce727c905d
+    - repositoryURL: https://github.com/ADI-Foundation-Labs/ADI-Stack-zkOS-Wrapper
+      displayName: ADI Stack zkOS Wrapper pinned to eb75ad8ee972c63a30ef1121a1b9dc79a2942569
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-16.
+
+    ADI Foundation zkVM Verification
+
+    Live Program is active now.
+    Range of bounty: $200 - $10,000.
+    Critical: $10,000; High: $5,000; Medium: $2,000; Low: $200.
+    The program requires 150 reputation points, KYC, a proof of concept, and a $7 submission fee.
+
+    Exact in-scope source
+    - ADI-Stack-Airbender-Prover tag v0.5.1-b, commit 4f0cf4cd1a0d7cf48d366135e53da7960b936932 (Protocol, Critical)
+    - ADI-Stack-Airbender-System tag v0.5.1-b, commit 357b836552d72550b20a341e1b45b730bef87806 (Protocol, Critical)
+    - ADI-Stack-Contracts tag zkos-v0.29.11, commit 04346d566e7625ae42ec74861da409329f9f4a3d, limited to l1-contracts/contracts/state-transition (Smart Contract, Critical)
+    - ADI-Stack-Protocol commit 767759541cd018e4271f9774f0d760ce727c905d (Protocol, Critical)
+    - ADI-Stack-zkOS-Wrapper commit eb75ad8ee972c63a30ef1121a1b9dc79a2942569 (Smart Contract, Critical)
+
+    Reports from any other source-code version are rejected. The Contracts repository is scoped only to l1-contracts/contracts/state-transition, not the entire tagged repository.
+
+    Importable target boundary
+    The Prover, System, and Contracts tags are reproducible named refs and are imported. SecurityProgram scan targets can select a branch or tag through baseBranch but cannot pin an arbitrary commit. Protocol and zkOS-Wrapper are therefore policy-only assets: their main branches had drifted from the scoped commits at verification time, so importing main would scan ineligible code. Do not import either repository unless the exact scoped commit becomes representable without branch drift.
+
+    In-scope verification impacts
+    The program covers bugs that break Airbender prover or verifier soundness and cause an invalid state transition, forged proof, or incorrect proof to be accepted as valid by native Rust verification or an on-chain verifier. Focus areas are affirmative false acceptance; public-input or instance mis-binding of state roots, block numbers, chain IDs, or message commitments; transcript or Fiat-Shamir malleability; polynomial-commitment, FRI, MSM, or subgroup errors; aggregation flaws that admit invalid subproofs; and ABI, calldata, memory-layout, or endianness errors that cause malformed-proof acceptance.
+
+    Eligibility and disclosure
+    The first reporter must submit a qualifying vulnerability exclusively through HackenProof within 24 hours of discovery using the registered account email. Reports require a clear description, detailed reproduction steps, and a demonstrable PoC. Current or former employees and contractors are ineligible. Do not publish or discuss vulnerabilities without permission.
+  outOfScope:
+    - Theoretical vulnerabilities without any proof or demonstration
+    - Sub-circuit-only vulnerabilities that cannot be recreated or leveraged for the full circuit statement
+    - Issues that require modifying the verifier, guest, or circuit to exploit
+    - Documentation, test, or demo issues
+    - Best-practice critiques, gas optimizations, rounding, or purely economic considerations without proof-soundness impact
+    - Attacks that rely on social engineering
+    - Attacks that rely on leaked toxic waste during key generation
+    - Public zero-day vulnerabilities
+    - Bypassing verification through finalization, bridge, or rollup functions that do not invoke the verifier
+    - Access-control, upgrade, or configuration bugs that let an admin or external contract finalize state without going through the verifier
+    - Return-value misuse or calldata-routing bugs outside the verifier that cause acceptance of a wrong state
+    - Logic outside dedicated verifier functions, including bridge, message passing, governance, pausing, fee, and accounting logic
+    - Vendor-specific or third-party modules not maintained by ADI Foundation and not part of the exact scoped source
+    - Imported contracts or dependencies not written by the core ADI team unless modified and part of the scoped deployed ABI or explicitly listed in scope
+    - Vulnerabilities shared with vendor-maintained code and fixed publicly by the vendor before submission, whether or not ADI had deployed the fix
+    - Broken link hijacking
+    - Source-code versions other than the exact tags and commits listed in scope
+  prohibitedTesting:
+    - Avoid using web application scanners for automatic vulnerability searching which generates massive traffic
+    - Do not damage or restrict availability or interrupt or degrade any product, service, or infrastructure
+    - Do not compromise personal data or access or modify other users' data; localize all tests to your accounts
+    - Perform testing only within the exact source scope
+    - Do not exploit DoS/DDoS vulnerabilities, use social engineering, or send spam
+    - Do not spam forms or account creation flows using automated scanners
+    - Do not communicate vulnerability details outside HackenProof or authorized company employees without permission
