@@ -364,6 +364,9 @@ func (s *Server) UpdateAgentRunRuntimeConfig(ctx context.Context, req *platform.
 			}
 			fresh.Spec.Secrets.OpenAIOAuthSecret = creds.oauthSecretName
 			fresh.Spec.Secrets.ProviderKeys = mergeProviderKeys(fresh.Spec.Secrets.ProviderKeys, creds.providerKeys)
+			if creds.authMode == platformv1alpha1.AgentRunAuthModeOAuth && len(creds.oauthFallbackSecretNames) > 0 {
+				setProviderOAuthFallbackSecrets(fresh.Spec.Secrets, provider, creds.oauthFallbackSecretNames)
+			}
 			fresh.Spec.OpenAIBaseURL = triggersv1alpha1.ResolveOpenAIBaseURLWithAuth(provider, "", creds.authMode)
 			// The replacement pod mounts every saved credential so subsequent
 			// switches apply live instead of needing another restart.

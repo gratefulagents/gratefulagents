@@ -22,6 +22,7 @@ const (
 type providerOAuthSessionData struct {
 	ID           string        `json:"id"`
 	Provider     string        `json:"provider"`
+	Slot         int           `json:"slot,omitempty"`
 	Started      time.Time     `json:"started"`
 	Verifier     string        `json:"verifier,omitempty"`
 	State        string        `json:"state,omitempty"`
@@ -34,7 +35,7 @@ type providerOAuthSessionData struct {
 
 func providerOAuthSessionToData(session providerOAuthSession) providerOAuthSessionData {
 	return providerOAuthSessionData{
-		ID: session.id, Provider: session.provider, Started: session.started,
+		ID: session.id, Provider: session.provider, Slot: session.slot, Started: session.started,
 		Verifier: session.verifier, State: session.state, DeviceAuthID: session.deviceAuthID,
 		UserCode: session.userCode, PollInterval: session.pollInterval,
 		NextPollAt: session.nextPollAt, InFlight: session.inFlight,
@@ -43,7 +44,7 @@ func providerOAuthSessionToData(session providerOAuthSession) providerOAuthSessi
 
 func (data providerOAuthSessionData) session() providerOAuthSession {
 	return providerOAuthSession{
-		id: data.ID, provider: data.Provider, started: data.Started,
+		id: data.ID, provider: data.Provider, slot: data.Slot, started: data.Started,
 		verifier: data.Verifier, state: data.State, deviceAuthID: data.DeviceAuthID,
 		userCode: data.UserCode, pollInterval: data.PollInterval,
 		nextPollAt: data.NextPollAt, inFlight: data.InFlight,

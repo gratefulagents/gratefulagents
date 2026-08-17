@@ -341,6 +341,32 @@ spec:
                       - secretName
                       type: object
                     type: array
+                  providerOAuthFallbackSecrets:
+                    description: |-
+                      providerOAuthFallbackSecrets lists ordered fallback OAuth secret
+                      references holding additional subscriptions of the same provider (a
+                      user may hold several personal subscriptions). When a model call fails
+                      with a rate-limit or quota error, the agent automatically retries
+                      through the next subscription in order, so entries may repeat a
+                      provider; list order is the failover order.
+                    items:
+                      description: |-
+                        ProviderOAuthSecretRef references a K8s Secret holding OAuth material
+                        (auth.json, optionally account-id) for a specific OAuth-capable provider.
+                      properties:
+                        provider:
+                          description: provider is the OAuth-capable provider name
+                            ("openai", "anthropic", "copilot").
+                          type: string
+                        secretName:
+                          description: secretName is the name of the K8s Secret.
+                          type: string
+                      required:
+                      - provider
+                      - secretName
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
                   providerOAuthSecrets:
                     description: |-
                       providerOAuthSecrets lists additional per-provider OAuth secret

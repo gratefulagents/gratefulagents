@@ -16,9 +16,9 @@ export interface AnthropicOAuthComplete {
   credentials?: MyCredentials;
 }
 
-export async function startAnthropicOAuth(): Promise<AnthropicOAuthStart> {
+export async function startAnthropicOAuth(slot?: number): Promise<AnthropicOAuthStart> {
   if (!isTauri) {
-    const result = await client.startProviderOAuth({ provider: "anthropic" });
+    const result = await client.startProviderOAuth({ provider: "anthropic", slot: slot ?? 0 });
     return { authorizeUrl: result.authorizeUrl, sessionId: result.sessionId };
   }
   const { invoke } = await import("@tauri-apps/api/core");

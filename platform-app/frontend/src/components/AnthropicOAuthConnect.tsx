@@ -27,6 +27,8 @@ interface SavedCredentials {
 interface AnthropicOAuthConnectProps {
   /** Render only the flow body — no card chrome or header (for embedding in a provider panel). */
   compact?: boolean;
+  /** OAuth subscription slot to store into: 0/1 = primary, 2..9 = failover subscription. */
+  slot?: number;
   onSaved: (credentials: SavedCredentials) => void;
   className?: string;
 }
@@ -38,7 +40,7 @@ type Phase = "idle" | "starting" | "awaiting-code" | "exchanging" | "done";
 // sign-in link, approves in the browser, and pastes back the callback code.
 // Desktop exchanges it in Rust; web exchanges and stores it on the platform
 // server so refresh tokens never pass through browser JavaScript.
-export function AnthropicOAuthConnect({ onSaved, className, compact }: AnthropicOAuthConnectProps) {
+export function AnthropicOAuthConnect({ onSaved, className, compact, slot }: AnthropicOAuthConnectProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [authorizeUrl, setAuthorizeUrl] = useState("");
   const [sessionId, setSessionId] = useState<string | undefined>();
@@ -62,7 +64,7 @@ export function AnthropicOAuthConnect({ onSaved, className, compact }: Anthropic
     setCopied(false);
     setError(null);
     try {
-      const next = await startAnthropicOAuth();
+      const next = await startAnthropicOAuth(slot);
       if (!mountedRef.current) return;
       setAuthorizeUrl(next.authorizeUrl);
       setSessionId(next.sessionId);
@@ -72,7 +74,7 @@ export function AnthropicOAuthConnect({ onSaved, className, compact }: Anthropic
       setPhase("idle");
       setError(err instanceof Error ? err.message : "Failed to start Claude sign-in");
     }
-  }, []);
+  }, [slot]);
 
   const copyUrl = useCallback(async () => {
     if (!authorizeUrl) return;

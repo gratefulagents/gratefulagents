@@ -408,6 +408,10 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 
 	hasSpecialists := len(roleCatalog.Roles) > 0
 	runtimeCfg := sdkRuntimeProviderConfig(cfg, cfg.Model)
+	// Subscription failover (same model, next OAuth subscription) must be
+	// tried before any mode-template fallback models.
+	runtimeCfg.FallbackModels = mergedFallbackModels(cfg, cfg.Model,
+		sdkruntime.ModeOverridesFromSnapshot(platformModeSnapshotForSDK(modeSnapshot), "").FallbackModels)
 	runtimeCfg.WorkDir = cfg.RepoDir
 	runtimeCfg.AgentName = cfg.TaskName
 	runtimeCfg.Instructions = strings.Join(instructionParts, "\n\n---\n\n")
@@ -1207,6 +1211,7 @@ messageLoop:
 			runCfg := sdkruntime.BuildRunConfig(sdkruntime.Config{
 				Provider:               provider,
 				Model:                  model,
+				FallbackModels:         mergedFallbackModels(cfg, model, mo.FallbackModels),
 				WorkDir:                cfg.RepoDir,
 				ToolOutputDir:          workspaceScratchDir,
 				ActiveMode:             currentModeName,

@@ -1383,6 +1383,10 @@ message MyCredentials {
   // key only. Secret values are never returned. Resource forms use this live
   // inventory instead of offering cluster-wide or hard-coded secret names.
   repeated UserSecretState secrets = 11;
+  // oauth_subscriptions lists every saved OAuth subscription per provider,
+  // one entry per slot, ordered by provider then slot (slot 1 is the primary
+  // usercred-<provider> Secret; higher slots are failover candidates).
+  repeated ProviderOAuthSubscription oauth_subscriptions = 12;
 }
 
 // IntegrationCredentialState reports one saved integration credential: its name
@@ -1414,7 +1418,9 @@ message ListMyCredentialsRequest {}
 // local credential files (validated and normalized server-side). Recognized
 // clear keys: "anthropic-api-key", "openai-api-key",
 // "openrouter-api-key", "xai-api-key", "anthropic-oauth", "openai-oauth",
-// "copilot-oauth", "github-token".
+// "copilot-oauth", "github-token". "anthropic-oauth-<N>", "openai-oauth-<N>"
+// and "copilot-oauth-<N>" (N=2..9) clear that provider's OAuth subscription
+// slot N.
 message UpdateMyCredentialsRequest {
   string anthropic_api_key = 1;
   string openai_api_key = 2;
@@ -3934,6 +3940,10 @@ message DeleteProjectContentRequest {
 message StartProviderOAuthRequest {
   // Supported values: "anthropic", "openai".
   string provider = 1;
+  // slot selects which saved subscription the completed sign-in is stored in:
+  // 0 or 1 targets the primary usercred-<provider> Secret; 2..9 target that
+  // numbered subscription slot (usercred-<provider>-<slot>).
+  int32 slot = 2;
 }
 
 message ProviderOAuthStart {
@@ -3968,6 +3978,18 @@ message ProviderOAuthResult {
   // Populated after completion so the UI can update credential presence
   // without receiving any provider token material.
   MyCredentials credentials = 5;
+}
+
+// ProviderOAuthSubscription describes one saved OAuth subscription for an
+// OAuth-capable provider. Slot 1 is the primary usercred-<provider> Secret;
+// slots 2..9 (usercred-<provider>-<slot>) are ordered failover candidates.
+message ProviderOAuthSubscription {
+  string provider = 1;
+  int32 slot = 2;
+  string secret_name = 3;
+  // account_label is a human-readable hint for which account the subscription
+  // belongs to (the stored email when known, else the account id, else empty).
+  string account_label = 4;
 }
 
 // Provider OAuth usage messages live at the end of this file so adding this

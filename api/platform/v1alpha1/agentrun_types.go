@@ -281,6 +281,15 @@ type AgentRunSecrets struct {
 	// +listType=atomic
 	// +optional
 	ProviderOAuthSecrets []ProviderOAuthSecretRef `json:"providerOAuthSecrets,omitempty"`
+	// providerOAuthFallbackSecrets lists ordered fallback OAuth secret
+	// references holding additional subscriptions of the same provider (a
+	// user may hold several personal subscriptions). When a model call fails
+	// with a rate-limit or quota error, the agent automatically retries
+	// through the next subscription in order, so entries may repeat a
+	// provider; list order is the failover order.
+	// +listType=atomic
+	// +optional
+	ProviderOAuthFallbackSecrets []ProviderOAuthSecretRef `json:"providerOAuthFallbackSecrets,omitempty"`
 }
 
 // AgentRunDelegationPolicy defines the parent's child-run limits.

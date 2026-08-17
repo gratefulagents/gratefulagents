@@ -38,9 +38,13 @@ type runConfig struct {
 	OpenAIOAuthAccountIDPath string
 	CopilotOAuthPath         string // mounted Copilot auth.json; enables SDK self-refresh of the ~30-min API token
 	AnthropicOAuthPath       string // mounted Anthropic OAuth auth.json; enables SDK per-request re-read + self-refresh of the access token
-	Namespace                string
-	WorkspaceDir             string
-	RepoDir                  string
+	// OAuthFallbacks maps a provider (openai|anthropic|copilot) to its ordered
+	// fallback OAuth credentials mounted from spec.secrets.providerOAuthFallbackSecrets,
+	// enabling subscription failover when the active credential is rate-limited.
+	OAuthFallbacks map[string][]oauthFallbackCred
+	Namespace      string
+	WorkspaceDir   string
+	RepoDir        string
 	// WorkspaceSnapshotKey is a runtime-only per-run encryption key loaded
 	// from private session metadata. Workspace checkpoints are encrypted before
 	// they are written to object storage.
@@ -103,7 +107,9 @@ func loadRunConfig() (runConfig, error) {
 	oauthMode := strings.EqualFold(authMode, string(platformv1alpha1.AgentRunAuthModeOAuth))
 	copilotOAuthPath := ""
 	anthropicOAuthPath := ""
+	var oauthFallbacks map[string][]oauthFallbackCred
 	if oauthMode {
+		oauthFallbacks = oauthFallbacksFromEnv()
 		// Load every mounted provider's OAuth material, not just the startup
 		// provider's: additional mounts (spec.secrets.providerOAuthSecrets)
 		// let the run live-switch providers mid-run. Only the startup
@@ -175,6 +181,7 @@ func loadRunConfig() (runConfig, error) {
 		OpenAIOAuthAccountIDPath: strings.TrimSpace(os.Getenv("OPENAI_OAUTH_ACCOUNT_ID_PATH")),
 		CopilotOAuthPath:         copilotOAuthPath,
 		AnthropicOAuthPath:       anthropicOAuthPath,
+		OAuthFallbacks:           oauthFallbacks,
 		Namespace:                namespace,
 		WorkspaceDir:             workspace,
 		RepoDir:                  filepath.Join(workspace, "repo"),
@@ -196,6 +203,40 @@ func splitCommaList(value string) []string {
 		}
 	}
 	return out
+}
+
+// oauthFallbackCred is one mounted fallback OAuth credential: the auth.json
+// path plus, for OpenAI, the index-aligned account-id path.
+type oauthFallbackCred struct {
+	AuthJSONPath  string
+	AccountIDPath string
+}
+
+// oauthFallbacksFromEnv parses the ordered fallback OAuth credential paths the
+// controller mounts from spec.secrets.providerOAuthFallbackSecrets. The OpenAI
+// account-id list is index-aligned with the OpenAI auth.json list; a missing
+// entry leaves AccountIDPath empty.
+func oauthFallbacksFromEnv() map[string][]oauthFallbackCred {
+	fallbacks := map[string][]oauthFallbackCred{}
+	openAIAuthPaths := splitCommaList(os.Getenv("OPENAI_OAUTH_FALLBACK_AUTH_JSON_PATHS"))
+	openAIAccountIDPaths := splitCommaList(os.Getenv("OPENAI_OAUTH_FALLBACK_ACCOUNT_ID_PATHS"))
+	for i, authPath := range openAIAuthPaths {
+		cred := oauthFallbackCred{AuthJSONPath: authPath}
+		if i < len(openAIAccountIDPaths) {
+			cred.AccountIDPath = openAIAccountIDPaths[i]
+		}
+		fallbacks["openai"] = append(fallbacks["openai"], cred)
+	}
+	for _, authPath := range splitCommaList(os.Getenv("ANTHROPIC_OAUTH_FALLBACK_AUTH_JSON_PATHS")) {
+		fallbacks["anthropic"] = append(fallbacks["anthropic"], oauthFallbackCred{AuthJSONPath: authPath})
+	}
+	for _, authPath := range splitCommaList(os.Getenv("COPILOT_OAUTH_FALLBACK_AUTH_JSON_PATHS")) {
+		fallbacks["copilot"] = append(fallbacks["copilot"], oauthFallbackCred{AuthJSONPath: authPath})
+	}
+	if len(fallbacks) == 0 {
+		return nil
+	}
+	return fallbacks
 }
 
 // deriveProvider extracts the provider from a prefixed model name (e.g.

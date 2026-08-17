@@ -923,6 +923,135 @@ func providerOAuthEnvs(run *platformv1alpha1.AgentRun) []corev1.EnvVar {
 	return envs
 }
 
+// providerOAuthFallbackEntry is one normalized fallback OAuth secret ref with
+// its 1-based per-provider mount index.
+type providerOAuthFallbackEntry struct {
+	Provider   string
+	SecretName string
+	Index      int
+}
+
+// providerOAuthFallbackEntries returns the normalized ordered fallback OAuth
+// secret refs to mount: OAuth-capable providers only, deduped by
+// provider+secret, skipping any ref that duplicates the provider's primary
+// secret (the legacy openaiOAuthSecret volume or a providerOAuthSecrets entry).
+func providerOAuthFallbackEntries(run *platformv1alpha1.AgentRun) []providerOAuthFallbackEntry {
+	if run == nil || run.Spec.Secrets == nil {
+		return nil
+	}
+	primary := map[string]string{}
+	if requiresProviderOAuth(run) && strings.TrimSpace(run.Spec.Secrets.OpenAIOAuthSecret) != "" {
+		legacyProvider := strings.ToLower(strings.TrimSpace(effectiveProvider(run)))
+		primary[legacyProvider] = strings.TrimSpace(run.Spec.Secrets.OpenAIOAuthSecret)
+	}
+	for _, ref := range providerOAuthSecretEntries(run) {
+		primary[ref.Provider] = ref.SecretName
+	}
+	var entries []providerOAuthFallbackEntry
+	seen := map[string]bool{}
+	counts := map[string]int{}
+	for _, ref := range run.Spec.Secrets.ProviderOAuthFallbackSecrets {
+		provider := strings.ToLower(strings.TrimSpace(ref.Provider))
+		secretName := strings.TrimSpace(ref.SecretName)
+		switch provider {
+		case "openai", "anthropic", "copilot":
+		default:
+			continue
+		}
+		key := provider + "/" + secretName
+		if secretName == "" || secretName == primary[provider] || seen[key] {
+			continue
+		}
+		seen[key] = true
+		counts[provider]++
+		entries = append(entries, providerOAuthFallbackEntry{Provider: provider, SecretName: secretName, Index: counts[provider]})
+	}
+	return entries
+}
+
+func providerOAuthFallbackVolumeName(entry providerOAuthFallbackEntry) string {
+	return fmt.Sprintf("provider-oauth-fb-%s-%d", entry.Provider, entry.Index)
+}
+
+func providerOAuthFallbackMountPath(entry providerOAuthFallbackEntry) string {
+	return fmt.Sprintf("%s/fallback/%s/%d", providerOAuthMountRoot, entry.Provider, entry.Index)
+}
+
+// providerOAuthFallbackVolumes mounts each fallback OAuth secret so the agent
+// can fail over to another subscription of the same provider when the active
+// one is rate-limited, without a compute restart.
+func providerOAuthFallbackVolumes(run *platformv1alpha1.AgentRun) []corev1.Volume {
+	entries := providerOAuthFallbackEntries(run)
+	volumes := make([]corev1.Volume, 0, len(entries))
+	for _, entry := range entries {
+		volumes = append(volumes, corev1.Volume{
+			Name: providerOAuthFallbackVolumeName(entry),
+			VolumeSource: corev1.VolumeSource{
+				Projected: &corev1.ProjectedVolumeSource{
+					Sources: []corev1.VolumeProjection{
+						{
+							Secret: &corev1.SecretProjection{
+								LocalObjectReference: corev1.LocalObjectReference{Name: entry.SecretName},
+								Items:                []corev1.KeyToPath{{Key: "auth.json", Path: "auth.json"}},
+							},
+						},
+						{
+							Secret: &corev1.SecretProjection{
+								LocalObjectReference: corev1.LocalObjectReference{Name: entry.SecretName},
+								Items:                []corev1.KeyToPath{{Key: "account-id", Path: "account-id"}},
+								Optional:             new(true),
+							},
+						},
+					},
+				},
+			},
+		})
+	}
+	return volumes
+}
+
+func providerOAuthFallbackVolumeMounts(run *platformv1alpha1.AgentRun) []corev1.VolumeMount {
+	entries := providerOAuthFallbackEntries(run)
+	mounts := make([]corev1.VolumeMount, 0, len(entries))
+	for _, entry := range entries {
+		mounts = append(mounts, corev1.VolumeMount{
+			Name:      providerOAuthFallbackVolumeName(entry),
+			MountPath: providerOAuthFallbackMountPath(entry),
+			ReadOnly:  true,
+		})
+	}
+	return mounts
+}
+
+// providerOAuthFallbackEnvs points the agent at the ordered fallback OAuth
+// material per provider as comma-joined path lists. The OpenAI account-id
+// list is index-aligned with the OpenAI auth.json list.
+func providerOAuthFallbackEnvs(run *platformv1alpha1.AgentRun) []corev1.EnvVar {
+	authPaths := map[string][]string{}
+	var openAIAccountIDPaths []string
+	for _, entry := range providerOAuthFallbackEntries(run) {
+		mountPath := providerOAuthFallbackMountPath(entry)
+		authPaths[entry.Provider] = append(authPaths[entry.Provider], mountPath+"/auth.json")
+		if entry.Provider == "openai" {
+			openAIAccountIDPaths = append(openAIAccountIDPaths, mountPath+"/account-id")
+		}
+	}
+	var envs []corev1.EnvVar
+	if paths := authPaths["openai"]; len(paths) > 0 {
+		envs = append(envs,
+			corev1.EnvVar{Name: "OPENAI_OAUTH_FALLBACK_AUTH_JSON_PATHS", Value: strings.Join(paths, ",")},
+			corev1.EnvVar{Name: "OPENAI_OAUTH_FALLBACK_ACCOUNT_ID_PATHS", Value: strings.Join(openAIAccountIDPaths, ",")},
+		)
+	}
+	if paths := authPaths["anthropic"]; len(paths) > 0 {
+		envs = append(envs, corev1.EnvVar{Name: "ANTHROPIC_OAUTH_FALLBACK_AUTH_JSON_PATHS", Value: strings.Join(paths, ",")})
+	}
+	if paths := authPaths["copilot"]; len(paths) > 0 {
+		envs = append(envs, corev1.EnvVar{Name: "COPILOT_OAUTH_FALLBACK_AUTH_JSON_PATHS", Value: strings.Join(paths, ",")})
+	}
+	return envs
+}
+
 func githubTokenEnv(run *platformv1alpha1.AgentRun) *corev1.EnvVar {
 	if run == nil || run.Spec.Secrets == nil || strings.TrimSpace(run.Spec.Secrets.GitHubTokenSecret) == "" {
 		return nil
@@ -1364,6 +1493,7 @@ func buildCommonPodSpec(run *platformv1alpha1.AgentRun, saName string, command [
 	envs = append(envs, providerAPIKeyEnvs(run)...)
 	envs = append(envs, openAIOAuthEnvs(run)...)
 	envs = append(envs, providerOAuthEnvs(run)...)
+	envs = append(envs, providerOAuthFallbackEnvs(run)...)
 	envs = append(envs, modeConstraintEnvs(run)...)
 	envs = append(envs, toolPolicyEnvs(run)...)
 	envs = append(envs, gitIdentityEnvs(run)...)
@@ -1376,6 +1506,7 @@ func buildCommonPodSpec(run *platformv1alpha1.AgentRun, saName string, command [
 	}
 	volumeMounts = maybeAppendVolumeMount(volumeMounts, openAIOAuthVolumeMount(run))
 	volumeMounts = append(volumeMounts, providerOAuthVolumeMounts(run)...)
+	volumeMounts = append(volumeMounts, providerOAuthFallbackVolumeMounts(run)...)
 	volumeMounts = append(volumeMounts, extraVolumeMounts...)
 	volumes := []corev1.Volume{
 		{Name: "gratefulagents-toolkit", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
@@ -1384,6 +1515,7 @@ func buildCommonPodSpec(run *platformv1alpha1.AgentRun, saName string, command [
 	}
 	volumes = maybeAppendVolume(volumes, openAIOAuthVolume(run))
 	volumes = append(volumes, providerOAuthVolumes(run)...)
+	volumes = append(volumes, providerOAuthFallbackVolumes(run)...)
 	volumes = append(volumes, extraVolumes...)
 
 	if instructionsRef := instructionsConfigMapName(run); instructionsRef != "" {

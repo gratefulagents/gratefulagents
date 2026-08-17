@@ -23,9 +23,10 @@ type modeOverrides struct {
 	ModelSettings          agent.ModelSettings
 	MaxTurns               int32
 	SubAgentMaxTurns       int32
-	ModeInstructions       string // Behavioral prompt from ModeTemplate.Instructions.
-	MaxConcurrentSubAgents int    // from CRD ModeConstraints (0 = unlimited)
-	ExecutionStrategy      string // from CRD (serial/parallel/pipeline)
+	ModeInstructions       string   // Behavioral prompt from ModeTemplate.Instructions.
+	MaxConcurrentSubAgents int      // from CRD ModeConstraints (0 = unlimited)
+	ExecutionStrategy      string   // from CRD (serial/parallel/pipeline)
+	FallbackModels         []string // SDK-level fallback models from ModeTemplate.ModelRouting
 }
 
 // modeInstructionsCache caches live ModeTemplate instructions with a short TTL
@@ -74,6 +75,7 @@ func readModeOverrides(ctx context.Context, c client.Client, taskName, namespace
 	mo.MaxTurns = int32(sdkOverrides.MaxTurns)
 	mo.SubAgentMaxTurns = int32(sdkOverrides.SubAgentMaxTurns)
 	mo.MaxConcurrentSubAgents = sdkOverrides.MaxConcurrentSubAgents
+	mo.FallbackModels = sdkOverrides.FallbackModels
 
 	// Always read instructions from the live resolved ModeTemplate CRD so edits
 	// take effect without restarting the run. The snapshot name is canonical:

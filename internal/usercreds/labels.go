@@ -13,4 +13,10 @@ const (
 	// (e.g. "anthropic", "openai", "copilot") so the refresher knows how to rotate
 	// its OAuth material.
 	LabelCredentialProvider = "platform.gratefulagents.dev/credential-provider"
+	// LabelCredentialSlot records which subscription slot ("1", "2", ...) a
+	// credential Secret holds when a user saves multiple OAuth subscriptions
+	// for the same provider. Slot 1 is the primary usercred-<provider>
+	// Secret; higher slots (usercred-<provider>-<slot>) are automatic
+	// failover candidates when the primary is rate limited.
+	LabelCredentialSlot = "platform.gratefulagents.dev/credential-slot"
 )
