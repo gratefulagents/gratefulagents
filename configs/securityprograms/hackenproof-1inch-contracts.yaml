@@ -1,0 +1,173 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-1inch-contracts
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/1inch/limit-order-protocol
+      baseBranch: master
+      workflowRef: bounty-hunt-evm
+      policyPackRef: bug-bounty
+      scanName: 1inch-limit-order-protocol
+      displayName: 1inch Limit Order Protocol
+      priority: 33
+      featured: true
+      parameterValues:
+        chain_id: "1"
+        project_root: .
+    - repositoryURL: https://github.com/1inch/fusion-protocol
+      baseBranch: master
+      workflowRef: bounty-hunt-evm
+      policyPackRef: bug-bounty
+      scanName: 1inch-fusion-protocol
+      displayName: 1inch Limit Order Settlement
+      priority: 34
+      featured: true
+      parameterValues:
+        chain_id: "1"
+        project_root: .
+    - repositoryURL: https://github.com/1inch/cross-chain-swap
+      baseBranch: master
+      workflowRef: bounty-hunt-evm
+      policyPackRef: bug-bounty
+      scanName: 1inch-cross-chain-swap
+      displayName: 1inch Cross-Chain Swap
+      priority: 35
+      featured: true
+      parameterValues:
+        chain_id: "1"
+        project_root: .
+    - repositoryURL: https://github.com/1inch/token-plugins
+      baseBranch: master
+      workflowRef: bounty-hunt-evm
+      policyPackRef: bug-bounty
+      scanName: 1inch-token-plugins
+      displayName: 1inch Token Plugins
+      priority: 36
+      featured: false
+      parameterValues:
+        chain_id: "1"
+        project_root: .
+    - repositoryURL: https://github.com/1inch/farming
+      baseBranch: master
+      workflowRef: bounty-hunt-evm
+      policyPackRef: bug-bounty
+      scanName: 1inch-farming
+      displayName: 1inch Farming Contracts
+      priority: 37
+      featured: false
+      parameterValues:
+        chain_id: "1"
+        project_root: .
+    - repositoryURL: https://github.com/1inch/delegating
+      baseBranch: master
+      workflowRef: bounty-hunt-evm
+      policyPackRef: bug-bounty
+      scanName: 1inch-delegating
+      displayName: 1inch Delegating Contracts
+      priority: 38
+      featured: false
+      parameterValues:
+        chain_id: "1"
+        project_root: .
+    - repositoryURL: https://github.com/1inch/solana-crosschain-protocol
+      baseBranch: master
+      workflowRef: solana-anchor-security-review
+      policyPackRef: bug-bounty
+      scanName: 1inch-solana-crosschain-protocol
+      displayName: 1inch Solana Cross-Chain Protocol
+      priority: 39
+      featured: false
+    - repositoryURL: https://github.com/1inch/solana-fusion
+      baseBranch: main
+      workflowRef: solana-anchor-security-review
+      policyPackRef: bug-bounty
+      scanName: 1inch-solana-fusion
+      displayName: 1inch Solana Fusion
+      priority: 40
+      featured: false
+  provider: HackenProof
+  displayName: 1inch Smart Contract
+  programURL: https://hackenproof.com/programs/1inch-smart-contract
+  verifiedAt: 2026-08-17T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: project-test-suite
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/1inch/limit-order-protocol
+      displayName: Limit order protocol (Smart Contract, Critical)
+    - repositoryURL: https://github.com/1inch/fusion-protocol
+      displayName: Limit order settlement (Smart Contract, Critical)
+    - repositoryURL: https://github.com/1inch/token-plugins
+      displayName: Token-plugins (Smart Contract, Critical)
+    - repositoryURL: https://github.com/1inch/farming
+      displayName: Farming contracts (Smart Contract, Critical)
+    - repositoryURL: https://github.com/1inch/delegating
+      displayName: Delegating contracts (Smart Contract, Critical)
+    - repositoryURL: https://github.com/1inch/cross-chain-swap
+      displayName: Cross-chain swap (Smart Contract, Critical)
+    - repositoryURL: https://github.com/1inch/solana-crosschain-protocol
+      displayName: Solana cross-chain protocol (Smart Contract, Critical)
+    - repositoryURL: https://github.com/1inch/solana-fusion
+      displayName: Solana Fusion (Smart Contract, Critical)
+  knownIssues:
+    - source: 1inch published audit repository
+      summary: The program lists https://github.com/1inch/1inch-audits/tree/master as its known issues. Findings already disclosed by those audits are not novel and are not reportable.
+      reference: https://github.com/1inch/1inch-audits
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-17.
+
+    Live Program is active now.
+    Range of bounty: $100 - $500,000.
+    Critical: $30,000 - $500,000; High: $10,000 - $30,000; Medium: $2,000 - $10,000; Low: $100 - $2,000.
+    The program requires 100 reputation points, KYC, and a proof of concept. HackenProof charges no submission fee for this program.
+
+    Exact source scope and import boundaries
+    - https://github.com/1inch/limit-order-protocol (Smart Contract, Critical) - Limit order protocol
+    - https://github.com/1inch/fusion-protocol (Smart Contract, Critical) - Limit order settlement
+    - https://github.com/1inch/token-plugins (Smart Contract, Critical) - Token-plugins
+    - https://github.com/1inch/farming (Smart Contract, Critical) - Farming contracts
+    - https://github.com/1inch/delegating (Smart Contract, Critical) - Delegating contracts
+    - https://github.com/1inch/cross-chain-swap (Smart Contract, Critical)
+    - https://github.com/1inch/solana-crosschain-protocol (Smart Contract, Critical)
+    - https://github.com/1inch/solana-fusion (Smart Contract, Critical)
+
+    All eight in-scope repositories are imported. Repository default branches were verified as master for limit-order-protocol, fusion-protocol, token-plugins, farming, delegating, cross-chain-swap, and solana-crosschain-protocol, and main for solana-fusion. The program rule "The program applies only to the latest tag/release" means a finding must be reproduced against the latest published release of the affected repository rather than against arbitrary default-branch work in progress.
+
+    In-scope vulnerabilities
+    The following vulnerabilities are considered in-scope: Reentrancy; Reordering; Overflows and underflows; Stealing or loss of funds; Unauthorized transaction; Transaction manipulation; Attacks on logic (behavior of the code is different from the business description). All in-scope vulnerability reports must include a Proof of Concept (PoC) that demonstrates real-world impact. Submissions without a PoC will not be considered.
+
+    Out-of-scope note as published
+    Vulnerabilities identified in out-of-scope resources are generally not eligible for rewards unless they present a significant business risk, as determined at the program's sole discretion.
+
+    Known issues
+    The program points to https://github.com/1inch/1inch-audits/tree/master as its published known-issue set.
+
+    Testing rules
+    AI-generated reports will not be considered, and automated scanning results will not be considered. Do not access or modify data belonging to other users. Non-production vulnerabilities are limited to High severity. Perform testing only within the scope described in this program. Do not spam forms or account creation flows using automated tools. Avoid compromising any personal data, interruption, or degradation of any service. Do not exploit any DoS/DDoS vulnerabilities, social engineering attacks, or spam methods. Remain compliant with all applicable laws and operate strictly within the defined testing scope. Avoid causing any disruption to the availability of products, services, or infrastructure. Bounty reward is determined by the proportion of potential damage and is limited by a severity rewards range.
+
+    Eligibility, reporting, and disclosure
+    The first reporter must report a qualifying, in-scope vulnerability no later than 24 hours after discovery. Reports must contain a clear textual description and detailed steps to reproduce the issue, with attachments such as screenshots or proof-of-concept code if necessary, and clear and concise reproduction steps so impact can be verified efficiently. Former and current employees of the company or any of its contractors are ineligible. All information related to this program, including any discovered vulnerabilities, resolved or unresolved, must be kept strictly confidential; public disclosure, including partial disclosure or discussion in any public forum, channel, or platform, is strictly prohibited without the organization's explicit written consent.
+  outOfScope:
+    - Redundant code
+    - Best practice issues
+    - Old compiler version
+    - Code style guide violations
+    - The compiler version is not locked
+    - Vulnerabilities in imported contracts
+    - Micro gas optimizations (less than 1k of gas)
+    - Lack of support for Fee-on-Transfer (FoT) tokens
+    - Theoretical or purely speculative exploits without demonstrated business impact
+  prohibitedTesting:
+    - AI-generated reports will not be considered
+    - Automated scanning results will not be considered
+    - Do not access or modify data belonging to other users
+    - Perform testing only within the scope described in this program
+    - Do not spam forms or account creation flows using automated tools
+    - Avoid compromising any personal data, interruption, or degradation of any service
+    - Do not exploit any DoS/DDoS vulnerabilities, social engineering attacks, or spam methods
+    - Remain compliant with all applicable laws and operate strictly within the defined testing scope
+    - Avoid causing any disruption to the availability of products, services, or infrastructure
+    - Do not share details of any vulnerabilities with anyone outside the authorized team without explicit written permission from the organization

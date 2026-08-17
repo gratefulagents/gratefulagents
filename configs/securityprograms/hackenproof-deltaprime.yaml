@@ -1,0 +1,75 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-deltaprime
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/DeltaPrimeLabs/deltaprime-contracts
+      baseBranch: v1.1.0
+      workflowRef: bounty-hunt-evm
+      policyPackRef: bug-bounty
+      scanName: deltaprime-contracts
+      displayName: DeltaPrime contracts at v1.1.0
+      priority: 32
+      featured: true
+      parameterValues:
+        project_root: .
+  provider: HackenProof
+  displayName: DeltaPrime Smart Contracts
+  programURL: https://hackenproof.com/programs/deltaprime-smart-contracts
+  verifiedAt: 2026-08-17T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  assets:
+    - repositoryURL: https://github.com/DeltaPrimeLabs/deltaprime-contracts
+      displayName: DeltaPrime contracts at tag v1.1.0 (Smart Contract, Critical)
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-17.
+
+    Live Program is active now.
+    Range of bounty: $1,000 - $250,000.
+    Critical: $5,000 - $20,000; High: $2,000 - $5,000; Medium: $500 - $2,000; Low: $100 - $500.
+    The displayed bounty range and the per-severity table are transcribed exactly as published; the program advertises a $250,000 ceiling while its severity table caps Critical at $20,000. HackenProof charges a $5 submission fee. The program publishes no reputation-point minimum and does not mark KYC or a proof of concept as required.
+
+    Exact source scope and import boundaries
+    - https://github.com/DeltaPrimeLabs/deltaprime-contracts/tree/v1.1.0 (Smart Contract, Critical)
+
+    Eligibility is pinned to tag v1.1.0 of DeltaPrimeLabs/deltaprime-contracts, which is why the imported scan target uses that tag rather than the repository default branch, main. The separate deltaprime-contracts-v2 repository is not an in-scope target, and four of its paths are listed as explicit exclusions.
+
+    Explicitly out-of-scope targets
+    - https://github.com/DeltaPrimeLabs/deltaprime-contracts-v2/tree/v1.0.0/contracts/RecoveryManager.sol
+    - https://github.com/DeltaPrimeLabs/deltaprime-contracts-v2/tree/v1.0.0/contracts/VestingDistributor.sol
+    - https://github.com/DeltaPrimeLabs/deltaprime-contracts-v2/tree/v1.0.0/contracts/token/*
+    - https://github.com/DeltaPrimeLabs/deltaprime-contracts-v2/tree/v1.0.0/contracts/facets/avalanche/UniswapV3Facet.sol
+
+    In-scope vulnerabilities
+    The program seeks evidence and reasons for incorrect behavior of the smart contract which could cause stealing or loss of funds, resulting from but not limited to: Unauthorized transaction; Transaction manipulation; Attacks on logic (behavior of the code is different from the business description); Reentrancy; Reordering. A report must show that the issue leads to loss of funds.
+
+    Testing rules
+    Avoid using web application scanners for automatic vulnerability searching which generates massive traffic. Make every effort not to damage or restrict the availability of products, services, or infrastructure, and avoid compromising any personal data, interruption, or degradation of any service. Do not access or modify other user data; localize all tests to your accounts. Perform testing only within the scope. Do not exploit any DoS/DDoS vulnerabilities, social engineering attacks, or spam, and do not spam forms or account creation flows using automated scanners. Do not break any law and stay in the defined scope. For a chain of vulnerabilities only the vulnerability with the highest severity is paid.
+
+    Payment note
+    The program states: "NOTE! DeltaPrime is entitled to make payments in DeltaPrime (PRIME) tokens - locked distribution with up to 1 year."
+
+    Eligibility, reporting, and disclosure
+    The first reporter must submit a qualifying vulnerability exclusively through hackenproof.com no later than 24 hours after discovery, using only the HackenProof address registered to the account. Reports must contain a clear textual description with detailed but to-the-point reproduction steps and attachments such as screenshots or proof-of-concept code as necessary. Former and current employees of the company or its contractors are ineligible. Do not discuss this program or any vulnerabilities, even resolved ones, outside the program without express consent from the organization; no vulnerability disclosure, including partial, is allowed, and bugs must not be published or discussed.
+  outOfScope:
+    - Theoretical vulnerabilities without any proof or demonstration
+    - Temporary freeze of funds
+    - Old compiler version
+    - The compiler version is not locked
+    - Vulnerabilities in imported contracts
+    - Code style guide violations
+    - Redundant code
+    - Gas optimizations
+    - Best practice issues
+  prohibitedTesting:
+    - Avoid using web application scanners for automatic vulnerability searching which generates massive traffic
+    - Make every effort not to damage or restrict the availability of products, services, or infrastructure
+    - Avoid compromising any personal data, interruption, or degradation of any service
+    - Do not access or modify other user data; localize all tests to your accounts
+    - Perform testing only within the scope
+    - Do not exploit any DoS/DDoS vulnerabilities, social engineering attacks, or spam
+    - Do not spam forms or account creation flows using automated scanners
+    - Do not break any law and stay in the defined scope
+    - Do not communicate vulnerability details to anyone who is not a HackenProof Team member or an authorized employee of the company without appropriate permission

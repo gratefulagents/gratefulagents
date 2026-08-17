@@ -1,0 +1,124 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-layer3
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/layer3xyz/cubes
+      baseBranch: main
+      workflowRef: bounty-hunt-evm
+      policyPackRef: bug-bounty
+      scanName: layer3-cubes-escrow-factory
+      displayName: Layer3 Cubes escrow Factory.sol
+      priority: 45
+      featured: true
+      parameterValues:
+        chain_id: "1"
+        project_root: .
+  provider: HackenProof
+  displayName: Layer3 Smart Contracts
+  programURL: https://hackenproof.com/programs/layer3-smart-contracts
+  verifiedAt: 2026-08-17T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: mainnet-fork
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/layer3xyz/cubes
+      displayName: Layer3 Cubes, src/escrow/Factory.sol at main (Smart Contract, Critical)
+    - displayName: Layer3 Staking (Proxy), current implementation only (Smart Contract, Critical)
+      chainID: "1"
+      address: "0x8e02d37b6cad86039bdd11095b8c879b907f7d10"
+    - displayName: Layer3 escrow Factory deployment (Smart Contract, Critical)
+      chainID: "1"
+      address: "0x5e2b297016d41055876ff1078100c548adc3a498"
+  inScopeImpacts:
+    - impact: Stealing or loss of funds
+      level: critical
+      assetType: Smart Contract
+    - impact: Unauthorized transaction(s)
+      level: critical
+      assetType: Smart Contract
+    - impact: Permanent freezing
+      level: critical
+      assetType: Smart Contract
+    - impact: Temporary freezing
+      level: high
+      assetType: Smart Contract
+    - impact: Griefing or malicious disruption
+      level: medium
+      assetType: Smart Contract
+  knownIssues:
+    - source: Layer3 published known issues
+      summary: The parameter swap issue on the function `withdrawERC1155` is a known issue.
+    - source: Layer3 internal monitoring
+      summary: The Layer3 team actively monitors and addresses vulnerabilities across all assets internally and across platforms. A reported issue that is already known is marked as a duplicate and closed.
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-17.
+
+    Live Program is active now.
+    Range of bounty: $0 - $500,000.
+    Critical: up to $500,000; High: up to $50,000; Medium: up to $5,000. Low severity issues are considered out of scope and are not eligible for a bounty.
+    The program requires 100 reputation points, KYC, and a proof of concept. HackenProof charges no submission fee for this program.
+
+    Exact source scope and import boundaries
+    - https://etherscan.io/address/0x8e02d37b6cad86039bdd11095b8c879b907f7d10#code (Smart Contract, Critical) - Staking (Proxy). Contract is deployed with proxy. The current implementation of the contract is in scope.
+    - https://github.com/layer3xyz/cubes/blob/main/src/escrow/Factory.sol (Smart Contract, Critical), deployed at https://etherscan.io/address/0x5e2b297016d41055876ff1078100c548adc3a498
+
+    Only src/escrow/Factory.sol in layer3xyz/cubes at its verified default branch, main, is an eligible source target; no other file in that repository is in scope. The Staking proxy is a deployed-state asset with no published source repository, so it is recorded as an asset and is not imported as a scan target. Only the current implementation behind that proxy is eligible.
+
+    Severity ladder as published
+    Critical covers Stealing or loss of funds (staked funds, rewards distributed to the contract, unclaimed rewards earned by stakers); Unauthorized transaction(s) (calling privileged functions bound to the owner, bypassing access controls to alter staking parameters, transferring staked funds without proper authorization, performing an emergency withdrawal); and Permanent freezing (staked funds, rewards distributed to the contract, unclaimed rewards earned by stakers).
+    High covers Temporary freezing (staked funds, rewards distributed to the contract, unclaimed rewards earned by stakers).
+    Medium covers Griefing or malicious disruption.
+    The program separately defines critical issues as those resulting in the loss or permanent freezing of staked funds.
+
+    The program notes that while specific in-scope and out-of-scope areas are outlined, a vulnerability that does not clearly fit those categories may still be submitted following the program rules and will be reviewed and triaged accordingly.
+
+    Known issues
+    The parameter swap issue on the function `withdrawERC1155` is a known issue. The Layer3 team actively monitors and addresses vulnerabilities across all assets internally and across platforms; an issue already known to them is marked as a duplicate and closed.
+
+    Testing rules
+    Submit one vulnerability per report unless multiple vulnerabilities need to be chained to demonstrate impact, and include a proof of concept for all severity levels. Perform testing only within the defined scope, and avoid testing on mainnet or public testnet deployed code; all testing should be done on local forks of public testnet or mainnet. Make every effort not to damage or restrict the availability of products, services, or infrastructure. Avoid compromising personal data, and do not cause any interruption or degradation of service. Do not access or modify other users' data; localize all tests to your own accounts. Do not use automated web application scanners that generate excessive traffic. Do not exploit any DoS/DDoS vulnerabilities, social engineering attacks, or spam techniques. Avoid spamming forms or account creation flows using automated tools. Do not break any laws or exceed the defined scope during testing. For a chain of vulnerabilities only the vulnerability with the highest severity is eligible for a reward.
+
+    Bounty payment terms as published
+    The program states: "Critical severity issues are rewarded with a 6-month linear vesting schedule, with a maximum payout of USD 500,000 in $DEXE." and "Medium severity bounties are paid in stablecoins, while high and critical severity bounties are paid in $DEXE." and "Low severity issues are considered out of scope and are not eligible for a bounty." These payment clauses are transcribed exactly as published.
+
+    Eligibility, reporting, and disclosure
+    Details of discovered vulnerabilities must not be communicated to anyone outside the authorized team, such as the HackenProof Team or company employees, without proper permission. All testing must be conducted legally and within the scope of the program. A valid finding may require additional KYC verification before payment.
+  outOfScope:
+    - Theoretical vulnerabilities without practical proof or demonstration.
+    - Vulnerabilities in our staking contract that do not demonstrate a direct impact within the specified scope.
+    - Use of an old compiler version.
+    - Lack of compiler version locking.
+    - Vulnerabilities in imported contracts.
+    - Code style guide violations.
+    - Presence of redundant or unused code.
+    - Issues found in test files or configuration files.
+    - Vulnerabilities specifically related to the OpenZeppelin proxy implementation or contract upgrades.
+    - Gas optimizations.
+    - Best practice recommendations.
+    - Feature requests or suggestions for improvement.
+    - Issues related to the triggering of withdrawals, as long as funds reach the correct address.
+    - Impacts caused by attacks requiring access to leaked keys or credentials.
+    - Impacts caused by attacks requiring access to privileged roles (e.g., owner, admin), except in cases where the contracts are explicitly designed to have no privileged access.
+    - Assumptions that trusted roles like Owner or Admin will behave maliciously. Reports based on these assumptions will be considered invalid.
+    - Incorrect data supplied by third-party oracles.
+    - Impacts requiring basic economic or governance attacks (e.g., 51% attack).
+    - Impacts involving centralization risks.
+    - Sybil attacks or other similar non-contract-specific exploits.
+    - Known issues that have already been publicly disclosed or self-reported.
+    - Issues related to the OpenZeppelin proxy contract itself, rather than the custom logic implemented in the staking contract.
+    - Any issues described in previous security audit reports.
+    - Low severity issues are considered out of scope and are not eligible for a bounty.
+  prohibitedTesting:
+    - Perform testing only within the defined scope. Avoid testing on mainnet or public testnet deployed code; all testing should be done on local forks of public testnet or mainnet
+    - Make every effort not to damage or restrict the availability of products, services, or infrastructure
+    - Avoid compromising personal data, and do not cause any interruption or degradation of service
+    - Do not access or modify other users' data. Localize all tests to your own accounts
+    - Do not use automated web application scanners that generate excessive traffic
+    - Do not exploit any DoS/DDoS vulnerabilities, social engineering attacks, or spam techniques
+    - Avoid spamming forms or account creation flows using automated tools
+    - Do not break any laws or exceed the defined scope during testing
+    - Any details of discovered vulnerabilities must not be communicated to anyone outside of the authorized team (e.g., HackenProof Team or Company employees) without proper permission
