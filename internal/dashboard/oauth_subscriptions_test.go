@@ -366,3 +366,103 @@ func TestMyCredentialsProtoListsOAuthSubscriptions(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteCredentialSlotKeysSingleMutation(t *testing.T) {
+	scheme := testProjectScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		oauthSlotSecret("ns", triggersv1alpha1.ProviderOpenAI, 2, map[string][]byte{
+			userCredOAuthJSONKey: []byte(`{}`),
+			userCredAccountIDKey: []byte("acct"),
+			userCredEmailKey:     []byte("two@example.com"),
+		}),
+	).Build()
+	srv := &Server{k8sClient: c, scheme: scheme}
+	ctx := context.Background()
+
+	if err := srv.deleteCredentialSlotKeys(ctx, "ns", triggersv1alpha1.ProviderOpenAI, 2,
+		userCredOAuthJSONKey, userCredAccountIDKey, userCredEmailKey); err != nil {
+		t.Fatalf("deleteCredentialSlotKeys: %v", err)
+	}
+	secret := &corev1.Secret{}
+	err := c.Get(ctx, client.ObjectKey{Namespace: "ns", Name: "usercred-openai-2"}, secret)
+	if !k8serrors.IsNotFound(err) {
+		t.Fatalf("expected slot secret deleted in one mutation, got err=%v data=%v", err, secret.Data)
+	}
+	// Idempotent on a missing secret.
+	if err := srv.deleteCredentialSlotKeys(ctx, "ns", triggersv1alpha1.ProviderOpenAI, 2, userCredOAuthJSONKey); err != nil {
+		t.Fatalf("second delete: %v", err)
+	}
+}
+
+func TestResolveSavedProviderCredentialsUsesSecondaryOnlyOAuth(t *testing.T) {
+	scheme := testProjectScheme(t)
+	// Slot 1 was disconnected; only slot 3 remains and no API key is saved.
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		oauthSlotSecret("ns", triggersv1alpha1.ProviderOpenAI, 3, map[string][]byte{
+			userCredOAuthJSONKey: []byte(`{}`),
+		}),
+	).Build()
+	srv := &Server{k8sClient: c, scheme: scheme}
+
+	creds, err := srv.resolveSavedProviderCredentials(context.Background(), "ns", triggersv1alpha1.ProviderOpenAI, "")
+	if err != nil {
+		t.Fatalf("resolveSavedProviderCredentials: %v", err)
+	}
+	if creds.authMode != platformv1alpha1.AgentRunAuthModeOAuth {
+		t.Fatalf("authMode = %q, want oauth", creds.authMode)
+	}
+	if creds.oauthSecretName != "usercred-openai-3" {
+		t.Fatalf("oauthSecretName = %q, want usercred-openai-3", creds.oauthSecretName)
+	}
+	if len(creds.oauthFallbackSecretNames) != 0 {
+		t.Fatalf("fallbacks = %v, want none", creds.oauthFallbackSecretNames)
+	}
+}
+
+func TestAppendAllSavedProviderCredentialsMountsSecondaryOnlyOAuth(t *testing.T) {
+	scheme := testProjectScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		oauthSlotSecret("ns", triggersv1alpha1.ProviderAnthropic, 2, map[string][]byte{
+			userCredOAuthJSONKey: []byte(`{}`),
+		}),
+		oauthSlotSecret("ns", triggersv1alpha1.ProviderAnthropic, 3, map[string][]byte{
+			userCredOAuthJSONKey: []byte(`{}`),
+		}),
+	).Build()
+	srv := &Server{k8sClient: c, scheme: scheme}
+
+	secrets := &platformv1alpha1.AgentRunSecrets{}
+	srv.appendAllSavedProviderCredentials(context.Background(), "ns", secrets)
+
+	if len(secrets.ProviderOAuthSecrets) != 1 ||
+		secrets.ProviderOAuthSecrets[0].Provider != triggersv1alpha1.ProviderAnthropic ||
+		secrets.ProviderOAuthSecrets[0].SecretName != "usercred-anthropic-2" {
+		t.Fatalf("ProviderOAuthSecrets = %#v, want lowest slot mounted as the provider OAuth entry", secrets.ProviderOAuthSecrets)
+	}
+	if len(secrets.ProviderOAuthFallbackSecrets) != 1 ||
+		secrets.ProviderOAuthFallbackSecrets[0].SecretName != "usercred-anthropic-3" {
+		t.Fatalf("ProviderOAuthFallbackSecrets = %#v, want the remaining slot", secrets.ProviderOAuthFallbackSecrets)
+	}
+}
+
+func TestEnsureOAuthSubscriptionInProtoPatchesStaleList(t *testing.T) {
+	credentials := &platform.MyCredentials{
+		OauthSubscriptions: []*platform.ProviderOAuthSubscription{
+			{Provider: triggersv1alpha1.ProviderOpenAI, Slot: 1, SecretName: "usercred-openai"},
+		},
+	}
+	// Stale cache omitted the just-written slot 2: it must be patched in, in order.
+	ensureOAuthSubscriptionInProto(credentials, triggersv1alpha1.ProviderOpenAI, 2, "acct-2", "two@example.com")
+	if len(credentials.OauthSubscriptions) != 2 {
+		t.Fatalf("subscriptions = %#v, want slot 2 appended", credentials.OauthSubscriptions)
+	}
+	sub := credentials.OauthSubscriptions[1]
+	if sub.GetSlot() != 2 || sub.GetSecretName() != "usercred-openai-2" || sub.GetAccountLabel() != "two@example.com" {
+		t.Fatalf("patched subscription = %#v", sub)
+	}
+	// Already-present slots are not duplicated.
+	ensureOAuthSubscriptionInProto(credentials, triggersv1alpha1.ProviderOpenAI, 2, "acct-2", "two@example.com")
+	if len(credentials.OauthSubscriptions) != 2 {
+		t.Fatalf("subscriptions duplicated: %#v", credentials.OauthSubscriptions)
+	}
+}

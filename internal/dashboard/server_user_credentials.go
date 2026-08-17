@@ -291,10 +291,8 @@ func (s *Server) UpdateMyCredentials(ctx context.Context, req *platform.UpdateMy
 			continue
 		}
 		slot, _ := strconv.Atoi(m[2])
-		for _, key := range []string{userCredOAuthJSONKey, userCredAccountIDKey, userCredEmailKey} {
-			if err := s.deleteCredentialSlotKey(ctx, namespace, m[1], slot, key); err != nil {
-				return nil, err
-			}
+		if err := s.deleteCredentialSlotKeys(ctx, namespace, m[1], slot, userCredOAuthJSONKey, userCredAccountIDKey, userCredEmailKey); err != nil {
+			return nil, err
 		}
 	}
 
@@ -332,12 +330,7 @@ func (s *Server) applyCredentialOAuth(ctx context.Context, namespace, provider, 
 // so the subscriptions list can label accounts.
 func (s *Server) applyCredentialOAuthSlot(ctx context.Context, namespace, provider string, slot int, rawJSON, accountID, email string, clear bool) error {
 	if clear {
-		for _, key := range []string{userCredOAuthJSONKey, userCredAccountIDKey, userCredEmailKey} {
-			if err := s.deleteCredentialSlotKey(ctx, namespace, provider, slot, key); err != nil {
-				return err
-			}
-		}
-		return nil
+		return s.deleteCredentialSlotKeys(ctx, namespace, provider, slot, userCredOAuthJSONKey, userCredAccountIDKey, userCredEmailKey)
 	}
 	raw := strings.TrimSpace(rawJSON)
 	if raw == "" {
@@ -433,12 +426,14 @@ func (s *Server) writeCredentialSlotData(ctx context.Context, namespace, provide
 // deleteCredentialKey removes a key from a provider's credential Secret, deleting
 // the Secret entirely when no data remains.
 func (s *Server) deleteCredentialKey(ctx context.Context, namespace, provider, key string) error {
-	return s.deleteCredentialSlotKey(ctx, namespace, provider, 1, key)
+	return s.deleteCredentialSlotKeys(ctx, namespace, provider, 1, key)
 }
 
-// deleteCredentialSlotKey removes a key from one subscription slot's credential
-// Secret, deleting the Secret entirely when no data remains.
-func (s *Server) deleteCredentialSlotKey(ctx context.Context, namespace, provider string, slot int, key string) error {
+// deleteCredentialSlotKeys removes multiple keys from one subscription slot's
+// credential Secret in a single read + single mutation (the informer-backed
+// client can serve stale reads, so sequential per-key updates would race their
+// own writes), deleting the Secret entirely when no data remains.
+func (s *Server) deleteCredentialSlotKeys(ctx context.Context, namespace, provider string, slot int, keys ...string) error {
 	name := userCredentialSlotSecretName(provider, slot)
 	secret := &corev1.Secret{}
 	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret); err != nil {
@@ -447,7 +442,16 @@ func (s *Server) deleteCredentialSlotKey(ctx context.Context, namespace, provide
 		}
 		return mapK8sError(fmt.Sprintf("read credential secret %s/%s", namespace, name), err)
 	}
-	delete(secret.Data, key)
+	removed := false
+	for _, key := range keys {
+		if _, ok := secret.Data[key]; ok {
+			delete(secret.Data, key)
+			removed = true
+		}
+	}
+	if !removed {
+		return nil
+	}
 	if len(secret.Data) == 0 {
 		if err := s.k8sClient.Delete(ctx, secret); err != nil && !k8serrors.IsNotFound(err) {
 			return mapK8sError("delete credential secret", err)
@@ -590,22 +594,12 @@ func (s *Server) appendAllSavedProviderCredentials(ctx context.Context, namespac
 		}
 		return false
 	}
-	addOAuth := func(provider string, saved bool) {
-		if !saved || hasOAuth(provider) {
-			return
-		}
-		secrets.ProviderOAuthSecrets = append(secrets.ProviderOAuthSecrets, platformv1alpha1.ProviderOAuthSecretRef{
-			Provider:   provider,
-			SecretName: userCredentialSecretName(provider),
-		})
-	}
-	addOAuth(triggersv1alpha1.ProviderOpenAI, state.openaiOAuth)
-	addOAuth(triggersv1alpha1.ProviderAnthropic, state.anthropicOAuth)
-	addOAuth(triggersv1alpha1.ProviderCopilot, state.copilotOAuth)
 
-	// Mount each provider's remaining OAuth subscription slots as ordered
-	// failover candidates, deduped by secret name against the run's primary
-	// OAuth secret and the per-provider OAuth mounts above.
+	// Mount each provider's saved OAuth subscriptions: the lowest slot present
+	// becomes the provider's OAuth mount (a user may have disconnected slot 1
+	// while keeping slot 2+), and the remaining slots become ordered failover
+	// candidates, deduped by secret name against the run's primary OAuth
+	// secret and any existing per-provider OAuth mounts.
 	usedNames := map[string]bool{strings.TrimSpace(secrets.OpenAIOAuthSecret): true}
 	for _, ref := range secrets.ProviderOAuthSecrets {
 		usedNames[strings.TrimSpace(ref.SecretName)] = true
@@ -619,10 +613,22 @@ func (s *Server) appendAllSavedProviderCredentials(ctx context.Context, namespac
 		triggersv1alpha1.ProviderCopilot,
 	} {
 		subs := s.listOAuthSubscriptions(ctx, namespace, provider)
-		if len(subs) <= 1 {
+		if len(subs) == 0 {
 			continue
 		}
-		for _, sub := range subs[1:] {
+		rest := subs[1:]
+		if !hasOAuth(provider) {
+			secrets.ProviderOAuthSecrets = append(secrets.ProviderOAuthSecrets, platformv1alpha1.ProviderOAuthSecretRef{
+				Provider:   provider,
+				SecretName: subs[0].secretName,
+			})
+			usedNames[subs[0].secretName] = true
+		} else if !usedNames[subs[0].secretName] {
+			// The provider already has an OAuth mount from another source; the
+			// lowest slot then joins the failover candidates like any other.
+			rest = subs
+		}
+		for _, sub := range rest {
 			if usedNames[sub.secretName] {
 				continue
 			}
@@ -663,8 +669,7 @@ func (s *Server) resolveSavedProviderCredentials(ctx context.Context, namespace,
 	// oauthCreds resolves a provider's saved OAuth subscriptions: the lowest
 	// slot present (normally slot 1, the legacy usercred-<provider> Secret) is
 	// the primary; remaining slots become ordered failover candidates.
-	oauthCreds := func(oauthProvider, what string) (savedProviderCredentials, error) {
-		subs := s.listOAuthSubscriptions(ctx, namespace, oauthProvider)
+	oauthCreds := func(subs []oauthSubscription, what string) (savedProviderCredentials, error) {
 		if len(subs) == 0 {
 			return savedProviderCredentials{}, missing(what)
 		}
@@ -690,18 +695,23 @@ func (s *Server) resolveSavedProviderCredentials(ctx context.Context, namespace,
 
 	switch provider {
 	case triggersv1alpha1.ProviderCopilot:
-		return oauthCreds(triggersv1alpha1.ProviderCopilot, "Copilot credentials")
+		return oauthCreds(s.listOAuthSubscriptions(ctx, namespace, triggersv1alpha1.ProviderCopilot), "Copilot credentials")
 	case triggersv1alpha1.ProviderAnthropic:
-		if wantOAuth(state.anthropicOAuth) {
-			return oauthCreds(triggersv1alpha1.ProviderAnthropic, "Anthropic OAuth credentials")
+		// Base automatic OAuth selection on the full subscription list, not
+		// just primary-slot presence: a user who disconnected slot 1 but kept
+		// slot 2+ still has usable OAuth credentials.
+		subs := s.listOAuthSubscriptions(ctx, namespace, triggersv1alpha1.ProviderAnthropic)
+		if wantOAuth(len(subs) > 0) {
+			return oauthCreds(subs, "Anthropic OAuth credentials")
 		}
 		if !state.anthropicAPIKey {
 			return savedProviderCredentials{}, missing("Anthropic API key")
 		}
 		return apiKey(triggersv1alpha1.ProviderAnthropic), nil
 	case triggersv1alpha1.ProviderOpenAI:
-		if wantOAuth(state.openaiOAuth) {
-			return oauthCreds(triggersv1alpha1.ProviderOpenAI, "OpenAI OAuth credentials")
+		subs := s.listOAuthSubscriptions(ctx, namespace, triggersv1alpha1.ProviderOpenAI)
+		if wantOAuth(len(subs) > 0) {
+			return oauthCreds(subs, "OpenAI OAuth credentials")
 		}
 		if !state.openaiAPIKey {
 			return savedProviderCredentials{}, missing("OpenAI API key")

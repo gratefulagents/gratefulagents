@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -370,7 +371,9 @@ func (s *Server) storeProviderOAuth(ctx context.Context, actor requestActor, pro
 	credentials := s.myCredentialsProto(ctx, namespace)
 	// The controller-runtime client may read from an informer cache that has not
 	// observed the write yet. The successful write is authoritative for the
-	// provider completed by this request.
+	// subscription completed by this request: patch both the primary presence
+	// flag and the subscriptions list so the UI cannot offer the same slot
+	// again (and overwrite it) based on a stale read.
 	if slot <= 1 {
 		switch provider {
 		case triggersv1alpha1.ProviderAnthropic:
@@ -379,7 +382,47 @@ func (s *Server) storeProviderOAuth(ctx context.Context, actor requestActor, pro
 			credentials.OpenaiOauthPresent = true
 		}
 	}
+	ensureOAuthSubscriptionInProto(credentials, provider, slot, accountID, email)
 	return credentials, nil
+}
+
+// ensureOAuthSubscriptionInProto guarantees the just-written subscription slot
+// appears in the credentials response even when the cached Secret list has not
+// observed the write yet, keeping the list ordered by provider then slot.
+func ensureOAuthSubscriptionInProto(credentials *platform.MyCredentials, provider string, slot int, accountID, email string) {
+	if credentials == nil {
+		return
+	}
+	if slot < 1 {
+		slot = 1
+	}
+	for _, sub := range credentials.GetOauthSubscriptions() {
+		if strings.EqualFold(sub.GetProvider(), provider) && int(sub.GetSlot()) == slot {
+			return
+		}
+	}
+	label := strings.TrimSpace(email)
+	if label == "" {
+		label = strings.TrimSpace(accountID)
+	}
+	credentials.OauthSubscriptions = append(credentials.OauthSubscriptions, &platform.ProviderOAuthSubscription{
+		Provider:     provider,
+		Slot:         int32(slot),
+		SecretName:   userCredentialSlotSecretName(provider, slot),
+		AccountLabel: label,
+	})
+	providerRank := map[string]int{
+		triggersv1alpha1.ProviderOpenAI:    0,
+		triggersv1alpha1.ProviderAnthropic: 1,
+		triggersv1alpha1.ProviderCopilot:   2,
+	}
+	sort.SliceStable(credentials.OauthSubscriptions, func(i, j int) bool {
+		a, b := credentials.OauthSubscriptions[i], credentials.OauthSubscriptions[j]
+		if a.GetProvider() != b.GetProvider() {
+			return providerRank[a.GetProvider()] < providerRank[b.GetProvider()]
+		}
+		return a.GetSlot() < b.GetSlot()
+	})
 }
 
 func (s *Server) reserveProviderOAuthStartMemory(subject, provider, sessionID string) error {
