@@ -41,6 +41,13 @@ interface Presence {
   githubToken: boolean;
 }
 
+interface OAuthSubscription {
+  provider: string;
+  slot: number;
+  secretName: string;
+  accountLabel: string;
+}
+
 interface ServerCredentials {
   namespace: string;
   anthropicApiKeyPresent: boolean;
@@ -52,7 +59,10 @@ interface ServerCredentials {
   copilotOauthPresent: boolean;
   githubTokenPresent: boolean;
   integrations?: { name: string; keys: string[] }[];
+  oauthSubscriptions?: OAuthSubscription[];
 }
+
+type OAuthProvider = "anthropic" | "openai" | "copilot";
 
 type ClearKey =
   | "anthropic-api-key"
@@ -62,7 +72,22 @@ type ClearKey =
   | "anthropic-oauth"
   | "openai-oauth"
   | "copilot-oauth"
-  | "github-token";
+  | "github-token"
+  | `${OAuthProvider}-oauth-${number}`;
+
+/** Clear key for one OAuth subscription slot; slot 1 keeps the legacy primary key. */
+function oauthClearKey(provider: OAuthProvider, slot: number): ClearKey {
+  return slot <= 1 ? `${provider}-oauth` : `${provider}-oauth-${slot}`;
+}
+
+/** Lowest unused failover slot in 2..9, or null when all are taken. */
+function nextFreeOAuthSlot(subscriptions: OAuthSubscription[]): number | null {
+  const used = new Set(subscriptions.map((s) => s.slot));
+  for (let slot = 2; slot <= 9; slot++) {
+    if (!used.has(slot)) return slot;
+  }
+  return null;
+}
 
 const emptyPresence: Presence = {
   anthropicApiKey: false,
@@ -98,11 +123,14 @@ export function CredentialsSection() {
   const [namespace, setNamespace] = useState("");
   const [presence, setPresence] = useState<Presence>(emptyPresence);
   const [integrations, setIntegrations] = useState<{ name: string; keys: string[] }[]>([]);
+  const [oauthSubscriptions, setOauthSubscriptions] = useState<OAuthSubscription[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [openProvider, setOpenProvider] = useState<string | null>(null);
+  // Which provider currently shows the "connect another subscription" flow.
+  const [extraConnect, setExtraConnect] = useState<"anthropic" | "openai" | null>(null);
 
   const applyCredentials = useCallback((c: ServerCredentials) => {
     setNamespace(c.namespace);
@@ -117,6 +145,7 @@ export function CredentialsSection() {
       githubToken: c.githubTokenPresent,
     });
     setIntegrations(c.integrations ?? []);
+    setOauthSubscriptions(c.oauthSubscriptions ?? []);
   }, []);
 
   const reload = useCallback(async () => {
@@ -178,6 +207,15 @@ export function CredentialsSection() {
     },
     [applyCredentials],
   );
+
+  const subscriptionsFor = useCallback(
+    (provider: OAuthProvider) =>
+      oauthSubscriptions.filter((s) => s.provider === provider).sort((a, b) => a.slot - b.slot),
+    [oauthSubscriptions],
+  );
+  const anthropicSubs = useMemo(() => subscriptionsFor("anthropic"), [subscriptionsFor]);
+  const openaiSubs = useMemo(() => subscriptionsFor("openai"), [subscriptionsFor]);
+  const copilotSubs = useMemo(() => subscriptionsFor("copilot"), [subscriptionsFor]);
 
   // Everything the user has saved, in the shape the share dialog needs. Each
   // entry copies the whole credential secret (e.g. "anthropic" carries both the
@@ -279,11 +317,44 @@ export function CredentialsSection() {
           >
             <Method
               title="Claude account"
-              hint="Sign in with your Claude Pro/Max plan — stores refreshable OAuth credentials."
+              hint="Sign in with your Claude Pro/Max plan — stores refreshable OAuth credentials. Extra subscriptions are used automatically when the primary hits its rate limit."
               present={presence.anthropicOauth}
               onRemove={() => void remove("anthropic-oauth")}
             >
+              <OAuthSubscriptionList
+                provider="anthropic"
+                subscriptions={anthropicSubs}
+                onDisconnect={(key) => void remove(key)}
+              />
               <AnthropicOAuthConnect compact onSaved={onOAuthSaved("Claude")} />
+              {(presence.anthropicOauth || anthropicSubs.length > 0) &&
+              nextFreeOAuthSlot(anthropicSubs) !== null ? (
+                extraConnect === "anthropic" ? (
+                  <div className="mt-3 space-y-2 rounded-md border bg-background/70 p-3">
+                    <p className="text-[11.5px] text-muted-foreground">
+                      Connecting subscription {nextFreeOAuthSlot(anthropicSubs)} — it is used
+                      automatically when the primary hits its rate limit.
+                    </p>
+                    <AnthropicOAuthConnect
+                      compact
+                      slot={nextFreeOAuthSlot(anthropicSubs) ?? undefined}
+                      onSaved={(c) => {
+                        onOAuthSaved("Claude")(c);
+                        setExtraConnect(null);
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => setExtraConnect("anthropic")}
+                  >
+                    Connect another subscription
+                  </Button>
+                )
+              ) : null}
             </Method>
             <SecretField
               label="API key"
@@ -323,11 +394,44 @@ export function CredentialsSection() {
           >
             <Method
               title="ChatGPT account"
-              hint="Sign in with your ChatGPT plan — stores refreshable OAuth credentials."
+              hint="Sign in with your ChatGPT plan — stores refreshable OAuth credentials. Extra subscriptions are used automatically when the primary hits its rate limit."
               present={presence.openaiOauth}
               onRemove={() => void remove("openai-oauth")}
             >
+              <OAuthSubscriptionList
+                provider="openai"
+                subscriptions={openaiSubs}
+                onDisconnect={(key) => void remove(key)}
+              />
               <OpenAIOAuthConnect compact onSaved={onOAuthSaved("ChatGPT")} />
+              {(presence.openaiOauth || openaiSubs.length > 0) &&
+              nextFreeOAuthSlot(openaiSubs) !== null ? (
+                extraConnect === "openai" ? (
+                  <div className="mt-3 space-y-2 rounded-md border bg-background/70 p-3">
+                    <p className="text-[11.5px] text-muted-foreground">
+                      Connecting subscription {nextFreeOAuthSlot(openaiSubs)} — it is used
+                      automatically when the primary hits its rate limit.
+                    </p>
+                    <OpenAIOAuthConnect
+                      compact
+                      slot={nextFreeOAuthSlot(openaiSubs) ?? undefined}
+                      onSaved={(c) => {
+                        onOAuthSaved("ChatGPT")(c);
+                        setExtraConnect(null);
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => setExtraConnect("openai")}
+                  >
+                    Connect another subscription
+                  </Button>
+                )
+              ) : null}
             </Method>
             <SecretField
               label="API key"
@@ -374,6 +478,13 @@ export function CredentialsSection() {
               present={presence.copilotOauth}
               onRemove={() => void remove("copilot-oauth")}
             >
+              {copilotSubs.some((s) => s.slot >= 2) && (
+                <OAuthSubscriptionList
+                  provider="copilot"
+                  subscriptions={copilotSubs}
+                  onDisconnect={(key) => void remove(key)}
+                />
+              )}
               <CopilotOAuthConnect compact onSaved={onOAuthSaved("Copilot")} />
             </Method>
             <Advanced>
@@ -547,6 +658,56 @@ function ProviderRow({
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * Saved OAuth subscriptions for one provider, one row per slot: slot 1 is the
+ * primary, higher slots are failover subscriptions the platform switches to
+ * automatically when the primary is rate limited.
+ */
+function OAuthSubscriptionList({
+  provider,
+  subscriptions,
+  onDisconnect,
+}: {
+  provider: OAuthProvider;
+  subscriptions: OAuthSubscription[];
+  onDisconnect: (key: ClearKey) => void;
+}) {
+  if (subscriptions.length === 0) return null;
+  return (
+    <ul className="mb-2.5 overflow-hidden rounded-md border divide-y divide-border/50">
+      {subscriptions.map((sub) => (
+        <li
+          key={sub.slot}
+          className="flex items-center gap-2 bg-background/70 px-2.5 py-1.5 text-[12px]"
+        >
+          <span className="shrink-0 font-medium">Subscription {sub.slot}</span>
+          {sub.slot === 1 && (
+            <span
+              className={cn(
+                "inline-flex h-[16px] shrink-0 items-center rounded-full px-1.5 text-[10px] font-medium select-none",
+                toneSoft.neutral,
+              )}
+            >
+              primary
+            </span>
+          )}
+          {sub.accountLabel && (
+            <span className="min-w-0 truncate text-muted-foreground">{sub.accountLabel}</span>
+          )}
+          <button
+            type="button"
+            aria-label={`Disconnect ${provider} subscription ${sub.slot}`}
+            onClick={() => onDisconnect(oauthClearKey(provider, sub.slot))}
+            className="ml-auto shrink-0 rounded-sm text-[11px] text-muted-foreground underline-offset-2 transition-colors hover:text-destructive hover:underline"
+          >
+            Disconnect
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

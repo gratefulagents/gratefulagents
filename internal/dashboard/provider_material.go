@@ -175,6 +175,9 @@ func (s *Server) healProjectOAuthSecretForProvider(ctx context.Context, namespac
 		namespace, secretName, material, provider, creds.authMode)
 	secrets.OpenAIOAuthSecret = creds.oauthSecretName
 	secrets.ProviderKeys = mergeProviderKeys(secrets.ProviderKeys, creds.providerKeys)
+	// triggersv1alpha1.AgentRunSecrets has no providerOAuthFallbackSecrets
+	// mirror, so the caller's remaining OAuth subscription slots cannot be
+	// recorded on project defaults; run creation resolves them per run instead.
 	return creds.authMode, nil
 }
 
@@ -218,5 +221,8 @@ func (s *Server) repairRunOAuthSecretForProvider(ctx context.Context, namespace,
 		namespace, secretName, material, provider, creds.authMode)
 	secrets.OpenAIOAuthSecret = creds.oauthSecretName
 	secrets.ProviderKeys = mergeProviderKeys(secrets.ProviderKeys, creds.providerKeys)
+	if creds.authMode == platformv1alpha1.AgentRunAuthModeOAuth && len(creds.oauthFallbackSecretNames) > 0 {
+		setProviderOAuthFallbackSecrets(secrets, provider, creds.oauthFallbackSecretNames)
+	}
 	return creds.authMode, nil
 }

@@ -136,6 +136,9 @@ func (s *Server) GenerateSecurityDraft(ctx context.Context, req *platform.Genera
 			},
 		},
 	}
+	if creds.authMode == platformv1alpha1.AgentRunAuthModeOAuth && len(creds.oauthFallbackSecretNames) > 0 {
+		setProviderOAuthFallbackSecrets(run.Spec.Secrets, provider, creds.oauthFallbackSecretNames)
+	}
 	if triggersv1alpha1.IsOpenAICompatibleProvider(provider) {
 		run.Annotations[openAIApiModeAnnotation] = triggersv1alpha1.NormalizeOpenAIAPIForProvider(provider, "")
 	}

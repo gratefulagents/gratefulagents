@@ -29,6 +29,8 @@ interface SavedCredentials {
 interface OpenAIOAuthConnectProps {
   /** Render only the flow body — no card chrome or header (for embedding in a provider panel). */
   compact?: boolean;
+  /** OAuth subscription slot to store into: 0/1 = primary, 2..9 = failover subscription. */
+  slot?: number;
   onSaved: (credentials: SavedCredentials) => void;
   className?: string;
 }
@@ -38,7 +40,7 @@ type Phase = "idle" | "starting" | "pending" | "saving" | "done";
 // Desktop uses a browser PKCE flow with a local callback and device fallback.
 // Web uses the no-port device flow; the platform server performs the token
 // exchange and stores refreshable credentials in the user's namespace.
-export function OpenAIOAuthConnect({ onSaved, className, compact }: OpenAIOAuthConnectProps) {
+export function OpenAIOAuthConnect({ onSaved, className, compact, slot }: OpenAIOAuthConnectProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [session, setSession] = useState<OpenAIOAuthStart | null>(null);
   const [pollDelay, setPollDelay] = useState(2);
@@ -70,7 +72,7 @@ export function OpenAIOAuthConnect({ onSaved, className, compact }: OpenAIOAuthC
     setCopied(false);
     setError(null);
     try {
-      const next = mode === "device" ? await startOpenAIDeviceOAuth() : await startOpenAIOAuth();
+      const next = mode === "device" ? await startOpenAIDeviceOAuth(slot) : await startOpenAIOAuth(slot);
       if (!mountedRef.current) return;
       setSession(next);
       setPollDelay(next.mode === "device" ? Math.max(next.interval || 5, 5) : 2);
@@ -83,7 +85,7 @@ export function OpenAIOAuthConnect({ onSaved, className, compact }: OpenAIOAuthC
       if (mode === "browser") setOfferDeviceFlow(true);
       setError(err instanceof Error ? err.message : "Failed to start ChatGPT sign-in");
     }
-  }, []);
+  }, [slot]);
 
   useEffect(() => {
     if (phase !== "pending" || !session) return;

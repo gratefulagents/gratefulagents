@@ -28,9 +28,9 @@ async function invokeTauri<T>(command: string): Promise<T> {
 }
 
 /** Starts localhost PKCE on desktop and a no-port device flow on web. */
-export async function startOpenAIOAuth(): Promise<OpenAIOAuthStart> {
+export async function startOpenAIOAuth(slot?: number): Promise<OpenAIOAuthStart> {
   if (!isTauri) {
-    const result = await client.startProviderOAuth({ provider: "openai" });
+    const result = await client.startProviderOAuth({ provider: "openai", slot: slot ?? 0 });
     return {
       mode: result.mode,
       authorizeUrl: result.authorizeUrl,
@@ -44,8 +44,8 @@ export async function startOpenAIOAuth(): Promise<OpenAIOAuthStart> {
 }
 
 /** Starts the device-code flow (no local port required). */
-export async function startOpenAIDeviceOAuth(): Promise<OpenAIOAuthStart> {
-  if (!isTauri) return await startOpenAIOAuth();
+export async function startOpenAIDeviceOAuth(slot?: number): Promise<OpenAIOAuthStart> {
+  if (!isTauri) return await startOpenAIOAuth(slot);
   return await invokeTauri<OpenAIOAuthStart>("start_openai_device_oauth");
 }
 

@@ -867,6 +867,120 @@ func TestBuildCommonPodSpecMountsAdditionalProviderOAuthSecrets(t *testing.T) {
 	}
 }
 
+func TestBuildCommonPodSpecMountsFallbackProviderOAuthSecrets(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{
+		Spec: platformv1alpha1.AgentRunSpec{
+			Repository: platformv1alpha1.RepositoryContext{URL: "https://github.com/example/repo.git"},
+			Model:      "anthropic/claude-sonnet-4-6",
+			AuthMode:   platformv1alpha1.AgentRunAuthModeOAuth,
+			Secrets: &platformv1alpha1.AgentRunSecrets{
+				OpenAIOAuthSecret: "usercred-anthropic",
+				ProviderOAuthSecrets: []platformv1alpha1.ProviderOAuthSecretRef{
+					{Provider: "openai", SecretName: "usercred-openai"},
+				},
+				ProviderOAuthFallbackSecrets: []platformv1alpha1.ProviderOAuthSecretRef{
+					{Provider: "anthropic", SecretName: "usercred-anthropic"}, // duplicates the legacy primary volume — skipped
+					{Provider: "openai", SecretName: "usercred-openai"},       // duplicates the providerOAuthSecrets primary — skipped
+					{Provider: "openai", SecretName: "openai-fb-1"},
+					{Provider: "anthropic", SecretName: "anthropic-fb-1"},
+					{Provider: "openai", SecretName: "openai-fb-2"},
+					{Provider: "openai", SecretName: "openai-fb-1"}, // repeated ref — skipped
+					{Provider: "gemini", SecretName: "gemini-fb"},   // not OAuth-capable — skipped
+					{Provider: "copilot", SecretName: ""},           // empty secret name — skipped
+					{Provider: "copilot", SecretName: "copilot-fb-1"},
+				},
+			},
+		},
+	}
+
+	spec := buildCommonPodSpec(run, "sa", []string{"agent", "run"}, nil, nil, nil)
+	envByName := map[string]corev1.EnvVar{}
+	for _, env := range spec.Containers[0].Env {
+		if _, dup := envByName[env.Name]; dup {
+			t.Fatalf("duplicate env %q", env.Name)
+		}
+		envByName[env.Name] = env
+	}
+	values := envValueMap(envByName)
+
+	// Comma-joined ordered path lists; the openai account-id list is
+	// index-aligned with the openai auth.json list.
+	assertEnvValue(t, values, "OPENAI_OAUTH_FALLBACK_AUTH_JSON_PATHS",
+		"/var/run/gratefulagents/oauth/fallback/openai/1/auth.json,/var/run/gratefulagents/oauth/fallback/openai/2/auth.json")
+	assertEnvValue(t, values, "OPENAI_OAUTH_FALLBACK_ACCOUNT_ID_PATHS",
+		"/var/run/gratefulagents/oauth/fallback/openai/1/account-id,/var/run/gratefulagents/oauth/fallback/openai/2/account-id")
+	assertEnvValue(t, values, "ANTHROPIC_OAUTH_FALLBACK_AUTH_JSON_PATHS",
+		"/var/run/gratefulagents/oauth/fallback/anthropic/1/auth.json")
+	assertEnvValue(t, values, "COPILOT_OAUTH_FALLBACK_AUTH_JSON_PATHS",
+		"/var/run/gratefulagents/oauth/fallback/copilot/1/auth.json")
+
+	expected := []struct {
+		volume string
+		mount  string
+		secret string
+	}{
+		{"provider-oauth-fb-openai-1", "/var/run/gratefulagents/oauth/fallback/openai/1", "openai-fb-1"},
+		{"provider-oauth-fb-openai-2", "/var/run/gratefulagents/oauth/fallback/openai/2", "openai-fb-2"},
+		{"provider-oauth-fb-anthropic-1", "/var/run/gratefulagents/oauth/fallback/anthropic/1", "anthropic-fb-1"},
+		{"provider-oauth-fb-copilot-1", "/var/run/gratefulagents/oauth/fallback/copilot/1", "copilot-fb-1"},
+	}
+	for _, want := range expected {
+		if !hasVolumeMount(spec.Containers[0].VolumeMounts, want.volume, want.mount) {
+			t.Fatalf("expected volume mount %q at %q", want.volume, want.mount)
+		}
+		if !hasSecretVolume(spec.Volumes, want.volume, want.secret) {
+			t.Fatalf("expected volume %q with secret %q", want.volume, want.secret)
+		}
+		if !secretVolumeProjectsKey(spec.Volumes, want.volume, "auth.json") {
+			t.Fatalf("expected volume %q to project auth.json", want.volume)
+		}
+		if !secretVolumeProjectsKey(spec.Volumes, want.volume, "account-id") {
+			t.Fatalf("expected volume %q to project optional account-id", want.volume)
+		}
+	}
+	for _, v := range spec.Volumes {
+		switch v.Name {
+		case "provider-oauth-fb-anthropic-2", "provider-oauth-fb-openai-3":
+			t.Fatalf("primary-duplicate/repeated fallback refs must be skipped, got volume %q", v.Name)
+		case "provider-oauth-fb-gemini-1":
+			t.Fatalf("non-OAuth-capable providers must be skipped")
+		case "provider-oauth-fb-copilot-2":
+			t.Fatalf("empty secret names must be skipped")
+		}
+	}
+	for _, mount := range spec.Containers[0].VolumeMounts {
+		if strings.HasPrefix(mount.Name, "provider-oauth-fb-") && !mount.ReadOnly {
+			t.Fatalf("fallback oauth mount %q must be read-only", mount.Name)
+		}
+	}
+}
+
+func TestBuildCommonPodSpecOmitsFallbackOAuthEnvsWhenUnconfigured(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{
+		Spec: platformv1alpha1.AgentRunSpec{
+			Repository: platformv1alpha1.RepositoryContext{URL: "https://github.com/example/repo.git"},
+			Model:      "anthropic/claude-sonnet-4-6",
+			AuthMode:   platformv1alpha1.AgentRunAuthModeOAuth,
+			Secrets: &platformv1alpha1.AgentRunSecrets{
+				OpenAIOAuthSecret: "usercred-anthropic",
+			},
+		},
+	}
+	spec := buildCommonPodSpec(run, "sa", []string{"agent", "run"}, nil, nil, nil)
+	for _, env := range spec.Containers[0].Env {
+		switch env.Name {
+		case "OPENAI_OAUTH_FALLBACK_AUTH_JSON_PATHS", "OPENAI_OAUTH_FALLBACK_ACCOUNT_ID_PATHS",
+			"ANTHROPIC_OAUTH_FALLBACK_AUTH_JSON_PATHS", "COPILOT_OAUTH_FALLBACK_AUTH_JSON_PATHS":
+			t.Fatalf("env %q must be omitted when no fallback secrets are configured", env.Name)
+		}
+	}
+	for _, v := range spec.Volumes {
+		if strings.HasPrefix(v.Name, "provider-oauth-fb-") {
+			t.Fatalf("unexpected fallback oauth volume %q", v.Name)
+		}
+	}
+}
+
 func TestBuildCommonPodSpecCopilotOAuthWiring(t *testing.T) {
 	run := &platformv1alpha1.AgentRun{
 		Spec: platformv1alpha1.AgentRunSpec{

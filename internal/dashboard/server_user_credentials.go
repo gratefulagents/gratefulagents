@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,13 +41,91 @@ const (
 	userCredAPIKeyKey      = "api-key"
 	userCredOAuthJSONKey   = "auth.json"
 	userCredAccountIDKey   = "account-id"
+	userCredEmailKey       = "email"
 	userCredGithubTokenKey = "token"
+
+	// maxOAuthSubscriptionSlot bounds how many OAuth subscriptions a user may
+	// save per provider. Slot 1 is the primary usercred-<provider> Secret;
+	// slots 2..9 are ordered failover candidates.
+	maxOAuthSubscriptionSlot = 9
 )
 
 // userCredentialSecretName returns the deterministic Secret name holding a user's
 // saved credential for the given provider, within their personal namespace.
 func userCredentialSecretName(provider string) string {
 	return userCredentialSecretPrefix + provider
+}
+
+// userCredentialSlotSecretName returns the deterministic Secret name for one of
+// a user's OAuth subscription slots: slot 1 is the legacy usercred-<provider>
+// name; higher slots append the slot number (usercred-<provider>-<N>).
+func userCredentialSlotSecretName(provider string, slot int) string {
+	if slot <= 1 {
+		return userCredentialSecretName(provider)
+	}
+	return userCredentialSecretName(provider) + "-" + strconv.Itoa(slot)
+}
+
+// oauthSubscription is one saved OAuth subscription for a provider, resolved
+// from the user's credential Secrets.
+type oauthSubscription struct {
+	slot         int
+	secretName   string
+	accountLabel string
+}
+
+// listOAuthSubscriptions returns every saved OAuth subscription for provider in
+// namespace, sorted by slot ascending. The Secret name is the source of truth
+// for the slot number; only deterministic usercred-<provider>[-<N>] names
+// holding auth.json material qualify.
+func (s *Server) listOAuthSubscriptions(ctx context.Context, namespace, provider string) []oauthSubscription {
+	var secrets corev1.SecretList
+	if err := s.k8sClient.List(ctx, &secrets, client.InNamespace(namespace), client.MatchingLabels{
+		userCredentialLabel:         "true",
+		userCredentialProviderLabel: provider,
+	}); err != nil {
+		return nil
+	}
+	base := userCredentialSecretName(provider)
+	out := make([]oauthSubscription, 0, len(secrets.Items))
+	for i := range secrets.Items {
+		secret := &secrets.Items[i]
+		if len(secret.Data[userCredOAuthJSONKey]) == 0 {
+			continue
+		}
+		slot := 0
+		switch {
+		case secret.Name == base:
+			slot = 1
+		case strings.HasPrefix(secret.Name, base+"-"):
+			n, err := strconv.Atoi(strings.TrimPrefix(secret.Name, base+"-"))
+			if err != nil || n < 2 || n > maxOAuthSubscriptionSlot {
+				continue
+			}
+			slot = n
+		default:
+			continue
+		}
+		label := strings.TrimSpace(string(secret.Data[userCredEmailKey]))
+		if label == "" {
+			label = strings.TrimSpace(string(secret.Data[userCredAccountIDKey]))
+		}
+		out = append(out, oauthSubscription{slot: slot, secretName: secret.Name, accountLabel: label})
+	}
+	if !slices.ContainsFunc(out, func(sub oauthSubscription) bool { return sub.slot == 1 }) {
+		// Legacy primary Secrets may predate the discovery labels; the
+		// deterministic name remains authoritative for slot 1.
+		primary := &corev1.Secret{}
+		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: base}, primary); err == nil && len(primary.Data[userCredOAuthJSONKey]) > 0 {
+			label := strings.TrimSpace(string(primary.Data[userCredEmailKey]))
+			if label == "" {
+				label = strings.TrimSpace(string(primary.Data[userCredAccountIDKey]))
+			}
+			out = append(out, oauthSubscription{slot: 1, secretName: base, accountLabel: label})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].slot < out[j].slot })
+	return out
 }
 
 // userCredentialState reports which saved credentials a user has, read from their
@@ -110,6 +191,20 @@ func (s *Server) myCredentialsProto(ctx context.Context, namespace string) *plat
 	out := s.userCredentialState(ctx, namespace).toProto(namespace)
 	out.Integrations = s.integrationCredentialStates(ctx, namespace)
 	out.Secrets = s.userSecretStates(ctx, namespace)
+	for _, provider := range []string{
+		triggersv1alpha1.ProviderOpenAI,
+		triggersv1alpha1.ProviderAnthropic,
+		triggersv1alpha1.ProviderCopilot,
+	} {
+		for _, sub := range s.listOAuthSubscriptions(ctx, namespace, provider) {
+			out.OauthSubscriptions = append(out.OauthSubscriptions, &platform.ProviderOAuthSubscription{
+				Provider:     provider,
+				Slot:         int32(sub.slot),
+				SecretName:   sub.secretName,
+				AccountLabel: sub.accountLabel,
+			})
+		}
+	}
 	return out
 }
 
@@ -186,6 +281,23 @@ func (s *Server) UpdateMyCredentials(ctx context.Context, req *platform.UpdateMy
 		return nil, err
 	}
 
+	// OAuth subscription slot clears ("<provider>-oauth-<N>", N=2..9).
+	for entry := range clears {
+		if !clears[entry] {
+			continue
+		}
+		m := oauthSlotClearPattern.FindStringSubmatch(entry)
+		if m == nil {
+			continue
+		}
+		slot, _ := strconv.Atoi(m[2])
+		for _, key := range []string{userCredOAuthJSONKey, userCredAccountIDKey, userCredEmailKey} {
+			if err := s.deleteCredentialSlotKey(ctx, namespace, m[1], slot, key); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	// Free-form integration credentials (e.g. grafana url/token).
 	for _, upd := range req.GetIntegrations() {
 		if err := s.applyIntegrationCredential(ctx, namespace, upd); err != nil {
@@ -212,11 +324,20 @@ func (s *Server) applyCredentialValue(ctx context.Context, namespace, provider, 
 // applyCredentialOAuth writes or clears a provider's OAuth material, validating
 // and normalizing the raw CLI JSON into the canonical auth.json shape.
 func (s *Server) applyCredentialOAuth(ctx context.Context, namespace, provider, rawJSON, accountID string, clear bool) error {
+	return s.applyCredentialOAuthSlot(ctx, namespace, provider, 1, rawJSON, accountID, "", clear)
+}
+
+// applyCredentialOAuthSlot is the slot-aware form of applyCredentialOAuth: it
+// targets one OAuth subscription slot and optionally records the account email
+// so the subscriptions list can label accounts.
+func (s *Server) applyCredentialOAuthSlot(ctx context.Context, namespace, provider string, slot int, rawJSON, accountID, email string, clear bool) error {
 	if clear {
-		if err := s.deleteCredentialKey(ctx, namespace, provider, userCredOAuthJSONKey); err != nil {
-			return err
+		for _, key := range []string{userCredOAuthJSONKey, userCredAccountIDKey, userCredEmailKey} {
+			if err := s.deleteCredentialSlotKey(ctx, namespace, provider, slot, key); err != nil {
+				return err
+			}
 		}
-		return s.deleteCredentialKey(ctx, namespace, provider, userCredAccountIDKey)
+		return nil
 	}
 	raw := strings.TrimSpace(rawJSON)
 	if raw == "" {
@@ -230,7 +351,10 @@ func (s *Server) applyCredentialOAuth(ctx context.Context, namespace, provider, 
 	if id := strings.TrimSpace(accountID); id != "" {
 		data[userCredAccountIDKey] = []byte(id)
 	}
-	return s.writeCredentialData(ctx, namespace, provider, data)
+	if mail := strings.TrimSpace(email); mail != "" {
+		data[userCredEmailKey] = []byte(mail)
+	}
+	return s.writeCredentialSlotData(ctx, namespace, provider, slot, data)
 }
 
 // normalizeUserOAuthJSON validates raw provider OAuth material (accepting the CLI
@@ -263,7 +387,15 @@ func normalizeUserOAuthJSON(provider, raw string) ([]byte, error) {
 // writeCredentialData creates or updates a provider's credential Secret, merging
 // the given data. The Secret carries discovery + provider labels.
 func (s *Server) writeCredentialData(ctx context.Context, namespace, provider string, data map[string][]byte) error {
-	name := userCredentialSecretName(provider)
+	return s.writeCredentialSlotData(ctx, namespace, provider, 1, data)
+}
+
+// writeCredentialSlotData creates or updates the credential Secret for one of a
+// provider's subscription slots, merging the given data. The Secret carries
+// discovery + provider labels plus the slot label the OAuth refresher and
+// subscription listing rely on.
+func (s *Server) writeCredentialSlotData(ctx context.Context, namespace, provider string, slot int, data map[string][]byte) error {
+	name := userCredentialSlotSecretName(provider, slot)
 	secret := &corev1.Secret{}
 	err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret)
 	if err != nil {
@@ -275,8 +407,9 @@ func (s *Server) writeCredentialData(ctx context.Context, namespace, provider st
 				Name:      name,
 				Namespace: namespace,
 				Labels: map[string]string{
-					userCredentialLabel:         "true",
-					userCredentialProviderLabel: provider,
+					userCredentialLabel:           "true",
+					userCredentialProviderLabel:   provider,
+					usercreds.LabelCredentialSlot: strconv.Itoa(max(slot, 1)),
 				},
 			},
 			Data: data,
@@ -290,7 +423,7 @@ func (s *Server) writeCredentialData(ctx context.Context, namespace, provider st
 		secret.Data = map[string][]byte{}
 	}
 	maps.Copy(secret.Data, data)
-	ensureCredentialLabels(secret, provider)
+	ensureCredentialSlotLabels(secret, provider, slot)
 	if err := s.k8sClient.Update(ctx, secret); err != nil {
 		return mapK8sError("update credential secret", err)
 	}
@@ -300,7 +433,13 @@ func (s *Server) writeCredentialData(ctx context.Context, namespace, provider st
 // deleteCredentialKey removes a key from a provider's credential Secret, deleting
 // the Secret entirely when no data remains.
 func (s *Server) deleteCredentialKey(ctx context.Context, namespace, provider, key string) error {
-	name := userCredentialSecretName(provider)
+	return s.deleteCredentialSlotKey(ctx, namespace, provider, 1, key)
+}
+
+// deleteCredentialSlotKey removes a key from one subscription slot's credential
+// Secret, deleting the Secret entirely when no data remains.
+func (s *Server) deleteCredentialSlotKey(ctx context.Context, namespace, provider string, slot int, key string) error {
+	name := userCredentialSlotSecretName(provider, slot)
 	secret := &corev1.Secret{}
 	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret); err != nil {
 		if k8serrors.IsNotFound(err) {
@@ -329,6 +468,11 @@ func ensureCredentialLabels(secret *corev1.Secret, provider string) {
 	secret.Labels[userCredentialProviderLabel] = provider
 }
 
+func ensureCredentialSlotLabels(secret *corev1.Secret, provider string, slot int) {
+	ensureCredentialLabels(secret, provider)
+	secret.Labels[usercreds.LabelCredentialSlot] = strconv.Itoa(max(slot, 1))
+}
+
 // applyProjectSavedCredentials wires a project's Defaults to the caller's saved
 // per-provider credentials (in their personal namespace) for the selected
 // provider, plus their saved GitHub token. It returns an error when no saved
@@ -344,6 +488,9 @@ func (s *Server) applyProjectSavedCredentials(ctx context.Context, namespace, pr
 	if err != nil {
 		return err
 	}
+	// triggersv1alpha1.AgentRunSecrets has no providerOAuthFallbackSecrets
+	// mirror, so creds.oauthFallbackSecretNames cannot be recorded on project
+	// defaults; run creation resolves the fallback slots per run instead.
 	secrets.OpenAIOAuthSecret = creds.oauthSecretName
 	secrets.ProviderKeys = creds.providerKeys
 	return nil
@@ -352,10 +499,36 @@ func (s *Server) applyProjectSavedCredentials(ctx context.Context, namespace, pr
 // savedProviderCredentials is the provider-credential slice of a user's saved
 // credentials resolved for one provider: the effective auth mode plus either
 // the OAuth secret name (OAuth) or provider API-key refs (api-key).
+// oauthFallbackSecretNames lists the user's remaining OAuth subscription
+// slots for the same provider, in ascending slot (failover) order.
 type savedProviderCredentials struct {
-	authMode        platformv1alpha1.AgentRunAuthMode
-	oauthSecretName string
-	providerKeys    []platformv1alpha1.ProviderKeyRef
+	authMode                 platformv1alpha1.AgentRunAuthMode
+	oauthSecretName          string
+	oauthFallbackSecretNames []string
+	providerKeys             []platformv1alpha1.ProviderKeyRef
+}
+
+// oauthSlotClearPattern matches UpdateMyCredentialsRequest.clear entries that
+// clear one OAuth subscription slot ("<provider>-oauth-<N>", N=2..9).
+var oauthSlotClearPattern = regexp.MustCompile(`^(anthropic|openai|copilot)-oauth-([2-9])$`)
+
+// setProviderOAuthFallbackSecrets replaces the fallback OAuth subscription
+// entries for one provider on a run's secrets, preserving other providers'
+// entries and their order.
+func setProviderOAuthFallbackSecrets(secrets *platformv1alpha1.AgentRunSecrets, provider string, secretNames []string) {
+	if secrets == nil {
+		return
+	}
+	kept := secrets.ProviderOAuthFallbackSecrets[:0]
+	for _, ref := range secrets.ProviderOAuthFallbackSecrets {
+		if !strings.EqualFold(strings.TrimSpace(ref.Provider), provider) {
+			kept = append(kept, ref)
+		}
+	}
+	for _, name := range secretNames {
+		kept = append(kept, platformv1alpha1.ProviderOAuthSecretRef{Provider: provider, SecretName: name})
+	}
+	secrets.ProviderOAuthFallbackSecrets = kept
 }
 
 // appendAllSavedProviderCredentials mounts every saved provider credential in
@@ -429,6 +602,37 @@ func (s *Server) appendAllSavedProviderCredentials(ctx context.Context, namespac
 	addOAuth(triggersv1alpha1.ProviderOpenAI, state.openaiOAuth)
 	addOAuth(triggersv1alpha1.ProviderAnthropic, state.anthropicOAuth)
 	addOAuth(triggersv1alpha1.ProviderCopilot, state.copilotOAuth)
+
+	// Mount each provider's remaining OAuth subscription slots as ordered
+	// failover candidates, deduped by secret name against the run's primary
+	// OAuth secret and the per-provider OAuth mounts above.
+	usedNames := map[string]bool{strings.TrimSpace(secrets.OpenAIOAuthSecret): true}
+	for _, ref := range secrets.ProviderOAuthSecrets {
+		usedNames[strings.TrimSpace(ref.SecretName)] = true
+	}
+	for _, ref := range secrets.ProviderOAuthFallbackSecrets {
+		usedNames[strings.TrimSpace(ref.SecretName)] = true
+	}
+	for _, provider := range []string{
+		triggersv1alpha1.ProviderOpenAI,
+		triggersv1alpha1.ProviderAnthropic,
+		triggersv1alpha1.ProviderCopilot,
+	} {
+		subs := s.listOAuthSubscriptions(ctx, namespace, provider)
+		if len(subs) <= 1 {
+			continue
+		}
+		for _, sub := range subs[1:] {
+			if usedNames[sub.secretName] {
+				continue
+			}
+			usedNames[sub.secretName] = true
+			secrets.ProviderOAuthFallbackSecrets = append(secrets.ProviderOAuthFallbackSecrets, platformv1alpha1.ProviderOAuthSecretRef{
+				Provider:   provider,
+				SecretName: sub.secretName,
+			})
+		}
+	}
 }
 
 // resolveSavedProviderCredentials maps a provider to the caller's saved
@@ -456,6 +660,23 @@ func (s *Server) resolveSavedProviderCredentials(ctx context.Context, namespace,
 	missing := func(what string) error {
 		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("no saved %s in %s; add it in Settings", what, namespace))
 	}
+	// oauthCreds resolves a provider's saved OAuth subscriptions: the lowest
+	// slot present (normally slot 1, the legacy usercred-<provider> Secret) is
+	// the primary; remaining slots become ordered failover candidates.
+	oauthCreds := func(oauthProvider, what string) (savedProviderCredentials, error) {
+		subs := s.listOAuthSubscriptions(ctx, namespace, oauthProvider)
+		if len(subs) == 0 {
+			return savedProviderCredentials{}, missing(what)
+		}
+		creds := savedProviderCredentials{
+			authMode:        platformv1alpha1.AgentRunAuthModeOAuth,
+			oauthSecretName: subs[0].secretName,
+		}
+		for _, sub := range subs[1:] {
+			creds.oauthFallbackSecretNames = append(creds.oauthFallbackSecretNames, sub.secretName)
+		}
+		return creds, nil
+	}
 	apiKey := func(keyProvider string) savedProviderCredentials {
 		return savedProviderCredentials{
 			authMode: platformv1alpha1.AgentRunAuthModeAPIKey,
@@ -469,22 +690,10 @@ func (s *Server) resolveSavedProviderCredentials(ctx context.Context, namespace,
 
 	switch provider {
 	case triggersv1alpha1.ProviderCopilot:
-		if !state.copilotOAuth {
-			return savedProviderCredentials{}, missing("Copilot credentials")
-		}
-		return savedProviderCredentials{
-			authMode:        platformv1alpha1.AgentRunAuthModeOAuth,
-			oauthSecretName: userCredentialSecretName(triggersv1alpha1.ProviderCopilot),
-		}, nil
+		return oauthCreds(triggersv1alpha1.ProviderCopilot, "Copilot credentials")
 	case triggersv1alpha1.ProviderAnthropic:
 		if wantOAuth(state.anthropicOAuth) {
-			if !state.anthropicOAuth {
-				return savedProviderCredentials{}, missing("Anthropic OAuth credentials")
-			}
-			return savedProviderCredentials{
-				authMode:        platformv1alpha1.AgentRunAuthModeOAuth,
-				oauthSecretName: userCredentialSecretName(triggersv1alpha1.ProviderAnthropic),
-			}, nil
+			return oauthCreds(triggersv1alpha1.ProviderAnthropic, "Anthropic OAuth credentials")
 		}
 		if !state.anthropicAPIKey {
 			return savedProviderCredentials{}, missing("Anthropic API key")
@@ -492,13 +701,7 @@ func (s *Server) resolveSavedProviderCredentials(ctx context.Context, namespace,
 		return apiKey(triggersv1alpha1.ProviderAnthropic), nil
 	case triggersv1alpha1.ProviderOpenAI:
 		if wantOAuth(state.openaiOAuth) {
-			if !state.openaiOAuth {
-				return savedProviderCredentials{}, missing("OpenAI OAuth credentials")
-			}
-			return savedProviderCredentials{
-				authMode:        platformv1alpha1.AgentRunAuthModeOAuth,
-				oauthSecretName: userCredentialSecretName(triggersv1alpha1.ProviderOpenAI),
-			}, nil
+			return oauthCreds(triggersv1alpha1.ProviderOpenAI, "OpenAI OAuth credentials")
 		}
 		if !state.openaiAPIKey {
 			return savedProviderCredentials{}, missing("OpenAI API key")

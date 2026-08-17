@@ -85,9 +85,72 @@ func sdkRuntimeProviderConfig(cfg runConfig, model string) sdkruntime.Config {
 		ProviderAPIKeys:          cloneStringMap(cfg.ProviderAPIKeys),
 		ProviderBaseURLs:         cloneStringMap(cfg.ProviderBaseURLs),
 		ProviderAPIModes:         cloneStringMap(cfg.ProviderAPIModes),
+		Routes:                   oauthFallbackRoutes(cfg),
 		ModelFallbacks:           append([]string(nil), cfg.ModelFallbacks...),
 		ToolOutputDir:            workspaceScratchDir,
 	}
+}
+
+// oauthFallbackRoutes exposes each fallback OAuth subscription as a named
+// provider route ("<provider>-sub2", "<provider>-sub3", …) so the runner can
+// retry a rate-limited model call through the next subscription of the same
+// provider via FallbackModels.
+func oauthFallbackRoutes(cfg runConfig) []sdkproviders.ProviderRoute {
+	var routes []sdkproviders.ProviderRoute
+	for _, provider := range []string{"openai", "anthropic", "copilot"} {
+		for i, cred := range cfg.OAuthFallbacks[provider] {
+			route := sdkproviders.ProviderRoute{
+				Prefix:   fmt.Sprintf("%s-sub%d", provider, i+2),
+				Provider: provider,
+				AuthMode: "oauth",
+			}
+			switch provider {
+			case "anthropic":
+				route.AnthropicOAuthPath = cred.AuthJSONPath
+			case "copilot":
+				route.CopilotOAuthPath = cred.AuthJSONPath
+			default:
+				route.OpenAIOAuthPath = cred.AuthJSONPath
+				route.OpenAIOAuthAccountIDPath = cred.AccountIDPath
+			}
+			routes = append(routes, route)
+		}
+	}
+	return routes
+}
+
+// subscriptionFallbackModels returns the ordered same-model fallback route
+// identifiers ("<provider>-sub2/<model>", …) for the startup provider's
+// fallback OAuth subscriptions. Models already routed to another provider get
+// no subscription fallbacks.
+func subscriptionFallbackModels(cfg runConfig, model string) []string {
+	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	creds := cfg.OAuthFallbacks[provider]
+	if provider == "" || len(creds) == 0 {
+		return nil
+	}
+	bareModel := strings.TrimSpace(model)
+	if prefix, rest := agent.ParseModelPrefix(bareModel); prefix != "" {
+		if !strings.EqualFold(strings.TrimSpace(prefix), provider) {
+			return nil
+		}
+		bareModel = rest
+	}
+	if bareModel == "" {
+		return nil
+	}
+	fallbacks := make([]string, 0, len(creds))
+	for i := range creds {
+		fallbacks = append(fallbacks, fmt.Sprintf("%s-sub%d/%s", provider, i+2, bareModel))
+	}
+	return fallbacks
+}
+
+// mergedFallbackModels orders SDK-level fallback models: subscription failover
+// (same model through the next OAuth subscription) first, then any
+// mode-template fallback models.
+func mergedFallbackModels(cfg runConfig, model string, templateFallbacks []string) []string {
+	return append(subscriptionFallbackModels(cfg, model), templateFallbacks...)
 }
 
 func resolveConfiguredModel(cfg runConfig, model string) agent.Model {

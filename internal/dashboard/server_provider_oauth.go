@@ -32,6 +32,7 @@ const (
 type providerOAuthSession struct {
 	id           string
 	provider     string
+	slot         int
 	started      time.Time
 	verifier     string
 	state        string
@@ -57,6 +58,13 @@ func (s *Server) StartProviderOAuth(ctx context.Context, req *platform.StartProv
 	provider := strings.ToLower(strings.TrimSpace(req.GetProvider()))
 	if provider != triggersv1alpha1.ProviderAnthropic && provider != triggersv1alpha1.ProviderOpenAI {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("provider must be anthropic or openai"))
+	}
+	slot := int(req.GetSlot())
+	if slot < 0 || slot > maxOAuthSubscriptionSlot {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("slot must be between 0 and %d", maxOAuthSubscriptionSlot))
+	}
+	if slot == 0 {
+		slot = 1
 	}
 	sessionID, err := randomProviderOAuthValue(24)
 	if err != nil {
@@ -95,7 +103,7 @@ func (s *Server) StartProviderOAuth(ctx context.Context, req *platform.StartProv
 		query.Set("code_challenge_method", "S256")
 		query.Set("state", state)
 		authorize.RawQuery = query.Encode()
-		session = providerOAuthSession{id: sessionID, provider: provider, started: time.Now(), verifier: verifier, state: state}
+		session = providerOAuthSession{id: sessionID, provider: provider, slot: slot, started: time.Now(), verifier: verifier, state: state}
 		start = &platform.ProviderOAuthStart{Provider: provider, Mode: "manual-code", AuthorizeUrl: authorize.String(), SessionId: sessionID}
 
 	case triggersv1alpha1.ProviderOpenAI:
@@ -117,7 +125,7 @@ func (s *Server) StartProviderOAuth(ctx context.Context, req *platform.StartProv
 		}
 		interval := parseOAuthPollInterval(body.Interval)
 		session = providerOAuthSession{
-			id: sessionID, provider: provider, started: time.Now(), deviceAuthID: body.DeviceAuthID,
+			id: sessionID, provider: provider, slot: slot, started: time.Now(), deviceAuthID: body.DeviceAuthID,
 			userCode: userCode, pollInterval: time.Duration(interval) * time.Second,
 		}
 		start = &platform.ProviderOAuthStart{
@@ -211,7 +219,7 @@ func (s *Server) CompleteProviderOAuth(ctx context.Context, req *platform.Comple
 	if !current {
 		return nil, connect.NewError(connect.CodeAborted, fmt.Errorf("this Claude sign-in was replaced by a newer attempt"))
 	}
-	credentials, err := s.storeProviderOAuth(ctx, actor, provider, authJSON, "")
+	credentials, err := s.storeProviderOAuth(ctx, actor, provider, session.slot, authJSON, "", token.Account.EmailAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +341,7 @@ func (s *Server) PollProviderOAuth(ctx context.Context, req *platform.PollProvid
 	if !current {
 		return nil, connect.NewError(connect.CodeAborted, fmt.Errorf("this ChatGPT sign-in was replaced by a newer attempt"))
 	}
-	credentials, err := s.storeProviderOAuth(ctx, actor, provider, authJSON, accountID)
+	credentials, err := s.storeProviderOAuth(ctx, actor, provider, session.slot, authJSON, accountID, email)
 	if err != nil {
 		return nil, err
 	}
@@ -348,23 +356,28 @@ func providerOAuthActor(ctx context.Context) (requestActor, error) {
 	return actor, nil
 }
 
-func (s *Server) storeProviderOAuth(ctx context.Context, actor requestActor, provider string, authJSON []byte, accountID string) (*platform.MyCredentials, error) {
+// storeProviderOAuth persists a completed sign-in's auth.json into the target
+// subscription slot's Secret, along with the account id and email (when the
+// token exchange surfaced one) so the subscriptions list can label accounts.
+func (s *Server) storeProviderOAuth(ctx context.Context, actor requestActor, provider string, slot int, authJSON []byte, accountID, email string) (*platform.MyCredentials, error) {
 	namespace, err := s.ensureUserNamespace(ctx, actor)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.applyCredentialOAuth(ctx, namespace, provider, string(authJSON), accountID, false); err != nil {
+	if err := s.applyCredentialOAuthSlot(ctx, namespace, provider, slot, string(authJSON), accountID, email, false); err != nil {
 		return nil, err
 	}
 	credentials := s.myCredentialsProto(ctx, namespace)
 	// The controller-runtime client may read from an informer cache that has not
 	// observed the write yet. The successful write is authoritative for the
 	// provider completed by this request.
-	switch provider {
-	case triggersv1alpha1.ProviderAnthropic:
-		credentials.AnthropicOauthPresent = true
-	case triggersv1alpha1.ProviderOpenAI:
-		credentials.OpenaiOauthPresent = true
+	if slot <= 1 {
+		switch provider {
+		case triggersv1alpha1.ProviderAnthropic:
+			credentials.AnthropicOauthPresent = true
+		case triggersv1alpha1.ProviderOpenAI:
+			credentials.OpenaiOauthPresent = true
+		}
 	}
 	return credentials, nil
 }
