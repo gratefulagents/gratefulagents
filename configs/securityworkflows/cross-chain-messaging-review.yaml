@@ -1,0 +1,424 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: cross-chain-messaging-review
+spec:
+  description: Protocol-specific bounty hunt for cross-chain messaging protocols and token bridges (Axelar GMP, Chainlink CCIP, Hyperlane, LayerZero v2, Wormhole, the Arbitrum token bridge). The toolchain and the repository's own two-domain message harness are bootstrapped and recorded first, the hunt is aimed at cross-domain identity and proof binding, replay and message-id uniqueness, verification-module trust, and token accounting parity, and the report is gated on a proof of concept added to that same harness and runnable under the governing program's submission rules.
+  parameters:
+    - name: project_root
+      description: Repository-relative root of the messaging or bridge project under test.
+      default: "."
+    - name: contracts_root
+      description: Repository-relative directory of the on-chain code, for example `ethereum` for wormhole or `chains/evm` for chainlink-ccip. Axelar, Hyperlane solidity, LayerZero v2 evm packages and the Arbitrum token bridge each root their contracts differently; resolve this against the repository instead of assuming a top-level src.
+      default: "."
+    - name: build_toolchain
+      description: Toolchain the repository builds with. hardhat for axelar-gmp-sdk-solidity, foundry-pnpm for chainlink-ccip and hyperlane-monorepo, foundry-yarn for LayerZero-v2, foundry-make for wormhole ethereum, hardhat-foundry for token-bridge-contracts, or autodetect to derive it from the repository.
+      default: "autodetect"
+    - name: message_harness
+      description: Repository-owned two-domain harness the proof of concept is added to. MockMailbox.sol dispatch plus processNextInboundMessage for hyperlane, TestHelper.sol setUpEndpoints/setupOApps for LayerZero v2, test/GMP/GMP.js and GMPE.js chainA/chainB for axelar, chains/evm/contracts/test/e2e/e2e*.t.sol for CCIP, forge-test/Implementation.t.sol devnet-guardian VAA signing for wormhole, or autodetect.
+      default: "autodetect"
+    - name: fork_endpoint_alias
+      description: Operator-authorized archive endpoint alias used for fork tests. Supply an alias, never a raw credential-bearing URL.
+      default: "unconfigured"
+    - name: chain_id
+      description: Expected chain ID for the pinned local fork.
+      default: "unconfigured"
+    - name: fork_block_number
+      description: Immutable finalized block number for the pinned local fork. The token-bridge-contracts fork lane pins no block of its own, so one must be supplied here for a reproducible run.
+      default: "unconfigured"
+    - name: fork_block_hash
+      description: Block hash for fork_block_number; every fork-backed run verifies it before execution.
+      default: "unconfigured"
+  parallelism: 3
+  tasks:
+    - name: pin-target-and-toolchain
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Pin the source target, the sandbox it can actually be exercised in, and the two-domain harness the
+        repository already owns, before anyone reasons about a message. The full run tool surface remains
+        available; this task is inventory only and must not change state anywhere outside the sandbox
+        workspace, must not send mutating requests, must never touch a live or deployed system, and must not
+        claim any command it did not run.
+
+        From project root {{params.project_root}} and contracts root {{params.contracts_root}} record the
+        immutable revision, the on-chain and off-chain layout, and the exact toolchain, resolving
+        {{params.build_toolchain}} against the repository rather than assuming it. The scan image ships no
+        forge, anvil, docker, tilt or nix, so treat toolchain bootstrap as an explicit recorded step, and
+        initialize submodules, because a shallow clone leaves them empty — LayerZero-v2 lib/forge-std is
+        empty until it is initialized. Record the dependency bootstrap in order, taking it from Makefile,
+        package.json scripts and CI rather than inventing it, and record the known per-repository shapes when
+        they apply: axelar-gmp-sdk-solidity builds with npm ci plus npm run build and tests with npm run
+        test, and its hardhat.config.js reads a keys.json that the repository does not ship, so a `{}` stub
+        must be written first; chainlink-ccip builds its contracts from chains/evm with pnpm i then
+        FOUNDRY_PROFILE=ccip forge build and forge test against a pinned foundry v1.7.1, while the Go side
+        needs Go 1.26.5 and a root make test that defaults to -count 10 -race, so pass TEST_COUNT=1, and its
+        docker devenv depends on a private repository and is out of reach; hyperlane-monorepo runs pnpm
+        install and pnpm build over turbo, pnpm -C solidity deps:soldeer for solidity dependencies, and
+        pnpm fixtures before pnpm -C solidity test:forge, with rust pinned to 1.88.0; LayerZero-v2 is a yarn
+        4 workspace with per-package forge build and forge test; wormhole builds with make dependencies and
+        make build under ethereum and tests with make test, which runs forge with --no-match-test .*_KEVM at
+        solc 0.8.4 and evm version istanbul, while its tilt plus kubernetes devnet needs roughly 16 vCPU and
+        64 GB and is out of reach in a scan sandbox; token-bridge-contracts sets libs=["node_modules","lib"]
+        so yarn MUST run before forge build, its offline-capable unit lane is yarn test:unit, and its hardhat
+        fork lane is SHOULD_FORK=1 with an INFURA_KEY and an unpinned block.
+
+        Record the offline lane that survives with no archive RPC, and record the fork entry point exactly as
+        the repository implements it, including hyperlane fork tests that need RPC_URL_MAINNET, OPTIMISM,
+        POLYGON, ARBITRUM and BASE and are excluded by default with --no-match-contract ForkTest. Resolve
+        {{params.message_harness}} to the concrete two-domain harness this repository owns and record its
+        file path and entry calls, because the proof of concept will be added there rather than to a new
+        bridge simulator. Record every in-repo address book, such as token-bridge-contracts
+        deployment-42161.json and _deployments/*_current_deployment.json, and say explicitly when the
+        repository ships none.
+
+        Then map the protocol: the send and receive entry points on each domain, the message struct and its
+        encoding, the message id or hash derivation, the delivery bookkeeping store, the verification module
+        and who may change it (ISM, DVN or message library, guardian set, verifier, validator or oracle set,
+        token pool), the quorum or threshold arithmetic, the relayer and executor trust assumptions, the
+        token bridge mode for each asset (mint and burn versus lock and release) with the decimals on each
+        domain, the fee, refund and retry paths, and the privileged roles with their holders. When
+        {{params.fork_endpoint_alias}}, {{params.chain_id}}, {{params.fork_block_number}} or
+        {{params.fork_block_hash}} is unconfigured, set fork_readiness to blocked, name each missing input in
+        gaps, and still publish the dossier so source review, builds and local two-domain tests proceed.
+        Publish one structured dossier and report no vulnerabilities here.
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["revision", "toolchain", "dependency_bootstrap", "build_command", "test_command", "message_harness", "fork_readiness", "components", "gaps"],
+          "properties": {
+            "revision": {"type": "string"},
+            "contracts_root": {"type": "string"},
+            "toolchain": {"type": "string", "description": "hardhat, foundry-pnpm, foundry-yarn, foundry-make, or hardhat-foundry, resolved from the repository"},
+            "toolchain_pins": {"type": "array", "items": {"type": "string"}, "description": "Pinned solc, evm version, foundry, node, go, rust and package-manager versions"},
+            "dependency_bootstrap": {"type": "array", "items": {"type": "string"}, "description": "Ordered commands that make the project buildable, including submodule init, soldeer, package-manager and stub-file steps such as the axelar keys.json stub"},
+            "build_command": {"type": "string"},
+            "test_command": {"type": "string"},
+            "offline_test_lane": {"type": "string", "description": "The subset of the suite that runs without an archive RPC or docker, or none"},
+            "unreachable_lanes": {"type": "array", "items": {"type": "string"}, "description": "Lanes out of reach in this sandbox, such as the wormhole tilt devnet or the chainlink-ccip docker devenv, with the reason"},
+            "message_harness": {"type": "string", "description": "Repository-relative path plus entry calls of the two-domain harness the proof of concept will be added to, or none_shipped"},
+            "fork_entry_point": {"type": "string", "description": "Repository-implemented fork entry point with its env vars and block, or none"},
+            "fork_readiness": {"type": "string", "enum": ["ready", "blocked"]},
+            "address_manifest": {"type": "string", "description": "Resolved address book path, or none_shipped"},
+            "components": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "role"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "role": {"type": "string", "description": "send entry point, receive or execute entry point, message encoding, message id derivation, delivery bookkeeping, verification module, quorum or threshold, relayer or executor, token pool or gateway, fee and refund path, upgrade admin, or privileged role"},
+                  "domain": {"type": "string", "description": "Origin or destination domain, chain id, or both"},
+                  "decimals": {"type": "string"},
+                  "evidence": {"type": "string", "description": "file:line"}
+                }
+              }
+            },
+            "gaps": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: map-cross-domain-invariants
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-dimensional-analysis
+      objective: >-
+        Using {{tasks.pin-target-and-toolchain.output}}, write the invariant set this protocol family is
+        actually paid for breaking, with repository-relative evidence for each. The full run tool surface
+        remains available; this task reads and reasons only, must not change state outside the sandbox
+        workspace, must never touch a live or deployed system, and must not claim a test result it did not
+        produce.
+
+        Cover, at minimum, in payout order. Cross-domain identity and proof binding: the accepted message
+        binds origin chain id, emitter or sender address, destination chain id, destination address, nonce
+        and domain separator, none of them attacker-substitutable and none of them truncated when an address
+        crosses a 20-byte and 32-byte boundary; and whatever msg.sender becomes on the destination after
+        relaying cannot be impersonated by a self-addressed or reflected message. Replay and uniqueness: the
+        message id derivation admits no two distinct messages with the same id, delivery bookkeeping is
+        written before the call and cannot be cleared, a failed or partially executed delivery cannot be
+        re-executed for a second effect, retry and refund paths are idempotent, and the same id cannot be
+        replayed across a fork or across two domains that share it. Verification module trust: who may set or
+        swap the ISM, DVN or message library, guardian set, verifier, validator set or token pool, whether
+        the swap is atomic with in-flight messages, whether quorum and threshold arithmetic rounds and
+        compares correctly at the boundary, and whether a guardian-set or validator-set rotation window lets
+        an old or a not-yet-active set sign an accepted message. Token bridge accounting: mint and burn
+        versus lock and release parity per asset, decimals and dust normalization across domains including
+        the remainder, fee-on-transfer and rebasing tokens, and gateway or token-pool registration
+        authenticity so an attacker-registered pool or token cannot mint canonical assets. Encoding: every
+        encode and decode round trip is total and injective, with no truncation, no length-prefix confusion,
+        and no trailing-bytes tolerance that lets two payloads decode alike. Delivery liveness and gas
+        accounting: a message cannot become permanently stuck or unrefundable, and an out-of-gas or reverting
+        partial execution cannot leave origin and destination in inconsistent state. Initialization and
+        upgrade state of the deployed implementations: uninitialized implementations, re-initializable
+        proxies, and storage-layout drift across an upgrade.
+
+        For each invariant record the protected asset, the least-privileged attacker, the allowed transition,
+        where enforcement lives, the alternate paths that reach the same state, the impact when it breaks,
+        and the concrete local validation target, preferring the two-domain harness recorded in the dossier
+        over any new construction. Rank the hypotheses by the impact clause they would reach, not by novelty.
+        Templated reentrancy stays available but sits off the default path, because bot-findable means
+        unpayable under duplicate rules. Report no findings here.
+      dependsOn:
+        - pin-target-and-toolchain
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["invariants", "ranked_hypotheses", "limitations"],
+          "properties": {
+            "invariants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "property", "asset", "attacker", "enforcement", "validation_target"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "property": {"type": "string"},
+                  "class": {"type": "string", "description": "identity_and_proof_binding, replay_and_uniqueness, verification_module_trust, token_accounting, encoding, delivery_liveness, or initialization_and_upgrade"},
+                  "asset": {"type": "string"},
+                  "attacker": {"type": "string"},
+                  "domains": {"type": "string", "description": "Origin and destination domains the invariant spans"},
+                  "enforcement": {"type": "string", "description": "file:line where the invariant is enforced, or unenforced"},
+                  "alternate_paths": {"type": "array", "items": {"type": "string"}},
+                  "validation_target": {"type": "string", "description": "The repository's own two-domain harness, existing suite, or the new test file this invariant will be asserted in"}
+                }
+              }
+            },
+            "ranked_hypotheses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["invariant", "controlled_input", "expected_transition", "falsifier"],
+                "properties": {
+                  "invariant": {"type": "string"},
+                  "controlled_input": {"type": "string"},
+                  "expected_transition": {"type": "string"},
+                  "falsifier": {"type": "string"},
+                  "evidence": {"type": "string", "description": "file:line"}
+                }
+              }
+            },
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: build-harness-and-hunt
+      role: exploit-validator
+      category: other
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-harness-writing
+        - name: trail-of-bits-property-based-testing
+        - name: bridge-l2-zk-security-review
+        - name: exploit-poc-discipline
+      objective: >-
+        In one write-capable run, bootstrap the sandbox, stand up the repository's own two-domain harness,
+        calibrate it, hunt against it and reproduce or kill each hypothesis, so temporary harness files are
+        never lost at a handoff. The full run tool surface remains available and is intentional here: this is
+        the only task that builds and executes code. All execution is local. Never change state on any live,
+        public or third-party system, never send a mutating request to a deployed contract, never test
+        against mainnet or a public testnet, and never touch a third-party relayer, validator, guardian or
+        protocol deployment; every governing program treats that as grounds for a permanent ban. The run
+        prompt already carries the program's typed scope — pocRequired, pocEnvironment, prohibitedTesting,
+        knownIssues and the in-scope impact list — and that scope is authoritative: obey pocEnvironment as
+        the hard substrate constraint for everything executed here.
+
+        Bootstrap exactly what {{tasks.pin-target-and-toolchain.output}} recorded, because the scan image
+        ships no forge, anvil, docker, tilt or nix: install the pinned toolchain, initialize shallow-clone
+        submodules, write any stub the build reads but the repository does not ship, run the recorded
+        dependency bootstrap in order, then the recorded build and test command. Record every command with
+        its exit status. When a documented lane cannot be bootstrapped — a docker devenv behind a private
+        repository, or a devnet needing 16 vCPU and 64 GB — say so as a blocker and fall back to the recorded
+        offline lane instead of silently narrowing scope. Start the pinned local fork through
+        operator-authorized endpoint alias {{params.fork_endpoint_alias}} only when chain id
+        {{params.chain_id}}, block {{params.fork_block_number}} and hash {{params.fork_block_hash}} agree
+        with the dossier, and set fork_status to executed only then; otherwise set it to blocked, record the
+        blocker, and keep hunting on the repository's own suite.
+
+        Prefer the repository's own two-domain harness over inventing a new bridge simulator: dispatch on one
+        MockMailbox and drain the other with processNextInboundMessage as solidity/test/Messaging.t.sol does;
+        setUpEndpoints(2, LibraryType.UltraLightNode) plus setupOApps in evm/oapp/test/TestHelper.sol as
+        OmniCounter.t.sol, OFT.t.sol and PreCrimeV2.t.sol do; the chainA and chainB two-gateway single-EVM
+        setup in test/GMP/GMP.js and test/GMP/GMPE.js; the CCIP end-to-end contracts in
+        chains/evm/contracts/test/e2e/e2e*.t.sol over BaseTest, RouterFixture and TokenSetup; the
+        devnet-guardian VAA signing in ethereum/forge-test/Implementation.t.sol plus the parsing vectors in
+        sdk/vaa/*_test.go; or the offline forge unit lane of the Arbitrum token bridge. Add the proof of
+        concept as a test file inside that suite so the program can run it unchanged.
+
+        Turn the invariants in {{tasks.map-cross-domain-invariants.output}} into 5 to 15 executable
+        assertions on the strongest substrate available. Calibrate each assertion with a temporary mutant
+        that SHOULD make it fail; an invariant counts as calibrated only when it is executable and kills its
+        mutant, because an assertion that survives cannot detect its own violation. A green harness never
+        means the target is safe; it means only not found under the recorded bounds.
+
+        Then hunt, in payout order: cross-domain identity and proof binding first, then replay and message-id
+        uniqueness including re-execution after failure and retry or refund paths, then verification-module
+        trust and quorum or rotation arithmetic, then token accounting parity, decimals and pool or gateway
+        registration authenticity, then encoding round trips and truncation, then delivery liveness and gas
+        accounting, then initialization and upgrade state of the deployed implementations. Templated
+        reentrancy stays available but sits off the default path, because bot-findable means unpayable. Every
+        broken verdict needs the exact command and seed, the failing assertion, the observed balance or state
+        delta on both domains, a negative control that did not trigger, and the calibration mutant proving
+        the oracle can fail. Record the reproducibility class and never generalize a local-only result into a
+        claim about deployed configuration. A hypothesis without a failing assertion is refuted or untested
+        and may not be reported.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-cross-domain-invariants
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["bootstrap_status", "fork_status", "harness_path", "executable_invariant_count", "calibrated_invariant_count", "tool_runs", "hypotheses", "limitations"],
+          "properties": {
+            "bootstrap_status": {"type": "string", "enum": ["built", "partial", "blocked"], "description": "built only when the recorded build and test command both ran"},
+            "bootstrap_blocker": {"type": "string"},
+            "fork_status": {"type": "string", "enum": ["executed", "blocked"]},
+            "fork_blocker": {"type": "string"},
+            "harness_path": {"type": "string", "description": "Repository-relative path of the two-domain harness the assertions were added to, or the reason none was reusable"},
+            "executable_invariant_count": {"type": "integer", "minimum": 0},
+            "calibrated_invariant_count": {"type": "integer", "minimum": 0, "description": "Must not exceed executable_invariant_count"},
+            "tool_runs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["tool", "command", "exit_status"],
+                "properties": {
+                  "tool": {"type": "string"},
+                  "command": {"type": "string"},
+                  "exit_status": {"type": "string"},
+                  "seed": {"type": "string"},
+                  "attempts": {"type": "integer", "minimum": 0},
+                  "successes": {"type": "integer", "minimum": 0}
+                }
+              }
+            },
+            "hypotheses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["invariant", "attacker", "verdict"],
+                "properties": {
+                  "invariant": {"type": "string"},
+                  "attacker": {"type": "string"},
+                  "verdict": {"type": "string", "enum": ["broken", "refuted", "untested"]},
+                  "missing_dependency": {"type": "string", "description": "Required when verdict is untested"},
+                  "fingerprint": {"type": "string", "description": "Required when verdict is broken"},
+                  "reproduction": {
+                    "type": "object",
+                    "required": ["command", "substrate", "test_path", "failing_assertion", "observed_delta", "negative_control_passed", "oracle_can_fail", "reproducibility_class"],
+                    "properties": {
+                      "command": {"type": "string"},
+                      "seed": {"type": "string"},
+                      "substrate": {"type": "string", "enum": ["pinned_fork", "project_tests", "local_devnet"]},
+                      "test_path": {"type": "string", "description": "Repository-relative path of the added test inside the repository's own two-domain suite"},
+                      "failing_assertion": {"type": "string"},
+                      "observed_delta": {"type": "string", "description": "State or balance delta observed on the origin and the destination domain"},
+                      "negative_control_passed": {"type": "boolean"},
+                      "oracle_can_fail": {"type": "boolean"},
+                      "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]}
+                    }
+                  }
+                }
+              }
+            },
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: quantify-impact-and-submission-readiness
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: bridge-l2-zk-security-review
+      objective: >-
+        Price and qualify only hypotheses with verdict broken and a valid reproduction in
+        {{tasks.build-harness-and-hunt.output}}. The full run tool surface remains available; this task must
+        not change state outside the sandbox workspace and must never contact the program, the protocol, a
+        relayer, a guardian, or any deployed system.
+
+        Measure value at risk on the substrate that actually settled the claim: at the verified block for a
+        pinned-fork reproduction, and unknown for a project-test or in-EVM two-domain reproduction, where
+        deployed exposure must be labelled unverified rather than estimated. For a token bridge, state the
+        bridged supply the broken invariant reaches on each domain rather than the total value locked across
+        the whole protocol. Record the capital the attacker fronts, the capital they risk, and the
+        privileges, relayer cooperation or rotation timing they need.
+
+        The run prompt already carries the program's typed scope — pocRequired, pocEnvironment,
+        prohibitedTesting, knownIssues and the in-scope impact list — and that scope is authoritative. Map
+        each candidate onto that published in-scope impact list, copying the clause verbatim, and give the
+        maximum achievable impact reachable from the same root cause rather than the first one demonstrated;
+        never translate a severity label from another program's system. Check every candidate against the
+        program's published known issues and prior audit disclosures before reporting it — LayerZero's Audits
+        repository is the worked example — and drop a candidate that is already disclosed there.
+
+        Then apply the submission gate these programs publish, and mark a candidate submission-ready only
+        when all of it holds: a runnable coded proof of concept exists, because every smart-contract program
+        in this catalog requires one and an explanation is not a proof of concept; the proof of concept runs
+        on the substrate pocEnvironment permits, which is a local fork or a local two-domain harness and
+        never deployed code, the rule Immunefi's severity classification system states verbatim and enforces
+        with a permanent ban; the proof of concept respects prohibitedTesting and does not test third-party
+        oracles, third-party contracts, public relayers or guardians, and runs no denial of service or
+        traffic-generating attack; it is delivered as a test the program can run in the repository's own
+        suite, ideally as a diff against the existing two-domain harness; it is a single issue, written in
+        English, with no raw scanner or model output pasted in; and it states the revision and the block or
+        harness configuration it was produced at. Record the fix suggestion when the program requires one.
+        Anything failing the gate is reported as not submission-ready with the exact missing element.
+      dependsOn:
+        - build-harness-and-hunt
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fingerprint", "impact_clause", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "known_issue_checked", "submission_ready"],
+            "properties": {
+              "fingerprint": {"type": "string"},
+              "impact_clause": {"type": "string", "description": "Copied verbatim from the program's in-scope impact list"},
+              "program_severity": {"type": "string"},
+              "max_achievable_impact": {"type": "string"},
+              "funds_at_risk": {"type": "string", "description": "Bridged value reachable on each domain plus the block or harness configuration it was measured at, or why no measurement is possible"},
+              "attacker_capital": {"type": "string"},
+              "preconditions": {"type": "string", "description": "Privileges, relayer or verifier cooperation, and rotation or finality timing required"},
+              "poc_runnable": {"type": "boolean", "description": "A coded proof of concept the program can execute unchanged in its own suite"},
+              "poc_command": {"type": "string"},
+              "poc_substrate_permitted": {"type": "boolean", "description": "false unless execution stayed within pocEnvironment on a local fork or local two-domain harness"},
+              "known_issue_checked": {"type": "boolean", "description": "Checked against the program's published known issues and prior audit disclosures"},
+              "known_issue_reference": {"type": "string"},
+              "fix_suggestion": {"type": "string"},
+              "submission_ready": {"type": "boolean"},
+              "blocking_gap": {"type": "string", "description": "Required when submission_ready is false"}
+            }
+          }
+        }
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: trail-of-bits-fp-check
+      objective: >-
+        Assemble the report from {{tasks.quantify-impact-and-submission-readiness.output}} under one
+        admission rule: a finding survives only when a named calibrated invariant broke, a runnable failing
+        assertion on a permitted local substrate proves it, the negative control did not trigger, the oracle
+        was shown capable of failing, the impact maps to a clause the program published and is not already a
+        published known issue, and the submission gate passed. The full run tool surface remains available;
+        this task must not change state outside the sandbox workspace and must never contact a live or
+        deployed system.
+
+        Require a verified pinned fork only when the finding depends on deployed state, and label two-domain
+        harness evidence as project-test evidence without implying deployment exposure. Drop everything else,
+        including analyses that read well but never moved a message. Prefer an empty report to a padded one:
+        reporting is rationed, a rejected submission costs more than a withheld one, and these programs
+        explicitly reject scanner-shaped reports without demonstrated impact. State the bounded negative
+        result explicitly — which invariants were tested, at which revision and block or harness
+        configuration, on which substrate, and which lanes were blocked by a missing toolchain, an
+        out-of-reach devnet or a missing endpoint — so a clean or blocked run is recorded as not found under
+        those bounds rather than as a clean bill of health. Then submit the final scan report.
+      dependsOn:
+        - quantify-impact-and-submission-readiness

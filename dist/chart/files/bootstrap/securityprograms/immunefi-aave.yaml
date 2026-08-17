@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/aave-dao/aave-v3-origin
       baseBranch: main
-      workflowRef: bounty-hunt-evm
+      workflowRef: evm-lending-cdp-review
       policyPackRef: bug-bounty
       scanName: immunefi-aave-v3-origin
       displayName: Aave v3 Origin
@@ -19,6 +19,8 @@ spec:
   programURL: https://immunefi.com/bug-bounty/aave/scope/
   verifiedAt: 2026-08-12T00:00:00Z
   severitySystem: immunefi-v2.3
+  pocRequired: true
+  pocEnvironment: mainnet-fork
   primacy: impact
   inScopeImpacts:
     - impact: "Major manipulation of governance voting results deviating from voted outcome, whenever protection mechanisms (e.g. cancellation of proposal) can’t mitigate the damage."

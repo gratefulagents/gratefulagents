@@ -189,22 +189,22 @@ func TestSecurityProgramLibrary(t *testing.T) {
 	}
 	expectedCatalogTargetWorkflows := map[string]string{
 		"coinkite-coldcard":               "wallet-security-review",
-		"hackenproof-1inch-contracts":     "bounty-hunt-evm",
+		"hackenproof-1inch-contracts":     "evm-orderbook-settlement-review",
 		"hackenproof-account-abstraction": "bounty-hunt-evm",
 		"hackenproof-adi-zkvm":            "bridge-l2-zk-security-review",
 		"hackenproof-aptos-network":       "aptos-move-security-review",
 		"hackenproof-atomone":             "cosmos-abci-halt-review",
 		"hackenproof-aurora":              "blockchain-protocol-audit",
-		"hackenproof-deltaprime":          "bounty-hunt-evm",
+		"hackenproof-deltaprime":          "evm-lending-cdp-review",
 		"hackenproof-enkrypt-wallet":      "wallet-security-review",
 		"hackenproof-flow-protocol":       "blockchain-protocol-audit",
 		"hackenproof-hyperbridge":         "substrate-xcm-security-review",
 		"hackenproof-kaia":                "blockchain-protocol-audit",
-		"hackenproof-layer3":              "bounty-hunt-evm",
+		"hackenproof-layer3":              "evm-orderbook-settlement-review",
 		"hackenproof-myetherwallet":       "wallet-security-review",
 		"hackenproof-near-bridges":        "bridge-l2-zk-security-review",
-		"hackenproof-near-contracts":      "smart-contract-review",
-		"hackenproof-near-intents":        "smart-contract-review",
+		"hackenproof-near-contracts":      "near-contract-review",
+		"hackenproof-near-intents":        "near-contract-review",
 		"hackenproof-risc-zero-verifiers": "bridge-l2-zk-security-review",
 		"hackenproof-snowbridge":          "substrate-xcm-security-review",
 		"hackenproof-sui-protocol":        "blockchain-protocol-audit",
@@ -218,8 +218,8 @@ func TestSecurityProgramLibrary(t *testing.T) {
 	// the per-target choice so a future edit cannot quietly retarget one.
 	expectedCatalogTargetWorkflowsByScan := map[string]map[string]string{
 		"hackenproof-1inch-contracts": {
-			"1inch-solana-crosschain-protocol": "solana-anchor-security-review",
-			"1inch-solana-fusion":              "solana-anchor-security-review",
+			"1inch-solana-crosschain-protocol": "solana-defi-program-review",
+			"1inch-solana-fusion":              "solana-defi-program-review",
 		},
 		"hackenproof-flow-protocol": {
 			"flow-core-contracts": "smart-contract-review",
@@ -254,14 +254,27 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"immunefi-lido":   "https://github.com/lidofinance/core",
 		"immunefi-sei":    "https://github.com/sei-protocol/sei-chain",
 	}
-	expectedEVMBountyWorkflow := map[string]struct{}{
-		"immunefi-1inch":    {},
-		"immunefi-aave":     {},
-		"immunefi-arbitrum": {},
-		"immunefi-lido":     {},
-		"immunefi-olympus":  {},
-		"immunefi-sky":      {},
-		"immunefi-spark":    {},
+	// Each smart-contract program is reviewed by the workflow written for its
+	// protocol family, because the toolchain, harness and proof-of-concept
+	// substrate differ per family: a lending protocol is exercised through its
+	// own fork and invariant suites, a messaging protocol through its
+	// two-domain mock harness, and a rollup through its node and bridge tests.
+	expectedProtocolFamilyWorkflow := map[string]string{
+		"immunefi-1inch":     "evm-orderbook-settlement-review",
+		"immunefi-aave":      "evm-lending-cdp-review",
+		"immunefi-arbitrum":  "cross-chain-messaging-review",
+		"immunefi-axelar":    "cross-chain-messaging-review",
+		"immunefi-chainlink": "cross-chain-messaging-review",
+		"immunefi-hyperlane": "cross-chain-messaging-review",
+		"immunefi-kamino":    "solana-defi-program-review",
+		"immunefi-layerzero": "cross-chain-messaging-review",
+		"immunefi-lido":      "evm-lending-cdp-review",
+		"immunefi-olympus":   "evm-lending-cdp-review",
+		"immunefi-optimism":  "rollup-stack-review",
+		"immunefi-sky":       "evm-lending-cdp-review",
+		"immunefi-spark":     "evm-lending-cdp-review",
+		"immunefi-wormhole":  "cross-chain-messaging-review",
+		"immunefi-zksync":    "rollup-stack-review",
 	}
 	// Only active programs with complete captured scopes belong in the shipped
 	// catalog. Dead or archived programs must be removed instead of retained.
@@ -401,13 +414,13 @@ func TestSecurityProgramLibrary(t *testing.T) {
 					t.Errorf("scan target repository = %q, want %q", got, want)
 				}
 			}
-			if _, ok := expectedEVMBountyWorkflow[program.Name]; ok {
+			if wantWorkflow, ok := expectedProtocolFamilyWorkflow[program.Name]; ok {
 				if len(targets) == 0 {
-					t.Fatal("EVM bounty program has no scan target")
+					t.Fatal("smart-contract bounty program has no scan target")
 				}
 				for index, target := range targets {
-					if target.WorkflowRef != "bounty-hunt-evm" {
-						t.Errorf("scanTargets[%d].workflowRef = %q, want bounty-hunt-evm", index, target.WorkflowRef)
+					if target.WorkflowRef != wantWorkflow {
+						t.Errorf("scanTargets[%d].workflowRef = %q, want %q", index, target.WorkflowRef, wantWorkflow)
 					}
 				}
 			}

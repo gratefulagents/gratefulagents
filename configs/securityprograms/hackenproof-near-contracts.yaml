@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/near/core-contracts
       baseBranch: master
-      workflowRef: smart-contract-review
+      workflowRef: near-contract-review
       policyPackRef: bug-bounty
       scanName: near-core-contracts
       displayName: NEAR Core Contracts in-scope roots
@@ -14,7 +14,7 @@ spec:
       featured: true
     - repositoryURL: https://github.com/near-daos/sputnik-dao-contract
       baseBranch: main
-      workflowRef: smart-contract-review
+      workflowRef: near-contract-review
       policyPackRef: bug-bounty
       scanName: near-sputnik-dao-contract
       displayName: Sputnik DAO Contract

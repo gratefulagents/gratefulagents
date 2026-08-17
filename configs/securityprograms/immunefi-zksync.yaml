@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/matter-labs/zksync-era
       baseBranch: main
-      workflowRef: bridge-l2-zk-security-review
+      workflowRef: rollup-stack-review
       policyPackRef: bug-bounty
       scanName: immunefi-zksync-era
       displayName: zkSync Era
@@ -17,6 +17,8 @@ spec:
   programURL: https://immunefi.com/bug-bounty/zksyncera/scope/
   verifiedAt: 2026-08-12T16:35:00Z
   severitySystem: immunefi-v2.3
+  pocRequired: true
+  pocEnvironment: mainnet-fork
   primacy: impact
   inScopeImpacts:
     - impact: "Direct loss of funds"

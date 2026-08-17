@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/smartcontractkit/chainlink-ccip
       baseBranch: main
-      workflowRef: bridge-l2-zk-security-review
+      workflowRef: cross-chain-messaging-review
       policyPackRef: bug-bounty
       scanName: immunefi-chainlink-ccip
       displayName: Chainlink CCIP
@@ -17,6 +17,8 @@ spec:
   programURL: https://immunefi.com/bug-bounty/chainlink/scope/
   verifiedAt: 2026-08-12T00:00:00Z
   severitySystem: immunefi-v2.3
+  pocRequired: true
+  pocEnvironment: mainnet-fork
   primacy: impact
   inScopeImpacts:
     - impact: "Any governance voting result manipulation"

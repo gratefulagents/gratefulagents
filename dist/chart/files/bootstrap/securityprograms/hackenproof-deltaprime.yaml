@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/DeltaPrimeLabs/deltaprime-contracts
       baseBranch: v1.1.0
-      workflowRef: bounty-hunt-evm
+      workflowRef: evm-lending-cdp-review
       policyPackRef: bug-bounty
       scanName: deltaprime-contracts
       displayName: DeltaPrime contracts at v1.1.0

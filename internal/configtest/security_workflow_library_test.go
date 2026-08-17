@@ -38,6 +38,12 @@ var blockchainSecurityWorkflowLibrary = []string{
 	"sui-move-security-review",
 	"ton-security-review",
 	"wallet-security-review",
+	"cross-chain-messaging-review",
+	"evm-lending-cdp-review",
+	"evm-orderbook-settlement-review",
+	"near-contract-review",
+	"rollup-stack-review",
+	"solana-defi-program-review",
 }
 
 var fullAccessWebWorkflowLibrary = []string{
@@ -90,6 +96,12 @@ var securityWorkflowLibrary = []string{
 	"web-recon-passive",
 	"web-retest-confirmed-findings",
 	"web-server-side-input-assessment",
+	"cross-chain-messaging-review",
+	"evm-lending-cdp-review",
+	"evm-orderbook-settlement-review",
+	"near-contract-review",
+	"rollup-stack-review",
+	"solana-defi-program-review",
 }
 
 // TestSecurityWorkflowLibraryInventory prevents new bootstrap workflows from
@@ -825,6 +837,85 @@ func TestHuntObjectivesFollowDisclosedPayoutOrder(t *testing.T) {
 						t.Errorf("task %q objective is missing %q", taskName, marker)
 					}
 				}
+			}
+		})
+	}
+}
+
+// protocolFamilyWorkflowLibrary lists the workflows written for one protocol
+// family each. They exist because the toolchain, harness and proof-of-concept
+// substrate differ per family, so they all share one spine: pin the repository
+// and the toolchain it actually builds with, write invariants, bootstrap and
+// hunt in a single write-capable run, then price the result and check it
+// against the governing program's own submission rules.
+var protocolFamilyWorkflowLibrary = []string{
+	"cross-chain-messaging-review",
+	"evm-lending-cdp-review",
+	"evm-orderbook-settlement-review",
+	"near-contract-review",
+	"rollup-stack-review",
+	"solana-defi-program-review",
+}
+
+// TestProtocolFamilyWorkflowsKeepTheirSpine pins the parts a rewrite must not
+// drop: an explicit toolchain bootstrap that can fail loudly, a mutation-
+// calibrated oracle, and a submission gate tied to the program's typed scope
+// rather than to the model's own judgement.
+func TestProtocolFamilyWorkflowsKeepTheirSpine(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range protocolFamilyWorkflowLibrary {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var workflow triggersv1alpha1.SecurityWorkflow
+			readBootstrapAsset(t, "securityworkflows", name, &workflow)
+
+			byName := make(map[string]triggersv1alpha1.SecurityScanTask, len(workflow.Spec.Tasks))
+			for _, task := range workflow.Spec.Tasks {
+				byName[task.Name] = task
+			}
+			for _, required := range []string{"build-harness-and-hunt", "quantify-impact-and-submission-readiness", "triage-and-report"} {
+				if _, ok := byName[required]; !ok {
+					t.Fatalf("workflow is missing task %q", required)
+				}
+			}
+			if role := byName["build-harness-and-hunt"].EffectiveRole(); role != "exploit-validator" {
+				t.Errorf("build-harness-and-hunt role = %q, want exploit-validator", role)
+			}
+
+			// The scan image ships no forge, anvil, cargo, solana or anchor
+			// toolchain, so a workflow that assumes a built project silently
+			// reports nothing. Bootstrap has to be an executed, recorded step
+			// whose failure is a blocker rather than a narrowed scope.
+			hunt := byName["build-harness-and-hunt"].Objective
+			for _, marker := range []string{
+				"bootstrap", "blocker", "mutant", "cannot detect its own", "negative control",
+				"refuted or untested", "payout order",
+			} {
+				if !strings.Contains(hunt, marker) {
+					t.Errorf("build-harness-and-hunt objective is missing %q", marker)
+				}
+			}
+			if schema := byName["build-harness-and-hunt"].OutputSchema; !strings.Contains(schema, "bootstrap_status") {
+				t.Error("build-harness-and-hunt output schema must record bootstrap_status")
+			}
+
+			// Eligibility is decided by the program's transcribed scope, which
+			// the run prompt already carries, not by the agent's own taste.
+			gate := byName["quantify-impact-and-submission-readiness"].Objective
+			for _, marker := range []string{"pocEnvironment", "knownIssues", "prohibitedTesting", "verbatim", "submission-ready"} {
+				if !strings.Contains(gate, marker) {
+					t.Errorf("quantify-impact-and-submission-readiness objective is missing %q", marker)
+				}
+			}
+			for _, marker := range []string{"poc_runnable", "poc_substrate_permitted", "submission_ready"} {
+				if !strings.Contains(byName["quantify-impact-and-submission-readiness"].OutputSchema, marker) {
+					t.Errorf("quantify-impact-and-submission-readiness output schema is missing %q", marker)
+				}
+			}
+			if report := byName["triage-and-report"].Objective; !strings.Contains(report, "not found under those bounds") {
+				t.Error("triage-and-report must record the bounded negative result")
 			}
 		})
 	}

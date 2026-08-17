@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/hyperlane-xyz/hyperlane-monorepo
       baseBranch: main
-      workflowRef: bridge-l2-zk-security-review
+      workflowRef: cross-chain-messaging-review
       policyPackRef: bug-bounty
       scanName: immunefi-hyperlane
       displayName: Hyperlane

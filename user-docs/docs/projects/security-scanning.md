@@ -189,6 +189,21 @@ Workflows, severity rankers, post-scripts, and bounty program scope snapshots ca
 - **`SecurityPostScript`** — `spec.description`, `spec.prompt`, and `spec.runOn` (`all`, `confirmed`, `high-and-above`, or `high-and-above-actionable`). The actionable variant is for proof or remediation stages that should not start after a successful predecessor has already rejected, fixed, or accepted the risk; final reporting and audit stages should use `all` so they can record the terminal outcome.
 - **`SecurityProgram`** — an operator-verified bounty or disclosure-program snapshot: provider, display name, HTTPS provenance URL, the explicit scope policy, when that policy was verified, and optional `scanTargets` for every independently importable repository. Each target selects its own default branch, workflow, policy pack, scan name, and catalog priority. The controller never fetches the program URL. Neither the URL nor a scan target authorizes network access; only `spec.scope.authorizedNetworkTargets` can do that.
 
+### Protocol-family smart-contract workflows
+
+Smart-contract bounty targets are not interchangeable: the toolchain, the harness a proof of concept has to be written into, and the environment the program accepts that proof in differ per protocol family. Each of these workflows is written against the repositories it actually serves, from a clone-verified profile of their build, test and harness configuration (kept in `security-knowledge/protocol-sandboxes/`):
+
+- `evm-lending-cdp-review` — lending, CDP, staking and treasury-controller protocols (Aave v3, Lido, Sky `dss`, Spark ALM, Olympus, DeltaPrime). Aimed at collateral solvency, share-price and index accounting, donation/inflation, liquidation and rate-limit paths.
+- `evm-orderbook-settlement-review` — order-book, intent-settlement and escrow protocols (1inch limit-order/fusion/cross-chain-swap/plugins, Layer3 escrow). Aimed at EIP-712 order binding, fill/cancel/replay lifecycle, attacker-controlled predicate and callback calldata, and hashlock/timelock windows.
+- `cross-chain-messaging-review` — messaging protocols and token bridges (Axelar, Chainlink CCIP, Hyperlane, LayerZero v2, Wormhole, Arbitrum token bridge). Aimed at cross-domain identity and proof binding, replay and message-id uniqueness, verification-module trust, and mint/burn versus lock/release parity, reusing each repository's own two-domain harness.
+- `rollup-stack-review` — rollup stacks (Optimism, ZKsync Era). Aimed at the deposit/withdrawal lifecycle, commitment and proof verification, forced inclusion, operator and upgrade privilege, and derivation/data availability.
+- `solana-defi-program-review` — Solana DeFi programs (Kamino klend, 1inch Solana). Aimed at account and PDA validation, share and oracle accounting, liquidation paths and CPI privilege propagation, on the repository's own LiteSVM or program-test harness.
+- `near-contract-review` — NEAR Rust/wasm contracts (NEAR core contracts, Sputnik DAO, NEAR Intents). Aimed at asynchronous promise and callback safety, `predecessor` versus `signer` authorization, storage staking, and NEP-141/NEP-171 receiver flows.
+
+All six share one spine: pin the revision and the toolchain the repository actually builds with, write invariants, bootstrap and hunt in a single write-capable run, then price the result. Because the scan image ships no `forge`, `anvil`, `cargo`, `solana` or `anchor`, toolchain bootstrap is an executed and recorded step, and a lane that cannot be bootstrapped is reported as a blocker instead of quietly narrowing the review. A finding is only submission-ready when a mutation-calibrated invariant broke, a runnable coded proof of concept reproduces it in the environment the program's `pocEnvironment` allows, and the impact maps verbatim to a clause the program published — the same typed scope (`pocRequired`, `pocEnvironment`, `prohibitedTesting`, `knownIssues`, `inScopeImpacts`) the controller already puts in the run prompt.
+
+`bounty-hunt-evm`, `smart-contract-review`, `blockchain-protocol-audit` and the chain-specific reviews remain available for targets outside these families.
+
 ### URL-driven web assessment workflows
 
 For a website or domain target, choose the workflow by depth:

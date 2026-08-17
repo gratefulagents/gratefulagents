@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/near/intents
       baseBranch: main
-      workflowRef: smart-contract-review
+      workflowRef: near-contract-review
       policyPackRef: bug-bounty
       scanName: near-intents-contracts
       displayName: NEAR Intents smart contracts

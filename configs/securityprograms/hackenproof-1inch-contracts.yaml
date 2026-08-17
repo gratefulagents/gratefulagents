@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/1inch/limit-order-protocol
       baseBranch: master
-      workflowRef: bounty-hunt-evm
+      workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: 1inch-limit-order-protocol
       displayName: 1inch Limit Order Protocol
@@ -17,7 +17,7 @@ spec:
         project_root: .
     - repositoryURL: https://github.com/1inch/fusion-protocol
       baseBranch: master
-      workflowRef: bounty-hunt-evm
+      workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: 1inch-fusion-protocol
       displayName: 1inch Limit Order Settlement
@@ -28,7 +28,7 @@ spec:
         project_root: .
     - repositoryURL: https://github.com/1inch/cross-chain-swap
       baseBranch: master
-      workflowRef: bounty-hunt-evm
+      workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: 1inch-cross-chain-swap
       displayName: 1inch Cross-Chain Swap
@@ -39,7 +39,7 @@ spec:
         project_root: .
     - repositoryURL: https://github.com/1inch/token-plugins
       baseBranch: master
-      workflowRef: bounty-hunt-evm
+      workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: 1inch-token-plugins
       displayName: 1inch Token Plugins
@@ -50,7 +50,7 @@ spec:
         project_root: .
     - repositoryURL: https://github.com/1inch/farming
       baseBranch: master
-      workflowRef: bounty-hunt-evm
+      workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: 1inch-farming
       displayName: 1inch Farming Contracts
@@ -61,7 +61,7 @@ spec:
         project_root: .
     - repositoryURL: https://github.com/1inch/delegating
       baseBranch: master
-      workflowRef: bounty-hunt-evm
+      workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: 1inch-delegating
       displayName: 1inch Delegating Contracts
@@ -72,7 +72,7 @@ spec:
         project_root: .
     - repositoryURL: https://github.com/1inch/solana-crosschain-protocol
       baseBranch: master
-      workflowRef: solana-anchor-security-review
+      workflowRef: solana-defi-program-review
       policyPackRef: bug-bounty
       scanName: 1inch-solana-crosschain-protocol
       displayName: 1inch Solana Cross-Chain Protocol
@@ -80,7 +80,7 @@ spec:
       featured: false
     - repositoryURL: https://github.com/1inch/solana-fusion
       baseBranch: main
-      workflowRef: solana-anchor-security-review
+      workflowRef: solana-defi-program-review
       policyPackRef: bug-bounty
       scanName: 1inch-solana-fusion
       displayName: 1inch Solana Fusion

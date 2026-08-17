@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/LayerZero-Labs/LayerZero-v2
       baseBranch: main
-      workflowRef: bridge-l2-zk-security-review
+      workflowRef: cross-chain-messaging-review
       policyPackRef: bug-bounty
       scanName: immunefi-layerzero
       displayName: LayerZero
@@ -17,6 +17,8 @@ spec:
   programURL: https://immunefi.com/bug-bounty/layerzero/scope/
   verifiedAt: 2026-08-12T16:35:00Z
   severitySystem: immunefi-v2.3
+  pocRequired: true
+  pocEnvironment: mainnet-fork
   primacy: impact
   inScopeImpacts:
     - impact: "All above impacts for OApp, OFT & ONFT related contracts"

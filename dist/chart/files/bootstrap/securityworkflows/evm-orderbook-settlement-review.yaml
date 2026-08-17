@@ -1,0 +1,413 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: evm-orderbook-settlement-review
+spec:
+  description: Protocol-specific bounty hunt for EVM order-book, intent-settlement and escrow protocols (1inch limit-order-protocol, fusion-protocol, cross-chain-swap, token-plugins, farming, delegating, and Layer3 cubes escrow). The toolchain each repository actually ships is bootstrapped and recorded first, the hunt is aimed at EIP-712 order binding, order lifecycle and replay, attacker-controlled predicate, extension and callback calldata, maker/taker amount math, plugin and delegation share accounting, and escrow hashlock, timelock and safety-deposit windows, and the report is gated on a runnable proof of concept that satisfies the governing program's own submission rules.
+  parameters:
+    - name: project_root
+      description: Repository-relative root of the Solidity project under test.
+      default: "."
+    - name: build_toolchain
+      description: Toolchain the repository builds with. hardhat-yarn for limit-order-protocol, token-plugins, farming and delegating, a foundry and hardhat mix for cross-chain-swap and fusion-protocol, foundry for the Layer3 cubes escrow factory, or autodetect to derive it from the repository rather than assume it.
+      default: "autodetect"
+    - name: release_tag
+      description: Published tag or release the hunt is pinned to. The 1inch program judges submissions against the latest published tag or release, so a finding proved on an unreleased master commit is out of scope until it is confirmed against that tag; leave unconfigured only when the governing program states no such rule.
+      default: "unconfigured"
+    - name: fork_endpoint_alias
+      description: Operator-authorized archive endpoint alias used for fork tests. Supply an alias, never a raw credential-bearing URL.
+      default: "unconfigured"
+    - name: chain_id
+      description: Expected chain ID for the pinned local fork. Cross-chain escrow work needs the chain ID of each side recorded separately.
+      default: "unconfigured"
+    - name: fork_block_number
+      description: Immutable finalized block number for the pinned local fork.
+      default: "unconfigured"
+    - name: fork_block_hash
+      description: Block hash for fork_block_number; every fork-backed run verifies it before execution.
+      default: "unconfigured"
+  parallelism: 3
+  tasks:
+    - name: pin-target-and-toolchain
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Pin the source target and the sandbox it can actually be exercised in before anyone reasons about
+        it. The full run tool surface remains available; this task is inventory only and must not change
+        state anywhere outside the sandbox workspace, must not send mutating requests, and must not claim
+        any command it did not run.
+
+        From project root {{params.project_root}} record the immutable revision and, when the governing
+        program judges against a published release, resolve {{params.release_tag}} to the latest tag and
+        record whether the revision under test is that tag or ahead of it. Resolve
+        {{params.build_toolchain}} against the repository rather than assuming it. A pure Hardhat lane
+        declares hardhat.config.js or .ts with its own solc list, optimizer, viaIR and evmVersion settings
+        and a package.json script set; 1inch limit-order-protocol at master is exactly this shape, yarn
+        driven, solc 0.8.30 with viaIR on and the Cancun EVM, built with yarn && yarn hardhat compile and
+        tested with yarn test:ci, which is plain hardhat test with no fork tests anywhere in the suite, so
+        it runs fully offline once node_modules and the solc build are cached and is the strongest offline
+        proof-of-concept substrate in this catalog. A Foundry lane declares foundry.toml with src, test,
+        solc_version, evm_version, ffi and rpc_endpoints; cross-chain-swap and fusion-protocol mix Foundry
+        with Hardhat and must have their real entry point read out of the repository rather than guessed.
+        Record the dependency bootstrap the build genuinely needs as an ordered command list — git submodule
+        update --init --recursive, forge install or soldeer, yarn or pnpm install with the pinned package
+        manager against the node 22 the scan image ships — and record explicitly that the image ships no
+        forge, anvil, echidna or slither, so any Foundry lane must bootstrap that toolchain itself before
+        it can build. Take the build and test commands from package.json scripts, Makefile and CI, never
+        invent them. Record the fork entry point exactly as the repository implements it, and say plainly
+        when a repository ships none. Record every in-repo address book, such as the
+        deployments/<network>/*.json tree limit-order-protocol ships, and say explicitly when none exists.
+
+        Then map the protocol: the order struct and its EIP-712 domain, type hash and hashing helper; the
+        signature validation path including ERC-1271 and any packed or compact signature encoding; the
+        fill, partial fill, cancel, expiry and nonce or epoch invalidation entry points and the storage
+        that records them; every extension, predicate, interaction, pre- and post-hook or callback point
+        and who controls its calldata; the maker and taker asset set with the decimals of each and the
+        amount-getter or rate math between them; the fee, surplus and dust accounting; token plugin, hook
+        and delegation share accounting; the escrow side of the system with its secret or hashlock, its
+        timelock stages, its safety deposit and its rescue path; and the resolver, relayer, allowed-sender
+        and owner privileges with their holders. When {{params.fork_endpoint_alias}}, {{params.chain_id}},
+        {{params.fork_block_number}} or {{params.fork_block_hash}} is unconfigured, set fork_readiness to
+        blocked, name each missing input in gaps, and still publish the dossier so source review, builds and
+        the offline Hardhat lane proceed. Publish one structured dossier and report no vulnerabilities here.
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["revision", "toolchain", "dependency_bootstrap", "build_command", "test_command", "fork_readiness", "components", "gaps"],
+          "properties": {
+            "revision": {"type": "string"},
+            "release_tag": {"type": "string", "description": "Latest published tag the program judges against, and whether the revision under test equals it"},
+            "toolchain": {"type": "string", "description": "hardhat-yarn, foundry, foundry-hardhat, resolved from the repository"},
+            "toolchain_pins": {"type": "array", "items": {"type": "string"}, "description": "Pinned solc, viaIR and evmVersion settings, foundry, node and package-manager versions"},
+            "dependency_bootstrap": {"type": "array", "items": {"type": "string"}, "description": "Ordered commands that make the project buildable, including submodule, forge and package-manager steps and any toolchain the scan image does not ship"},
+            "build_command": {"type": "string"},
+            "test_command": {"type": "string"},
+            "offline_test_lane": {"type": "string", "description": "The subset of the suite that runs without an archive RPC, or none"},
+            "fork_entry_point": {"type": "string", "description": "Repository-implemented fork entry point with its hard-coded block, or none"},
+            "fork_readiness": {"type": "string", "enum": ["ready", "blocked"]},
+            "address_manifest": {"type": "string", "description": "Resolved in-repo address book path, such as deployments/<network>/*.json, or none_shipped"},
+            "components": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "role"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "role": {"type": "string", "description": "order struct or EIP-712 domain, signature validation, fill or cancel path, nonce or epoch store, extension or predicate, callback or hook, amount or rate math, fee accounting, plugin or delegation share accounting, escrow hashlock, timelock stage, safety deposit, resolver or relayer privilege, or owner role"},
+                  "decimals": {"type": "string"},
+                  "evidence": {"type": "string", "description": "file:line"}
+                }
+              }
+            },
+            "gaps": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: map-order-lifecycle-and-settlement-invariants
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-dimensional-analysis
+        - name: evm-low-level-and-deployment-review
+      objective: >-
+        Using {{tasks.pin-target-and-toolchain.output}}, write the invariant set this protocol class is
+        actually paid for breaking, with repository-relative evidence for each. The full run tool surface
+        remains available; this task reads and reasons only, must not change state outside the sandbox
+        workspace, and must not claim a test result it did not produce.
+
+        Cover, at minimum: the order hash binds every field that changes economic outcome, so no two
+        distinct orders, extensions or interactions can share a hash and no field — receiver, allowed
+        sender, expiry, series, extension pointer — is left outside the signed struct; the EIP-712 domain
+        separator binds name, version, chainId and verifying contract, is recomputed rather than cached
+        across a chain split, and cannot be replayed on another chain, another deployment or an older order
+        version; signature validation accepts exactly one valid encoding per order, rejects malleable s and
+        v, rejects the zero address recovery result, and routes contract makers through ERC-1271 without
+        letting a failed or non-standard return be read as success; a filled, cancelled, expired or
+        nonce-invalidated order can never be filled again, and partial fills consume exactly the remaining
+        amount with no path that resets, wraps or double-credits the remaining-amount slot; epoch, nonce
+        and bit-invalidator cancellation covers every order it claims to cover and cannot be griefed into
+        cancelling an unrelated order or made cheap enough to censor a maker; predicate, extension,
+        interaction and pre/post callback calldata is attacker-controlled data reaching an external call,
+        so it may not re-enter settlement, may not be able to move a maker's approved balance outside the
+        order it was signed for, and may not let the caller choose the target of a call the maker's
+        allowance pays for; the taking amount for a given making amount, and every amount-getter, rounds
+        against the caller and never in the filler's favour, with dust and zero-amount fills bounded; fee,
+        surplus and integrator accounting closes exactly and cannot be diverted or double-charged; token
+        plugin, hook and delegation share accounting stays consistent with the underlying balance under
+        transfer, add, remove and reentrant hook, and a failing plugin cannot brick or be used to steal a
+        transfer; for cross-chain escrows the secret or hashlock, the timelock stages and the safety
+        deposit must make both sides never claimable by the same party, the withdraw, public withdraw,
+        cancel and rescue windows must be strictly ordered with no inversion or overlap, and a revealed
+        secret must not let a resolver take both the escrowed funds and the deposit; resolver, relayer and
+        allowed-sender privilege admits exactly the intended callers, so no third party may fill, cancel or
+        settle on a maker's behalf; and approval handling, including Permit and Permit2 paths, cannot leave
+        residual allowance, cannot be front-run into a failed fill, and cannot be replayed.
+
+        For each invariant record the protected asset, the least-privileged attacker, the allowed
+        transition, where enforcement lives, the alternate paths that reach the same state, the impact when
+        it breaks, and the concrete local validation target: an existing test file, a fuzz or invariant
+        suite, or a new test file path in the repository's own suite. Rank the hypotheses by the impact
+        clause they would reach, not by novelty. Report no findings here.
+      dependsOn:
+        - pin-target-and-toolchain
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["invariants", "ranked_hypotheses", "limitations"],
+          "properties": {
+            "invariants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "property", "asset", "attacker", "enforcement", "validation_target"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "property": {"type": "string"},
+                  "asset": {"type": "string"},
+                  "attacker": {"type": "string", "description": "Least-privileged actor: anonymous filler, competing resolver, malicious maker, malicious taker, plugin or extension author, or privileged owner"},
+                  "enforcement": {"type": "string", "description": "file:line where the invariant is enforced, or unenforced"},
+                  "alternate_paths": {"type": "array", "items": {"type": "string"}},
+                  "validation_target": {"type": "string", "description": "Existing suite, harness, or the new test file this invariant will be asserted in"}
+                }
+              }
+            },
+            "ranked_hypotheses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["invariant", "controlled_input", "expected_transition", "falsifier"],
+                "properties": {
+                  "invariant": {"type": "string"},
+                  "controlled_input": {"type": "string", "description": "The attacker-controlled field: order field, signature encoding, extension or predicate calldata, callback target, secret, or timelock parameter"},
+                  "expected_transition": {"type": "string"},
+                  "falsifier": {"type": "string"},
+                  "evidence": {"type": "string", "description": "file:line"}
+                }
+              }
+            },
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: build-harness-and-hunt
+      role: exploit-validator
+      category: other
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-harness-writing
+        - name: trail-of-bits-property-based-testing
+        - name: evm-low-level-and-deployment-review
+        - name: exploit-poc-discipline
+      objective: >-
+        In one write-capable run, bootstrap the sandbox, build the oracle, calibrate it, hunt against it and
+        reproduce or kill each hypothesis, so temporary harness files are never lost at a handoff. The full
+        run tool surface remains available and is intentional here: this is the only task that builds and
+        executes code. All execution is local. Never change state on any live, public or third-party
+        system, never send a mutating request to a deployed contract, never test against mainnet or a
+        public testnet, and never touch a third-party oracle, resolver or protocol deployment; every
+        governing program treats that as grounds for a permanent ban.
+
+        Bootstrap exactly what {{tasks.pin-target-and-toolchain.output}} recorded: run the recorded
+        dependency bootstrap in order, then the recorded build and test command, recording every command
+        with its exit status. The scan image ships node 22, yarn and pnpm but no forge, anvil, echidna or
+        slither, so a Hardhat lane such as limit-order-protocol builds with yarn && yarn hardhat compile and
+        runs yarn test:ci offline once node_modules and solc are cached, while any Foundry lane must install
+        that toolchain explicitly first and must be reported as a blocker if it cannot. Obey the governing
+        program's own declared proof-of-concept environment as the hard substrate constraint: where the
+        program declares project-test-suite, as the 1inch program does, the proof of concept belongs in the
+        repository's own suite and no fork is required; where it declares mainnet-fork, as the Layer3
+        program does, start the pinned local fork through operator-authorized endpoint alias
+        {{params.fork_endpoint_alias}} only when chain id {{params.chain_id}}, block
+        {{params.fork_block_number}} and hash {{params.fork_block_hash}} agree with the dossier, and set
+        fork_status to executed only then; otherwise set it to blocked, record the blocker, and keep hunting
+        on the repository's own suite. When the program judges against a published release, run against
+        {{params.release_tag}} and record any divergence from the revision under test.
+
+        Turn the invariants in {{tasks.map-order-lifecycle-and-settlement-invariants.output}} into 5 to 15
+        executable assertions on the strongest substrate available, preferring an added test file in the
+        repository's own suite so the proof of concept is runnable by the program exactly as submitted.
+        Calibrate each assertion with a temporary mutant that SHOULD make it fail; an invariant counts as
+        calibrated only when it is executable and kills its mutant, because an assertion that survives
+        cannot detect its own violation. A green harness never means the target is safe; it means only not
+        found under the recorded bounds.
+
+        Then hunt, aimed at this protocol class in payout order: EIP-712 domain and order-hash binding,
+        signature validation, ERC-1271 and malleability first; then order lifecycle state — fill, partial
+        fill, cancel, expiry, nonce and epoch invalidation — and replay across chains and across order
+        versions; then attacker-controlled predicate, extension and callback calldata re-entering
+        settlement or redirecting a maker's allowance; then maker and taker amount and rate math, rounding
+        direction, dust and fee accounting; then token plugin, hook and delegation share accounting; then
+        escrow secret, hashlock and timelock windows and safety-deposit accounting, where both sides being
+        claimable by the same party or a timelock ordering inversion is the classic loss path; then
+        resolver and relayer privilege and who may fill on a maker's behalf; then approval, Permit and
+        Permit2 handling. Templated settlement re-entrancy stays available but sits off the default path,
+        because bot-findable means unpayable under duplicate rules. Every broken verdict needs the exact
+        command and seed, the failing assertion, the observed balance or state delta, a negative control
+        that did not trigger, and the calibration mutant proving the oracle can fail. Record the
+        reproducibility class and never generalize a local-only result into a claim about deployed
+        configuration. A hypothesis without a failing assertion is refuted or untested and may not be
+        reported.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-order-lifecycle-and-settlement-invariants
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["bootstrap_status", "fork_status", "executable_invariant_count", "calibrated_invariant_count", "tool_runs", "hypotheses", "limitations"],
+          "properties": {
+            "bootstrap_status": {"type": "string", "enum": ["built", "partial", "blocked"], "description": "built only when the recorded build and test command both ran"},
+            "bootstrap_blocker": {"type": "string"},
+            "fork_status": {"type": "string", "enum": ["executed", "blocked", "not_required"], "description": "not_required when the program's declared proof-of-concept environment is the repository's own test suite"},
+            "fork_blocker": {"type": "string"},
+            "executable_invariant_count": {"type": "integer", "minimum": 0},
+            "calibrated_invariant_count": {"type": "integer", "minimum": 0, "description": "Must not exceed executable_invariant_count"},
+            "tool_runs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["tool", "command", "exit_status"],
+                "properties": {
+                  "tool": {"type": "string"},
+                  "command": {"type": "string"},
+                  "exit_status": {"type": "string"},
+                  "seed": {"type": "string"},
+                  "attempts": {"type": "integer", "minimum": 0},
+                  "successes": {"type": "integer", "minimum": 0}
+                }
+              }
+            },
+            "hypotheses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["invariant", "attacker", "verdict"],
+                "properties": {
+                  "invariant": {"type": "string"},
+                  "attacker": {"type": "string"},
+                  "verdict": {"type": "string", "enum": ["broken", "refuted", "untested"]},
+                  "missing_dependency": {"type": "string", "description": "Required when verdict is untested"},
+                  "fingerprint": {"type": "string", "description": "Required when verdict is broken"},
+                  "reproduction": {
+                    "type": "object",
+                    "required": ["command", "substrate", "test_path", "failing_assertion", "observed_delta", "negative_control_passed", "oracle_can_fail", "reproducibility_class"],
+                    "properties": {
+                      "command": {"type": "string"},
+                      "seed": {"type": "string"},
+                      "substrate": {"type": "string", "enum": ["pinned_fork", "project_tests", "local_devnet"]},
+                      "test_path": {"type": "string", "description": "Repository-relative path of the added test the program can run unchanged"},
+                      "failing_assertion": {"type": "string"},
+                      "observed_delta": {"type": "string"},
+                      "negative_control_passed": {"type": "boolean"},
+                      "oracle_can_fail": {"type": "boolean"},
+                      "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]}
+                    }
+                  }
+                }
+              }
+            },
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: quantify-impact-and-submission-readiness
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: evm-economic-and-mev-review
+      objective: >-
+        Price and qualify only hypotheses with verdict broken and a valid reproduction in
+        {{tasks.build-harness-and-hunt.output}}. The full run tool surface remains available; this task
+        must not change state outside the sandbox workspace and must never contact the program, the
+        protocol, or any deployed system.
+
+        Measure value at risk on the substrate that actually settled the claim: at the verified block for a
+        pinned-fork reproduction, and unknown for a project-test reproduction, where deployed exposure must
+        be labelled unverified rather than estimated. For this protocol class the exposure is usually the
+        maker allowance an order can reach, the resting or partially filled order book, the escrowed
+        principal plus safety deposit of a cross-chain swap, or the plugin and delegation share balances,
+        so name which of those the reproduction actually moved. Record the capital the attacker fronts, the
+        capital they risk, and the privileges and timing they need, including whether they must be a
+        whitelisted resolver or merely any filler. Map each candidate onto the governing program's own
+        published in-scope impact list, copying the clause verbatim, and give the maximum achievable impact
+        reachable from the same root cause rather than the first one demonstrated; never translate a
+        severity label from another program's system.
+
+        The run prompt already carries the governing program's typed scope, including pocRequired,
+        pocEnvironment, prohibitedTesting, knownIssues and the in-scope impact list, and that typed scope is
+        authoritative: obey pocEnvironment as the hard substrate constraint, treat prohibitedTesting as
+        binding, and drop any candidate that matches a knownIssues entry or shares its root cause.
+
+        Then apply the submission gate these programs publish, and mark a candidate submission-ready only
+        when all of it holds: a runnable coded proof of concept exists, because every program serving this
+        family requires one and an explanation is not a proof of concept; the proof of concept runs in the
+        program's own declared proof-of-concept environment and nowhere else — the repository's project
+        test suite for the 1inch program, a mainnet fork for the Layer3 program — and never against
+        deployed code, which every program enforces with a permanent ban; the candidate is not already
+        published in the program's known-issue set, which for 1inch means checking it against the audit
+        reports at github.com/1inch/1inch-audits before reporting; the finding reproduces at the tag or
+        release the program judges against, since the 1inch program applies only to the latest published
+        tag or release; the report is a single issue written in English as prose the researcher can defend,
+        with no raw scanner output and no model-generated narrative standing in for evidence, both of which
+        these programs reject outright; KYC and any other program precondition is acknowledged; and it
+        states the revision, tag and block it was produced at. Record the fix suggestion when the program
+        requires one. Anything failing the gate is reported as not submission-ready with the exact missing
+        element.
+      dependsOn:
+        - build-harness-and-hunt
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fingerprint", "impact_clause", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "known_issue_checked", "submission_ready"],
+            "properties": {
+              "fingerprint": {"type": "string"},
+              "impact_clause": {"type": "string", "description": "Copied verbatim from the program's in-scope impact list"},
+              "program_severity": {"type": "string"},
+              "max_achievable_impact": {"type": "string"},
+              "funds_at_risk": {"type": "string", "description": "Measured value plus the block it was measured at, or why no measurement is possible"},
+              "attacker_capital": {"type": "string"},
+              "preconditions": {"type": "string", "description": "Privileges and timing, including whether the attacker must be a whitelisted resolver or relayer"},
+              "poc_runnable": {"type": "boolean", "description": "A coded proof of concept the program can execute unchanged"},
+              "poc_command": {"type": "string"},
+              "poc_substrate_permitted": {"type": "boolean", "description": "false unless execution stayed inside the program's declared pocEnvironment"},
+              "known_issue_checked": {"type": "boolean", "description": "true only when the candidate was compared against the program's published known-issue set"},
+              "release_tag_confirmed": {"type": "string", "description": "Tag or release the reproduction was confirmed at, or why it is unconfirmed"},
+              "fix_suggestion": {"type": "string"},
+              "submission_ready": {"type": "boolean"},
+              "blocking_gap": {"type": "string", "description": "Required when submission_ready is false"}
+            }
+          }
+        }
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: trail-of-bits-fp-check
+      objective: >-
+        Assemble the report from {{tasks.quantify-impact-and-submission-readiness.output}} under one
+        admission rule: a finding survives only when a named calibrated invariant broke, a runnable failing
+        assertion inside the program's declared proof-of-concept environment proves it, the negative
+        control did not trigger, the oracle was shown capable of failing, the candidate is not in the
+        program's published known-issue set, the impact maps to a clause the program published, and the
+        submission gate passed. The full run tool surface remains available; this task must not change
+        state outside the sandbox workspace.
+
+        Require a verified pinned fork only when the program's declared environment is a fork or the
+        finding depends on deployed state, and label project-test evidence without implying deployment
+        exposure. Drop everything else, including analyses that read well but never broke anything. Prefer
+        an empty report to a padded one: reporting is rationed, a rejected submission costs more than a
+        withheld one, and these programs explicitly reject automated scanning output and AI-generated
+        reports that carry no runnable coded proof of concept. State the bounded negative result explicitly
+        — which invariants were tested, at which revision, tag and block, on which substrate, and which
+        lanes were blocked by a missing toolchain or endpoint — so a clean or blocked run is recorded as
+        not found under those bounds rather than as a clean bill of health. Then submit the final scan
+        report.
+      dependsOn:
+        - quantify-impact-and-submission-readiness

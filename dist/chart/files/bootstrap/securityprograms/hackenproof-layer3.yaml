@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/layer3xyz/cubes
       baseBranch: main
-      workflowRef: bounty-hunt-evm
+      workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: layer3-cubes-escrow-factory
       displayName: Layer3 Cubes escrow Factory.sol
