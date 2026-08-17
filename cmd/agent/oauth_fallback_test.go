@@ -28,7 +28,10 @@ func TestLoadRunConfigParsesOAuthFallbacks(t *testing.T) {
 	}
 	want := map[string][]oauthFallbackCred{
 		"openai": {
-			{AuthJSONPath: "/var/run/gratefulagents/oauth/fallback/openai/1/auth.json", AccountIDPath: "/var/run/gratefulagents/oauth/fallback/openai/1/account-id"},
+			{
+				AuthJSONPath:  "/var/run/gratefulagents/oauth/fallback/openai/1/auth.json",
+				AccountIDPath: "/var/run/gratefulagents/oauth/fallback/openai/1/account-id",
+			},
 			// Account-id list shorter than the auth list: missing entries stay empty.
 			{AuthJSONPath: "/var/run/gratefulagents/oauth/fallback/openai/2/auth.json"},
 		},
@@ -83,10 +86,12 @@ func TestOAuthFallbackRoutesBuildsNamedSubscriptionRoutes(t *testing.T) {
 		t.Fatalf("len(routes) = %d, want 4: %#v", len(routes), routes)
 	}
 	if routes[0].Prefix != "openai-sub2" || routes[0].Provider != "openai" || routes[0].AuthMode != "oauth" ||
-		routes[0].OpenAIOAuthPath != "/fb/openai/1/auth.json" || routes[0].OpenAIOAuthAccountIDPath != "/fb/openai/1/account-id" {
+		routes[0].OpenAIOAuthPath != "/fb/openai/1/auth.json" ||
+		routes[0].OpenAIOAuthAccountIDPath != "/fb/openai/1/account-id" {
 		t.Fatalf("routes[0] = %#v", routes[0])
 	}
-	if routes[1].Prefix != "openai-sub3" || routes[1].OpenAIOAuthPath != "/fb/openai/2/auth.json" || routes[1].OpenAIOAuthAccountIDPath != "/fb/openai/2/account-id" {
+	if routes[1].Prefix != "openai-sub3" || routes[1].OpenAIOAuthPath != "/fb/openai/2/auth.json" ||
+		routes[1].OpenAIOAuthAccountIDPath != "/fb/openai/2/account-id" {
 		t.Fatalf("routes[1] = %#v", routes[1])
 	}
 	if routes[2].Prefix != "anthropic-sub2" || routes[2].Provider != "anthropic" || routes[2].AuthMode != "oauth" ||
@@ -143,7 +148,8 @@ func TestSubscriptionFallbackModels(t *testing.T) {
 	}
 
 	// No fallbacks configured for the startup provider.
-	if got := subscriptionFallbackModels(runConfig{Provider: "copilot", OAuthFallbacks: cfg.OAuthFallbacks}, "copilot/gpt-4.1"); got != nil {
+	noCreds := runConfig{Provider: "copilot", OAuthFallbacks: cfg.OAuthFallbacks}
+	if got := subscriptionFallbackModels(noCreds, "copilot/gpt-4.1"); got != nil {
 		t.Fatalf("subscriptionFallbackModels(no creds) = %#v, want nil", got)
 	}
 }

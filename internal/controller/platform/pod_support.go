@@ -981,8 +981,9 @@ func providerOAuthFallbackMountPath(entry providerOAuthFallbackEntry) string {
 // can fail over to another subscription of the same provider when the active
 // one is rate-limited, without a compute restart.
 func providerOAuthFallbackVolumes(run *platformv1alpha1.AgentRun) []corev1.Volume {
-	var volumes []corev1.Volume
-	for _, entry := range providerOAuthFallbackEntries(run) {
+	entries := providerOAuthFallbackEntries(run)
+	volumes := make([]corev1.Volume, 0, len(entries))
+	for _, entry := range entries {
 		volumes = append(volumes, corev1.Volume{
 			Name: providerOAuthFallbackVolumeName(entry),
 			VolumeSource: corev1.VolumeSource{
@@ -998,7 +999,7 @@ func providerOAuthFallbackVolumes(run *platformv1alpha1.AgentRun) []corev1.Volum
 							Secret: &corev1.SecretProjection{
 								LocalObjectReference: corev1.LocalObjectReference{Name: entry.SecretName},
 								Items:                []corev1.KeyToPath{{Key: "account-id", Path: "account-id"}},
-								Optional:             boolPtr(true),
+								Optional:             new(true),
 							},
 						},
 					},
@@ -1010,8 +1011,9 @@ func providerOAuthFallbackVolumes(run *platformv1alpha1.AgentRun) []corev1.Volum
 }
 
 func providerOAuthFallbackVolumeMounts(run *platformv1alpha1.AgentRun) []corev1.VolumeMount {
-	var mounts []corev1.VolumeMount
-	for _, entry := range providerOAuthFallbackEntries(run) {
+	entries := providerOAuthFallbackEntries(run)
+	mounts := make([]corev1.VolumeMount, 0, len(entries))
+	for _, entry := range entries {
 		mounts = append(mounts, corev1.VolumeMount{
 			Name:      providerOAuthFallbackVolumeName(entry),
 			MountPath: providerOAuthFallbackMountPath(entry),
