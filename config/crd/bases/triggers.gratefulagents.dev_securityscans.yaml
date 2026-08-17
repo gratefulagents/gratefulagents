@@ -237,6 +237,15 @@ spec:
                       not exposed through the dashboard API, so it can only be set directly
                       on the trigger resource (kubectl/GitOps).
                     type: boolean
+                  dockerInDocker:
+                    description: |-
+                      dockerInDocker runs a privileged docker:dind sidecar next to the worker
+                      of runs created from this trigger and points the worker at it via
+                      DOCKER_HOST, so agents can run docker build/run/compose. Admin-only: it
+                      is intentionally not exposed through the dashboard trigger APIs, so it
+                      can only be set directly on the trigger resource (kubectl/GitOps).
+                      Projects additionally expose the admin-gated spec.dockerInDocker field.
+                    type: boolean
                   executionMode:
                     description: |-
                       executionMode controls the orchestration model for created AgentRuns.

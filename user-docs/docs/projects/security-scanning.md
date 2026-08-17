@@ -139,7 +139,7 @@ spec:
   # AgentRun defaults for scan runs (model, provider, secrets, runtime, and so on).
   # The controller forces defaults.repoURL and defaults.baseBranch from the scan
   # target, and applies the "security-scan" mode unless defaults.modeRef is set.
-  # disableCommandSandbox and kubernetesAdmin are not allowed for SecurityScans.
+  # disableCommandSandbox, kubernetesAdmin, and dockerInDocker are not allowed for SecurityScans.
   defaults:
     model: gpt-5.4
     provider: openai
@@ -292,7 +292,7 @@ When the run finishes, the platform extracts the single JSON draft it produced, 
 }
 ```
 
-Packs never carry credentials. Secret references (`defaults.secrets`, provider keys, OAuth secret names) and the admin-only escape hatches (`kubernetesAdmin`, `disableCommandSandbox`) are stripped on export — and stripped again on import as defense in depth — so an imported scan configuration must be given its own credentials before it can run.
+Packs never carry credentials. Secret references (`defaults.secrets`, provider keys, OAuth secret names) and the admin-only escape hatches (`kubernetesAdmin`, `disableCommandSandbox`, `dockerInDocker`) are stripped on export — and stripped again on import as defense in depth — so an imported scan configuration must be given its own credentials before it can run.
 
 **Import pack** accepts a document of at most 1 MiB and up to 200 items. Import always starts as a **dry run**: every item is validated exactly like manual authoring and the per-item outcome (`would-create`, `skipped`, `renamed`, `failed` with field errors) is shown before anything is created. Choose what happens when a name already exists — fail the item, skip it, or import it under a new name — then apply. Imported scan configurations are owned by the importer, exactly like scans created through the dashboard.
 

@@ -189,6 +189,15 @@ type AgentRunDefaults struct {
 	// +optional
 	KubernetesAdmin bool `json:"kubernetesAdmin,omitempty"`
 
+	// dockerInDocker runs a privileged docker:dind sidecar next to the worker
+	// of runs created from this trigger and points the worker at it via
+	// DOCKER_HOST, so agents can run docker build/run/compose. Admin-only: it
+	// is intentionally not exposed through the dashboard trigger APIs, so it
+	// can only be set directly on the trigger resource (kubectl/GitOps).
+	// Projects additionally expose the admin-gated spec.dockerInDocker field.
+	// +optional
+	DockerInDocker bool `json:"dockerInDocker,omitempty"`
+
 	// mcpPolicyRef references an MCPPolicy in the same namespace.
 	// The policy controls which MCP servers are allowed or denied.
 	// When omitted, the agent defaults to deny-all for MCP tools (zero trust).

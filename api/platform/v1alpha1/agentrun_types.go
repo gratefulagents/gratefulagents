@@ -523,6 +523,15 @@ type AgentRunSpec struct {
 	// from an admin-gated Project option.
 	// +optional
 	KubernetesAdmin bool `json:"kubernetesAdmin,omitempty"`
+	// DockerInDocker runs a privileged docker:dind sidecar next to the worker
+	// and points the worker (including sandboxed subprocesses) at it via
+	// DOCKER_HOST on loopback, so the agent can run docker build/run/compose.
+	// The dind daemon is privileged and unauthenticated on localhost, so this
+	// is an admin-only escape hatch inherited from trigger defaults
+	// (spec.defaults.dockerInDocker) or the admin-gated Project option; it is
+	// intentionally not exposed through the dashboard run-creation API.
+	// +optional
+	DockerInDocker bool `json:"dockerInDocker,omitempty"`
 	// Debug enables verbose agent pod logging (full instructions, tool I/O, conversation items).
 	// +optional
 	Debug bool `json:"debug,omitempty"`

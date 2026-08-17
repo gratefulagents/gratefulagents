@@ -90,6 +90,16 @@ spec:
                   the dashboard API and is inherited from trigger defaults
                   (spec.defaults.disableCommandSandbox).
                 type: boolean
+              dockerInDocker:
+                description: |-
+                  DockerInDocker runs a privileged docker:dind sidecar next to the worker
+                  and points the worker (including sandboxed subprocesses) at it via
+                  DOCKER_HOST on loopback, so the agent can run docker build/run/compose.
+                  The dind daemon is privileged and unauthenticated on localhost, so this
+                  is an admin-only escape hatch inherited from trigger defaults
+                  (spec.defaults.dockerInDocker) or the admin-gated Project option; it is
+                  intentionally not exposed through the dashboard run-creation API.
+                type: boolean
               executionMode:
                 description: AgentRunExecutionMode controls how a run is orchestrated
                   internally.

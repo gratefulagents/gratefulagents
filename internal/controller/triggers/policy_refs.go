@@ -18,6 +18,9 @@ func applyPolicyRefs(spec *platformv1alpha1.AgentRunSpec, defaults triggersv1alp
 	if defaults.KubernetesAdmin {
 		spec.KubernetesAdmin = true
 	}
+	if defaults.DockerInDocker {
+		spec.DockerInDocker = true
+	}
 	// defaults.timeout documents "the maximum duration for created AgentRuns";
 	// map it onto the run's enforced limit unless the caller already set one.
 	if defaults.Timeout.Duration > 0 && (spec.Limits == nil || spec.Limits.MaxRuntime.Duration == 0) {

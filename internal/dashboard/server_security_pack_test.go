@@ -63,6 +63,7 @@ func seedSecurityPackFixtures(t *testing.T, c client.Client, ns string) {
 					},
 					KubernetesAdmin:       true,
 					DisableCommandSandbox: true,
+					DockerInDocker:        true,
 				},
 			},
 		},
@@ -184,7 +185,7 @@ func TestImportSecurityPackRoundTrip(t *testing.T) {
 		t.Fatalf("imported scan missing: %v", err)
 	}
 	if scan.Spec.Defaults.Secrets.OpenAIOAuthSecret != "" || len(scan.Spec.Defaults.Secrets.ProviderKeys) != 0 ||
-		scan.Spec.Defaults.KubernetesAdmin || scan.Spec.Defaults.DisableCommandSandbox {
+		scan.Spec.Defaults.KubernetesAdmin || scan.Spec.Defaults.DisableCommandSandbox || scan.Spec.Defaults.DockerInDocker {
 		t.Fatalf("imported scan kept stripped fields: %+v", scan.Spec.Defaults)
 	}
 	pack := &triggersv1alpha1.SecurityPolicyPack{}

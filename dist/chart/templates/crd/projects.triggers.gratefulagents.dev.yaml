@@ -135,6 +135,15 @@ spec:
                       not exposed through the dashboard API, so it can only be set directly
                       on the trigger resource (kubectl/GitOps).
                     type: boolean
+                  dockerInDocker:
+                    description: |-
+                      dockerInDocker runs a privileged docker:dind sidecar next to the worker
+                      of runs created from this trigger and points the worker at it via
+                      DOCKER_HOST, so agents can run docker build/run/compose. Admin-only: it
+                      is intentionally not exposed through the dashboard trigger APIs, so it
+                      can only be set directly on the trigger resource (kubectl/GitOps).
+                      Projects additionally expose the admin-gated spec.dockerInDocker field.
+                    type: boolean
                   executionMode:
                     description: |-
                       executionMode controls the orchestration model for created AgentRuns.
@@ -449,6 +458,14 @@ spec:
                 description: displayName is a human-readable name for this project.
                 minLength: 1
                 type: string
+              dockerInDocker:
+                description: |-
+                  dockerInDocker runs a privileged docker:dind sidecar next to the worker
+                  of runs created from this project and points the worker at it via
+                  DOCKER_HOST, so agents can run docker build/run/compose. This is
+                  admin-gated: the dind daemon is privileged, so only cluster admins may
+                  enable it (kubectl/GitOps or an admin-gated dashboard project option).
+                type: boolean
               kubernetesAdmin:
                 description: |-
                   kubernetesAdmin grants dashboard runs created from this project
@@ -562,12 +579,6 @@ spec:
                                 to merge approved, non-draft pull requests in this repository. Disabled by
                                 default; merging stays human otherwise.
                               type: boolean
-                            fullControl:
-                              description: |-
-                                fullControl permits the maintainer to merge its non-draft, mergeable pull
-                                requests without human approval after required checks pass. This dangerous
-                                opt-in implies allowPullRequestMerge; required reviews must be disabled.
-                              type: boolean
                             disabled:
                               description: disabled turns off the maintainer without
                                 removing its configuration.
@@ -581,6 +592,12 @@ spec:
                               maxLength: 253
                               pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                               type: string
+                            fullControl:
+                              description: |-
+                                fullControl permits the maintainer to merge its non-draft, mergeable pull
+                                requests without human approval after required checks pass. This dangerous
+                                opt-in implies allowPullRequestMerge; required reviews must be disabled.
+                              type: boolean
                             maxConcurrentDispatches:
                               description: |-
                                 maxConcurrentDispatches caps how many maintainer-dispatched runs may be

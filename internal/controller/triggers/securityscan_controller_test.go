@@ -768,6 +768,7 @@ func TestSecurityScanReconcileInsecureDefaultsRejected(t *testing.T) {
 	for name, mutate := range map[string]func(*triggersv1alpha1.SecurityScan){
 		"disableCommandSandbox": func(scan *triggersv1alpha1.SecurityScan) { scan.Spec.Defaults.DisableCommandSandbox = true },
 		"kubernetesAdmin":       func(scan *triggersv1alpha1.SecurityScan) { scan.Spec.Defaults.KubernetesAdmin = true },
+		"dockerInDocker":        func(scan *triggersv1alpha1.SecurityScan) { scan.Spec.Defaults.DockerInDocker = true },
 	} {
 		t.Run(name, func(t *testing.T) {
 			now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
