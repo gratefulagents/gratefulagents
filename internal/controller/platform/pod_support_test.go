@@ -1094,6 +1094,130 @@ func TestBuildCommonPodSpecRequiresSubprocessSandbox(t *testing.T) {
 	}
 }
 
+// TestBuildCommonPodSpecDockerInDocker covers the admin-gated Docker-in-Docker
+// option: a privileged dind native sidecar on loopback plus DOCKER_HOST wiring
+// for the worker and its bwrap-sandboxed subprocesses.
+func TestBuildCommonPodSpecDockerInDocker(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{
+		Spec: platformv1alpha1.AgentRunSpec{
+			Repository:     platformv1alpha1.RepositoryContext{URL: "https://github.com/example/repo.git"},
+			Model:          "gpt-5.4",
+			DockerInDocker: true,
+		},
+	}
+
+	spec := buildCommonPodSpec(run, "sa", []string{"agent", "run"}, nil, nil, nil)
+
+	var dind *corev1.Container
+	for i := range spec.InitContainers {
+		if spec.InitContainers[i].Name == dindContainerName {
+			dind = &spec.InitContainers[i]
+			break
+		}
+	}
+	if dind == nil {
+		t.Fatalf("expected %q init container, got %#v", dindContainerName, spec.InitContainers)
+	}
+	// Native sidecar: restartPolicy Always keeps dockerd alive while the
+	// worker runs, yet still lets the pod complete when the worker exits.
+	if dind.RestartPolicy == nil || *dind.RestartPolicy != corev1.ContainerRestartPolicyAlways {
+		t.Fatalf("dind RestartPolicy = %#v, want Always (native sidecar)", dind.RestartPolicy)
+	}
+	if dind.SecurityContext == nil || dind.SecurityContext.Privileged == nil || !*dind.SecurityContext.Privileged {
+		t.Fatalf("dind SecurityContext = %#v, want privileged", dind.SecurityContext)
+	}
+	// An explicit dockerd command pins the API to loopback: the image
+	// entrypoint would otherwise add an unauthenticated tcp://0.0.0.0:2375
+	// listener reachable from outside the pod.
+	if len(dind.Args) == 0 || dind.Args[0] != "dockerd" {
+		t.Fatalf("dind Args = %#v, want explicit dockerd command", dind.Args)
+	}
+	hostArgFound := false
+	for _, arg := range dind.Args {
+		if strings.Contains(arg, "0.0.0.0") {
+			t.Fatalf("dind Args = %#v, must not listen on 0.0.0.0", dind.Args)
+		}
+		if arg == "--host="+dindDockerHost {
+			hostArgFound = true
+		}
+	}
+	if !hostArgFound {
+		t.Fatalf("dind Args = %#v, want --host=%s", dind.Args, dindDockerHost)
+	}
+	if dind.StartupProbe == nil || dind.StartupProbe.TCPSocket == nil {
+		t.Fatalf("dind StartupProbe = %#v, want TCP gate so the worker starts after dockerd", dind.StartupProbe)
+	}
+	// Identical workspace/scratch paths so `docker run -v /workspace/...`
+	// bind mounts resolve inside the dind daemon.
+	if !hasVolumeMount(dind.VolumeMounts, "workspace", "/workspace") {
+		t.Fatalf("dind mounts = %#v, want workspace at /workspace", dind.VolumeMounts)
+	}
+	if !hasVolumeMount(dind.VolumeMounts, workspaceScratchVolumeName, workspaceScratchPath) {
+		t.Fatalf("dind mounts = %#v, want scratch at %s", dind.VolumeMounts, workspaceScratchPath)
+	}
+	if !hasVolumeMount(dind.VolumeMounts, dindDockerLibVolume, "/var/lib/docker") {
+		t.Fatalf("dind mounts = %#v, want %q at /var/lib/docker", dind.VolumeMounts, dindDockerLibVolume)
+	}
+	dockerLibVolumeFound := false
+	for _, volume := range spec.Volumes {
+		if volume.Name == dindDockerLibVolume && volume.EmptyDir != nil {
+			dockerLibVolumeFound = true
+			break
+		}
+	}
+	if !dockerLibVolumeFound {
+		t.Fatalf("expected EmptyDir volume %q", dindDockerLibVolume)
+	}
+
+	envs := envSliceValueMap(spec.Containers[0].Env)
+	assertEnvValue(t, envs, "DOCKER_HOST", dindDockerHost)
+	if !strings.Contains(envs[sandbox.SandboxExtraEnvEnv], "DOCKER_HOST="+dindDockerHost) {
+		t.Fatalf("sandbox extra env = %q, want DOCKER_HOST grant", envs[sandbox.SandboxExtraEnvEnv])
+	}
+	// Verify the SDK boundary consumes the controller-rendered contract and
+	// the platform Go-cache grants survive the merge.
+	t.Setenv(sandbox.SandboxExtraEnvEnv, envs[sandbox.SandboxExtraEnvEnv])
+	sandboxConfig := sandbox.ConfigFromEnv()
+	if got := sandboxConfig.ExtraEnv["DOCKER_HOST"]; got != dindDockerHost {
+		t.Fatalf("sandbox extra env DOCKER_HOST = %q, want %q", got, dindDockerHost)
+	}
+	if got := sandboxConfig.ExtraEnv["GOPATH"]; got != workspaceScratchPath+"/go" {
+		t.Fatalf("sandbox extra env GOPATH = %q, want %q (grant lost in dind merge)", got, workspaceScratchPath+"/go")
+	}
+}
+
+// TestBuildCommonPodSpecDockerInDockerOffByDefault pins the fail-safe default:
+// runs without the admin-gated opt-in get no privileged sidecar and no
+// DOCKER_HOST wiring.
+func TestBuildCommonPodSpecDockerInDockerOffByDefault(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{
+		Spec: platformv1alpha1.AgentRunSpec{
+			Repository: platformv1alpha1.RepositoryContext{URL: "https://github.com/example/repo.git"},
+			Model:      "gpt-5.4",
+		},
+	}
+
+	spec := buildCommonPodSpec(run, "sa", []string{"agent", "run"}, nil, nil, nil)
+
+	for _, container := range spec.InitContainers {
+		if container.Name == dindContainerName {
+			t.Fatalf("unexpected %q init container without spec.dockerInDocker", dindContainerName)
+		}
+	}
+	for _, volume := range spec.Volumes {
+		if volume.Name == dindDockerLibVolume {
+			t.Fatalf("unexpected volume %q without spec.dockerInDocker", dindDockerLibVolume)
+		}
+	}
+	envs := envSliceValueMap(spec.Containers[0].Env)
+	if value, ok := envs["DOCKER_HOST"]; ok {
+		t.Fatalf("DOCKER_HOST = %q, want unset without spec.dockerInDocker", value)
+	}
+	if strings.Contains(envs[sandbox.SandboxExtraEnvEnv], "DOCKER_HOST") {
+		t.Fatalf("sandbox extra env = %q, want no DOCKER_HOST grant", envs[sandbox.SandboxExtraEnvEnv])
+	}
+}
+
 func TestApplyRuntimeProfileSandboxOverridesPreservesScratchWithWorkspacePVC(t *testing.T) {
 	run := &platformv1alpha1.AgentRun{
 		Spec: platformv1alpha1.AgentRunSpec{

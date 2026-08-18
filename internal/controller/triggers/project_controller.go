@@ -271,6 +271,9 @@ func projectDefaults(project *triggersv1alpha1.Project) triggersv1alpha1.AgentRu
 	if project.Spec.KubernetesAdmin {
 		defaults.KubernetesAdmin = true
 	}
+	if project.Spec.DockerInDocker {
+		defaults.DockerInDocker = true
+	}
 	return defaults
 }
 

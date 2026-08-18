@@ -38,6 +38,14 @@ type ProjectSpec struct {
 	// +optional
 	KubernetesAdmin bool `json:"kubernetesAdmin,omitempty"`
 
+	// dockerInDocker runs a privileged docker:dind sidecar next to the worker
+	// of runs created from this project and points the worker at it via
+	// DOCKER_HOST, so agents can run docker build/run/compose. This is
+	// admin-gated: the dind daemon is privileged, so only cluster admins may
+	// enable it (kubectl/GitOps or an admin-gated dashboard project option).
+	// +optional
+	DockerInDocker bool `json:"dockerInDocker,omitempty"`
+
 	// bugSquasher marks this project as the namespace's default bug-squasher:
 	// moving an agent-filed bug report to in_progress launches an autonomous
 	// fix AgentRun from this project. The dashboard keeps the flag exclusive

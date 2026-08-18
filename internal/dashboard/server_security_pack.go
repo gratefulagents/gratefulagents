@@ -61,6 +61,7 @@ func sanitizeSecurityScanSpecForExport(spec triggersv1alpha1.SecurityScanSpec) t
 	out.Defaults.Secrets = triggersv1alpha1.AgentRunSecrets{}
 	out.Defaults.DisableCommandSandbox = false
 	out.Defaults.KubernetesAdmin = false
+	out.Defaults.DockerInDocker = false
 	return out
 }
 

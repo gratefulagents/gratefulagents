@@ -57,6 +57,11 @@ The form rejects a saved-credential choice when no usable saved credential exist
 
 If an MCP policy denies by default, add the names of selected MCP servers to **Allowed MCP servers** or their tools will not load.
 
+## Docker-in-Docker (admin-only)
+
+Cluster admins can let a Project's runs execute real `docker` commands (`docker build`, `docker run`, `docker compose`) by setting `spec.dockerInDocker: true` on the `Project` resource — or `spec.defaults.dockerInDocker: true` on an individual trigger resource, including `SecurityScan` — via kubectl/GitOps. Each run pod then gets a **privileged** `docker:dind` sidecar listening on loopback, and the worker's `DOCKER_HOST` points at it (including inside the command sandbox). Because the sidecar requires a privileged container, the option is off by default, is not exposed through the dashboard, and is stripped from exported and imported security packs.
+
+
 ## Custom instructions
 
 **Custom instructions** add Project-wide guidance to every run. They are prepended to the run's `CLAUDE.md`; repository-local `CLAUDE.md` guidance can override them. Do not put secrets in these instructions.

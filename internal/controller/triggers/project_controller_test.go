@@ -265,6 +265,19 @@ func TestProjectReconcilerNormalizesChildStatus(t *testing.T) {
 	}
 }
 
+// TestProjectDefaultsDockerInDocker covers the admin-gated Project option that
+// grants created runs a privileged docker:dind sidecar, plus its fail-safe
+// default.
+func TestProjectDefaultsDockerInDocker(t *testing.T) {
+	project := &triggersv1alpha1.Project{Spec: triggersv1alpha1.ProjectSpec{DockerInDocker: true}}
+	if !projectDefaults(project).DockerInDocker {
+		t.Fatal("projectDefaults(...).DockerInDocker = false, want true (copied from project spec)")
+	}
+	if projectDefaults(&triggersv1alpha1.Project{}).DockerInDocker {
+		t.Fatal("projectDefaults(...).DockerInDocker = true, want false by default")
+	}
+}
+
 func projectTestScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := runtime.NewScheme()

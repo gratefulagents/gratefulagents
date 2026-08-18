@@ -22,6 +22,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -45,6 +46,13 @@ const (
 	// checkout so workspace checkpoints never try to archive its contents.
 	workspaceScratchVolumeName = "workspace-scratch"
 	workspaceScratchPath       = "/workspace/scratch"
+	// Docker-in-Docker sidecar wiring (spec.dockerInDocker). The dind daemon
+	// listens on loopback only; the pod network namespace is the trust
+	// boundary.
+	dindContainerName   = "dind"
+	dindDockerLibVolume = "docker-lib"
+	dindDockerHost      = "tcp://127.0.0.1:2375"
+	defaultDinDImage    = "docker:28-dind"
 )
 
 var errRunPodReplaced = errors.New("stale run pod replaced")
@@ -1279,6 +1287,76 @@ func runDisablesCommandSandbox(run *platformv1alpha1.AgentRun) bool {
 	return run != nil && run.Spec.DisableCommandSandbox
 }
 
+func runEnablesDockerInDocker(run *platformv1alpha1.AgentRun) bool {
+	return run != nil && run.Spec.DockerInDocker
+}
+
+// ensureDockerInDocker wires the admin-gated Docker-in-Docker option into the
+// run pod: a privileged docker:dind native sidecar (init container with
+// restartPolicy Always, so the pod still completes when the worker exits)
+// serving the Docker API on loopback TCP, plus DOCKER_HOST on the worker —
+// forwarded into the bwrap command sandbox, whose write-capable requests keep
+// the pod network namespace and can therefore reach the daemon.
+//
+// The sidecar passes an explicit "dockerd --host=..." command so the image
+// entrypoint does not add its default tcp://0.0.0.0:2375 listener: the
+// unauthenticated Docker API must never be reachable from outside the pod.
+// The workspace and scratch volumes are mounted at identical paths inside the
+// sidecar so `docker run -v /workspace/...` bind mounts resolve.
+//
+// Call after ensureWorkspaceScratchSandboxConfig so the sandbox extra-env
+// merge below appends to the platform-owned value instead of racing it.
+func ensureDockerInDocker(podSpec *corev1.PodSpec, run *platformv1alpha1.AgentRun) {
+	if podSpec == nil || len(podSpec.Containers) == 0 || !runEnablesDockerInDocker(run) {
+		return
+	}
+	podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
+		Name:         dindDockerLibVolume,
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	})
+	restartAlways := corev1.ContainerRestartPolicyAlways
+	podSpec.InitContainers = append(podSpec.InitContainers, corev1.Container{
+		Name:            dindContainerName,
+		Image:           firstNonEmpty(os.Getenv("DIND_IMAGE"), defaultDinDImage),
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		RestartPolicy:   &restartAlways,
+		// Explicit command: keep the API on loopback only (see doc comment).
+		Args: []string{"dockerd", "--host=unix:///var/run/docker.sock", "--host=" + dindDockerHost},
+		// Explicitly disable the entrypoint's TLS cert generation; the API is
+		// loopback-only inside the pod.
+		Env: []corev1.EnvVar{{Name: "DOCKER_TLS_CERTDIR", Value: ""}},
+		// dockerd needs full privileges to manage cgroups, mounts, and
+		// iptables. This is inherent to Docker-in-Docker and why the option
+		// is admin-gated and off by default.
+		SecurityContext: &corev1.SecurityContext{Privileged: boolPtr(true)},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: "workspace", MountPath: "/workspace"},
+			{Name: workspaceScratchVolumeName, MountPath: workspaceScratchPath},
+			{Name: dindDockerLibVolume, MountPath: "/var/lib/docker"},
+		},
+		// Gate the worker's start on the daemon accepting connections so the
+		// first docker command does not race dockerd's startup.
+		StartupProbe: &corev1.Probe{
+			ProbeHandler:     corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(2375)}},
+			PeriodSeconds:    2,
+			FailureThreshold: 60,
+		},
+	})
+
+	worker := &podSpec.Containers[0]
+	upsertContainerEnv(worker, corev1.EnvVar{Name: "DOCKER_HOST", Value: dindDockerHost})
+	// ConfigFromEnv only forwards explicitly granted variables into bwrap, so
+	// DOCKER_HOST must also be appended to the sandbox extra-env grant.
+	extraEnv := "DOCKER_HOST=" + dindDockerHost
+	for i := range worker.Env {
+		if worker.Env[i].Name == sandbox.SandboxExtraEnvEnv && worker.Env[i].Value != "" {
+			extraEnv = worker.Env[i].Value + "\n" + extraEnv
+			break
+		}
+	}
+	upsertContainerEnv(worker, corev1.EnvVar{Name: sandbox.SandboxExtraEnvEnv, Value: extraEnv})
+}
+
 // commandSandboxModeEnvs selects the subprocess sandbox posture for the run
 // pod. Default: the enforcing bubblewrap sandbox is required. When the run
 // (via an admin-set trigger option) disables the command sandbox, bubblewrap
@@ -1558,6 +1636,7 @@ func buildCommonPodSpec(run *platformv1alpha1.AgentRun, saName string, command [
 		Volumes: volumes,
 	}
 	ensureWorkspaceScratchSandboxConfig(&podSpec.Containers[0])
+	ensureDockerInDocker(&podSpec, run)
 	return podSpec
 }
 

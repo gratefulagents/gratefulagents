@@ -104,6 +104,53 @@ func TestApplyPolicyRefsDoesNotClearKubernetesAdmin(t *testing.T) {
 	}
 }
 
+// TestBuildTriggerRunDockerInDocker covers the admin-set trigger option that
+// gives created runs a privileged docker:dind sidecar via DOCKER_HOST.
+func TestBuildTriggerRunDockerInDocker(t *testing.T) {
+	run := BuildTriggerRun(TriggerRunSpec{
+		RunName:     "run-1",
+		Namespace:   "default",
+		TriggerKind: "GitHubRepository",
+		TriggerName: "payments",
+		Defaults: triggersv1alpha1.AgentRunDefaults{
+			RepoURL:        "https://github.com/example/repo.git",
+			Model:          "gpt-5.4",
+			DockerInDocker: true,
+		},
+	})
+	if !run.Spec.DockerInDocker {
+		t.Fatal("Spec.DockerInDocker = false, want true (copied from trigger defaults)")
+	}
+}
+
+// TestBuildTriggerRunDockerInDockerOffByDefault pins the fail-safe default:
+// triggers that do not opt in create runs without the privileged dind sidecar.
+func TestBuildTriggerRunDockerInDockerOffByDefault(t *testing.T) {
+	run := BuildTriggerRun(TriggerRunSpec{
+		RunName:     "run-1",
+		Namespace:   "default",
+		TriggerKind: "GitHubRepository",
+		TriggerName: "payments",
+		Defaults: triggersv1alpha1.AgentRunDefaults{
+			RepoURL: "https://github.com/example/repo.git",
+			Model:   "gpt-5.4",
+		},
+	})
+	if run.Spec.DockerInDocker {
+		t.Fatal("Spec.DockerInDocker = true, want false by default")
+	}
+}
+
+// TestApplyPolicyRefsDoesNotClearDockerInDocker ensures defaults without the
+// grant never clear a flag already set on the spec by another path.
+func TestApplyPolicyRefsDoesNotClearDockerInDocker(t *testing.T) {
+	spec := platformv1alpha1.AgentRunSpec{DockerInDocker: true}
+	applyPolicyRefs(&spec, triggersv1alpha1.AgentRunDefaults{})
+	if !spec.DockerInDocker {
+		t.Fatal("applyPolicyRefs cleared DockerInDocker; defaults without the grant must leave it untouched")
+	}
+}
+
 // TestBuildTriggerRunTimeoutSetsMaxRuntime covers defaults.timeout, which
 // documents "the maximum duration for created AgentRuns".
 func TestBuildTriggerRunTimeoutSetsMaxRuntime(t *testing.T) {
