@@ -1,15 +1,15 @@
 # Protocol sandbox profiles
 
 Evidence base for the protocol-family `SecurityWorkflow` assets in
-`configs/securityworkflows/`. Every fact here was produced by shallow-cloning the
-in-scope repository of a shipped `SecurityProgram` and reading its build, test and
-harness configuration — not from documentation or recollection.
+`configs/securityworkflows/`. Facts are taken from the pinned in-scope repository
+and its official build, test and harness configuration, not from recollection.
 
 | File | Repositories profiled | Workflows it grounds |
 | --- | --- | --- |
 | `evm-defi-sandboxes.md` | `aave-dao/aave-v3-origin`, `lidofinance/core`, `sky-ecosystem/dss`, `sparkdotfi/spark-alm-controller`, `OlympusDAO/olympus-v3`, `1inch/limit-order-protocol`, `OffchainLabs/token-bridge-contracts` | `evm-lending-cdp-review`, `evm-orderbook-settlement-review` |
 | `cross-chain-sandboxes.md` | `axelarnetwork/axelar-gmp-sdk-solidity`, `smartcontractkit/chainlink-ccip`, `hyperlane-xyz/hyperlane-monorepo`, `LayerZero-Labs/LayerZero-v2`, `wormhole-foundation/wormhole`, `matter-labs/zksync-era`, `Snowfork/snowbridge` | `cross-chain-messaging-review`, `rollup-stack-review` |
 | `non-evm-sandboxes.md` | `Kamino-Finance/klend`, `near/core-contracts`, `near/intents`, `near-daos/sputnik-dao-contract`, `MystenLabs/sui`, `aptos-labs/aptos-core` | `solana-defi-program-review`, `near-contract-review` |
+| `flow-cadence-sandboxes.md` | `onflow/flow-core-contracts`, `onflow/flow-evm-bridge` | `flow-cadence-review` |
 
 Each profile records, per repository: the build system and its pins, the dependency
 bootstrap a fresh clone actually needs, the canonical build and test commands taken

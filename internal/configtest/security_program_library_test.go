@@ -222,8 +222,23 @@ func TestSecurityProgramLibrary(t *testing.T) {
 			"1inch-solana-fusion":              "solana-defi-program-review",
 		},
 		"hackenproof-flow-protocol": {
-			"flow-core-contracts": "smart-contract-review",
-			"flow-evm-bridge":     "smart-contract-review",
+			"flow-core-contracts": "flow-cadence-review",
+			"flow-evm-bridge":     "flow-cadence-review",
+		},
+	}
+	expectedLatestReleaseTargets := map[string]map[string]string{
+		"hackenproof-deltaprime": {
+			"deltaprime-contracts": "v1.1.0",
+		},
+		"hackenproof-1inch-contracts": {
+			"1inch-limit-order-protocol":       "4.3.2",
+			"1inch-fusion-protocol":            "3.1.1",
+			"1inch-cross-chain-swap":           "1.1.0",
+			"1inch-token-plugins":              "2.0.0",
+			"1inch-farming":                    "4.0.0",
+			"1inch-delegating":                 "2.0.0",
+			"1inch-solana-crosschain-protocol": "1.1.0",
+			"1inch-solana-fusion":              "1.0.0-release",
 		},
 	}
 	type expectedRepositoryTarget struct {
@@ -422,6 +437,26 @@ func TestSecurityProgramLibrary(t *testing.T) {
 					if target.WorkflowRef != wantWorkflow {
 						t.Errorf("scanTargets[%d].workflowRef = %q, want %q", index, target.WorkflowRef, wantWorkflow)
 					}
+				}
+			}
+			if releases, ok := expectedLatestReleaseTargets[program.Name]; ok {
+				seenReleases := make(map[string]bool, len(releases))
+				for index, target := range targets {
+					want, expected := releases[target.ScanName]
+					if !expected {
+						t.Errorf("scanTargets[%d] %q has no verified release expectation", index, target.ScanName)
+						continue
+					}
+					seenReleases[target.ScanName] = true
+					if target.BaseBranch != want {
+						t.Errorf("scanTargets[%d].baseBranch = %q, want verified release %q", index, target.BaseBranch, want)
+					}
+					if got := target.ParameterValues["release_tag"]; got != want {
+						t.Errorf("scanTargets[%d].parameterValues[release_tag] = %q, want %q", index, got, want)
+					}
+				}
+				if len(seenReleases) != len(releases) {
+					t.Errorf("verified releases covered %d targets, want %d", len(seenReleases), len(releases))
 				}
 			}
 			if program.Name == "immunefi-aave" {

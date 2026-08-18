@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"k8s.io/apimachinery/pkg/util/validation"
 )
@@ -390,8 +391,11 @@ func securityWorkflowSchemaAllowsPath(schema, path string) bool {
 }
 
 // ValidateSecurityWorkflowOutput checks the same dependency-free JSON Schema
-// subset used for AgentRun task output: type, required, properties, array
-// items, enum, and boolean additionalProperties.
+// subset used for AgentRun task output. In addition to structural type,
+// property, item, enum, and additional-property checks, the subset supports
+// scalar/collection bounds and the composition keywords needed to express
+// conditional evidence contracts (const, allOf/anyOf/oneOf, not, and
+// if/then/else).
 func ValidateSecurityWorkflowOutput(schemaJSON, valueJSON string) error {
 	var schema map[string]any
 	if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil {
@@ -405,6 +409,12 @@ func ValidateSecurityWorkflowOutput(schemaJSON, valueJSON string) error {
 }
 
 func validateSecurityWorkflowValue(schema map[string]any, value any, path string) error {
+	if constant, ok := schema["const"]; ok && !reflect.DeepEqual(constant, value) {
+		return fmt.Errorf("%s must equal the schema const value", path)
+	}
+	if err := validateSecurityWorkflowComposition(schema, value, path); err != nil {
+		return err
+	}
 	if typ, ok := schema["type"].(string); ok {
 		valid := false
 		switch typ {
@@ -443,6 +453,23 @@ func validateSecurityWorkflowValue(schema map[string]any, value any, path string
 			return fmt.Errorf("%s is not one of the enum values", path)
 		}
 	}
+	if number, ok := value.(float64); ok {
+		if minimum, exists := schema["minimum"].(float64); exists && number < minimum {
+			return fmt.Errorf("%s must be at least %v", path, minimum)
+		}
+		if maximum, exists := schema["maximum"].(float64); exists && number > maximum {
+			return fmt.Errorf("%s must be at most %v", path, maximum)
+		}
+	}
+	if stringValue, ok := value.(string); ok {
+		length := float64(utf8.RuneCountInString(stringValue))
+		if minimum, exists := schema["minLength"].(float64); exists && length < minimum {
+			return fmt.Errorf("%s must contain at least %v characters", path, minimum)
+		}
+		if maximum, exists := schema["maxLength"].(float64); exists && length > maximum {
+			return fmt.Errorf("%s must contain at most %v characters", path, maximum)
+		}
+	}
 	if object, ok := value.(map[string]any); ok {
 		if required, ok := schema["required"].([]any); ok {
 			for _, raw := range required {
@@ -469,11 +496,66 @@ func validateSecurityWorkflowValue(schema map[string]any, value any, path string
 		}
 	}
 	if array, ok := value.([]any); ok {
+		length := float64(len(array))
+		if minimum, exists := schema["minItems"].(float64); exists && length < minimum {
+			return fmt.Errorf("%s must contain at least %v items", path, minimum)
+		}
+		if maximum, exists := schema["maxItems"].(float64); exists && length > maximum {
+			return fmt.Errorf("%s must contain at most %v items", path, maximum)
+		}
 		if items, ok := schema["items"].(map[string]any); ok {
 			for i, item := range array {
 				if err := validateSecurityWorkflowValue(items, item, fmt.Sprintf("%s[%d]", path, i)); err != nil {
 					return err
 				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateSecurityWorkflowComposition(schema map[string]any, value any, path string) error {
+	if branches, ok := schema["allOf"].([]any); ok {
+		for index, raw := range branches {
+			branch, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if err := validateSecurityWorkflowValue(branch, value, path); err != nil {
+				return fmt.Errorf("%s allOf[%d]: %w", path, index, err)
+			}
+		}
+	}
+	for _, keyword := range []string{"anyOf", "oneOf"} {
+		branches, ok := schema[keyword].([]any)
+		if !ok {
+			continue
+		}
+		matches := 0
+		for _, raw := range branches {
+			branch, ok := raw.(map[string]any)
+			if ok && validateSecurityWorkflowValue(branch, value, path) == nil {
+				matches++
+			}
+		}
+		if keyword == "anyOf" && matches == 0 {
+			return fmt.Errorf("%s must satisfy at least one anyOf branch", path)
+		}
+		if keyword == "oneOf" && matches != 1 {
+			return fmt.Errorf("%s must satisfy exactly one oneOf branch (matched %d)", path, matches)
+		}
+	}
+	if disallowed, ok := schema["not"].(map[string]any); ok && validateSecurityWorkflowValue(disallowed, value, path) == nil {
+		return fmt.Errorf("%s satisfies a disallowed schema", path)
+	}
+	if condition, ok := schema["if"].(map[string]any); ok {
+		keyword := "else"
+		if validateSecurityWorkflowValue(condition, value, path) == nil {
+			keyword = "then"
+		}
+		if branch, ok := schema[keyword].(map[string]any); ok {
+			if err := validateSecurityWorkflowValue(branch, value, path); err != nil {
+				return fmt.Errorf("%s %s: %w", path, keyword, err)
 			}
 		}
 	}

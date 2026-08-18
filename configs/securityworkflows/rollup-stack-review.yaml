@@ -3,7 +3,7 @@ kind: SecurityWorkflow
 metadata:
   name: rollup-stack-review
 spec:
-  description: Protocol-specific bounty hunt for L2 rollup stacks (Optimism ethereum-optimism/optimism at develop, ZKsync Era matter-labs/zksync-era at main). The toolchain and the substrate each monorepo can actually be exercised in are bootstrapped and recorded first, including the missing-contracts and no-docker blockers these repositories hit in a bare scan image, the hunt is aimed at the deposit and withdrawal message lifecycle, state-commitment and proof verification, forced inclusion and censorship resistance, operator and upgrade privilege, cross-domain fee and refund accounting, and derivation and data availability, and the report is gated on a runnable local proof of concept that satisfies the governing program's submission rules.
+  description: Protocol-specific bounty hunt for L2 rollup stacks (Optimism ethereum-optimism/optimism at develop, ZKsync Era matter-labs/zksync-era at main). Independent specialists hunt derivation and data availability, bridge lifecycle, state-root and proof verification, and cross-layer privilege before a separate validator uses the strongest repository-native local substrate available. Technical validity is retained independently from novelty and provider submission rules.
   parameters:
     - name: project_root
       description: Repository-relative root of the rollup monorepo under test.
@@ -29,7 +29,7 @@ spec:
     - name: fork_block_hash
       description: Block hash for fork_block_number; every fork-backed run verifies it before execution.
       default: "unconfigured"
-  parallelism: 3
+  parallelism: 4
   tasks:
     - name: pin-target-and-toolchain
       role: threat-modeler
@@ -203,7 +203,63 @@ spec:
             "limitations": {"type": "array", "items": {"type": "string"}}
           }
         }
-    - name: build-harness-and-hunt
+    - name: hunt-derivation-reorg-and-data-availability
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+      objective: >-
+        Hunt L1 origin selection, batch/channel/frame decoding, reorg recovery, safe/finalized head transitions,
+        forced inclusion, priority queues and data-availability fallback using {{tasks.map-rollup-invariants.output}}.
+        Compare live derivation, sync, replay and recovery paths and report concrete divergent-state or halt paths.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-rollup-invariants
+
+    - name: hunt-bridge-message-and-withdrawal-lifecycle
+      role: vulnerability-hunter
+      category: trust-boundary
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+      objective: >-
+        Hunt deposit/withdrawal hash binding, replay, finalization delay, proof/output-root selection, token and fee
+        accounting, failed relay/retry and L1/L2 caller aliasing. Trace every bridge and messenger variant end to end
+        and report a concrete path to theft, lock, duplicate execution or unauthorized cross-domain call.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-rollup-invariants
+
+    - name: hunt-proof-games-batches-and-state-roots
+      role: vulnerability-hunter
+      category: cryptography
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+      objective: >-
+        Select the stack variant. For Optimism, audit fault-game claims, clocks, bonds, prestate and VM step binding;
+        for ZKsync, audit batch commitments, bootloader/system-contract inputs, proof/public-input and verifier-key
+        binding. Compare propose, prove, challenge, execute and recovery paths and report concrete acceptance gaps.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-rollup-invariants
+
+    - name: hunt-upgrades-operators-and-cross-layer-config
+      role: vulnerability-hunter
+      category: access-control
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: evm-low-level-and-deployment-review
+      objective: >-
+        Hunt initialization, proxy/admin ownership, upgrade activation, pause/emergency controls, sequencer/proposer/
+        prover authority, predeploy/system-contract configuration and mismatches between L1 and L2 constants. Report
+        target-specific privilege or configuration paths; label deployed-state claims blocked when no verified pin exists.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-rollup-invariants
+
+    - name: validate-candidates-in-harness
       role: exploit-validator
       category: other
       skillRefs:
@@ -213,8 +269,8 @@ spec:
         - name: trail-of-bits-rust-review
         - name: exploit-poc-discipline
       objective: >-
-        In one write-capable run, bootstrap the substrate, build the oracle, calibrate it, hunt against it
-        and reproduce or kill each hypothesis, so temporary harness files are never lost at a handoff. The
+        In one write-capable run, bootstrap the substrate, build and calibrate the oracle, then reproduce or kill
+        candidate findings recorded by the four discovery lanes. Do not originate new vulnerabilities. The
         full run tool surface remains available and is intentional here: this is the only task that builds
         and executes code. All execution is local. Never change state on any live, public or third-party
         system, never send a mutating request to a deployed contract, never test against mainnet or any
@@ -242,13 +298,20 @@ spec:
         helpers such as waitForL2ToL1LogProof and waitForInteropRootNonZero worth reusing rather than
         rewriting.
 
+        For every compatible Foundry contracts root containing a candidate-specific test, actually call
+        run_security_tool with tool `forge-security-tests`, target type `foundry_project`, locator equal to that
+        workspace root, target revision equal to the pinned immutable revision, and seed `2062026`. When the typed
+        program environment permits a local L1 fork and all endpoint, chain, block and hash pins are ready, use
+        `forge-fork-test` through run_security_tool for fork-backed assertions. Record the returned tool-run
+        reference and normalized result; do not turn a failed, partial or unavailable pack run into confirmation.
+
         Turn the invariants in {{tasks.map-rollup-invariants.output}} into 5 to 15 executable assertions on
         the strongest substrate available, preferring an added test in the repository's own suite so the
         proof of concept is runnable by the program exactly as submitted. Calibrate each assertion with a
         temporary mutant that SHOULD make it fail; an invariant counts as calibrated only when it is
         executable and kills its mutant, because an assertion that survives cannot detect its own
         violation. A green harness never means the stack is safe; it means only not found under the
-        recorded bounds. Hunt in payout order: withdrawal finalization, replay and message-hash uniqueness
+        recorded bounds. Validate in payout order: withdrawal finalization, replay and message-hash uniqueness
         first, then batch, output-root and proof binding and who may propose or prove, then forced
         inclusion and priority-queue accounting, then operator, upgrade, pause and initialization state,
         then cross-domain gas, fee and refund accounting, then derivation, reorg and data-availability
@@ -263,6 +326,10 @@ spec:
       dependsOn:
         - pin-target-and-toolchain
         - map-rollup-invariants
+        - hunt-derivation-reorg-and-data-availability
+        - hunt-bridge-message-and-withdrawal-lifecycle
+        - hunt-proof-games-batches-and-state-roots
+        - hunt-upgrades-operators-and-cross-layer-config
       outputSchema: |-
         {
           "type": "object",
@@ -316,7 +383,11 @@ spec:
                       "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]}
                     }
                   }
-                }
+                },
+                "allOf": [
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "broken"}}}, "then": {"required": ["fingerprint", "reproduction"]}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "untested"}}}, "then": {"required": ["missing_dependency"]}}
+                ]
               }
             },
             "blocked_lanes": {"type": "array", "items": {"type": "string"}, "description": "Documented lanes that could not be run, with the missing dependency, recorded instead of narrowing scope"},
@@ -332,7 +403,7 @@ spec:
         - name: bridge-l2-zk-security-review
       objective: >-
         Price and qualify only hypotheses with verdict broken and a valid reproduction in
-        {{tasks.build-harness-and-hunt.output}}. The full run tool surface remains available; this task
+        {{tasks.validate-candidates-in-harness.output}}. The full run tool surface remains available; this task
         must not change state outside the sandbox workspace and must never contact the program, the
         rollup, a sequencer, a prover or any deployed system.
 
@@ -343,17 +414,17 @@ spec:
         withdrawal, finalizes an invalid state commitment, censors or freezes the chain, or only degrades
         liveness. Record the capital the attacker fronts, the capital they risk, the privileges they need
         (unprivileged user, sequencer, proposer, prover, operator or governance) and the timing or L1
-        window required. Map each candidate onto the governing program's own published in-scope impact
-        list, copying the clause verbatim, and give the maximum achievable impact reachable from the same
-        root cause rather than the first one demonstrated; never translate a severity label from another
-        program's system.
+        window required. Map each candidate onto the governing eligibility rules. Copy a typed impact verbatim
+        when present; otherwise copy the matching vulnerability or asset rule verbatim from scopePolicy and mark
+        its source. Never invent a clause or translate severity.
 
         The run prompt already carries the program's typed scope, including pocRequired, pocEnvironment,
         prohibitedTesting, knownIssues and impacts, and that typed scope is authoritative: obey
         pocEnvironment as the hard substrate constraint, check every candidate against knownIssues before
-        proposing it, and treat prohibitedTesting as binding. Then apply the submission gate, and mark a
-        candidate submission-ready only when all of it holds: a runnable coded proof of concept exists,
-        because these programs require one and an explanation is not a proof of concept; the proof of
+        proposing it, and treat prohibitedTesting as binding. A knownIssues match blocks provider submission but
+        remains a technically confirmed defect. Then apply the submission gate, and mark a
+        candidate submission-ready only when all of it holds: a runnable coded proof of concept exists when
+        pocRequired is true; the proof
         concept ran only in the environment the program permits, on a local fork or a local devnet and
         never against mainnet, a public testnet or deployed code, which is the rule Immunefi's severity
         classification system states verbatim and enforces with a permanent ban; it does not test
@@ -363,33 +434,39 @@ spec:
         is a single issue, written in English, with no raw scanner or model output pasted in; and it states
         the revision, the L1 block and the stack it was produced at. Record the fix suggestion when the
         program requires one. Anything failing the gate is reported as not submission-ready with the exact
-        missing element.
+        missing element, while retaining the technically confirmed finding.
       dependsOn:
-        - build-harness-and-hunt
+        - validate-candidates-in-harness
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["fingerprint", "impact_clause", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "submission_ready"],
+            "required": ["fingerprint", "eligibility_clause", "eligibility_source", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "known_issue_conflict", "technical_status", "submission_ready"],
             "properties": {
               "fingerprint": {"type": "string"},
-              "impact_clause": {"type": "string", "description": "Copied verbatim from the program's in-scope impact list"},
+              "eligibility_clause": {"type": "string"},
+              "eligibility_source": {"type": "string", "enum": ["typed_impact", "scope_policy", "unavailable"]},
               "program_severity": {"type": "string"},
               "max_achievable_impact": {"type": "string"},
               "funds_at_risk": {"type": "string", "description": "Measured value plus the block it was measured at, or why no measurement is possible"},
               "attacker_capital": {"type": "string"},
               "required_privilege": {"type": "string", "enum": ["unprivileged", "sequencer", "proposer", "prover", "operator", "governance"]},
               "preconditions": {"type": "string"},
-              "known_issue_conflict": {"type": "string", "description": "The knownIssues entry this candidate collides with, or none"},
+              "known_issue_conflict": {"type": "string", "minLength": 1, "description": "The verbatim knownIssues entry sharing this root cause, or exactly none"},
               "poc_runnable": {"type": "boolean", "description": "A coded proof of concept the program can execute unchanged"},
               "poc_command": {"type": "string"},
               "poc_bootstrap": {"type": "array", "items": {"type": "string"}, "description": "Commands the program must run before poc_command, including toolchain and submodule steps"},
               "poc_substrate_permitted": {"type": "boolean", "description": "false unless execution stayed inside the program's pocEnvironment on a local fork, local suite or local devnet"},
               "fix_suggestion": {"type": "string"},
+              "technical_status": {"const": "confirmed"},
               "submission_ready": {"type": "boolean"},
               "blocking_gap": {"type": "string", "description": "Required when submission_ready is false"}
-            }
+            },
+            "allOf": [
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": false}}}, "then": {"required": ["blocking_gap"]}},
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": true}}}, "then": {"properties": {"eligibility_clause": {"minLength": 1}, "poc_runnable": {"const": true}, "poc_substrate_permitted": {"const": true}, "known_issue_conflict": {"const": "none"}, "eligibility_source": {"not": {"const": "unavailable"}}}}}
+            ]
           }
         }
     - name: triage-and-report
@@ -403,13 +480,15 @@ spec:
         Assemble the report from {{tasks.quantify-impact-and-submission-readiness.output}} under one
         admission rule: a finding survives only when a named calibrated invariant broke, a runnable failing
         assertion on a permitted local substrate proves it, the negative control did not trigger, the
-        oracle was shown capable of failing, the impact maps to a clause the program published, and the
-        submission gate passed. The full run tool surface remains available; this task must not change
+        oracle was shown capable of failing, and the technical proof passed. Eligibility affects submission
+        readiness, not whether the underlying defect exists. Provider submission readiness is a
+        separate label; missing eligibility or prerequisites must not erase a technically confirmed vulnerability.
+        The full run tool surface remains available; this task must not change
         state outside the sandbox workspace and must never contact a live rollup, sequencer or deployed
         contract.
 
         Require a verified pinned fork only when the finding depends on deployed L1 state, and label
-        project-test or local-devnet evidence without implying deployment exposure. Drop everything else,
+        project-test or local-devnet evidence without implying deployment exposure. Drop refuted and unproved claims,
         including analyses that read well but never broke anything. Prefer an empty report to a padded one:
         reporting is rationed, a rejected submission costs more than a withheld one, and these programs
         explicitly reject scanner-shaped reports without demonstrated impact. State the bounded negative

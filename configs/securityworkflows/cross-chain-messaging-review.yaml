@@ -3,7 +3,7 @@ kind: SecurityWorkflow
 metadata:
   name: cross-chain-messaging-review
 spec:
-  description: Protocol-specific bounty hunt for cross-chain messaging protocols and token bridges (Axelar GMP, Chainlink CCIP, Hyperlane, LayerZero v2, Wormhole, the Arbitrum token bridge). The toolchain and the repository's own two-domain message harness are bootstrapped and recorded first, the hunt is aimed at cross-domain identity and proof binding, replay and message-id uniqueness, verification-module trust, and token accounting parity, and the report is gated on a proof of concept added to that same harness and runnable under the governing program's submission rules.
+  description: Protocol-specific bounty hunt for cross-chain messaging protocols and token bridges (Axelar GMP, Chainlink CCIP, Hyperlane, LayerZero v2, Wormhole, the Arbitrum token bridge). Independent specialists hunt proof and domain binding, replay and retry state, verifier trust, and token parity before a separate validator exercises candidates in the repository's own two-domain harness. Technical validity is retained independently from novelty and provider submission rules.
   parameters:
     - name: project_root
       description: Repository-relative root of the messaging or bridge project under test.
@@ -29,7 +29,7 @@ spec:
     - name: fork_block_hash
       description: Block hash for fork_block_number; every fork-backed run verifies it before execution.
       default: "unconfigured"
-  parallelism: 3
+  parallelism: 4
   tasks:
     - name: pin-target-and-toolchain
       role: threat-modeler
@@ -206,7 +206,64 @@ spec:
             "limitations": {"type": "array", "items": {"type": "string"}}
           }
         }
-    - name: build-harness-and-hunt
+    - name: hunt-proof-domain-and-identity-binding
+      role: vulnerability-hunter
+      category: trust-boundary
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+      objective: >-
+        Hunt proof-origin, source/destination domain, sender/recipient, chain-id and verifier binding across every
+        encode/decode and admission path in {{tasks.map-cross-domain-invariants.output}}. Compare canonical and
+        adapter paths, relayed caller identity and alternate proof formats. Report concrete paths where a message can
+        be forged, misattributed or delivered to the wrong domain.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-cross-domain-invariants
+
+    - name: hunt-replay-retry-refund-and-ordering
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Hunt nonce/message-id collisions, replay across routes or versions, retry and failed-delivery state,
+        refund/recovery races, out-of-order delivery and exactly-once violations. Trace state writes before and after
+        external calls and report a concrete sequence that duplicates execution, loses a message or strands funds.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-cross-domain-invariants
+
+    - name: hunt-validator-quorum-and-upgrades
+      role: vulnerability-hunter
+      category: access-control
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+      objective: >-
+        Hunt validator/guardian/DVN/ISM quorum math, signer uniqueness, set rotation and epoch boundaries, verifier
+        upgrades, initialization, pause/admin and emergency recovery. Compare old and new verifier acceptance windows
+        and report provider-specific threshold or privilege bypasses with file:line evidence.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-cross-domain-invariants
+
+    - name: hunt-token-accounting-decimals-and-adapters
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-dimensional-analysis
+      objective: >-
+        Hunt lock/mint/burn/release conservation, native versus wrapped assets, decimal normalization and dust,
+        fee/refund accounting, rate limits, adapter registry/type confusion and callback token behavior. Check each
+        supported provider variant rather than assuming 18 decimals or a single EVM token path.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-cross-domain-invariants
+
+    - name: validate-candidates-in-harness
       role: exploit-validator
       category: other
       skillRefs:
@@ -217,8 +274,8 @@ spec:
         - name: exploit-poc-discipline
       objective: >-
         In one write-capable run, bootstrap the sandbox, stand up the repository's own two-domain harness,
-        calibrate it, hunt against it and reproduce or kill each hypothesis, so temporary harness files are
-        never lost at a handoff. The full run tool surface remains available and is intentional here: this is
+        calibrate it, then reproduce or kill candidate findings from the four discovery lanes. Do not originate new
+        vulnerabilities. The full run tool surface remains available and is intentional here: this is
         the only task that builds and executes code. All execution is local. Never change state on any live,
         public or third-party system, never send a mutating request to a deployed contract, never test
         against mainnet or a public testnet, and never touch a third-party relayer, validator, guardian or
@@ -239,6 +296,13 @@ spec:
         with the dossier, and set fork_status to executed only then; otherwise set it to blocked, record the
         blocker, and keep hunting on the repository's own suite.
 
+        For every compatible Foundry contracts root containing a candidate-specific two-domain test, actually call
+        run_security_tool with tool `forge-security-tests`, target type `foundry_project`, locator equal to that
+        workspace root, target revision equal to the pinned immutable revision, and seed `2062026`. When the typed
+        program environment permits a local fork and all endpoint, chain, block and hash pins are ready, use
+        `forge-fork-test` through run_security_tool for fork-backed bridge assertions. Record the returned tool-run
+        reference and normalized result; do not turn a failed, partial or unavailable pack run into confirmation.
+
         Prefer the repository's own two-domain harness over inventing a new bridge simulator: dispatch on one
         MockMailbox and drain the other with processNextInboundMessage as solidity/test/Messaging.t.sol does;
         setUpEndpoints(2, LibraryType.UltraLightNode) plus setupOApps in evm/oapp/test/TestHelper.sol as
@@ -255,7 +319,7 @@ spec:
         mutant, because an assertion that survives cannot detect its own violation. A green harness never
         means the target is safe; it means only not found under the recorded bounds.
 
-        Then hunt, in payout order: cross-domain identity and proof binding first, then replay and message-id
+        Validate in payout order: cross-domain identity and proof binding first, then replay and message-id
         uniqueness including re-execution after failure and retry or refund paths, then verification-module
         trust and quorum or rotation arithmetic, then token accounting parity, decimals and pool or gateway
         registration authenticity, then encoding round trips and truncation, then delivery liveness and gas
@@ -269,6 +333,10 @@ spec:
       dependsOn:
         - pin-target-and-toolchain
         - map-cross-domain-invariants
+        - hunt-proof-domain-and-identity-binding
+        - hunt-replay-retry-refund-and-ordering
+        - hunt-validator-quorum-and-upgrades
+        - hunt-token-accounting-decimals-and-adapters
       outputSchema: |-
         {
           "type": "object",
@@ -322,7 +390,11 @@ spec:
                       "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]}
                     }
                   }
-                }
+                },
+                "allOf": [
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "broken"}}}, "then": {"required": ["fingerprint", "reproduction"]}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "untested"}}}, "then": {"required": ["missing_dependency"]}}
+                ]
               }
             },
             "limitations": {"type": "array", "items": {"type": "string"}}
@@ -337,7 +409,7 @@ spec:
         - name: bridge-l2-zk-security-review
       objective: >-
         Price and qualify only hypotheses with verdict broken and a valid reproduction in
-        {{tasks.build-harness-and-hunt.output}}. The full run tool surface remains available; this task must
+        {{tasks.validate-candidates-in-harness.output}}. The full run tool surface remains available; this task must
         not change state outside the sandbox workspace and must never contact the program, the protocol, a
         relayer, a guardian, or any deployed system.
 
@@ -350,15 +422,15 @@ spec:
 
         The run prompt already carries the program's typed scope — pocRequired, pocEnvironment,
         prohibitedTesting, knownIssues and the in-scope impact list — and that scope is authoritative. Map
-        each candidate onto that published in-scope impact list, copying the clause verbatim, and give the
-        maximum achievable impact reachable from the same root cause rather than the first one demonstrated;
-        never translate a severity label from another program's system. Check every candidate against the
+        each candidate onto the governing eligibility rules. Copy a typed impact verbatim when present; otherwise
+        copy the matching vulnerability or asset rule verbatim from scopePolicy and mark its source. Never invent a
+        clause or translate severity. Check every candidate against the
         program's published known issues and prior audit disclosures before reporting it — LayerZero's Audits
-        repository is the worked example — and drop a candidate that is already disclosed there.
+        repository is the worked example. Preserve a technically confirmed match, but mark it provider-ineligible
+        and record the matching disclosure verbatim rather than presenting it as novel.
 
         Then apply the submission gate these programs publish, and mark a candidate submission-ready only
-        when all of it holds: a runnable coded proof of concept exists, because every smart-contract program
-        in this catalog requires one and an explanation is not a proof of concept; the proof of concept runs
+        when all of it holds: a runnable coded proof of concept exists when pocRequired is true; the proof runs
         on the substrate pocEnvironment permits, which is a local fork or a local two-domain harness and
         never deployed code, the rule Immunefi's severity classification system states verbatim and enforces
         with a permanent ban; the proof of concept respects prohibitedTesting and does not test third-party
@@ -367,18 +439,20 @@ spec:
         suite, ideally as a diff against the existing two-domain harness; it is a single issue, written in
         English, with no raw scanner or model output pasted in; and it states the revision and the block or
         harness configuration it was produced at. Record the fix suggestion when the program requires one.
-        Anything failing the gate is reported as not submission-ready with the exact missing element.
+        Anything failing the gate is marked not submission-ready with the exact missing element, while retaining
+        the technically confirmed finding.
       dependsOn:
-        - build-harness-and-hunt
+        - validate-candidates-in-harness
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["fingerprint", "impact_clause", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "known_issue_checked", "submission_ready"],
+            "required": ["fingerprint", "eligibility_clause", "eligibility_source", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "known_issue_checked", "known_issue_match", "technical_status", "submission_ready"],
             "properties": {
               "fingerprint": {"type": "string"},
-              "impact_clause": {"type": "string", "description": "Copied verbatim from the program's in-scope impact list"},
+              "eligibility_clause": {"type": "string"},
+              "eligibility_source": {"type": "string", "enum": ["typed_impact", "scope_policy", "unavailable"]},
               "program_severity": {"type": "string"},
               "max_achievable_impact": {"type": "string"},
               "funds_at_risk": {"type": "string", "description": "Bridged value reachable on each domain plus the block or harness configuration it was measured at, or why no measurement is possible"},
@@ -388,11 +462,17 @@ spec:
               "poc_command": {"type": "string"},
               "poc_substrate_permitted": {"type": "boolean", "description": "false unless execution stayed within pocEnvironment on a local fork or local two-domain harness"},
               "known_issue_checked": {"type": "boolean", "description": "Checked against the program's published known issues and prior audit disclosures"},
+              "known_issue_match": {"type": "string", "minLength": 1, "description": "Verbatim known issue or prior disclosure sharing this root cause, or exactly none"},
               "known_issue_reference": {"type": "string"},
               "fix_suggestion": {"type": "string"},
+              "technical_status": {"const": "confirmed"},
               "submission_ready": {"type": "boolean"},
               "blocking_gap": {"type": "string", "description": "Required when submission_ready is false"}
-            }
+            },
+            "allOf": [
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": false}}}, "then": {"required": ["blocking_gap"]}},
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": true}}}, "then": {"properties": {"eligibility_clause": {"minLength": 1}, "poc_runnable": {"const": true}, "poc_substrate_permitted": {"const": true}, "known_issue_checked": {"const": true}, "known_issue_match": {"const": "none"}, "eligibility_source": {"not": {"const": "unavailable"}}}}}
+            ]
           }
         }
     - name: triage-and-report
@@ -406,13 +486,14 @@ spec:
         Assemble the report from {{tasks.quantify-impact-and-submission-readiness.output}} under one
         admission rule: a finding survives only when a named calibrated invariant broke, a runnable failing
         assertion on a permitted local substrate proves it, the negative control did not trigger, the oracle
-        was shown capable of failing, the impact maps to a clause the program published and is not already a
-        published known issue, and the submission gate passed. The full run tool surface remains available;
+        was shown capable of failing, and the technical proof passed. Eligibility and known-issue checks affect
+        novelty and submission readiness, not whether the underlying defect exists. Provider submission readiness is a separate label;
+        missing eligibility or prerequisites must not erase a technically confirmed vulnerability. The full run tool surface remains available;
         this task must not change state outside the sandbox workspace and must never contact a live or
         deployed system.
 
         Require a verified pinned fork only when the finding depends on deployed state, and label two-domain
-        harness evidence as project-test evidence without implying deployment exposure. Drop everything else,
+        harness evidence as project-test evidence without implying deployment exposure. Drop refuted and unproved claims,
         including analyses that read well but never moved a message. Prefer an empty report to a padded one:
         reporting is rationed, a rejected submission costs more than a withheld one, and these programs
         explicitly reject scanner-shaped reports without demonstrated impact. State the bounded negative

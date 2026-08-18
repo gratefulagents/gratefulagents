@@ -1,0 +1,268 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: flow-cadence-review
+spec:
+  description: Provider-specific review for Flow Cadence contracts and the mixed Cadence/EVM bridge. It models resource ownership, capabilities and entitlements, account storage, transaction authorization, cross-VM value conversion and bridge handlers, then validates candidates only in repository tests or a local Flow emulator.
+  parameters:
+    - name: project_root
+      description: Repository-relative root of the Flow project under review.
+      default: "."
+    - name: flow_cli_version
+      description: Flow CLI version required by the repository, or autodetect to resolve it from CI and project files.
+      default: "autodetect"
+    - name: cadence_version
+      description: Cadence language/runtime version required by the repository, or autodetect to resolve it from manifests and lockfiles.
+      default: "autodetect"
+    - name: emulator_command
+      description: Repository-native local emulator or test command; autodetect derives it from Makefiles, package scripts and CI.
+      default: "autodetect"
+  parallelism: 5
+  tasks:
+    - name: pin-flow-target-and-harness
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Pin the immutable revision and determine whether {{params.project_root}} is a Cadence contract package or
+        the mixed Flow EVM bridge. Resolve {{params.flow_cli_version}}, {{params.cadence_version}} and
+        {{params.emulator_command}} from the repository, recording exact bootstrap, build, test and local-emulator
+        commands. Inventory every transaction, script, contract initializer, public function, entitlement,
+        capability publication or borrow, account-storage path, resource type, vault or collection receiver,
+        bridge handler, COA call and EVM-facing adapter with file:line evidence. Map which assets can move across
+        each boundary and which identity is authoritative there: transaction authorizer, account, signer,
+        capability holder, entitlement, EVM caller or bridge administrator. For flow-core-contracts, verify the
+        repository's `make test` lane and its dependency on transaction templates. For flow-evm-bridge, verify
+        that `make test` expands to the Cadence coverage lane plus Go tests, inventory the Foundry Solidity lane,
+        and record the local `flow emulator` plus `go run main.go` deployment path. Do not report vulnerabilities.
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["revision", "target_kind", "cadence_version", "bootstrap_commands", "build_command", "test_command", "emulator_command", "surfaces", "gaps"],
+          "properties": {
+            "revision": {"type": "string", "minLength": 7},
+            "target_kind": {"type": "string", "enum": ["cadence_contracts", "mixed_cadence_evm_bridge"]},
+            "cadence_version": {"type": "string"},
+            "bootstrap_commands": {"type": "array", "items": {"type": "string"}},
+            "build_command": {"type": "string"},
+            "test_command": {"type": "string"},
+            "emulator_command": {"type": "string"},
+            "surfaces": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["name", "kind", "identity", "asset_or_invariant", "evidence"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "kind": {"type": "string"},
+                  "identity": {"type": "string"},
+                  "asset_or_invariant": {"type": "string"},
+                  "evidence": {"type": "string", "description": "file:line"}
+                }
+              }
+            },
+            "gaps": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+
+    - name: hunt-capabilities-entitlements-and-resources
+      role: vulnerability-hunter
+      category: access-control
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Use {{tasks.pin-flow-target-and-harness.output}} to audit Cadence resource and authority semantics.
+        Trace capability issue, publish, unpublish, borrow, check and revocation paths; entitlement mappings and
+        access modifiers; resource moves, destroys and optional moves; reference lifetimes; account-storage
+        save/load/borrow paths; and contract upgrade or migration boundaries. Hunt for unauthorized capability
+        claims, entitlement widening, stale references, resource duplication or loss, and confused authority
+        between account, signer and capability holder. Report every concrete reachable issue with file:line
+        evidence; do not build a PoC in this read-only lane.
+      dependsOn:
+        - pin-flow-target-and-harness
+
+    - name: hunt-transactions-auth-and-replay
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Audit every transaction prepare/execute boundary and every script or public contract entry point from
+        {{tasks.pin-flow-target-and-harness.output}}. Compare authorizer count and order, account-key and payer
+        assumptions, signer versus stored-account identity, initialization and admin paths, replay and nonce or
+        idempotency controls, pause state, and alternate entry points reaching the same mutation. Report only a
+        production-reachable authorization or state-transition bypass with a concrete attacker and impact.
+      dependsOn:
+        - pin-flow-target-and-harness
+
+    - name: hunt-storage-vaults-and-receivers
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-dimensional-analysis
+      objective: >-
+        Audit storage accounting, vault and collection receivers, deposits and withdrawals, provider/receiver
+        interfaces, metadata views, path collisions, type checks and migration code using
+        {{tasks.pin-flow-target-and-harness.output}}. Check that failed callbacks and panics cannot strand or
+        duplicate resources, storage reservations close exactly, and FT/NFT implementations cannot use a
+        standards-compliant callback sequence to corrupt bridge or escrow accounting. Report each concrete
+        invariant break with the exact call sequence and file:line path.
+      dependsOn:
+        - pin-flow-target-and-harness
+
+    - name: hunt-cross-vm-bridge-and-value-conversion
+      role: vulnerability-hunter
+      category: trust-boundary
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+        - name: trail-of-bits-dimensional-analysis
+      objective: >-
+        When the target is the Flow EVM bridge, trace assets and identity through Cadence handlers, COA calls and
+        EVM adapters end to end. Prove UFix64/uint256 decimal, rounding and truncation bounds; escrow conservation;
+        FT/NFT type and metadata binding; pause, association and admin checks; callback target restrictions; and
+        failure/rollback behavior on both sides. Exercise the asymmetric onboarding lifecycle: Cadence-to-EVM may
+        deploy its representation in the bridge transaction, while EVM-to-Cadence needs a prior transaction before
+        the new Cadence contract is usable. Verify that bridge opt-out is enforced before onboarding, that custom
+        association and pause decisions cannot be bypassed after onboarding, and that every EVM-direction action is
+        still authorized by its initiating Cadence transaction and COA. Hunt for untrusted contract calls, confused
+        cross-VM caller identity, duplicate or lost resources, and mismatched mint/burn or lock/release transitions.
+        Do not report corruption confined to an attacker-controlled non-standard token as a bridge defect unless it
+        crosses type isolation and changes a legitimate asset's accounting. If this is a
+        Cadence-only target, inspect any EVM interop surface and explicitly record that the remaining bridge lane
+        is not applicable. Report concrete findings only.
+      dependsOn:
+        - pin-flow-target-and-harness
+
+    - name: hunt-staking-epochs-fees-and-scheduling
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-dimensional-analysis
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        When the target is flow-core-contracts, trace FlowToken, storage and transaction fees, staking and
+        delegation, locked-token accounting, epoch and identity-table transitions, scheduled transactions, service
+        account authority and random-beacon history as coupled state machines. Hunt reward or fee conservation
+        failures, locked/unlocked balance confusion, duplicate node or delegator state, invalid epoch phase changes,
+        stale or unauthorized scheduled execution, heartbeat authority bypass, and transaction-template paths that
+        reach different checks from direct contract calls. Use exact contracts, transactions and tests from the
+        pinned dossier and report a concrete attacker sequence. For the EVM bridge target, mark this lane not
+        applicable rather than emitting generic staking findings.
+      dependsOn:
+        - pin-flow-target-and-harness
+
+    - name: validate-candidates-in-harness
+      role: exploit-validator
+      category: validation
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-harness-writing
+        - name: exploit-poc-discipline
+      objective: >-
+        Validate the candidate findings recorded by the four discovery lanes. Do not originate new vulnerabilities. Bootstrap
+        exactly the pinned repository toolchain, run its baseline tests, and construct the smallest Cadence test,
+        Flow emulator transaction sequence, or mixed Cadence/EVM repository test that proves or disproves each
+        candidate. Never contact Flow mainnet, a public testnet, a deployed bridge, or any third-party system.
+        A confirmed verdict requires the exact command, repository-relative test path, failing assertion or
+        observed resource/balance delta, a negative control, and evidence that the oracle can fail. Update the
+        structured finding for every candidate and return one result per fingerprint.
+      dependsOn:
+        - pin-flow-target-and-harness
+        - hunt-capabilities-entitlements-and-resources
+        - hunt-transactions-auth-and-replay
+        - hunt-storage-vaults-and-receivers
+        - hunt-cross-vm-bridge-and-value-conversion
+        - hunt-staking-epochs-fees-and-scheduling
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fingerprint", "verdict"],
+            "properties": {
+              "fingerprint": {"type": "string", "minLength": 1},
+              "verdict": {"type": "string", "enum": ["confirmed", "refuted", "untested"]},
+              "blocking_gap": {"type": "string", "minLength": 1},
+              "reproduction": {
+                "type": "object",
+                "required": ["command", "test_path", "observed_result", "negative_control_passed", "oracle_can_fail"],
+                "properties": {
+                  "command": {"type": "string", "minLength": 1},
+                  "test_path": {"type": "string", "minLength": 1},
+                  "observed_result": {"type": "string", "minLength": 1},
+                  "negative_control_passed": {"const": true},
+                  "oracle_can_fail": {"const": true}
+                }
+              }
+            },
+            "allOf": [
+              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "confirmed"}}}, "then": {"required": ["reproduction"]}},
+              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "untested"}}}, "then": {"required": ["blocking_gap"]}}
+            ]
+          }
+        }
+
+    - name: quantify-impact-and-submission-readiness
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+      objective: >-
+        Process only confirmed results from {{tasks.validate-candidates-in-harness.output}}. Keep technical validity
+        separate from provider submission readiness. When typed in-scope impacts exist, copy the matching clause
+        verbatim; otherwise copy the governing Flow program's published vulnerability or asset rule verbatim from
+        scopePolicy and mark the source scope_policy. Apply pocRequired, pocEnvironment, knownIssues and
+        prohibitedTesting exactly as typed. A knownIssues match, missing eligibility clause, provider prerequisite,
+        or missing runnable PoC when pocRequired is true makes submission_ready false but must not discard a
+        technically confirmed finding. Mark a finding submission-ready only when every applicable provider rule
+        is satisfied, the reproduction is runnable, and its local substrate is permitted.
+      dependsOn:
+        - validate-candidates-in-harness
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fingerprint", "eligibility_clause", "eligibility_source", "poc_runnable", "poc_substrate_permitted", "known_issue_match", "technical_status", "submission_ready"],
+            "properties": {
+              "fingerprint": {"type": "string"},
+              "eligibility_clause": {"type": "string"},
+              "eligibility_source": {"type": "string", "enum": ["typed_impact", "scope_policy", "unavailable"]},
+              "poc_runnable": {"type": "boolean"},
+              "poc_substrate_permitted": {"type": "boolean"},
+              "known_issue_match": {"type": "string", "minLength": 1, "description": "The verbatim knownIssues entry sharing this root cause, or exactly none"},
+              "technical_status": {"const": "confirmed"},
+              "submission_ready": {"type": "boolean"},
+              "blocking_gap": {"type": "string", "minLength": 1}
+            },
+            "allOf": [
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": false}}}, "then": {"required": ["blocking_gap"]}},
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": true}}}, "then": {"properties": {"eligibility_clause": {"minLength": 1}, "poc_runnable": {"const": true}, "poc_substrate_permitted": {"const": true}, "known_issue_match": {"const": "none"}, "eligibility_source": {"not": {"const": "unavailable"}}}}}
+            ]
+          }
+        }
+
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: trail-of-bits-fp-check
+      objective: >-
+        Assemble the final report from {{tasks.quantify-impact-and-submission-readiness.output}} and the structured
+        findings. Include every technically confirmed vulnerability even when provider submission readiness is
+        blocked; label that blocker instead of suppressing the discovery. Drop refuted claims. Record the result as
+        not found under those bounds when nothing is confirmed, naming the revision, Cadence version, emulator lane and any
+        blocked coverage. Submit the final scan report exactly once.
+      dependsOn:
+        - quantify-impact-and-submission-readiness

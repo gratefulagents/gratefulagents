@@ -22,7 +22,7 @@ spec:
       featured: true
     - repositoryURL: https://github.com/onflow/flow-evm-bridge
       baseBranch: main
-      workflowRef: smart-contract-review
+      workflowRef: flow-cadence-review
       policyPackRef: bug-bounty
       scanName: flow-evm-bridge
       displayName: Flow EVM Bridge contracts and handlers
@@ -30,7 +30,7 @@ spec:
       featured: true
     - repositoryURL: https://github.com/onflow/flow-core-contracts
       baseBranch: master
-      workflowRef: smart-contract-review
+      workflowRef: flow-cadence-review
       policyPackRef: bug-bounty
       scanName: flow-core-contracts
       displayName: Flow core contracts

@@ -3,7 +3,7 @@ kind: SecurityWorkflow
 metadata:
   name: near-contract-review
 spec:
-  description: Protocol-specific bounty hunt for NEAR smart contracts written in Rust and compiled to wasm (near/core-contracts, near-daos/sputnik-dao-contract, near/intents). The Rust toolchain and sandbox harness each repository actually ships is bootstrapped and recorded first, the hunt is aimed at asynchronous promise and callback safety, predecessor-versus-signer authorization, storage staking and deposit accounting, NEP-141 and NEP-171 receiver flows, prepaid-gas splits, and migration and upgrade paths, and the report is gated on a proof of concept that runs as a Rust test in the repository's own harness under the governing program's submission rules.
+  description: Protocol-specific bounty hunt for NEAR smart contracts written in Rust and compiled to wasm (near/core-contracts, near-daos/sputnik-dao-contract, near/intents). Independent specialists hunt promise and callback safety, identity and access keys, storage and deposit accounting, receiver flows, and migrations before a separate validator builds repository-native Rust reproductions. Technical validity is retained independently from novelty and provider submission rules.
   parameters:
     - name: project_root
       description: Repository-relative root of the NEAR contract project under test. core-contracts ships no root Cargo workspace, so this is often a single contract crate rather than a workspace root.
@@ -23,7 +23,7 @@ spec:
     - name: mainnet_import_endpoint_alias
       description: Operator-authorized endpoint alias that must be configured before any test path may import mainnet account state, as sputnikdao2/tests/utils/mod.rs does with sandbox.import_account(RPCEndpoint::mainnet().url, "sputnik-dao.near"). Supply an alias, never a raw credential-bearing URL. While unconfigured, no test path may reach that host.
       default: "unconfigured"
-  parallelism: 3
+  parallelism: 4
   tasks:
     - name: pin-target-and-toolchain
       role: threat-modeler
@@ -223,7 +223,66 @@ spec:
             "limitations": {"type": "array", "items": {"type": "string"}}
           }
         }
-    - name: build-harness-and-hunt
+    - name: hunt-identity-keys-and-access-control
+      role: vulnerability-hunter
+      category: access-control
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-rust-review
+      objective: >-
+        Hunt signer_account_id versus predecessor_account_id confusion, full-access and function-call key
+        assumptions, DAO roles, initialization and migration authorization, callback privacy and alternate entry
+        points using {{tasks.map-contract-invariants.output}}. Report concrete least-privileged attack paths with
+        file:line evidence; leave execution to validation.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-contract-invariants
+
+    - name: hunt-promises-callbacks-and-rollback
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-rust-review
+      objective: >-
+        Trace every Promise chain, callback result, gas allocation and failure branch. Hunt state committed before
+        an external promise, missing private-callback checks, double settlement, retry/replay, partial failure and
+        callback result decoding bugs. Compare synchronous assumptions with NEAR's asynchronous execution model and
+        report each reachable invariant violation.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-contract-invariants
+
+    - name: hunt-storage-deposits-and-accounting
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-dimensional-analysis
+      objective: >-
+        Hunt attached-deposit accounting, storage staking/refunds, yoctoNEAR guards, integer and decimal conversion,
+        token/share accounting and gas-locking paths. Check that every success, failure, unregister and cleanup path
+        closes balances exactly and cannot strand another user's storage stake or funds.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-contract-invariants
+
+    - name: hunt-token-receivers-migrations-and-intents
+      role: vulnerability-hunter
+      category: trust-boundary
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Hunt NEP-141/171 receiver callbacks, resolve-transfer behavior, refund amounts, serialization and state
+        migration, intent signature/domain/nonce binding, DAO proposal execution and cross-contract return-value
+        assumptions. Select the lanes that match the exact repository profile and report provider-specific paths,
+        not generic Rust findings.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-contract-invariants
+
+    - name: validate-candidates-in-harness
       role: exploit-validator
       category: other
       skillRefs:
@@ -233,8 +292,8 @@ spec:
         - name: trail-of-bits-rust-review
         - name: exploit-poc-discipline
       objective: >-
-        In one write-capable run, bootstrap the sandbox, build the oracle, calibrate it, hunt against it and
-        reproduce or kill each hypothesis, so temporary harness files are never lost at a handoff. The full
+        In one write-capable run, bootstrap the sandbox, build and calibrate the oracle, then reproduce or kill
+        candidate findings recorded by the four discovery lanes. Do not originate new vulnerabilities. The full
         run tool surface remains available and is intentional here: this is the only task that builds and
         executes code. All execution is local. Never change state on any live, public or third-party
         system, never send a mutating request to a deployed contract, never send a transaction to NEAR
@@ -269,7 +328,7 @@ spec:
         its own violation. Remove every mutant before finishing. A green harness never means the target is
         safe; it means only not found under the recorded bounds.
 
-        Then hunt, aimed at this protocol class in payout order: promise and callback safety first,
+        Validate in payout order: promise and callback safety first,
         including non-private callbacks, unhandled PromiseResult::Failed and double-crediting refunds; then
         predecessor-versus-signer authorization and the one-yoctoNEAR assertion on privileged and role or
         policy methods; then storage-staking and deposit accounting plus unbounded collections that push a
@@ -286,6 +345,10 @@ spec:
       dependsOn:
         - pin-target-and-toolchain
         - map-contract-invariants
+        - hunt-identity-keys-and-access-control
+        - hunt-promises-callbacks-and-rollback
+        - hunt-storage-deposits-and-accounting
+        - hunt-token-receivers-migrations-and-intents
       outputSchema: |-
         {
           "type": "object",
@@ -340,7 +403,11 @@ spec:
                       "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]}
                     }
                   }
-                }
+                },
+                "allOf": [
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "broken"}}}, "then": {"required": ["fingerprint", "reproduction"]}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "untested"}}}, "then": {"required": ["missing_dependency"]}}
+                ]
               }
             },
             "limitations": {"type": "array", "items": {"type": "string"}}
@@ -355,7 +422,7 @@ spec:
         - name: exploit-poc-discipline
       objective: >-
         Price and qualify only hypotheses with verdict broken and a valid reproduction in
-        {{tasks.build-harness-and-hunt.output}}. The full run tool surface remains available; this task
+        {{tasks.validate-candidates-in-harness.output}}. The full run tool surface remains available; this task
         must not change state outside the sandbox workspace and must never contact the program, the
         protocol, NEAR mainnet, a public testnet, or any deployed system.
 
@@ -363,8 +430,9 @@ spec:
         prohibitedTesting, knownIssues and impacts — and that typed scope is authoritative over anything
         assumed here. Obey pocEnvironment as the hard substrate constraint: it decides which substrate a
         proof of concept may run on, and no reading of it ever permits a transaction against NEAR mainnet
-        or a public testnet. Drop any candidate that matches a knownIssues entry or a prohibitedTesting
-        clause instead of repackaging it.
+        or a public testnet. A knownIssues match blocks provider submission but does not erase a technically
+        confirmed defect. Never violate prohibitedTesting; if existing evidence did, block submission and require
+        a fresh safe reproduction rather than repackaging it.
 
         Measure value at risk on the substrate that actually settled the claim: locked or drainable NEAR
         and token balances, stranded storage stake, or permanently gas-locked state, each expressed at the
@@ -372,12 +440,11 @@ spec:
         whenever the reproduction ran only against the repository's own harness. Record the capital the
         attacker fronts, the capital they risk, and the privileges, access-key type and timing they need —
         a full-access key, a function-call key, a DAO role, or none. Map each candidate onto the program's
-        own published in-scope impact list, copying the clause verbatim, and give the maximum achievable
-        impact reachable from the same root cause rather than the first one demonstrated; never translate a
-        severity label from another program's system.
+        eligibility rules. Copy a typed impact verbatim when present; otherwise copy the matching vulnerability or
+        asset rule verbatim from scopePolicy and mark the source. Never invent a clause or translate severity.
 
         Then apply the submission gate these programs publish, and mark a candidate submission-ready only
-        when all of it holds: a runnable coded proof of concept exists whenever pocRequired is set, because
+        when all of it holds: a runnable coded proof of concept exists whenever pocRequired is true, because
         an explanation is not a proof of concept; the proof of concept ran only on a substrate
         pocEnvironment permits and never against deployed code, which every governing program enforces with
         a permanent ban; it does not test third-party contracts or run denial of service or
@@ -386,18 +453,19 @@ spec:
         is a single issue, written in English, with no raw scanner or model output pasted in; and it states
         the revision, toolchain and harness it was produced at. Record the fix suggestion when the program
         requires one. Anything failing the gate is reported as not submission-ready with the exact missing
-        element.
+        element, while retaining the technically confirmed finding in the internal report.
       dependsOn:
-        - build-harness-and-hunt
+        - validate-candidates-in-harness
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["fingerprint", "impact_clause", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "submission_ready"],
+            "required": ["fingerprint", "eligibility_clause", "eligibility_source", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "known_issue_match", "technical_status", "submission_ready"],
             "properties": {
               "fingerprint": {"type": "string"},
-              "impact_clause": {"type": "string", "description": "Copied verbatim from the program's in-scope impact list"},
+              "eligibility_clause": {"type": "string"},
+              "eligibility_source": {"type": "string", "enum": ["typed_impact", "scope_policy", "unavailable"]},
               "program_severity": {"type": "string"},
               "max_achievable_impact": {"type": "string"},
               "funds_at_risk": {"type": "string", "description": "Measured value plus the revision it was measured at, or why no measurement is possible"},
@@ -407,11 +475,16 @@ spec:
               "poc_runnable": {"type": "boolean", "description": "A coded Rust test the program can execute unchanged in its own harness"},
               "poc_command": {"type": "string"},
               "poc_substrate_permitted": {"type": "boolean", "description": "false unless execution stayed on a substrate the program's pocEnvironment permits"},
-              "known_issue_match": {"type": "string", "description": "The knownIssues or prohibitedTesting clause this candidate collides with, or none"},
+              "known_issue_match": {"type": "string", "minLength": 1, "description": "The verbatim knownIssues clause sharing this root cause, or exactly none"},
               "fix_suggestion": {"type": "string"},
+              "technical_status": {"const": "confirmed"},
               "submission_ready": {"type": "boolean"},
               "blocking_gap": {"type": "string", "description": "Required when submission_ready is false"}
-            }
+            },
+            "allOf": [
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": false}}}, "then": {"required": ["blocking_gap"]}},
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": true}}}, "then": {"properties": {"eligibility_clause": {"minLength": 1}, "poc_runnable": {"const": true}, "poc_substrate_permitted": {"const": true}, "known_issue_match": {"const": "none"}, "eligibility_source": {"not": {"const": "unavailable"}}}}}
+            ]
           }
         }
     - name: triage-and-report
@@ -425,13 +498,14 @@ spec:
         Assemble the report from {{tasks.quantify-impact-and-submission-readiness.output}} under one
         admission rule: a finding survives only when a named calibrated invariant broke, a runnable failing
         Rust assertion on a permitted local substrate proves it, the negative control did not trigger, the
-        oracle was shown capable of failing, the impact maps to a clause the program published, and the
-        submission gate passed. The full run tool surface remains available; this task must not change
+        oracle was shown capable of failing, and the technical proof passed. Eligibility affects submission
+        readiness, not whether the underlying defect exists. Provider submission readiness is a separate label: a missing eligibility clause or
+        prerequisite blocks submission but must not erase a technically confirmed vulnerability. The full run tool surface remains available; this task must not change
         state outside the sandbox workspace and must never contact NEAR mainnet, a public testnet, or any
         deployed system.
 
         Label near-sdk-sim and sandbox evidence for what it is — a result about the repository's code at a
-        revision — without implying deployed exposure that was never verified. Drop everything else,
+        revision — without implying deployed exposure that was never verified. Drop refuted and unproved claims,
         including analyses that read well but never broke anything. Prefer an empty report to a padded one:
         reporting is rationed, a rejected submission costs more than a withheld one, and these programs
         explicitly reject scanner-shaped reports without demonstrated impact. State the bounded negative

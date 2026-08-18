@@ -3,7 +3,7 @@ kind: SecurityWorkflow
 metadata:
   name: solana-defi-program-review
 spec:
-  description: Harness-first bounty hunt for Solana DeFi programs (Kamino klend, 1inch Solana cross-chain-swap and Fusion). The Rust, Anchor and SBF toolchain the scan image does not ship is bootstrapped and recorded first, the hunt is aimed at account validation, PDA derivation, share and index accounting, liquidation and oracle paths, CPI privilege propagation and escrow timelocks, and the report is gated on a proof of concept added to the repository's own LiteSVM or program-test harness under the governing program's submission rules.
+  description: Harness-first bounty hunt for Solana DeFi programs (Kamino klend, 1inch Solana cross-chain-swap and Fusion). Independent specialists hunt account and PDA validation, CPI privilege propagation, accounting and oracle paths, and escrow state machines before a separate validator uses the repository's own LiteSVM, program-test or Anchor harness. Technical validity is retained independently from novelty and provider submission rules.
   parameters:
     - name: project_root
       description: Repository-relative root of the Solana program workspace under test. klend declares a Cargo workspace with members = ["programs/*"] at the repository root and a SECOND nested workspace at libs/klend-interface.
@@ -26,7 +26,10 @@ spec:
     - name: cluster_endpoint_alias
       description: Operator-authorized read-only cluster endpoint alias used only for reading published account data. Supply an alias, never a raw or credential-bearing URL, and never mainnet-beta or a public cluster as an execution substrate.
       default: "unconfigured"
-  parallelism: 3
+    - name: release_tag
+      description: Published release tag the governing program judges, or unconfigured when the program has no release-only rule.
+      default: "unconfigured"
+  parallelism: 4
   tasks:
     - name: pin-program-target-and-toolchain
       role: threat-modeler
@@ -61,7 +64,9 @@ spec:
         discriminators, hardcoded account sizes, a mock price account, and manual Clock sysvar advancement
         — and name the setup module that is the reference pattern for new tests. Record the Anchor.toml
         localnet lane and its ts-mocha script, and whether it declares any [test.validator] clone entries.
-        Record every declared program id, resolving {{params.program_id_manifest}}.
+        Record every declared program id, resolving {{params.program_id_manifest}}. When
+        {{params.release_tag}} is configured, verify that HEAD resolves to that tag and record any mismatch as a
+        release-eligibility blocker without changing the checkout.
 
         The scan image ships no rust toolchain at all: rustup reports no installed toolchain, and there is
         no solana or anchor CLI. Treat toolchain bootstrap plus the SBF platform-tools download as an
@@ -76,9 +81,10 @@ spec:
       outputSchema: |-
         {
           "type": "object",
-          "required": ["revision", "workspaces", "toolchain_pins", "toolchain_bootstrap", "build_command", "test_command", "harness", "state_provenance", "cluster_readiness", "components", "gaps"],
+          "required": ["revision", "release_constraint", "workspaces", "toolchain_pins", "toolchain_bootstrap", "build_command", "test_command", "harness", "state_provenance", "cluster_readiness", "components", "gaps"],
           "properties": {
             "revision": {"type": "string"},
+            "release_constraint": {"type": "string", "enum": ["not_configured", "matched", "mismatch"]},
             "workspaces": {
               "type": "array",
               "items": {
@@ -208,7 +214,65 @@ spec:
             "limitations": {"type": "array", "items": {"type": "string"}}
           }
         }
-    - name: build-harness-and-hunt
+    - name: hunt-account-validation-and-pdas
+      role: vulnerability-hunter
+      category: access-control
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-solana-vulnerability-scanner
+      objective: >-
+        Hunt missing owner, executable, discriminator, mint, authority and relationship checks plus PDA seed/bump
+        confusion and account substitution using {{tasks.map-program-invariants.output}}. Compare every instruction
+        variant and remaining-account path. Report concrete candidates with exact account metas and file:line evidence.
+      dependsOn:
+        - pin-program-target-and-toolchain
+        - map-program-invariants
+
+    - name: hunt-cpi-signers-and-privilege
+      role: vulnerability-hunter
+      category: trust-boundary
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-solana-vulnerability-scanner
+      objective: >-
+        Trace every CPI target, program-id check, signer seed, writable privilege and authority transition. Hunt
+        arbitrary CPI, signer propagation, confused deputy, duplicate mutable accounts, account-close and token
+        program substitution paths. Report provider-specific reachable issues, not generic Anchor lint output.
+      dependsOn:
+        - pin-program-target-and-toolchain
+        - map-program-invariants
+
+    - name: hunt-math-oracles-and-liquidation
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-dimensional-analysis
+      objective: >-
+        Hunt share/index accounting, decimal scaling, stale/confidence oracle handling, interest accrual, borrow and
+        repay rounding, liquidation eligibility/bonus, bad debt, reserve caps and fee accounting. Exercise the exact
+        fixed-point and slot/Clock assumptions documented by {{tasks.map-program-invariants.output}} and report each
+        concrete invariant break.
+      dependsOn:
+        - pin-program-target-and-toolchain
+        - map-program-invariants
+
+    - name: hunt-escrow-timelocks-and-state-machines
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-rust-review
+      objective: >-
+        For 1inch targets, hunt escrow PDA uniqueness, secret/hash binding, source/destination amount agreement,
+        timelock and cancellation ordering, partial fills and replay. For Kamino, focus this lane on obligation and
+        reserve state-machine transitions, flash-loan completion and emergency modes. Explicitly select the target
+        variant and report concrete paths only.
+      dependsOn:
+        - pin-program-target-and-toolchain
+        - map-program-invariants
+
+    - name: validate-candidates-in-harness
       role: exploit-validator
       category: other
       skillRefs:
@@ -218,9 +282,9 @@ spec:
         - name: trail-of-bits-rust-review
         - name: exploit-poc-discipline
       objective: >-
-        In one write-capable run, bootstrap the toolchain, build the program artifact, build the oracle,
-        calibrate it, hunt against it and reproduce or kill each hypothesis, so a temporary harness is
-        never lost at a handoff. The full run tool surface remains available and is intentional here: this
+        In one write-capable run, bootstrap the toolchain, build the program artifact, build and calibrate the
+        oracle, then reproduce or kill candidate findings recorded by the four discovery lanes. Do not originate
+        new vulnerabilities. The full run tool surface remains available and is intentional here: this
         is the only task that builds and executes code. All execution is local. Never change state on any
         live, public or third-party system, never send a mutating request to a deployed program, never test
         against mainnet-beta or any public cluster, and never point a test at a third-party oracle or
@@ -259,7 +323,7 @@ spec:
         access through operator-authorized alias {{params.cluster_endpoint_alias}} may be used to check
         published account data only when the alias is configured; it is never an execution substrate.
 
-        Then hunt in payout order: account validation and account-type or aliasing confusion first, then
+        Validate in payout order: account validation and account-type or aliasing confusion first, then
         PDA seed and canonical-bump derivation, then share, index, decimals and rounding accounting, then
         liquidation health, bonus and dust paths, then oracle staleness, confidence and publish slot, then
         CPI privilege propagation and Token-2022 extensions, transfer hooks and fee-on-transfer mints, then
@@ -273,6 +337,10 @@ spec:
       dependsOn:
         - pin-program-target-and-toolchain
         - map-program-invariants
+        - hunt-account-validation-and-pdas
+        - hunt-cpi-signers-and-privilege
+        - hunt-math-oracles-and-liquidation
+        - hunt-escrow-timelocks-and-state-machines
       outputSchema: |-
         {
           "type": "object",
@@ -327,7 +395,11 @@ spec:
                       "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]}
                     }
                   }
-                }
+                },
+                "allOf": [
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "broken"}}}, "then": {"required": ["fingerprint", "reproduction"]}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "untested"}}}, "then": {"required": ["missing_dependency"]}}
+                ]
               }
             },
             "limitations": {"type": "array", "items": {"type": "string"}}
@@ -342,7 +414,7 @@ spec:
         - name: exploit-poc-discipline
       objective: >-
         Price and qualify only hypotheses with verdict broken and a valid reproduction in
-        {{tasks.build-harness-and-hunt.output}}. The full run tool surface remains available; this task must
+        {{tasks.validate-candidates-in-harness.output}}. The full run tool surface remains available; this task must
         not change state outside the sandbox workspace and must never contact the program, the protocol, or
         any deployed system.
 
@@ -353,50 +425,60 @@ spec:
         the attacker fronts, the capital they risk, the accounts, signatures, slots and compute budget they
         need, and whether the path needs a specific market, reserve, obligation or order to exist.
 
-        Map each candidate onto the governing program's own published in-scope impact list, copying the
-        clause verbatim from the typed scope the run prompt already carries, and give the maximum
-        achievable impact reachable from the same root cause rather than the first one demonstrated; never
-        translate a severity label from another program's system, and drop anything the typed knownIssues
-        list already covers.
+        Map each candidate onto the governing program's eligibility rules. Copy a typed impact verbatim when
+        present; otherwise copy the matching vulnerability or asset rule verbatim from scopePolicy and mark its
+        source. Never invent a clause or translate severity. Preserve a technically confirmed knownIssues match,
+        but mark it provider-ineligible and record the matching clause verbatim rather than presenting it as novel.
+        A release_constraint mismatch likewise blocks submission without erasing the defect found at that revision.
 
         Then apply the submission gate. Mark a candidate submission-ready only when all of it holds: a
         runnable coded proof of concept exists whenever pocRequired is set, because an explanation is not a
-        proof of concept; the proof of concept ran only on the substrate pocEnvironment permits — a local
-        harness or local validator — and never against a deployed program, mainnet-beta or any public
-        cluster, which is the rule these programs enforce with a permanent ban; it violates nothing in
+        proof of concept; the proof ran only on the exact substrate pocEnvironment permits. A LiteSVM,
+        program-test, Anchor or hand-synthesized local-validator harness satisfies project-test-suite or
+        local-devnet, but it does not satisfy mainnet-fork. In particular, Kamino's typed mainnet-fork rule means
+        this workflow's hand-synthesized reproduction remains technically useful but not submission-ready unless a
+        separate compliant local-fork reproduction is supplied. Never relabel fixture state as a fork. No proof may
+        run against a deployed program, mainnet-beta or any public cluster; it violates nothing in
         prohibitedTesting, and runs no denial-of-service, traffic-generating or third-party-dependency test;
         it is delivered as a test in the repository's own harness, ideally as a diff the program can apply
         and run unchanged, with the exact command; it is a single issue, written in English, with no raw
         scanner or model output pasted in; it states the revision, the toolchain and the harness it was
         produced on; and it states that the state was hand-synthesized rather than cloned. Record the fix
         suggestion when the program requires one. Anything failing the gate is reported as not
-        submission-ready with the exact missing element.
+        submission-ready with the exact missing element, while retaining the technically confirmed finding.
       dependsOn:
-        - build-harness-and-hunt
+        - validate-candidates-in-harness
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["fingerprint", "impact_clause", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "submission_ready"],
+            "required": ["fingerprint", "eligibility_clause", "eligibility_source", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "known_issue_overlap", "release_constraint_satisfied", "technical_status", "submission_ready"],
             "properties": {
               "fingerprint": {"type": "string"},
-              "impact_clause": {"type": "string", "description": "Copied verbatim from the typed in-scope impact list the run prompt carries"},
+              "eligibility_clause": {"type": "string"},
+              "eligibility_source": {"type": "string", "enum": ["typed_impact", "scope_policy", "unavailable"]},
               "program_severity": {"type": "string"},
               "max_achievable_impact": {"type": "string"},
               "funds_at_risk": {"type": "string", "description": "Value expressed against published market parameters and labelled unverified, or why no measurement is possible"},
               "attacker_capital": {"type": "string"},
               "preconditions": {"type": "string", "description": "Accounts, signatures, slots, compute budget and market or order state the path requires"},
-              "known_issue_overlap": {"type": "string", "description": "The knownIssues entry that covers this candidate, or none"},
+              "known_issue_overlap": {"type": "string", "minLength": 1, "description": "The verbatim knownIssues entry sharing this root cause, or exactly none"},
+              "release_constraint_satisfied": {"type": "boolean", "description": "true when no release tag is required or the reproduction exactly matches the provider-mandated tag"},
               "poc_runnable": {"type": "boolean", "description": "A coded proof of concept the program can execute unchanged in its own harness"},
               "poc_command": {"type": "string"},
               "poc_test_path": {"type": "string"},
               "poc_substrate_permitted": {"type": "boolean", "description": "false unless execution stayed within pocEnvironment on a local harness or local validator"},
               "state_provenance": {"type": "string", "description": "hand_synthesized, and what that forbids claiming about deployed configuration"},
               "fix_suggestion": {"type": "string"},
+              "technical_status": {"const": "confirmed"},
               "submission_ready": {"type": "boolean"},
               "blocking_gap": {"type": "string", "description": "Required when submission_ready is false"}
-            }
+            },
+            "allOf": [
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": false}}}, "then": {"required": ["blocking_gap"]}},
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": true}}}, "then": {"properties": {"eligibility_clause": {"minLength": 1}, "poc_runnable": {"const": true}, "poc_substrate_permitted": {"const": true}, "known_issue_overlap": {"const": "none"}, "release_constraint_satisfied": {"const": true}, "eligibility_source": {"not": {"const": "unavailable"}}}}}
+            ]
           }
         }
     - name: triage-and-report
@@ -410,12 +492,13 @@ spec:
         Assemble the report from {{tasks.quantify-impact-and-submission-readiness.output}} under one
         admission rule: a finding survives only when a named calibrated invariant broke, a runnable failing
         assertion in the repository's own harness proves it, the negative control did not trigger, the
-        oracle was shown capable of failing, the impact maps to a clause the governing program published,
-        and the submission gate passed. The full run tool surface remains available; this task must not
+        oracle was shown capable of failing, and the technical proof passed. Eligibility affects submission
+        readiness, not whether the underlying defect exists. Provider submission readiness is a separate label: missing eligibility or
+        prerequisites block submission but must not erase a technically confirmed finding. The full run tool surface remains available; this task must not
         change state outside the sandbox workspace and must never contact a cluster.
 
         Label every reproduction with the substrate and the hand-synthesized provenance of its state, and
-        never let a harness result imply verified deployed exposure. Drop everything else, including
+        never let a harness result imply verified deployed exposure. Drop refuted and unproved claims, including
         analyses that read well but never broke anything. Prefer an empty report to a padded one:
         reporting is rationed, a rejected submission costs more than a withheld one, and these programs
         explicitly reject scanner-shaped reports without demonstrated impact. State the bounded negative

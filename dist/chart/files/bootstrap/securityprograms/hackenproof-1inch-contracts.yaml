@@ -5,7 +5,7 @@ metadata:
 spec:
   scanTargets:
     - repositoryURL: https://github.com/1inch/limit-order-protocol
-      baseBranch: master
+      baseBranch: 4.3.2
       workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: 1inch-limit-order-protocol
@@ -15,8 +15,9 @@ spec:
       parameterValues:
         chain_id: "1"
         project_root: .
+        release_tag: 4.3.2
     - repositoryURL: https://github.com/1inch/fusion-protocol
-      baseBranch: master
+      baseBranch: 3.1.1
       workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: 1inch-fusion-protocol
@@ -26,8 +27,9 @@ spec:
       parameterValues:
         chain_id: "1"
         project_root: .
+        release_tag: 3.1.1
     - repositoryURL: https://github.com/1inch/cross-chain-swap
-      baseBranch: master
+      baseBranch: 1.1.0
       workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: 1inch-cross-chain-swap
@@ -37,8 +39,9 @@ spec:
       parameterValues:
         chain_id: "1"
         project_root: .
+        release_tag: 1.1.0
     - repositoryURL: https://github.com/1inch/token-plugins
-      baseBranch: master
+      baseBranch: 2.0.0
       workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: 1inch-token-plugins
@@ -48,8 +51,9 @@ spec:
       parameterValues:
         chain_id: "1"
         project_root: .
+        release_tag: 2.0.0
     - repositoryURL: https://github.com/1inch/farming
-      baseBranch: master
+      baseBranch: 4.0.0
       workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: 1inch-farming
@@ -59,8 +63,9 @@ spec:
       parameterValues:
         chain_id: "1"
         project_root: .
+        release_tag: 4.0.0
     - repositoryURL: https://github.com/1inch/delegating
-      baseBranch: master
+      baseBranch: 2.0.0
       workflowRef: evm-orderbook-settlement-review
       policyPackRef: bug-bounty
       scanName: 1inch-delegating
@@ -70,22 +75,27 @@ spec:
       parameterValues:
         chain_id: "1"
         project_root: .
+        release_tag: 2.0.0
     - repositoryURL: https://github.com/1inch/solana-crosschain-protocol
-      baseBranch: master
+      baseBranch: 1.1.0
       workflowRef: solana-defi-program-review
       policyPackRef: bug-bounty
       scanName: 1inch-solana-crosschain-protocol
       displayName: 1inch Solana Cross-Chain Protocol
       priority: 39
       featured: false
+      parameterValues:
+        release_tag: 1.1.0
     - repositoryURL: https://github.com/1inch/solana-fusion
-      baseBranch: main
+      baseBranch: 1.0.0-release
       workflowRef: solana-defi-program-review
       policyPackRef: bug-bounty
       scanName: 1inch-solana-fusion
       displayName: 1inch Solana Fusion
       priority: 40
       featured: false
+      parameterValues:
+        release_tag: 1.0.0-release
   provider: HackenProof
   displayName: 1inch Smart Contract
   programURL: https://hackenproof.com/programs/1inch-smart-contract
@@ -134,7 +144,7 @@ spec:
     - https://github.com/1inch/solana-crosschain-protocol (Smart Contract, Critical)
     - https://github.com/1inch/solana-fusion (Smart Contract, Critical)
 
-    All eight in-scope repositories are imported. Repository default branches were verified as master for limit-order-protocol, fusion-protocol, token-plugins, farming, delegating, cross-chain-swap, and solana-crosschain-protocol, and main for solana-fusion. The program rule "The program applies only to the latest tag/release" means a finding must be reproduced against the latest published release of the affected repository rather than against arbitrary default-branch work in progress.
+    All eight in-scope repositories are imported at the latest published production tag verified on 2026-08-18: limit-order-protocol 4.3.2 (67c56ae), fusion-protocol 3.1.1 (c45a481), cross-chain-swap 1.1.0 (15686f0), token-plugins/token-hooks 2.0.0 (d46dbd9), farming 4.0.0 (c10ef53), delegating/delegation-contracts 2.0.0 (6382454), solana-crosschain-protocol 1.1.0 (b2124f6), and solana-fusion/solana-fusion-protocol 1.0.0-release (84ecfdd). The program rule "The program applies only to the latest tag/release" means a finding must be reproduced against the latest published release of the affected repository rather than against arbitrary default-branch work in progress. Every run still records the resolved full commit SHA because tags can be moved upstream after this snapshot is published.
 
     In-scope vulnerabilities
     The following vulnerabilities are considered in-scope: Reentrancy; Reordering; Overflows and underflows; Stealing or loss of funds; Unauthorized transaction; Transaction manipulation; Attacks on logic (behavior of the code is different from the business description). All in-scope vulnerability reports must include a Proof of Concept (PoC) that demonstrates real-world impact. Submissions without a PoC will not be considered.

@@ -3,7 +3,7 @@ kind: SecurityWorkflow
 metadata:
   name: evm-lending-cdp-review
 spec:
-  description: Protocol-specific bounty hunt for EVM lending, CDP, staking and treasury-controller protocols (Aave v3, Lido, Sky/dss, Spark ALM, Olympus). The toolchain each repository actually ships is bootstrapped and recorded first, the hunt is aimed at collateral solvency, index and share-price accounting, liquidation and rate paths, and the report is gated on a runnable local-fork proof of concept that satisfies the governing program's submission rules.
+  description: Protocol-specific bounty hunt for EVM lending, CDP, staking and treasury-controller protocols (Aave v3, Lido, Sky/dss, Spark ALM, Olympus). Independent specialists hunt collateral solvency, index and share-price accounting, liquidation and rate paths before a separate validator builds repository-native reproductions. Technical validity is retained independently from the governing provider's submission rules.
   parameters:
     - name: project_root
       description: Repository-relative root of the Solidity project under test.
@@ -11,6 +11,9 @@ spec:
     - name: build_toolchain
       description: Toolchain the repository builds with. foundry for aave-v3-origin and spark-alm-controller, foundry-soldeer for olympus-v3, hardhat-foundry for lido core, dapptools for sky dss, or autodetect to derive it from the repository.
       default: "autodetect"
+    - name: release_tag
+      description: Provider-mandated source tag, such as DeltaPrime v1.1.0, or unconfigured when the program follows a branch.
+      default: "unconfigured"
     - name: fork_endpoint_alias
       description: Operator-authorized archive endpoint alias used for fork tests. Supply an alias, never a raw credential-bearing URL.
       default: "unconfigured"
@@ -26,7 +29,7 @@ spec:
     - name: address_manifest
       description: Path, relative to project_root, of the in-repo address book that pins deployed contracts (lido deployed-mainnet.json, olympus src/proposals/addresses.json, spark script/input/1/*.json). aave-v3-origin and sky dss ship none.
       default: "unconfigured"
-  parallelism: 3
+  parallelism: 4
   tasks:
     - name: pin-target-and-toolchain
       role: threat-modeler
@@ -50,7 +53,9 @@ spec:
         package manager and node version, and any postinstall step that requires forge on PATH before
         install. Record the pinned solc versions, the pinned foundry version when the repository pins one,
         and the canonical build and test commands taken from Makefile, package.json scripts and CI, not
-        invented. Record the fork entry point exactly as the repository implements it: a foundry
+        invented. When {{params.release_tag}} is configured, require HEAD to resolve exactly to that tag and
+        record a mismatch as a provider-scope blocker rather than reviewing newer branch code. Record the fork
+        entry point exactly as the repository implements it: a foundry
         rpc_endpoints alias plus vm.createSelectFork or getChain(...).createSelectFork with the block the
         suite hard-codes, a Hardhat MODE=forking lane with its RPC and block env vars, or none at all.
         Record every in-repo address manifest, resolving {{params.address_manifest}}, and say explicitly
@@ -67,9 +72,10 @@ spec:
       outputSchema: |-
         {
           "type": "object",
-          "required": ["revision", "toolchain", "dependency_bootstrap", "build_command", "test_command", "fork_readiness", "components", "gaps"],
+          "required": ["revision", "release_constraint", "toolchain", "dependency_bootstrap", "build_command", "test_command", "fork_readiness", "components", "gaps"],
           "properties": {
             "revision": {"type": "string"},
+            "release_constraint": {"type": "string", "enum": ["not_configured", "matched", "mismatch"]},
             "toolchain": {"type": "string", "description": "foundry, foundry-soldeer, hardhat-foundry, or dapptools, resolved from the repository"},
             "toolchain_pins": {"type": "array", "items": {"type": "string"}, "description": "Pinned solc, foundry, node and package-manager versions"},
             "dependency_bootstrap": {"type": "array", "items": {"type": "string"}, "description": "Ordered commands that make the project buildable, including submodule, soldeer and package-manager steps"},
@@ -169,7 +175,58 @@ spec:
             "limitations": {"type": "array", "items": {"type": "string"}}
           }
         }
-    - name: build-harness-and-hunt
+    - name: hunt-accounting-indices-and-oracles
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-dimensional-analysis
+        - name: evm-economic-and-mev-review
+      objective: >-
+        Hunt independently from {{tasks.map-collateral-and-accounting-invariants.output}} for provider-specific
+        accounting failures: share/index exchange rates, donation and first-depositor paths, interest or reward
+        accrual, cached totals, rounding direction, decimal scaling, oracle staleness and fallback behavior. Compare
+        every alternate deposit, withdraw, borrow, repay, redeem and accrue path. Report each concrete reachable
+        invariant break as a structured finding; leave PoC construction to the validation task.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-collateral-and-accounting-invariants
+
+    - name: hunt-liquidation-solvency-and-caps
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-property-based-testing
+        - name: evm-economic-and-mev-review
+      objective: >-
+        Hunt liquidation, bad-debt, redemption, debt-ceiling, dust, rate-limit and treasury-allocation paths using
+        {{tasks.map-collateral-and-accounting-invariants.output}}. Trace partial liquidation, close-factor and bonus
+        math; ordering around accrual and oracle reads; multi-collateral interactions; paused or depleted markets;
+        and paths that can leave the protocol insolvent or a position less healthy. Report concrete candidates with
+        file:line evidence and an exact attacker-controlled sequence.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-collateral-and-accounting-invariants
+
+    - name: hunt-roles-upgrades-and-integrations
+      role: vulnerability-hunter
+      category: access-control
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: evm-low-level-and-deployment-review
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Hunt initialization, proxy and upgrade state, module or kernel permissions, relayer/controller boundaries,
+        callback and token-integration assumptions, rebasing/share tokens, fee-on-transfer behavior and reentrancy
+        across the exact target mapped in {{tasks.pin-target-and-toolchain.output}}. Compare every privileged and
+        alternate entry point that reaches custody or accounting state. Report only production-reachable bypasses
+        or invariant violations, with target-specific evidence rather than generic checklist output.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-collateral-and-accounting-invariants
+
+    - name: validate-candidates-in-harness
       role: exploit-validator
       category: other
       skillRefs:
@@ -179,8 +236,8 @@ spec:
         - name: evm-low-level-and-deployment-review
         - name: exploit-poc-discipline
       objective: >-
-        In one write-capable run, bootstrap the sandbox, build the oracle, calibrate it, hunt against it and
-        reproduce or kill each hypothesis, so temporary harness files are never lost at a handoff. The full
+        In one write-capable run, bootstrap the sandbox, build and calibrate the oracle, then reproduce or kill
+        the candidate findings recorded by the three discovery lanes. Do not originate new vulnerabilities: the full
         run tool surface remains available and is intentional here: this is the only task that builds and
         executes code. All execution is local. Never change state on any live, public or third-party
         system, never send a mutating request to a deployed contract, never test against mainnet or a
@@ -199,20 +256,25 @@ spec:
         which for this protocol class already carries invariant, fuzz and mainnet-fork harnesses worth
         reusing rather than rewriting.
 
-        Turn the invariants in {{tasks.map-collateral-and-accounting-invariants.output}} into 5 to 15
-        executable assertions on the strongest substrate available, preferring an added test file in the
-        repository's own suite so the proof of concept is runnable by the program exactly as submitted.
+        For every compatible Foundry root containing a candidate-specific test, actually call
+        run_security_tool with tool `forge-security-tests`, target type `foundry_project`, locator equal to that
+        workspace root, target revision equal to the pinned immutable revision, and seed `2062026`. When the typed
+        program environment permits a local fork and all endpoint, chain, block and hash pins are ready, use
+        `forge-fork-test` through run_security_tool for the fork-backed reproduction. Record the returned tool-run
+        reference and normalized result; a shell transcript without a successful pack result is not deterministic
+        confirmation when a compatible pack is available.
+
+        Use the invariants in {{tasks.map-collateral-and-accounting-invariants.output}} and list the structured
+        findings emitted by the discovery lanes. Turn each candidate's named invariant into an executable assertion
+        on the strongest substrate available, preferring an added test file in the repository's own suite.
         Calibrate each assertion with a temporary mutant that SHOULD make it fail; an invariant counts as
         calibrated only when it is executable and kills its mutant, because an assertion that survives
         cannot detect its own violation. A green harness never means the target is safe; it means only not
         found under the recorded bounds.
 
-        Then hunt, aimed at this protocol class in payout order: solvency and share-price accounting first,
-        then index, rounding and decimals mismatches, then liquidation, redemption and rate-limit paths,
-        then initialization and upgrade state of the deployed implementation, then the role and permission
-        matrix. Templated reentrancy and templated flash-loan oracle manipulation stay available but sit
-        off the default path, because bot-findable means unpayable under duplicate rules. Every broken
-        verdict needs the exact command and seed, the failing assertion, the observed balance or state
+        Validate candidates in payout order: solvency and share-price accounting first, then index, rounding and
+        decimal mismatches, liquidation, redemption and rate-limit paths, initialization and upgrade state, and the
+        role matrix. Every broken verdict needs the exact command and seed, the failing assertion, the observed balance or state
         delta, a negative control that did not trigger, and the calibration mutant proving the oracle can
         fail. Record the reproducibility class and never generalize a local-only result into a claim about
         deployed configuration. A hypothesis without a failing assertion is refuted or untested and may not
@@ -220,6 +282,9 @@ spec:
       dependsOn:
         - pin-target-and-toolchain
         - map-collateral-and-accounting-invariants
+        - hunt-accounting-indices-and-oracles
+        - hunt-liquidation-solvency-and-caps
+        - hunt-roles-upgrades-and-integrations
       outputSchema: |-
         {
           "type": "object",
@@ -272,7 +337,11 @@ spec:
                       "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]}
                     }
                   }
-                }
+                },
+                "allOf": [
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "broken"}}}, "then": {"required": ["fingerprint", "reproduction"]}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "untested"}}}, "then": {"required": ["missing_dependency"]}}
+                ]
               }
             },
             "limitations": {"type": "array", "items": {"type": "string"}}
@@ -287,7 +356,7 @@ spec:
         - name: evm-economic-and-mev-review
       objective: >-
         Price and qualify only hypotheses with verdict broken and a valid reproduction in
-        {{tasks.build-harness-and-hunt.output}}. The full run tool surface remains available; this task
+        {{tasks.validate-candidates-in-harness.output}}. The full run tool surface remains available; this task
         must not change state outside the sandbox workspace and must never contact the program, the
         protocol, or any deployed system.
 
@@ -295,37 +364,38 @@ spec:
         pinned-fork reproduction, and unknown for a project-test reproduction, where deployed exposure must
         be labelled unverified rather than estimated. Record the capital the attacker fronts, the capital
         they risk, the privileges and timing they need. Map each candidate onto the governing program's own
-        published in-scope impact list, copying the clause verbatim, and give the maximum achievable impact
-        reachable from the same root cause rather than the first one demonstrated; never translate a
-        severity label from another program's system.
+        eligibility rules. When typed in-scope impacts exist, copy the matching impact verbatim. When they do not
+        exist and the provider publishes vulnerability classes or asset rules instead, copy the matching clause
+        verbatim from scopePolicy and mark its source. Never invent a clause or translate a severity label.
 
         The run prompt already carries the governing program's typed scope, including pocRequired,
         pocEnvironment, prohibitedTesting, knownIssues and the in-scope impact list, and that typed scope is
         authoritative: obey pocEnvironment as the hard substrate constraint, treat prohibitedTesting as
-        binding, and drop any candidate that matches a knownIssues entry or shares its root cause.
+        binding, and compare every candidate with knownIssues. A match blocks provider submission but does not
+        erase the technically confirmed defect; record the matching clause verbatim. Treat the pinned dossier's
+        release_constraint the same way: a mismatch blocks submission without erasing the defect.
 
-        Then apply the submission gate these programs publish, and mark a candidate submission-ready only
-        when all of it holds: a runnable coded proof of concept exists, because every smart-contract
-        program in this catalog requires one and an explanation is not a proof of concept; the proof of
-        concept runs on a local fork of mainnet or a public testnet and never against deployed code, which
-        is the rule Immunefi's severity classification system states verbatim and enforces with a permanent
-        ban; the proof of concept does not test third-party oracles, third-party contracts, or run denial
+        Then apply the governing program's own submission gate. Require a runnable coded proof of concept only
+        when pocRequired is true; otherwise retain the runnable reproduction as technical evidence without
+        inventing a provider requirement. The proof runs only in the environment pocEnvironment permits and never
+        against deployed code or a public network. It does not test third-party oracles or contracts, or run denial
         of service or traffic-generating attacks; it is delivered as a test the program can run in the
         repository's own suite, ideally as a diff against the existing suite; it is a single issue, written
         in English, with no raw scanner or model output pasted in; and it states the revision and block it
         was produced at. Record the fix suggestion when the program requires one. Anything failing the gate
-        is reported as not submission-ready with the exact missing element.
+        is marked not submission-ready with the exact missing element, but remains a technically confirmed finding.
       dependsOn:
-        - build-harness-and-hunt
+        - validate-candidates-in-harness
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["fingerprint", "impact_clause", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "submission_ready"],
+            "required": ["fingerprint", "eligibility_clause", "eligibility_source", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "known_issue_match", "release_constraint_satisfied", "technical_status", "submission_ready"],
             "properties": {
               "fingerprint": {"type": "string"},
-              "impact_clause": {"type": "string", "description": "Copied verbatim from the program's in-scope impact list"},
+              "eligibility_clause": {"type": "string", "description": "Verbatim typed impact or scope-policy vulnerability/asset rule; empty only when unavailable"},
+              "eligibility_source": {"type": "string", "enum": ["typed_impact", "scope_policy", "unavailable"]},
               "program_severity": {"type": "string"},
               "max_achievable_impact": {"type": "string"},
               "funds_at_risk": {"type": "string", "description": "Measured value plus the block it was measured at, or why no measurement is possible"},
@@ -334,10 +404,17 @@ spec:
               "poc_runnable": {"type": "boolean", "description": "A coded proof of concept the program can execute unchanged"},
               "poc_command": {"type": "string"},
               "poc_substrate_permitted": {"type": "boolean", "description": "false unless execution stayed on a local fork or local suite"},
+              "known_issue_match": {"type": "string", "minLength": 1, "description": "Verbatim knownIssues clause sharing this root cause, or exactly none"},
+              "release_constraint_satisfied": {"type": "boolean", "description": "true when no tag is required or HEAD exactly matches the provider-mandated release tag"},
               "fix_suggestion": {"type": "string"},
+              "technical_status": {"const": "confirmed"},
               "submission_ready": {"type": "boolean"},
               "blocking_gap": {"type": "string", "description": "Required when submission_ready is false"}
-            }
+            },
+            "allOf": [
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": false}}}, "then": {"required": ["blocking_gap"]}},
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": true}}}, "then": {"properties": {"eligibility_clause": {"minLength": 1}, "poc_runnable": {"const": true}, "poc_substrate_permitted": {"const": true}, "known_issue_match": {"const": "none"}, "release_constraint_satisfied": {"const": true}, "eligibility_source": {"not": {"const": "unavailable"}}}}}
+            ]
           }
         }
     - name: triage-and-report
@@ -349,14 +426,15 @@ spec:
         - name: trail-of-bits-fp-check
       objective: >-
         Assemble the report from {{tasks.quantify-impact-and-submission-readiness.output}} under one
-        admission rule: a finding survives only when a named calibrated invariant broke, a runnable failing
-        assertion on a permitted local substrate proves it, the negative control did not trigger, the
-        oracle was shown capable of failing, the impact maps to a clause the program published, and the
-        submission gate passed. The full run tool surface remains available; this task must not change
+        admission rule: a technical finding survives when a named calibrated invariant broke, a runnable failing
+        assertion on a safe local substrate proves it, the negative control did not trigger, and the oracle was
+        shown capable of failing. Provider eligibility and submission readiness are separate labels: a missing
+        clause or prerequisite blocks submission but must not erase a technically confirmed vulnerability. The full
+        run tool surface remains available; this task must not change
         state outside the sandbox workspace.
 
         Require a verified pinned fork only when the finding depends on deployed state, and label
-        project-test evidence without implying deployment exposure. Drop everything else, including
+        project-test evidence without implying deployment exposure. Drop refuted and unproved claims, including
         analyses that read well but never broke anything. Prefer an empty report to a padded one:
         reporting is rationed, a rejected submission costs more than a withheld one, and these programs
         explicitly reject scanner-shaped reports without demonstrated impact. State the bounded negative
