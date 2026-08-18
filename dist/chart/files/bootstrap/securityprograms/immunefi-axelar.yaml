@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/axelarnetwork/axelar-gmp-sdk-solidity
       baseBranch: main
-      workflowRef: bridge-l2-zk-security-review
+      workflowRef: cross-chain-messaging-review
       policyPackRef: bug-bounty
       scanName: immunefi-axelar-gmp-sdk-solidity
       displayName: Axelar GMP SDK Solidity

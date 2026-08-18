@@ -1,0 +1,446 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: evm-lending-cdp-review
+spec:
+  description: Protocol-specific bounty hunt for EVM lending, CDP, staking and treasury-controller protocols (Aave v3, Lido, Sky/dss, Spark ALM, Olympus). Independent specialists hunt collateral solvency, index and share-price accounting, liquidation and rate paths before a separate validator builds repository-native reproductions. Technical validity is retained independently from the governing provider's submission rules.
+  parameters:
+    - name: project_root
+      description: Repository-relative root of the Solidity project under test.
+      default: "."
+    - name: build_toolchain
+      description: Toolchain the repository builds with. foundry for aave-v3-origin and spark-alm-controller, foundry-soldeer for olympus-v3, hardhat-foundry for lido core, dapptools for sky dss, or autodetect to derive it from the repository.
+      default: "autodetect"
+    - name: release_tag
+      description: Provider-mandated source tag, such as DeltaPrime v1.1.0, or unconfigured when the program follows a branch.
+      default: "unconfigured"
+    - name: fork_endpoint_alias
+      description: Operator-authorized archive endpoint alias used for fork tests. Supply an alias, never a raw credential-bearing URL.
+      default: "unconfigured"
+    - name: chain_id
+      description: Expected chain ID for the pinned local fork.
+      default: "unconfigured"
+    - name: fork_block_number
+      description: Immutable finalized block number for the pinned local fork. spark-alm-controller defaults to 20917850 and olympus-v3 to 20900000 in their own suites.
+      default: "unconfigured"
+    - name: fork_block_hash
+      description: Block hash for fork_block_number; every fork-backed run verifies it before execution.
+      default: "unconfigured"
+    - name: address_manifest
+      description: Path, relative to project_root, of the in-repo address book that pins deployed contracts (lido deployed-mainnet.json, olympus src/proposals/addresses.json, spark script/input/1/*.json). aave-v3-origin and sky dss ship none.
+      default: "unconfigured"
+  parallelism: 4
+  tasks:
+    - name: pin-target-and-toolchain
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Pin the source target and the sandbox it can actually be exercised in before anyone reasons about
+        it. The full run tool surface remains available; this task is inventory only and must not change
+        state anywhere outside the sandbox workspace, must not send mutating requests, and must not claim
+        any command it did not run.
+
+        From project root {{params.project_root}} record the immutable revision, the Solidity layout, and
+        the exact toolchain, resolving {{params.build_toolchain}} against the repository rather than
+        assuming it. Foundry projects declare foundry.toml with src, test, solc_version, evm_version, ffi
+        and rpc_endpoints; a Hardhat lane declares hardhat.config.ts with its own compiler list and forking
+        block; a dapptools project declares Makefile plus nix and an old solc with the optimizer off. Read
+        the dependency bootstrap the build genuinely needs and record it as a command list: git submodule
+        update --init --recursive, forge soldeer install or update, yarn or pnpm install with the pinned
+        package manager and node version, and any postinstall step that requires forge on PATH before
+        install. Record the pinned solc versions, the pinned foundry version when the repository pins one,
+        and the canonical build and test commands taken from Makefile, package.json scripts and CI, not
+        invented. When {{params.release_tag}} is configured, require HEAD to resolve exactly to that tag and
+        record a mismatch as a provider-scope blocker rather than reviewing newer branch code. Record the fork
+        entry point exactly as the repository implements it: a foundry
+        rpc_endpoints alias plus vm.createSelectFork or getChain(...).createSelectFork with the block the
+        suite hard-codes, a Hardhat MODE=forking lane with its RPC and block env vars, or none at all.
+        Record every in-repo address manifest, resolving {{params.address_manifest}}, and say explicitly
+        when the repository ships none.
+
+        Then map the protocol: which contracts hold user principal, which hold protocol reserves or
+        treasury, the collateral and debt token set with the decimals of each, the oracle wiring and its
+        decimals, the interest or reward index, the share or exchange-rate accounting, the liquidation and
+        redemption paths, the rate-limit or cap parameters, and the privileged roles with their holders.
+        When {{params.fork_endpoint_alias}}, {{params.chain_id}}, {{params.fork_block_number}} or
+        {{params.fork_block_hash}} is unconfigured, set fork_readiness to blocked, name each missing input
+        in gaps, and still publish the dossier so source review, builds and local tests proceed. Publish one
+        structured dossier and report no vulnerabilities here.
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["revision", "release_constraint", "toolchain", "dependency_bootstrap", "build_command", "test_command", "fork_readiness", "components", "gaps"],
+          "properties": {
+            "revision": {"type": "string"},
+            "release_constraint": {"type": "string", "enum": ["not_configured", "matched", "mismatch"]},
+            "toolchain": {"type": "string", "description": "foundry, foundry-soldeer, hardhat-foundry, or dapptools, resolved from the repository"},
+            "toolchain_pins": {"type": "array", "items": {"type": "string"}, "description": "Pinned solc, foundry, node and package-manager versions"},
+            "dependency_bootstrap": {"type": "array", "items": {"type": "string"}, "description": "Ordered commands that make the project buildable, including submodule, soldeer and package-manager steps"},
+            "build_command": {"type": "string"},
+            "test_command": {"type": "string"},
+            "offline_test_lane": {"type": "string", "description": "The subset of the suite that runs without an archive RPC, or none"},
+            "fork_entry_point": {"type": "string", "description": "Repository-implemented fork entry point with its hard-coded block, or none"},
+            "fork_readiness": {"type": "string", "enum": ["ready", "blocked"]},
+            "address_manifest": {"type": "string", "description": "Resolved manifest path, or none_shipped"},
+            "components": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "role"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "role": {"type": "string", "description": "principal custody, reserve or treasury, collateral token, debt token, oracle, index or rate accounting, liquidation path, rate limit, or privileged role"},
+                  "decimals": {"type": "string"},
+                  "evidence": {"type": "string", "description": "file:line"}
+                }
+              }
+            },
+            "gaps": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: map-collateral-and-accounting-invariants
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-dimensional-analysis
+        - name: evm-economic-and-mev-review
+      objective: >-
+        Using {{tasks.pin-target-and-toolchain.output}}, write the invariant set this protocol class is
+        actually paid for breaking, with repository-relative evidence for each. The full run tool surface
+        remains available; this task reads and reasons only, must not change state outside the sandbox
+        workspace, and must not claim a test result it did not produce.
+
+        Cover, at minimum: total debt never exceeds collateral value plus reserves at the configured
+        thresholds; the share, index or exchange rate the protocol claims is monotonic is monotonic across
+        deposit, withdraw, accrue, liquidate and donate; a direct token donation cannot move the share price
+        in the depositor's favour, which is the ERC4626 inflation and donation class spark-alm-controller
+        already keeps a regression test for; interest and reward indices never move backwards and never
+        double-accrue in the same block; every accounting identity across deposit, borrow, repay, withdraw
+        and settle closes exactly, with rounding always against the caller; the liquidation path cannot
+        leave a position more unhealthy than it started, cannot pay a bonus larger than the seized
+        collateral, and cannot be entered by a position that is still healthy; caps, ceilings, dust and rate
+        limits bound every path that mints, borrows or transfers, including the relayer and controller
+        paths of a treasury allocation system; the oracle decimals, staleness bound and price scaling match
+        the token decimals at every call site; a rebasing or share-based staking token is never treated as
+        a fixed-balance ERC20; and the privileged role matrix admits exactly the intended callers on every
+        module, policy or kernel permission.
+
+        For each invariant record the protected asset, the least-privileged attacker, the allowed
+        transition, where enforcement lives, the alternate paths that reach the same state, the impact when
+        it breaks, and the concrete local validation target: an existing test contract, an invariant or
+        fuzz suite, an echidna or medusa configuration, a certora spec, or a new test file path. Rank the
+        hypotheses by the impact clause they would reach, not by novelty. Report no findings here.
+      dependsOn:
+        - pin-target-and-toolchain
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["invariants", "ranked_hypotheses", "limitations"],
+          "properties": {
+            "invariants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "property", "asset", "attacker", "enforcement", "validation_target"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "property": {"type": "string"},
+                  "asset": {"type": "string"},
+                  "attacker": {"type": "string"},
+                  "enforcement": {"type": "string", "description": "file:line where the invariant is enforced, or unenforced"},
+                  "alternate_paths": {"type": "array", "items": {"type": "string"}},
+                  "validation_target": {"type": "string", "description": "Existing suite, harness, or the new test file this invariant will be asserted in"}
+                }
+              }
+            },
+            "ranked_hypotheses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["invariant", "controlled_input", "expected_transition", "falsifier"],
+                "properties": {
+                  "invariant": {"type": "string"},
+                  "controlled_input": {"type": "string"},
+                  "expected_transition": {"type": "string"},
+                  "falsifier": {"type": "string"},
+                  "evidence": {"type": "string", "description": "file:line"}
+                }
+              }
+            },
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: hunt-accounting-indices-and-oracles
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-dimensional-analysis
+        - name: evm-economic-and-mev-review
+      objective: >-
+        Hunt independently from {{tasks.map-collateral-and-accounting-invariants.output}} for provider-specific
+        accounting failures: share/index exchange rates, donation and first-depositor paths, interest or reward
+        accrual, cached totals, rounding direction, decimal scaling, oracle staleness and fallback behavior. Compare
+        every alternate deposit, withdraw, borrow, repay, redeem and accrue path. Report each concrete reachable
+        invariant break as a structured finding; leave PoC construction to the validation task.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-collateral-and-accounting-invariants
+
+    - name: hunt-liquidation-solvency-and-caps
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-property-based-testing
+        - name: evm-economic-and-mev-review
+      objective: >-
+        Hunt liquidation, bad-debt, redemption, debt-ceiling, dust, rate-limit and treasury-allocation paths using
+        {{tasks.map-collateral-and-accounting-invariants.output}}. Trace partial liquidation, close-factor and bonus
+        math; ordering around accrual and oracle reads; multi-collateral interactions; paused or depleted markets;
+        and paths that can leave the protocol insolvent or a position less healthy. Report concrete candidates with
+        file:line evidence and an exact attacker-controlled sequence.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-collateral-and-accounting-invariants
+
+    - name: hunt-roles-upgrades-and-integrations
+      role: vulnerability-hunter
+      category: access-control
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: evm-low-level-and-deployment-review
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Hunt initialization, proxy and upgrade state, module or kernel permissions, relayer/controller boundaries,
+        callback and token-integration assumptions, rebasing/share tokens, fee-on-transfer behavior and reentrancy
+        across the exact target mapped in {{tasks.pin-target-and-toolchain.output}}. Compare every privileged and
+        alternate entry point that reaches custody or accounting state. Report only production-reachable bypasses
+        or invariant violations, with target-specific evidence rather than generic checklist output.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-collateral-and-accounting-invariants
+
+    - name: validate-candidates-in-harness
+      role: exploit-validator
+      category: other
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-harness-writing
+        - name: trail-of-bits-property-based-testing
+        - name: evm-low-level-and-deployment-review
+        - name: exploit-poc-discipline
+      objective: >-
+        In one write-capable run, bootstrap the sandbox, build and calibrate the oracle, then reproduce or kill
+        the candidate findings recorded by the three discovery lanes. Do not originate new vulnerabilities: the full
+        run tool surface remains available and is intentional here: this is the only task that builds and
+        executes code. All execution is local. Never change state on any live, public or third-party
+        system, never send a mutating request to a deployed contract, never test against mainnet or a
+        public testnet, and never touch a third-party oracle or protocol deployment; every governing
+        program treats that as grounds for a permanent ban.
+
+        Bootstrap exactly what {{tasks.pin-target-and-toolchain.output}} recorded: install the pinned
+        toolchain, because the scan image ships no forge, anvil, dapp, echidna, medusa or slither, run the
+        recorded dependency bootstrap in order, then the recorded build and test command. Record every
+        command with its exit status. When a documented lane cannot be bootstrapped, say so as a blocker
+        and fall back to the recorded offline test lane instead of silently narrowing scope. Start the
+        pinned local fork through operator-authorized endpoint alias {{params.fork_endpoint_alias}} only
+        when chain id {{params.chain_id}}, block {{params.fork_block_number}} and hash
+        {{params.fork_block_hash}} agree with the dossier, and set fork_status to executed only then;
+        otherwise set it to blocked, record the blocker, and keep hunting on the repository's own suite,
+        which for this protocol class already carries invariant, fuzz and mainnet-fork harnesses worth
+        reusing rather than rewriting.
+
+        For every compatible Foundry root containing a candidate-specific test, actually call
+        run_security_tool with tool `forge-security-tests`, target type `foundry_project`, locator equal to that
+        workspace root, target revision equal to the pinned immutable revision, and seed `2062026`. When the typed
+        program environment permits a local fork and all endpoint, chain, block and hash pins are ready, use
+        `forge-fork-test` through run_security_tool for the fork-backed reproduction. Record the returned tool-run
+        reference and normalized result; a shell transcript without a successful pack result is not deterministic
+        confirmation when a compatible pack is available.
+
+        Use the invariants in {{tasks.map-collateral-and-accounting-invariants.output}} and list the structured
+        findings emitted by the discovery lanes. Turn each candidate's named invariant into an executable assertion
+        on the strongest substrate available, preferring an added test file in the repository's own suite.
+        Calibrate each assertion with a temporary mutant that SHOULD make it fail; an invariant counts as
+        calibrated only when it is executable and kills its mutant, because an assertion that survives
+        cannot detect its own violation. A green harness never means the target is safe; it means only not
+        found under the recorded bounds.
+
+        Validate candidates in payout order: solvency and share-price accounting first, then index, rounding and
+        decimal mismatches, liquidation, redemption and rate-limit paths, initialization and upgrade state, and the
+        role matrix. Every broken verdict needs the exact command and seed, the failing assertion, the observed balance or state
+        delta, a negative control that did not trigger, and the calibration mutant proving the oracle can
+        fail. Record the reproducibility class and never generalize a local-only result into a claim about
+        deployed configuration. A hypothesis without a failing assertion is refuted or untested and may not
+        be reported.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-collateral-and-accounting-invariants
+        - hunt-accounting-indices-and-oracles
+        - hunt-liquidation-solvency-and-caps
+        - hunt-roles-upgrades-and-integrations
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["bootstrap_status", "fork_status", "executable_invariant_count", "calibrated_invariant_count", "tool_runs", "hypotheses", "limitations"],
+          "properties": {
+            "bootstrap_status": {"type": "string", "enum": ["built", "partial", "blocked"], "description": "built only when the recorded build and test command both ran"},
+            "bootstrap_blocker": {"type": "string"},
+            "fork_status": {"type": "string", "enum": ["executed", "blocked"]},
+            "fork_blocker": {"type": "string"},
+            "executable_invariant_count": {"type": "integer", "minimum": 0},
+            "calibrated_invariant_count": {"type": "integer", "minimum": 0, "description": "Must not exceed executable_invariant_count"},
+            "tool_runs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["tool", "command", "exit_status"],
+                "properties": {
+                  "tool": {"type": "string"},
+                  "command": {"type": "string"},
+                  "exit_status": {"type": "string"},
+                  "seed": {"type": "string"},
+                  "attempts": {"type": "integer", "minimum": 0},
+                  "successes": {"type": "integer", "minimum": 0}
+                }
+              }
+            },
+            "hypotheses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["invariant", "attacker", "verdict"],
+                "properties": {
+                  "invariant": {"type": "string"},
+                  "attacker": {"type": "string"},
+                  "verdict": {"type": "string", "enum": ["broken", "refuted", "untested"]},
+                  "missing_dependency": {"type": "string", "description": "Required when verdict is untested"},
+                  "fingerprint": {"type": "string", "description": "Required when verdict is broken"},
+                  "reproduction": {
+                    "type": "object",
+                    "required": ["command", "substrate", "test_path", "failing_assertion", "observed_delta", "negative_control_passed", "oracle_can_fail", "reproducibility_class"],
+                    "properties": {
+                      "command": {"type": "string"},
+                      "seed": {"type": "string"},
+                      "substrate": {"type": "string", "enum": ["pinned_fork", "project_tests", "local_devnet"]},
+                      "test_path": {"type": "string", "description": "Repository-relative path of the added test the program can run unchanged"},
+                      "failing_assertion": {"type": "string"},
+                      "observed_delta": {"type": "string"},
+                      "negative_control_passed": {"type": "boolean"},
+                      "oracle_can_fail": {"type": "boolean"},
+                      "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]}
+                    }
+                  }
+                },
+                "allOf": [
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "broken"}}}, "then": {"required": ["fingerprint", "reproduction"]}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "untested"}}}, "then": {"required": ["missing_dependency"]}}
+                ]
+              }
+            },
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: quantify-impact-and-submission-readiness
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: evm-economic-and-mev-review
+      objective: >-
+        Price and qualify only hypotheses with verdict broken and a valid reproduction in
+        {{tasks.validate-candidates-in-harness.output}}. The full run tool surface remains available; this task
+        must not change state outside the sandbox workspace and must never contact the program, the
+        protocol, or any deployed system.
+
+        Measure value at risk on the substrate that actually settled the claim: at the verified block for a
+        pinned-fork reproduction, and unknown for a project-test reproduction, where deployed exposure must
+        be labelled unverified rather than estimated. Record the capital the attacker fronts, the capital
+        they risk, the privileges and timing they need. Map each candidate onto the governing program's own
+        eligibility rules. When typed in-scope impacts exist, copy the matching impact verbatim. When they do not
+        exist and the provider publishes vulnerability classes or asset rules instead, copy the matching clause
+        verbatim from scopePolicy and mark its source. Never invent a clause or translate a severity label.
+
+        The run prompt already carries the governing program's typed scope, including pocRequired,
+        pocEnvironment, prohibitedTesting, knownIssues and the in-scope impact list, and that typed scope is
+        authoritative: obey pocEnvironment as the hard substrate constraint, treat prohibitedTesting as
+        binding, and compare every candidate with knownIssues. A match blocks provider submission but does not
+        erase the technically confirmed defect; record the matching clause verbatim. Treat the pinned dossier's
+        release_constraint the same way: a mismatch blocks submission without erasing the defect.
+
+        Then apply the governing program's own submission gate. Require a runnable coded proof of concept only
+        when pocRequired is true; otherwise retain the runnable reproduction as technical evidence without
+        inventing a provider requirement. The proof runs only in the environment pocEnvironment permits and never
+        against deployed code or a public network. It does not test third-party oracles or contracts, or run denial
+        of service or traffic-generating attacks; it is delivered as a test the program can run in the
+        repository's own suite, ideally as a diff against the existing suite; it is a single issue, written
+        in English, with no raw scanner or model output pasted in; and it states the revision and block it
+        was produced at. Record the fix suggestion when the program requires one. Anything failing the gate
+        is marked not submission-ready with the exact missing element, but remains a technically confirmed finding.
+      dependsOn:
+        - validate-candidates-in-harness
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fingerprint", "eligibility_clause", "eligibility_source", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "known_issue_match", "release_constraint_satisfied", "technical_status", "submission_ready"],
+            "properties": {
+              "fingerprint": {"type": "string"},
+              "eligibility_clause": {"type": "string", "description": "Verbatim typed impact or scope-policy vulnerability/asset rule; empty only when unavailable"},
+              "eligibility_source": {"type": "string", "enum": ["typed_impact", "scope_policy", "unavailable"]},
+              "program_severity": {"type": "string"},
+              "max_achievable_impact": {"type": "string"},
+              "funds_at_risk": {"type": "string", "description": "Measured value plus the block it was measured at, or why no measurement is possible"},
+              "attacker_capital": {"type": "string"},
+              "preconditions": {"type": "string"},
+              "poc_runnable": {"type": "boolean", "description": "A coded proof of concept the program can execute unchanged"},
+              "poc_command": {"type": "string"},
+              "poc_substrate_permitted": {"type": "boolean", "description": "false unless execution stayed on a local fork or local suite"},
+              "known_issue_match": {"type": "string", "minLength": 1, "description": "Verbatim knownIssues clause sharing this root cause, or exactly none"},
+              "release_constraint_satisfied": {"type": "boolean", "description": "true when no tag is required or HEAD exactly matches the provider-mandated release tag"},
+              "fix_suggestion": {"type": "string"},
+              "technical_status": {"const": "confirmed"},
+              "submission_ready": {"type": "boolean"},
+              "blocking_gap": {"type": "string", "description": "Required when submission_ready is false"}
+            },
+            "allOf": [
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": false}}}, "then": {"required": ["blocking_gap"]}},
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": true}}}, "then": {"properties": {"eligibility_clause": {"minLength": 1}, "poc_runnable": {"const": true}, "poc_substrate_permitted": {"const": true}, "known_issue_match": {"const": "none"}, "release_constraint_satisfied": {"const": true}, "eligibility_source": {"not": {"const": "unavailable"}}}}}
+            ]
+          }
+        }
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: trail-of-bits-fp-check
+      objective: >-
+        Assemble the report from {{tasks.quantify-impact-and-submission-readiness.output}} under one
+        admission rule: a technical finding survives when a named calibrated invariant broke, a runnable failing
+        assertion on a safe local substrate proves it, the negative control did not trigger, and the oracle was
+        shown capable of failing. Provider eligibility and submission readiness are separate labels: a missing
+        clause or prerequisite blocks submission but must not erase a technically confirmed vulnerability. The full
+        run tool surface remains available; this task must not change
+        state outside the sandbox workspace.
+
+        Require a verified pinned fork only when the finding depends on deployed state, and label
+        project-test evidence without implying deployment exposure. Drop refuted and unproved claims, including
+        analyses that read well but never broke anything. Prefer an empty report to a padded one:
+        reporting is rationed, a rejected submission costs more than a withheld one, and these programs
+        explicitly reject scanner-shaped reports without demonstrated impact. State the bounded negative
+        result explicitly — which invariants were tested, at which revision and block, on which substrate,
+        and which lanes were blocked by a missing toolchain or endpoint — so a clean or blocked run is
+        recorded as not found under those bounds rather than as a clean bill of health. Then submit the
+        final scan report.
+      dependsOn:
+        - quantify-impact-and-submission-readiness

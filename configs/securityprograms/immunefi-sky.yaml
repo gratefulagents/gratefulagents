@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/sky-ecosystem/dss
       baseBranch: master
-      workflowRef: bounty-hunt-evm
+      workflowRef: evm-lending-cdp-review
       policyPackRef: bug-bounty
       scanName: immunefi-sky-dss
       displayName: Sky DSS
@@ -17,6 +17,8 @@ spec:
   programURL: https://immunefi.com/bug-bounty/sky/scope/
   verifiedAt: 2026-08-12T00:00:00Z
   severitySystem: immunefi-v2.3
+  pocRequired: true
+  pocEnvironment: mainnet-fork
   inScopeImpacts:
     - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
       level: critical

@@ -1,0 +1,501 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: rollup-stack-review
+spec:
+  description: Protocol-specific bounty hunt for L2 rollup stacks (Optimism ethereum-optimism/optimism at develop, ZKsync Era matter-labs/zksync-era at main). Independent specialists hunt derivation and data availability, bridge lifecycle, state-root and proof verification, and cross-layer privilege before a separate validator uses the strongest repository-native local substrate available. Technical validity is retained independently from novelty and provider submission rules.
+  parameters:
+    - name: project_root
+      description: Repository-relative root of the rollup monorepo under test.
+      default: "."
+    - name: stack
+      description: Rollup stack under test. optimism for the ethereum-optimism/optimism Go plus Solidity monorepo, zksync-era for the matter-labs/zksync-era Rust workspace, or autodetect to derive it from the repository.
+      default: "autodetect"
+    - name: contracts_root
+      description: Path, relative to project_root, of the on-chain Solidity tree. Optimism ships it in packages/contracts-bedrock; ZKsync Era carries it as the contracts/ git submodule pointing at matter-labs/era-contracts, which is empty in a fresh clone and must be fetched or recorded as a scope blocker.
+      default: "autodetect"
+    - name: node_test_command
+      description: Canonical node or component test command taken from the repository, not invented. zksync-era uses zkstack dev test rust or cargo nextest run --manifest-path core/Cargo.toml; optimism uses its per-module Go test targets.
+      default: "autodetect"
+    - name: fork_endpoint_alias
+      description: Operator-authorized archive endpoint alias used for L1 fork tests. Supply an alias, never a raw credential-bearing URL.
+      default: "unconfigured"
+    - name: chain_id
+      description: Expected L1 chain ID for the pinned local fork.
+      default: "unconfigured"
+    - name: fork_block_number
+      description: Immutable finalized L1 block number for the pinned local fork.
+      default: "unconfigured"
+    - name: fork_block_hash
+      description: Block hash for fork_block_number; every fork-backed run verifies it before execution.
+      default: "unconfigured"
+  parallelism: 4
+  tasks:
+    - name: pin-target-and-toolchain
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Pin the source target and the substrate it can actually be exercised in before anyone reasons about
+        it, because on this protocol family the substrate, not the source, is what decides whether a claim
+        can ever be settled. The full run tool surface remains available; this task is inventory only and
+        must not change state anywhere outside the sandbox workspace, must not send mutating requests, must
+        never touch a live, public or third-party system, and must not claim any command it did not run.
+
+        From project root {{params.project_root}} record the immutable revision and resolve
+        {{params.stack}} against the repository rather than assuming it. A zksync-era checkout is a large
+        Rust Cargo workspace rooted at core/Cargo.toml with a pinned nightly toolchain (nightly-2025-03-19
+        at the recorded revision), builds with cargo build --manifest-path core/Cargo.toml, and tests with
+        zkstack dev test rust or cargo nextest run --manifest-path core/Cargo.toml; its end-to-end
+        integration tests are TypeScript under core/tests/ts-integration/tests, including l1.test.ts,
+        interop-a.test.ts, interop-b.test.ts and l2-erc20.test.ts, which drive withdrawal proofs through
+        waitForL2ToL1LogProof and interop roots through waitForInteropRootNonZero and require a running
+        zkstack server. An optimism checkout is a Go plus Solidity monorepo whose on-chain code lives in
+        packages/contracts-bedrock and builds with forge, while its Go component tests run without docker.
+
+        Resolve {{params.contracts_root}} and state plainly whether on-chain Solidity is present. On
+        zksync-era the contracts/ submodule is empty in a fresh clone, so there is no Solidity at all
+        unless matter-labs/era-contracts is fetched; record that as contracts_status missing and as a
+        named scope blocker rather than proceeding to an empty contract review, and note that Solidity for
+        this stack compiles with the separate foundry-zksync fork, not upstream forge. Record the same way
+        that nearly every documented zksync-era workflow runs through docker-compose (docker-compose exec
+        zk), and that the scan image ships no docker, no nix, no forge and no anvil, so any lane depending
+        on them is blocked until bootstrapped. Record the canonical build, node or component test command
+        resolving {{params.node_test_command}}, the cheapest lane that still settles a hypothesis
+        (component unit tests and contract unit tests before any devnet), and the cost class of a cold
+        Rust build of this workspace.
+
+        Then map the stack itself: the L1 bridge and message-passing contracts, the L2 counterparts and
+        system contracts or predeploys, the withdrawal proof and finalization path, the batch, output-root
+        or state-commitment submission path and who may call it, the verifier and proof-aggregation
+        wiring, the priority queue or forced-inclusion path and its escape hatch, the sequencer, proposer,
+        prover and operator roles with their holders, the upgrade and pause authority, and the derivation
+        or batch-ingestion code in the node. When {{params.fork_endpoint_alias}}, {{params.chain_id}},
+        {{params.fork_block_number}} or {{params.fork_block_hash}} is unconfigured, set fork_readiness to
+        blocked, name each missing input in gaps, and still publish the dossier so source review, builds
+        and local component tests proceed. Publish one structured dossier and report no vulnerabilities
+        here.
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["revision", "stack", "contracts_status", "dependency_bootstrap", "build_command", "test_command", "fork_readiness", "components", "blockers", "gaps"],
+          "properties": {
+            "revision": {"type": "string"},
+            "stack": {"type": "string", "enum": ["optimism", "zksync-era", "other"], "description": "Resolved from the repository, not from the parameter default"},
+            "toolchain_pins": {"type": "array", "items": {"type": "string"}, "description": "Pinned Rust toolchain, Go version, solc, foundry or foundry-zksync, node and package-manager versions"},
+            "contracts_status": {"type": "string", "enum": ["present", "missing", "partial"], "description": "missing when the era-contracts submodule is empty or no Solidity tree exists"},
+            "contracts_root": {"type": "string", "description": "Resolved Solidity root, or none_shipped"},
+            "dependency_bootstrap": {"type": "array", "items": {"type": "string"}, "description": "Ordered commands that make the project buildable, including submodule init, toolchain install and package-manager steps"},
+            "build_command": {"type": "string"},
+            "test_command": {"type": "string"},
+            "cheapest_settling_lane": {"type": "string", "description": "The lowest-cost lane that can still settle a hypothesis, such as a single crate's unit tests or a contract test directory"},
+            "devnet_lane": {"type": "string", "description": "The documented end-to-end lane and what it requires, such as zkstack server plus ts-integration, or none"},
+            "offline_test_lane": {"type": "string", "description": "The subset of the suite that runs without an archive RPC or a devnet, or none"},
+            "fork_entry_point": {"type": "string", "description": "Repository-implemented L1 fork entry point with its block, or none"},
+            "fork_readiness": {"type": "string", "enum": ["ready", "blocked"]},
+            "components": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "role"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "role": {"type": "string", "description": "L1 bridge, L2 bridge, cross-domain messenger, withdrawal proof or finalization, batch or output-root submission, verifier or aggregator, priority queue or forced inclusion, system contract or predeploy, derivation or DA ingestion, sequencer or operator role, or upgrade and pause authority"},
+                  "layer": {"type": "string", "enum": ["l1", "l2", "node", "offchain"]},
+                  "evidence": {"type": "string", "description": "file:line"}
+                }
+              }
+            },
+            "blockers": {"type": "array", "items": {"type": "string"}, "description": "Missing contracts submodule, absent docker, nix, forge or anvil, unavailable devnet, or prohibitive cold-build cost"},
+            "gaps": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: map-rollup-invariants
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+        - name: trail-of-bits-property-based-testing
+        - name: evm-economic-and-mev-review
+      objective: >-
+        Using {{tasks.pin-target-and-toolchain.output}}, write the invariant set this protocol family is
+        actually paid for breaking, with repository-relative evidence for each. The full run tool surface
+        remains available; this task reads and reasons only, must not change state outside the sandbox
+        workspace, must never contact a live or third-party system, and must not claim a test result it did
+        not produce.
+
+        Work in payout order. First, the deposit and withdrawal message lifecycle across L1 and L2: a
+        withdrawal can be finalized at most once and a finalized withdrawal cannot be replayed under a
+        re-encoded, re-hashed or re-indexed message; the message hash binds sender, target, value, nonce,
+        chain or batch identity and calldata so no two distinct messages collide and no message can be
+        forged into an inclusion proof; the proof path binds the withdrawal to a committed batch, output
+        root or L2-to-L1 log that the L1 side genuinely accepted; value and gas parameters carried in the
+        message match what is debited on one side and credited on the other; and a deposit that fails on
+        L2 cannot mint, double-credit or strand funds. Second, state-commitment and proof verification:
+        who may propose, commit, prove or execute a batch or output root, whether the committed data binds
+        the state it claims, whether the verifier key, proof system version and aggregation inputs are
+        bound to the batch being proven so a proof for one batch cannot settle another, and what happens on
+        a deleted, reverted or reproposed batch. Third, forced inclusion and censorship resistance: whether
+        a user can always get a transaction included when the sequencer censors or halts, whether the
+        priority queue accounting, expiry and fee bounds admit denial of the escape hatch, and whether the
+        L1 path can be spammed into uselessness. Fourth, sequencer, operator and upgrade privilege: the
+        governance and upgrade path of the bridge and verifier contracts, pause, override and emergency
+        authority, admin key reach, and the initialization state of deployed implementations. Fifth, L1 to
+        L2 fee, gas and refund accounting, including cross-domain gas limit derivation, overpayment
+        refunds and the refund recipient on failure. Sixth, data availability and derivation: what the node
+        accepts as canonical batch data, how it handles reorgs and finality, and whether two clients or two
+        versions can derive divergent state from the same L1 data. Seventh, stack-specific system
+        behavior: ZKsync system contracts and bootloader semantics, or OP predeploys and their privileged
+        callers. Templated reentrancy stays available but sits off the default path, because bot-findable
+        means unpayable under duplicate rules.
+
+        For each invariant record the protected asset, the least-privileged attacker, the allowed
+        transition, where enforcement lives, the alternate paths that reach the same state, the impact when
+        it breaks, and the concrete local validation target: an existing Rust or Go component test, a
+        contract test file, an existing ts-integration test, a property or fuzz target, or a new test file
+        path. When the dossier reported contracts_status missing, say explicitly which invariants cannot be
+        validated at all without fetching era-contracts and keep them in the set as blocked rather than
+        dropping them. Rank the hypotheses by the impact clause they would reach, not by novelty. Report no
+        findings here.
+      dependsOn:
+        - pin-target-and-toolchain
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["invariants", "ranked_hypotheses", "blocked_areas", "limitations"],
+          "properties": {
+            "invariants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "family", "property", "asset", "attacker", "enforcement", "validation_target"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "family": {"type": "string", "enum": ["message-lifecycle", "state-commitment-and-proof", "forced-inclusion", "privilege-and-upgrade", "fee-gas-refund", "da-and-derivation", "system-contracts"]},
+                  "property": {"type": "string"},
+                  "asset": {"type": "string"},
+                  "attacker": {"type": "string"},
+                  "enforcement": {"type": "string", "description": "file:line where the invariant is enforced, or unenforced"},
+                  "alternate_paths": {"type": "array", "items": {"type": "string"}},
+                  "validation_target": {"type": "string", "description": "Existing suite, harness, or the new test file this invariant will be asserted in"}
+                }
+              }
+            },
+            "ranked_hypotheses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["invariant", "controlled_input", "expected_transition", "falsifier"],
+                "properties": {
+                  "invariant": {"type": "string"},
+                  "controlled_input": {"type": "string"},
+                  "expected_transition": {"type": "string"},
+                  "falsifier": {"type": "string"},
+                  "evidence": {"type": "string", "description": "file:line"}
+                }
+              }
+            },
+            "blocked_areas": {"type": "array", "items": {"type": "string"}, "description": "Invariant families that cannot be validated on the available substrate, with the missing dependency"},
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: hunt-derivation-reorg-and-data-availability
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+      objective: >-
+        Hunt L1 origin selection, batch/channel/frame decoding, reorg recovery, safe/finalized head transitions,
+        forced inclusion, priority queues and data-availability fallback using {{tasks.map-rollup-invariants.output}}.
+        Compare live derivation, sync, replay and recovery paths and report concrete divergent-state or halt paths.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-rollup-invariants
+
+    - name: hunt-bridge-message-and-withdrawal-lifecycle
+      role: vulnerability-hunter
+      category: trust-boundary
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+      objective: >-
+        Hunt deposit/withdrawal hash binding, replay, finalization delay, proof/output-root selection, token and fee
+        accounting, failed relay/retry and L1/L2 caller aliasing. Trace every bridge and messenger variant end to end
+        and report a concrete path to theft, lock, duplicate execution or unauthorized cross-domain call.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-rollup-invariants
+
+    - name: hunt-proof-games-batches-and-state-roots
+      role: vulnerability-hunter
+      category: cryptography
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+      objective: >-
+        Select the stack variant. For Optimism, audit fault-game claims, clocks, bonds, prestate and VM step binding;
+        for ZKsync, audit batch commitments, bootloader/system-contract inputs, proof/public-input and verifier-key
+        binding. Compare propose, prove, challenge, execute and recovery paths and report concrete acceptance gaps.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-rollup-invariants
+
+    - name: hunt-upgrades-operators-and-cross-layer-config
+      role: vulnerability-hunter
+      category: access-control
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: evm-low-level-and-deployment-review
+      objective: >-
+        Hunt initialization, proxy/admin ownership, upgrade activation, pause/emergency controls, sequencer/proposer/
+        prover authority, predeploy/system-contract configuration and mismatches between L1 and L2 constants. Report
+        target-specific privilege or configuration paths; label deployed-state claims blocked when no verified pin exists.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-rollup-invariants
+
+    - name: validate-candidates-in-harness
+      role: exploit-validator
+      category: other
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bridge-l2-zk-security-review
+        - name: trail-of-bits-harness-writing
+        - name: trail-of-bits-rust-review
+        - name: exploit-poc-discipline
+      objective: >-
+        In one write-capable run, bootstrap the substrate, build and calibrate the oracle, then reproduce or kill
+        candidate findings recorded by the four discovery lanes. Do not originate new vulnerabilities. The
+        full run tool surface remains available and is intentional here: this is the only task that builds
+        and executes code. All execution is local. Never change state on any live, public or third-party
+        system, never send a mutating request to a deployed contract, never test against mainnet or any
+        public testnet, and never touch a third-party bridge, sequencer, prover or RPC deployment; Immunefi
+        programs forbid all testing against mainnet and public testnets, require local forks instead, and
+        enforce that with a permanent ban.
+
+        Budget the toolchain bootstrap explicitly and do it first, because the scan image ships no forge,
+        anvil, docker or nix, and a cold Rust build of the zksync-era core workspace is very expensive.
+        Install exactly what {{tasks.pin-target-and-toolchain.output}} recorded, in the recorded order:
+        the pinned Rust nightly for cargo build --manifest-path core/Cargo.toml on zksync-era, the Go
+        toolchain for optimism component tests, foundry for packages/contracts-bedrock, or foundry-zksync
+        when ZKsync Solidity is in play, plus the submodule fetch that the era-contracts tree requires
+        before any on-chain review is possible. Record every command with its exit status and its wall
+        cost. Prefer the cheapest lane that can still settle a hypothesis: component and crate unit tests
+        and contract unit tests before any devnet, and a full zkstack server plus ts-integration or a
+        dockerized optimism devnet only when nothing cheaper can settle the claim. When a lane cannot be
+        bootstrapped, record it as a named blocker and fall back to the recorded offline lane; never
+        silently narrow scope, and never report an empty contract review as a clean one when the contracts
+        tree was missing. Start a pinned L1 fork through operator-authorized endpoint alias
+        {{params.fork_endpoint_alias}} only when chain id {{params.chain_id}}, block
+        {{params.fork_block_number}} and hash {{params.fork_block_hash}} agree with the dossier, and set
+        fork_status to executed only then; otherwise set it to blocked, record the blocker, and keep
+        hunting on the repository's own suites, which already carry withdrawal-proof and interop-root
+        helpers such as waitForL2ToL1LogProof and waitForInteropRootNonZero worth reusing rather than
+        rewriting.
+
+        For every compatible Foundry contracts root containing a candidate-specific test, actually call
+        run_security_tool with tool `forge-security-tests`, target type `foundry_project`, locator equal to that
+        workspace root, target revision equal to the pinned immutable revision, and seed `2062026`. When the typed
+        program environment permits a local L1 fork and all endpoint, chain, block and hash pins are ready, use
+        `forge-fork-test` through run_security_tool for fork-backed assertions. Record the returned tool-run
+        reference and normalized result; do not turn a failed, partial or unavailable pack run into confirmation.
+
+        Turn the invariants in {{tasks.map-rollup-invariants.output}} into 5 to 15 executable assertions on
+        the strongest substrate available, preferring an added test in the repository's own suite so the
+        proof of concept is runnable by the program exactly as submitted. Calibrate each assertion with a
+        temporary mutant that SHOULD make it fail; an invariant counts as calibrated only when it is
+        executable and kills its mutant, because an assertion that survives cannot detect its own
+        violation. A green harness never means the stack is safe; it means only not found under the
+        recorded bounds. Validate in payout order: withdrawal finalization, replay and message-hash uniqueness
+        first, then batch, output-root and proof binding and who may propose or prove, then forced
+        inclusion and priority-queue accounting, then operator, upgrade, pause and initialization state,
+        then cross-domain gas, fee and refund accounting, then derivation, reorg and data-availability
+        divergence, then stack-specific system contracts, bootloader or predeploys. Templated reentrancy and templated
+        oracle manipulation stay available but sit off the default path, because bot-findable means
+        unpayable under duplicate rules. Every broken verdict
+        needs the exact command and seed, the failing assertion, the observed balance or state delta, a
+        negative control that did not trigger, and the calibration mutant proving the oracle can fail.
+        Record the reproducibility class and never generalize a local-only result into a claim about a
+        deployed chain. A hypothesis without a failing assertion is refuted or untested and may not be
+        reported.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-rollup-invariants
+        - hunt-derivation-reorg-and-data-availability
+        - hunt-bridge-message-and-withdrawal-lifecycle
+        - hunt-proof-games-batches-and-state-roots
+        - hunt-upgrades-operators-and-cross-layer-config
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["bootstrap_status", "fork_status", "executable_invariant_count", "calibrated_invariant_count", "tool_runs", "hypotheses", "blocked_lanes", "limitations"],
+          "properties": {
+            "bootstrap_status": {"type": "string", "enum": ["built", "partial", "blocked"], "description": "built only when the recorded build and test command both ran"},
+            "bootstrap_blocker": {"type": "string"},
+            "contracts_available": {"type": "boolean", "description": "false when the on-chain Solidity tree could not be fetched, which blocks every contract-level claim"},
+            "fork_status": {"type": "string", "enum": ["executed", "blocked"]},
+            "fork_blocker": {"type": "string"},
+            "executable_invariant_count": {"type": "integer", "minimum": 0},
+            "calibrated_invariant_count": {"type": "integer", "minimum": 0, "description": "Must not exceed executable_invariant_count"},
+            "tool_runs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["tool", "command", "exit_status"],
+                "properties": {
+                  "tool": {"type": "string"},
+                  "command": {"type": "string"},
+                  "exit_status": {"type": "string"},
+                  "seed": {"type": "string"},
+                  "attempts": {"type": "integer", "minimum": 0},
+                  "successes": {"type": "integer", "minimum": 0}
+                }
+              }
+            },
+            "hypotheses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["invariant", "attacker", "verdict"],
+                "properties": {
+                  "invariant": {"type": "string"},
+                  "attacker": {"type": "string"},
+                  "verdict": {"type": "string", "enum": ["broken", "refuted", "untested"]},
+                  "missing_dependency": {"type": "string", "description": "Required when verdict is untested"},
+                  "fingerprint": {"type": "string", "description": "Required when verdict is broken"},
+                  "reproduction": {
+                    "type": "object",
+                    "required": ["command", "substrate", "test_path", "failing_assertion", "observed_delta", "negative_control_passed", "oracle_can_fail", "reproducibility_class"],
+                    "properties": {
+                      "command": {"type": "string"},
+                      "seed": {"type": "string"},
+                      "substrate": {"type": "string", "enum": ["pinned_fork", "project_tests", "local_devnet"]},
+                      "test_path": {"type": "string", "description": "Repository-relative path of the added test the program can run unchanged"},
+                      "failing_assertion": {"type": "string"},
+                      "observed_delta": {"type": "string"},
+                      "negative_control_passed": {"type": "boolean"},
+                      "oracle_can_fail": {"type": "boolean"},
+                      "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]}
+                    }
+                  }
+                },
+                "allOf": [
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "broken"}}}, "then": {"required": ["fingerprint", "reproduction"]}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "untested"}}}, "then": {"required": ["missing_dependency"]}}
+                ]
+              }
+            },
+            "blocked_lanes": {"type": "array", "items": {"type": "string"}, "description": "Documented lanes that could not be run, with the missing dependency, recorded instead of narrowing scope"},
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: quantify-impact-and-submission-readiness
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: bridge-l2-zk-security-review
+      objective: >-
+        Price and qualify only hypotheses with verdict broken and a valid reproduction in
+        {{tasks.validate-candidates-in-harness.output}}. The full run tool surface remains available; this task
+        must not change state outside the sandbox workspace and must never contact the program, the
+        rollup, a sequencer, a prover or any deployed system.
+
+        Measure value at risk on the substrate that actually settled the claim: at the verified block for a
+        pinned-fork reproduction, and unknown for a project-test or local-devnet reproduction, where
+        deployed exposure must be labelled unverified rather than estimated. For this family, state the
+        bridge or escrow balance the claim reaches, whether it drains user funds, forges or replays a
+        withdrawal, finalizes an invalid state commitment, censors or freezes the chain, or only degrades
+        liveness. Record the capital the attacker fronts, the capital they risk, the privileges they need
+        (unprivileged user, sequencer, proposer, prover, operator or governance) and the timing or L1
+        window required. Map each candidate onto the governing eligibility rules. Copy a typed impact verbatim
+        when present; otherwise copy the matching vulnerability or asset rule verbatim from scopePolicy and mark
+        its source. Never invent a clause or translate severity.
+
+        The run prompt already carries the program's typed scope, including pocRequired, pocEnvironment,
+        prohibitedTesting, knownIssues and impacts, and that typed scope is authoritative: obey
+        pocEnvironment as the hard substrate constraint, check every candidate against knownIssues before
+        proposing it, and treat prohibitedTesting as binding. A knownIssues match blocks provider submission but
+        remains a technically confirmed defect. Then apply the submission gate, and mark a
+        candidate submission-ready only when all of it holds: a runnable coded proof of concept exists when
+        pocRequired is true; the proof
+        concept ran only in the environment the program permits, on a local fork or a local devnet and
+        never against mainnet, a public testnet or deployed code, which is the rule Immunefi's severity
+        classification system states verbatim and enforces with a permanent ban; it does not test
+        third-party contracts or infrastructure and runs no denial of service or traffic-generating
+        attack against anything live; it is delivered as a test the program can run in the repository's own
+        suite, ideally as a diff against the existing suite, with the exact bootstrap commands it needs; it
+        is a single issue, written in English, with no raw scanner or model output pasted in; and it states
+        the revision, the L1 block and the stack it was produced at. Record the fix suggestion when the
+        program requires one. Anything failing the gate is reported as not submission-ready with the exact
+        missing element, while retaining the technically confirmed finding.
+      dependsOn:
+        - validate-candidates-in-harness
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fingerprint", "eligibility_clause", "eligibility_source", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "known_issue_conflict", "technical_status", "submission_ready"],
+            "properties": {
+              "fingerprint": {"type": "string"},
+              "eligibility_clause": {"type": "string"},
+              "eligibility_source": {"type": "string", "enum": ["typed_impact", "scope_policy", "unavailable"]},
+              "program_severity": {"type": "string"},
+              "max_achievable_impact": {"type": "string"},
+              "funds_at_risk": {"type": "string", "description": "Measured value plus the block it was measured at, or why no measurement is possible"},
+              "attacker_capital": {"type": "string"},
+              "required_privilege": {"type": "string", "enum": ["unprivileged", "sequencer", "proposer", "prover", "operator", "governance"]},
+              "preconditions": {"type": "string"},
+              "known_issue_conflict": {"type": "string", "minLength": 1, "description": "The verbatim knownIssues entry sharing this root cause, or exactly none"},
+              "poc_runnable": {"type": "boolean", "description": "A coded proof of concept the program can execute unchanged"},
+              "poc_command": {"type": "string"},
+              "poc_bootstrap": {"type": "array", "items": {"type": "string"}, "description": "Commands the program must run before poc_command, including toolchain and submodule steps"},
+              "poc_substrate_permitted": {"type": "boolean", "description": "false unless execution stayed inside the program's pocEnvironment on a local fork, local suite or local devnet"},
+              "fix_suggestion": {"type": "string"},
+              "technical_status": {"const": "confirmed"},
+              "submission_ready": {"type": "boolean"},
+              "blocking_gap": {"type": "string", "description": "Required when submission_ready is false"}
+            },
+            "allOf": [
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": false}}}, "then": {"required": ["blocking_gap"]}},
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": true}}}, "then": {"properties": {"eligibility_clause": {"minLength": 1}, "poc_runnable": {"const": true}, "poc_substrate_permitted": {"const": true}, "known_issue_conflict": {"const": "none"}, "eligibility_source": {"not": {"const": "unavailable"}}}}}
+            ]
+          }
+        }
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: trail-of-bits-fp-check
+      objective: >-
+        Assemble the report from {{tasks.quantify-impact-and-submission-readiness.output}} under one
+        admission rule: a finding survives only when a named calibrated invariant broke, a runnable failing
+        assertion on a permitted local substrate proves it, the negative control did not trigger, the
+        oracle was shown capable of failing, and the technical proof passed. Eligibility affects submission
+        readiness, not whether the underlying defect exists. Provider submission readiness is a
+        separate label; missing eligibility or prerequisites must not erase a technically confirmed vulnerability.
+        The full run tool surface remains available; this task must not change
+        state outside the sandbox workspace and must never contact a live rollup, sequencer or deployed
+        contract.
+
+        Require a verified pinned fork only when the finding depends on deployed L1 state, and label
+        project-test or local-devnet evidence without implying deployment exposure. Drop refuted and unproved claims,
+        including analyses that read well but never broke anything. Prefer an empty report to a padded one:
+        reporting is rationed, a rejected submission costs more than a withheld one, and these programs
+        explicitly reject scanner-shaped reports without demonstrated impact. State the bounded negative
+        result explicitly — which invariant families were tested, at which revision, stack and block, on
+        which substrate, and which lanes were blocked by a missing contracts submodule, an absent docker,
+        nix, forge or foundry-zksync toolchain, an unavailable devnet or an unconfigured endpoint — so a
+        clean or blocked run is recorded as not found under those bounds rather than as a clean bill of
+        health. Then submit the final scan report.
+      dependsOn:
+        - quantify-impact-and-submission-readiness

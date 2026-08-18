@@ -106,13 +106,50 @@ func TestMinimalJSONSchemaItems(t *testing.T) {
 	}
 }
 
+func TestMinimalJSONSchemaCompositionBoundsAndConditionals(t *testing.T) {
+	schema := `{
+		"type":"object",
+		"required":["status","attempts","tags"],
+		"properties":{
+			"status":{"enum":["ready","blocked"]},
+			"attempts":{"type":"integer","minimum":1,"maximum":3},
+			"tags":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"string","minLength":2}},
+			"reason":{"type":"string","minLength":1}
+		},
+		"allOf":[
+			{"if":{"required":["status"],"properties":{"status":{"const":"blocked"}}},"then":{"required":["reason"]}}
+		]
+	}`
+	if err := mustValidateSubset(t, schema, `{"status":"ready","attempts":1,"tags":["ok"]}`); err != nil {
+		t.Fatalf("valid composed schema rejected: %v", err)
+	}
+	for _, value := range []string{
+		`{"status":"blocked","attempts":1,"tags":["ok"]}`,
+		`{"status":"ready","attempts":0,"tags":["ok"]}`,
+		`{"status":"ready","attempts":1,"tags":[]}`,
+		`{"status":"ready","attempts":1,"tags":["x"]}`,
+	} {
+		if err := mustValidateSubset(t, schema, value); err == nil {
+			t.Errorf("expected composed schema error for %s", value)
+		}
+	}
+	if err := mustValidateSubset(t, `{"oneOf":[{"const":"a"},{"const":"b"}]}`, `"b"`); err != nil {
+		t.Errorf("oneOf rejected one matching branch: %v", err)
+	}
+	if err := mustValidateSubset(t, `{"anyOf":[{"const":"a"},{"const":"b"}]}`, `"c"`); err == nil {
+		t.Error("anyOf accepted a value matching no branch")
+	}
+	if err := mustValidateSubset(t, `{"not":{"const":"forbidden"}}`, `"forbidden"`); err == nil {
+		t.Error("not accepted a disallowed value")
+	}
+}
+
 func TestMinimalJSONSchemaIgnoresUnsupportedKeywords(t *testing.T) {
 	schema := `{
-		"type": "string",
-		"pattern": "^[0-9]+$",
-		"minLength": 100,
-		"format": "uuid"
-	}`
+			"type": "string",
+			"pattern": "^[0-9]+$",
+			"format": "uuid"
+		}`
 	if err := mustValidateSubset(t, schema, `"abc"`); err != nil {
 		t.Errorf("unsupported keywords must be ignored, got: %v", err)
 	}

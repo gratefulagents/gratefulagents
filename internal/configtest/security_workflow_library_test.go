@@ -38,6 +38,13 @@ var blockchainSecurityWorkflowLibrary = []string{
 	"sui-move-security-review",
 	"ton-security-review",
 	"wallet-security-review",
+	"cross-chain-messaging-review",
+	"evm-lending-cdp-review",
+	"evm-orderbook-settlement-review",
+	"flow-cadence-review",
+	"near-contract-review",
+	"rollup-stack-review",
+	"solana-defi-program-review",
 }
 
 var fullAccessWebWorkflowLibrary = []string{
@@ -90,6 +97,13 @@ var securityWorkflowLibrary = []string{
 	"web-recon-passive",
 	"web-retest-confirmed-findings",
 	"web-server-side-input-assessment",
+	"cross-chain-messaging-review",
+	"evm-lending-cdp-review",
+	"evm-orderbook-settlement-review",
+	"flow-cadence-review",
+	"near-contract-review",
+	"rollup-stack-review",
+	"solana-defi-program-review",
 }
 
 // TestSecurityWorkflowLibraryInventory prevents new bootstrap workflows from
@@ -824,6 +838,92 @@ func TestHuntObjectivesFollowDisclosedPayoutOrder(t *testing.T) {
 					if !strings.Contains(task.Objective, marker) {
 						t.Errorf("task %q objective is missing %q", taskName, marker)
 					}
+				}
+			}
+		})
+	}
+}
+
+// protocolFamilyWorkflowLibrary lists the workflows written for one protocol
+// family each. They exist because the toolchain, harness and proof-of-concept
+// substrate differ per family. Discovery must fan out across independent
+// specialists before one write-capable validator builds proofs; otherwise the
+// advertised parallelism is inert and the validator is asked to discover bugs
+// despite its role contract.
+var protocolFamilyWorkflowLibrary = []string{
+	"cross-chain-messaging-review",
+	"evm-lending-cdp-review",
+	"evm-orderbook-settlement-review",
+	"flow-cadence-review",
+	"near-contract-review",
+	"rollup-stack-review",
+	"solana-defi-program-review",
+}
+
+// TestProtocolFamilyWorkflowsKeepTheirSpine pins the executable structure a
+// rewrite must not drop: real parallel discovery, a separate proof stage,
+// conditional evidence schemas, and explicit provider-eligibility state.
+func TestProtocolFamilyWorkflowsKeepTheirSpine(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range protocolFamilyWorkflowLibrary {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var workflow triggersv1alpha1.SecurityWorkflow
+			readBootstrapAsset(t, "securityworkflows", name, &workflow)
+
+			byName := make(map[string]triggersv1alpha1.SecurityScanTask, len(workflow.Spec.Tasks))
+			for _, task := range workflow.Spec.Tasks {
+				byName[task.Name] = task
+			}
+			for _, required := range []string{"validate-candidates-in-harness", "quantify-impact-and-submission-readiness", "triage-and-report"} {
+				if _, ok := byName[required]; !ok {
+					t.Fatalf("workflow is missing task %q", required)
+				}
+			}
+			validator := byName["validate-candidates-in-harness"]
+			if role := validator.EffectiveRole(); role != "exploit-validator" {
+				t.Errorf("validate-candidates-in-harness role = %q, want exploit-validator", role)
+			}
+			if workflow.Spec.Parallelism < 3 {
+				t.Errorf("parallelism = %d, want at least 3 for independent discovery lanes", workflow.Spec.Parallelism)
+			}
+			discoveryTasks := 0
+			for _, task := range workflow.Spec.Tasks {
+				if task.EffectiveRole() != "vulnerability-hunter" {
+					continue
+				}
+				discoveryTasks++
+				if !slices.Contains(validator.DependsOn, task.Name) {
+					t.Errorf("validator must depend on discovery task %q", task.Name)
+				}
+			}
+			if discoveryTasks < 3 {
+				t.Errorf("workflow has %d vulnerability-hunter discovery lanes, want at least 3", discoveryTasks)
+			}
+			for _, marker := range []string{"reproduction", "allOf", "const"} {
+				if !strings.Contains(validator.OutputSchema, marker) {
+					t.Errorf("validate-candidates-in-harness output schema is missing %q", marker)
+				}
+			}
+
+			// Eligibility state is machine-readable rather than inferred from
+			// prose at report time.
+			for _, marker := range []string{"eligibility_source", "technical_status", "submission_ready", "allOf"} {
+				if !strings.Contains(byName["quantify-impact-and-submission-readiness"].OutputSchema, marker) {
+					t.Errorf("quantify-impact-and-submission-readiness output schema is missing %q", marker)
+				}
+			}
+			for _, parameter := range workflow.Spec.Parameters {
+				if parameter.Name != "release_tag" {
+					continue
+				}
+				if !strings.Contains(workflow.Spec.Tasks[0].OutputSchema, "release_constraint") {
+					t.Error("release-tag workflow pin task must emit release_constraint")
+				}
+				if !strings.Contains(byName["quantify-impact-and-submission-readiness"].OutputSchema, "release_constraint_satisfied") {
+					t.Error("release-tag workflow eligibility schema must require release_constraint_satisfied")
 				}
 			}
 		})

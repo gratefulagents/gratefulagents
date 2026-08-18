@@ -1,0 +1,62 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-risc-zero-verifiers
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/risc0/risc0-ethereum
+      baseBranch: main
+      workflowRef: bridge-l2-zk-security-review
+      policyPackRef: bug-bounty
+      scanName: risc-zero-ethereum-verifier-contracts
+      displayName: RISC Zero Ethereum verifier contracts, contracts/src
+      priority: 44
+      featured: true
+  provider: HackenProof
+  displayName: RISC Zero Blockchain Verifiers
+  programURL: https://hackenproof.com/programs/risc-zero-blockchain-verifiers
+  verifiedAt: 2026-08-17T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: mainnet-fork
+  assets:
+    - repositoryURL: https://github.com/risc0/risc0-ethereum
+      displayName: RISC Zero Ethereum verifier contracts at main, contracts/src (Smart Contract, Critical)
+  knownIssues:
+    - source: RISC Zero external audits
+      summary: External audits are available for reference only, no bounties shall be paid against audit disclosed issues.
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-17.
+
+    Live Program is active now.
+    Range of bounty: $250 - $150,000.
+    Critical: $10,000 - $150,000; High: $5,000 - $10,000; Medium: $1,000 - $5,000; Low: $250 - $1,000.
+    The program requires 50 reputation points and a proof of concept, and requires a deposit. HackenProof charges a $5 submission fee. The program does not mark KYC as required.
+
+    Exact source scope and import boundaries
+    - https://github.com/risc0/risc0-ethereum/tree/main/contracts/src (Smart Contract, Critical)
+
+    Only the contracts/src directory of risc0/risc0-ethereum at its verified default branch, main, is eligible. No other directory in that repository is in scope.
+
+    Scoping clarification as published
+    Only the active version of the RISC Zero managed contract deployed to Ethereum Mainnet and active in the RISC Zero router contract is in scope. This will generally be the same version as deployed on Sepolia, and the authoritative source for addresses is contracts/deployment.toml in the same repository. The focus of this bounty program is inaccurate verification of Groth16 RISC Zero zkVM receipt claims, with invalid claims that successfully verify being considered the most critical. Upstream contract dependencies that impact the security of the RISC Zero contract are considered in scope if exploitable on Ethereum mainnet. Vulnerabilities related to the RISC Zero zkVM belong to the separate RISC Zero zkVM bug bounty program and are not eligible here. Payable bounties require sufficient information for RISC Zero engineers to independently reproduce the results.
+
+    Testing rules
+    This program is only scoped to the targets above; RISC Zero web pages, demo applications, and SaaS services are not in scope. Make every effort not to damage or restrict the availability of products, services, or infrastructure, and avoid compromising any personal data, interruption, or degradation of any service. Perform testing only within the scope. Do not spam forms or account creation flows using automated scanners. Do not break any law and stay in the defined scope. For a chain of vulnerabilities only the vulnerability with the highest severity is paid.
+
+    Eligibility, reporting, and disclosure
+    Employees, consultants, and agents of RISC Zero auditing vendors are ineligible for RISC Zero bug bounty programs, and external audits are available for reference only, so no bounties are paid against audit-disclosed issues. The first reporter must submit a qualifying vulnerability exclusively through hackenproof.com no later than 24 hours after discovery, using only the email under which the HackenProof account was registered. Reports must contain a clear textual description with detailed but to-the-point reproduction steps and attachments such as screenshots or proof-of-concept code as necessary. Former and current employees of the company or its contractors are ineligible. Do not discuss this program or any vulnerabilities, even resolved ones, outside the program without express consent from the organization; no vulnerability disclosure, including partial, is allowed, and bugs must not be published or discussed.
+  outOfScope:
+    - RISC Zero web pages, demo applications, or SaaS services are not in scope for this program
+    - Vulnerabilities related to the RISC Zero zkVM, which belong to the separate RISC Zero zkVM bug bounty program
+    - Versions of the RISC Zero managed contract that are not active in the RISC Zero router contract on Ethereum Mainnet
+    - Issues already disclosed by RISC Zero external audits
+  prohibitedTesting:
+    - This program is only scoped to the targets above, RISC Zero web pages, demo applications, or SaaS services are not in scope for this program
+    - Make every effort not to damage or restrict the availability of products, services, or infrastructure
+    - Avoid compromising any personal data, interruption, or degradation of any service
+    - Perform testing only within the scope
+    - Do not spam forms or account creation flows using automated scanners
+    - Do not break any law and stay in the defined scope
+    - Do not communicate vulnerability details to anyone who is not a HackenProof Team member or an authorized employee of the company without appropriate permission

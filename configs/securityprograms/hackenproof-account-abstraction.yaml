@@ -1,0 +1,102 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-account-abstraction
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/eth-infinitism/account-abstraction
+      baseBranch: v0.8.0
+      workflowRef: bounty-hunt-evm
+      policyPackRef: bug-bounty
+      scanName: account-abstraction-entrypoint
+      displayName: ERC-4337 EntryPoint core and utils at v0.8.0
+      priority: 31
+      featured: true
+      parameterValues:
+        chain_id: "1"
+        project_root: .
+  provider: HackenProof
+  displayName: Account Abstraction Bugs
+  programURL: https://hackenproof.com/programs/account-abstraction-bugs
+  verifiedAt: 2026-08-17T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/eth-infinitism/account-abstraction
+      displayName: Account Abstraction contracts, core and utils folders only (Smart Contract, Critical)
+    - repositoryURL: https://github.com/ethereum/ercs
+      displayName: ERC-4337 specification, ERCS/erc-4337.md (Protocol, Critical)
+    - repositoryURL: https://github.com/ethereum/ercs
+      displayName: ERC-7562 specification, ERCS/erc-7562.md (Protocol, Critical)
+  inScopeImpacts:
+    - impact: Executing a call in an account without passing validation (or executing it more than once for a single validation).
+      level: critical
+      assetType: Smart Contract
+    - impact: Stealing deposits or stakes.
+      level: critical
+      assetType: Smart Contract
+    - impact: UserOps that would pass off-chain simulation but cause an entire bundle to revert on-chain.
+      level: high
+      assetType: Smart Contract
+    - impact: Ability to put a valid UserOp on-chain and force it to revert after validation - effectively censoring it.
+      level: high
+      assetType: Smart Contract
+    - impact: Invalidating N UserOps at O(1) attack cost, effectively DoSing the entire mempool.
+      level: medium
+      assetType: Protocol
+    - impact: Exploiting the staked reputation rules to censor a staked entity by getting it banned at O(1) attack cost (or O(n) if iteration cost is cheap enough).
+      level: medium
+      assetType: Protocol
+    - impact: Gas calculation bug that can cause users to slightly overpay
+      level: low
+      assetType: Smart Contract
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-17.
+
+    Live Program is active now.
+    Range of bounty: $1,000 - $250,000.
+    Critical: $100,000 - $250,000; High: $25,000 - $50,000; Medium: $5,000 - $10,000; Low: $1,000 - $2,000.
+    The program requires 0 reputation points, KYC, and a proof of concept, and HackenProof charges a $7 submission fee.
+
+    Exact source scope and import boundaries
+    - https://github.com/eth-infinitism/account-abstraction (Smart Contract, Critical), with the published restriction "Only includes `core` and `utils` folders"
+    - https://github.com/ethereum/ercs/blob/master/ERCS/erc-4337.md (Protocol, Critical)
+    - https://github.com/ethereum/ercs/blob/master/ERCS/erc-7562.md (Protocol, Critical)
+
+    Only the contracts/core and contracts/utils directories of eth-infinitism/account-abstraction are eligible; no other directory in that repository is in scope. The two ERC targets are specification documents rather than implementation code, so they are recorded as policy assets and are not imported as scan targets.
+
+    Eligible commits
+    The program states: "Code marked by the following commit IDs and tags is eligible for the audit. Code that is not present on either of these tags is not eligible for the bounty program." The eligible tags are v0.8.0 (commit 4cbc06072cdc19fd60f285c5997f4f7f57a588de), v0.7.0 (commit 7af70c8993a6f42973f520ae0752386a5032abe7), and v0.6.0 (commit abff2aca61a8f0934e533d0d352978055fddbd96). The imported scan target is pinned to v0.8.0 for that reason; the repository default branch, develop, is not an eligible target.
+
+    In-scope vulnerabilities
+    - Implementation bugs that enable any malicious behavior
+    - Denial of service (DOS) vectors against the protocol (not against specific bundlers)
+    - Inconsistencies in assumptions, like situations where staked entities can be banned at a low cost to the attacker
+
+    Severity ladder as published
+    Critical covers EntryPoint bugs that can cause major financial damage and may require EntryPoint redeployment, for example: Executing a call in an account without passing validation (or executing it more than once for a single validation). Stealing deposits or stakes.
+    High covers on-chain griefing or censorship of an ERC-4337 compliant component, for example: UserOps that would pass off-chain simulation but cause an entire bundle to revert on-chain. Ability to put a valid UserOp on-chain and force it to revert after validation - effectively censoring it.
+    Medium covers off-chain DoS vectors against the AA mempool which are not solved by the ERC-7562 rules and are unique to AA, that is, not general libp2p attacks that would affect CL as well, for example: Invalidating N UserOps at O(1) attack cost, effectively DoSing the entire mempool. Exploiting the staked reputation rules to censor a staked entity by getting it banned at O(1) attack cost (or O(n) if iteration cost is cheap enough).
+    Low covers bugs that cause negligible financial damage or inconvenience, for example: Gas calculation bug that can cause users to slightly overpay
+    The extent of the potential financial damage is taken into account when determining the severity level.
+
+    Testing rules
+    Perform testing on a private testnet wherever possible. Make every effort not to damage or restrict the availability of products, services, or infrastructure, and avoid compromising any personal data, interruption, or degradation of any service. Do not access or modify other user data; localize all tests to your accounts. Do not exploit any DoS/DDoS vulnerabilities, social engineering attacks, or spam. Do not break any law and stay in the defined scope. For a chain of vulnerabilities only the vulnerability with the highest severity is paid. A valid finding requires extra KYC verification before payment.
+
+    Eligibility, reporting, and disclosure
+    The first reporter must submit a qualifying vulnerability exclusively through hackenproof.com no later than 24 hours after discovery, using only the HackenProof address registered to the account. First-reporter status accounts for disclosures discovered by a security audit or made available to the ERC-4337 team through other channels such as GitHub, the Ethereum Magicians website, Discord, Telegram, or e-mail. Reports must contain a clear textual description with detailed but to-the-point reproduction steps and attachments such as screenshots or proof-of-concept code as necessary. Employees of the Ethereum Foundation Account Abstraction team and its contractors are ineligible. Determinations of eligibility, score, and all award terms are at the sole and final discretion of the Ethereum Foundation bug bounty panel. Approval of submissions and awarded bounties must not be publicly disclosed without prior permission from the ERC-4337 team. Do not discuss this program or any vulnerabilities, even resolved ones, outside the program without express consent; no vulnerability disclosure, including partial, is allowed, and bugs must not be published or discussed. Violating any bug bounty rule leads to immediate exclusion from the program regardless of submission validity.
+  outOfScope:
+    - Network-level DoS
+    - Attacks on any specific bundler, account or paymaster. Our bounties cover the contracts and the protocol definitions, not their implementations
+  prohibitedTesting:
+    - Make every effort not to damage or restrict the availability of products, services, or infrastructure
+    - Avoid compromising any personal data, interruption, or degradation of any service
+    - Do not access or modify other user data; localize all tests to your accounts
+    - Perform testing only within the scope
+    - Do not exploit any DoS/DDoS vulnerabilities, social engineering attacks, or spam
+    - Do not break any law and stay in the defined scope
+    - Perform testing on a private testnet wherever possible
+    - Do not communicate vulnerability details to anyone who is not a HackenProof Team member or an authorized employee of the company without appropriate permission

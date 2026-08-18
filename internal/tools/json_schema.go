@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"unicode/utf8"
 )
 
 // minimalJSONSchema is a dependency-free validator for the JSON Schema subset
@@ -14,11 +15,13 @@ import (
 //   - properties (object)
 //   - required (object)
 //   - items (single schema, arrays)
-//   - enum
+//   - enum and const
 //   - additionalProperties (boolean form only)
+//   - minimum/maximum, minLength/maxLength, and minItems/maxItems
+//   - allOf, anyOf, oneOf, not, and if/then/else
 //
 // All other keywords (and non-boolean additionalProperties, type unions,
-// $ref, allOf/anyOf/oneOf, pattern, format, min/max bounds, ...) are ignored:
+// $ref, pattern, format, ...) are ignored:
 // values pass validation for keywords this validator does not understand.
 type minimalJSONSchema struct {
 	raw map[string]any
@@ -45,6 +48,12 @@ func (s *minimalJSONSchema) Validate(value any) error {
 }
 
 func validateJSONSubset(schema map[string]any, value any, path string) error {
+	if constant, ok := schema["const"]; ok && !reflect.DeepEqual(constant, value) {
+		return fmt.Errorf("%s: value does not equal the schema const", path)
+	}
+	if err := validateJSONComposition(schema, value, path); err != nil {
+		return err
+	}
 	if typ, ok := schema["type"].(string); ok {
 		if err := checkJSONType(typ, value, path); err != nil {
 			return err
@@ -60,6 +69,23 @@ func validateJSONSubset(schema map[string]any, value any, path string) error {
 		}
 		if !matched {
 			return fmt.Errorf("%s: value is not one of the enum values", path)
+		}
+	}
+	if number, ok := value.(float64); ok {
+		if minimum, exists := schema["minimum"].(float64); exists && number < minimum {
+			return fmt.Errorf("%s: value must be at least %v", path, minimum)
+		}
+		if maximum, exists := schema["maximum"].(float64); exists && number > maximum {
+			return fmt.Errorf("%s: value must be at most %v", path, maximum)
+		}
+	}
+	if stringValue, ok := value.(string); ok {
+		length := float64(utf8.RuneCountInString(stringValue))
+		if minimum, exists := schema["minLength"].(float64); exists && length < minimum {
+			return fmt.Errorf("%s: value must contain at least %v characters", path, minimum)
+		}
+		if maximum, exists := schema["maxLength"].(float64); exists && length > maximum {
+			return fmt.Errorf("%s: value must contain at most %v characters", path, maximum)
 		}
 	}
 	if obj, ok := value.(map[string]any); ok {
@@ -89,11 +115,66 @@ func validateJSONSubset(schema map[string]any, value any, path string) error {
 		}
 	}
 	if arr, ok := value.([]any); ok {
+		length := float64(len(arr))
+		if minimum, exists := schema["minItems"].(float64); exists && length < minimum {
+			return fmt.Errorf("%s: value must contain at least %v items", path, minimum)
+		}
+		if maximum, exists := schema["maxItems"].(float64); exists && length > maximum {
+			return fmt.Errorf("%s: value must contain at most %v items", path, maximum)
+		}
 		if items, ok := schema["items"].(map[string]any); ok {
 			for i, element := range arr {
 				if err := validateJSONSubset(items, element, fmt.Sprintf("%s[%d]", path, i)); err != nil {
 					return err
 				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateJSONComposition(schema map[string]any, value any, path string) error {
+	if branches, ok := schema["allOf"].([]any); ok {
+		for index, raw := range branches {
+			branch, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if err := validateJSONSubset(branch, value, path); err != nil {
+				return fmt.Errorf("%s: allOf[%d]: %w", path, index, err)
+			}
+		}
+	}
+	for _, keyword := range []string{"anyOf", "oneOf"} {
+		branches, ok := schema[keyword].([]any)
+		if !ok {
+			continue
+		}
+		matches := 0
+		for _, raw := range branches {
+			branch, ok := raw.(map[string]any)
+			if ok && validateJSONSubset(branch, value, path) == nil {
+				matches++
+			}
+		}
+		if keyword == "anyOf" && matches == 0 {
+			return fmt.Errorf("%s: value must satisfy at least one anyOf branch", path)
+		}
+		if keyword == "oneOf" && matches != 1 {
+			return fmt.Errorf("%s: value must satisfy exactly one oneOf branch (matched %d)", path, matches)
+		}
+	}
+	if disallowed, ok := schema["not"].(map[string]any); ok && validateJSONSubset(disallowed, value, path) == nil {
+		return fmt.Errorf("%s: value satisfies a disallowed schema", path)
+	}
+	if condition, ok := schema["if"].(map[string]any); ok {
+		keyword := "else"
+		if validateJSONSubset(condition, value, path) == nil {
+			keyword = "then"
+		}
+		if branch, ok := schema[keyword].(map[string]any); ok {
+			if err := validateJSONSubset(branch, value, path); err != nil {
+				return fmt.Errorf("%s: %s: %w", path, keyword, err)
 			}
 		}
 	}

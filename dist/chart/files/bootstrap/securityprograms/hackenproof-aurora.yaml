@@ -1,0 +1,119 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-aurora
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/aurora-is-near/aurora-engine
+      baseBranch: develop
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: aurora-engine-develop
+      displayName: Aurora Engine in-scope crates on develop
+      priority: 41
+      featured: true
+    - repositoryURL: https://github.com/aurora-is-near/aurora-engine
+      baseBranch: master
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: aurora-engine-master
+      displayName: Aurora Engine in-scope crates on master
+      priority: 42
+      featured: true
+    - repositoryURL: https://github.com/aurora-is-near/sputnikvm
+      baseBranch: master
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: aurora-sputnikvm
+      displayName: Sputnik EVM
+      priority: 43
+      featured: false
+  provider: HackenProof
+  displayName: Aurora Smart Contract
+  programURL: https://hackenproof.com/programs/aurora-smart-contract
+  verifiedAt: 2026-08-17T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/aurora-is-near/aurora-engine
+      displayName: Aurora Engine, engine/engine-precompiles/engine-sdk/engine-transactions/engine-types/etc/eth-contracts on master and develop (Engine, Critical)
+    - repositoryURL: https://github.com/aurora-is-near/sputnikvm
+      displayName: Sputnik EVM (Engine, Critical)
+    - displayName: Aurora account on NEAR, https://explorer.near.org/accounts/aurora (Engine, Critical)
+      chainID: near-mainnet
+      address: aurora
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-17.
+
+    Live Program is active now.
+    Range of bounty: $500 - $300,000.
+    Critical: $300,000; High: $100,000; Medium: $10,000; Low: $1,000.
+    The program requires 100 reputation points, KYC, and a proof of concept, and requires a deposit. HackenProof charges no submission fee for this program.
+    The program separately publishes the caps "Low - up to $1000, Medium - up to $10 000, High - up to $100 000, Critical - up to $1 000 000" alongside the displayed $500 - $300,000 range; both figures are transcribed exactly as published.
+
+    Exact source scope and import boundaries
+    - https://explorer.near.org/accounts/aurora (Engine, Critical) - Aurora
+    - https://github.com/aurora-is-near/aurora-engine/tree/master/engine (Engine, Critical) - Engine Master
+    - https://github.com/aurora-is-near/aurora-engine/tree/develop/engine (Engine, Critical) - Engine Dev
+    - https://github.com/aurora-is-near/aurora-engine/tree/master/engine-precompiles (Engine, Critical) - Engine Master Precompiles
+    - https://github.com/aurora-is-near/aurora-engine/tree/develop/engine-precompiles (Engine, Critical) - EngineDevPrecompiles
+    - https://github.com/aurora-is-near/aurora-engine/tree/master/engine-sdk (Engine, Critical) - Engine Master SDK
+    - https://github.com/aurora-is-near/aurora-engine/tree/develop/engine-sdk (Engine, Critical) - Engine Dev SDK
+    - https://github.com/aurora-is-near/aurora-engine/tree/master/engine-transactions (Engine, Critical) - Engine Master Transactions
+    - https://github.com/aurora-is-near/aurora-engine/tree/develop/engine-transactions (Engine, Critical) - Engine Dev Transactions
+    - https://github.com/aurora-is-near/aurora-engine/tree/master/engine-types (Engine, Critical) - Master Engine Types
+    - https://github.com/aurora-is-near/aurora-engine/tree/develop/engine-types (Engine, Critical) - Dev Engine Types
+    - https://github.com/aurora-is-near/aurora-engine/tree/master/etc/eth-contracts (Engine, Critical) - Master Eth Contracts
+    - https://github.com/aurora-is-near/aurora-engine/tree/develop/etc/eth-contracts (Engine, Critical) - Dev Eth Contracts
+    - https://github.com/aurora-is-near/sputnikvm (Engine, Critical) - Sputnik EVM
+
+    Both the master and develop branches of aurora-is-near/aurora-engine are in scope, and each is imported as its own scan target; the repository default branch is develop. Within either branch the eligible directories are exactly engine, engine-precompiles, engine-sdk, engine-transactions, engine-types, and etc/eth-contracts. No other directory of aurora-engine is eligible. The Aurora account on NEAR is a deployed-state asset rather than a source target, so it is recorded as an asset and is not imported.
+
+    The program states that all smart contracts of Aurora can be found at https://github.com/aurora-is-near, however only those in the Assets in Scope table are considered as in-scope of the bug bounty program. If an impact can be caused to another Aurora-managed asset that is not on the table but the impact appears in the in-scope impact list, submitters are encouraged to submit it for consideration; this applies only to Critical impacts.
+
+    In-scope impacts as published
+    Only the following impacts are accepted within this bug bounty program. All other impacts are not considered as in-scope, even if they affect something in the assets in scope table.
+    - Any governance voting result manipulation
+    - Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield
+    - Permanent freezing of funds
+    - Insolvency
+    - Theft of unclaimed yield
+    - Permanent freezing of unclaimed yield
+    - Temporary freezing of funds
+    - Smart contract unable to operate due to lack of funds
+    - Block stuffing for profit
+    - Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)
+    - Theft of gas
+    - Unbounded gas consumption
+    - Smart contract fails to deliver promised returns, but doesn't lose value
+
+    Reward cap
+    The total maximum reward for High and Critical severity bugs is capped at 10% of the funds that are practically affected by the discovered vulnerability: maxReward = min(10% TVL, maxSeverityBudget).
+
+    Testing rules
+    Any testing with mainnet or public testnet contracts is prohibited; all testing must be done on private testnets. Testing with pricing oracles or third-party smart contracts is prohibited, as is any testing with third-party systems and applications such as browser extensions, and websites such as SSO providers or advertising networks. Phishing and other social engineering attacks against employees or customers are prohibited. Denial of service attacks and automated testing that generates significant amounts of traffic are prohibited. Public disclosure of an unpatched vulnerability in an embargoed bounty is prohibited.
+
+    Payment note
+    The program states: "NOTE! Aurora is entitled to make payments in AURORA tokens - locked distribution within 1 year linearly unlock."
+
+    Eligibility, reporting, and disclosure
+    The first reporter must submit a qualifying vulnerability exclusively through hackenproof.com no later than 24 hours after discovery, using only the HackenProof address registered to the account. Reports must contain a clear textual description with detailed but to-the-point reproduction steps and attachments such as screenshots or proof-of-concept code as necessary; a proof of concept is mandatory for all severity types of smart contract and webapp vulnerabilities. Former and current employees of the company or its contractors are ineligible. The hacker must successfully pass KYC in order to be eligible for the reward. As this is a private program, do not discuss the program or any vulnerabilities, even resolved ones, outside the program without express consent from the organization; no vulnerability disclosure, including partial, is allowed, and bugs must not be published or discussed.
+  outOfScope:
+    - Incorrect data supplied by third party oracles
+    - Not to exclude oracle manipulation/flash loan attacks
+    - Basic economic governance attacks (e.g. 51% attack)
+    - Lack of liquidity
+    - Best practice critiques
+    - Sybil attacks
+    - Centralization risks
+  prohibitedTesting:
+    - Any testing with mainnet or public testnet contracts; all testing should be done on private testnets
+    - Any testing with pricing oracles or third party smart contracts
+    - Attempting phishing or other social engineering attacks against our employees and/or customers
+    - Any testing with third party systems and applications (e.g. browser extensions) as well as websites (e.g. SSO providers, advertising networks)
+    - Any denial of service attacks
+    - Automated testing of services that generates significant amounts of traffic
+    - Public disclosure of an unpatched vulnerability in an embargoed bounty

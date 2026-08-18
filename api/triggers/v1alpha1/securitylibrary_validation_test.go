@@ -110,6 +110,42 @@ func TestValidateSecurityWorkflowOutputUsesAgentRunSchemaSubset(t *testing.T) {
 	}
 }
 
+func TestValidateSecurityWorkflowOutputEnforcesConditionalEvidence(t *testing.T) {
+	schema := `{
+		"type":"object",
+		"required":["verdict","attempts"],
+		"properties":{
+			"verdict":{"enum":["broken","refuted","untested"]},
+			"attempts":{"type":"integer","minimum":1},
+			"reproduction":{"type":"object","required":["command"],"properties":{"command":{"type":"string","minLength":1}}},
+			"missing_dependency":{"type":"string","minLength":1}
+		},
+		"allOf":[
+			{"if":{"required":["verdict"],"properties":{"verdict":{"const":"broken"}}},"then":{"required":["reproduction"]}},
+			{"if":{"required":["verdict"],"properties":{"verdict":{"const":"untested"}}},"then":{"required":["missing_dependency"]}}
+		]
+	}`
+	for _, output := range []string{
+		`{"verdict":"broken","attempts":1,"reproduction":{"command":"forge test"}}`,
+		`{"verdict":"refuted","attempts":2}`,
+		`{"verdict":"untested","attempts":1,"missing_dependency":"archive endpoint"}`,
+	} {
+		if err := ValidateSecurityWorkflowOutput(schema, output); err != nil {
+			t.Errorf("expected valid output %s: %v", output, err)
+		}
+	}
+	for _, output := range []string{
+		`{"verdict":"broken","attempts":1}`,
+		`{"verdict":"untested","attempts":1}`,
+		`{"verdict":"refuted","attempts":0}`,
+		`{"verdict":"broken","attempts":1,"reproduction":{"command":""}}`,
+	} {
+		if err := ValidateSecurityWorkflowOutput(schema, output); err == nil {
+			t.Errorf("expected conditional schema error for %s", output)
+		}
+	}
+}
+
 func TestValidateSecurityWorkflowTasksExecutionFieldFailures(t *testing.T) {
 	base := func() []SecurityScanTask {
 		return []SecurityScanTask{

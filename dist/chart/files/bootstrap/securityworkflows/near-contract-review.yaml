@@ -1,0 +1,518 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: near-contract-review
+spec:
+  description: Protocol-specific bounty hunt for NEAR smart contracts written in Rust and compiled to wasm (near/core-contracts, near-daos/sputnik-dao-contract, near/intents). Independent specialists hunt promise and callback safety, identity and access keys, storage and deposit accounting, receiver flows, and migrations before a separate validator builds repository-native Rust reproductions. Technical validity is retained independently from novelty and provider submission rules.
+  parameters:
+    - name: project_root
+      description: Repository-relative root of the NEAR contract project under test. core-contracts ships no root Cargo workspace, so this is often a single contract crate rather than a workspace root.
+      default: "."
+    - name: contract_crate
+      description: Crate under project_root that produces the contract wasm under test (for example lockup, staking-pool, sputnikdao2, or a defuse/poa crate in near/intents). Leave unconfigured to derive the crate set from the manifests.
+      default: "unconfigured"
+    - name: rust_toolchain
+      description: Toolchain the repository pins. near/intents pins 1.97.1 plus wasm32-unknown-unknown, sputnik-dao pins 1.86 plus the wasm target, core-contracts CI pinned 1.59 against near-sdk 2.0/3.1/4.0.0-pre.4. Use autodetect to resolve it from rust-toolchain, rust-toolchain.toml or CI rather than guessing.
+      default: "autodetect"
+    - name: wasm_artifact_dir
+      description: Directory, relative to project_root, holding committed `res/*.wasm` artifacts. core-contracts commits all 15 contract wasms under res/ and loads them with lazy_static_include_bytes!; sputnikdao2 commits sputnikdao2_original.wasm and ref_exchange_release.wasm as upgrade fixtures; near/intents integration tests require res/*.wasm to already exist. Reuse these instead of rebuilding.
+      default: "res"
+    - name: sandbox_harness
+      description: Test harness the repository exercises contracts through. near-sdk-sim for core-contracts spec tests, near-kit at crates/testing/sandbox for near/intents, near-workspaces where a repository uses it, or autodetect to resolve it from the test sources.
+      default: "autodetect"
+    - name: mainnet_import_endpoint_alias
+      description: Operator-authorized endpoint alias that must be configured before any test path may import mainnet account state, as sputnikdao2/tests/utils/mod.rs does with sandbox.import_account(RPCEndpoint::mainnet().url, "sputnik-dao.near"). Supply an alias, never a raw credential-bearing URL. While unconfigured, no test path may reach that host.
+      default: "unconfigured"
+  parallelism: 4
+  tasks:
+    - name: pin-target-and-toolchain
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-entry-point-analyzer
+        - name: trail-of-bits-rust-review
+      objective: >-
+        Pin the source target and the sandbox it can actually be exercised in before anyone reasons about
+        it. The full run tool surface remains available; this task is inventory only and must not change
+        state anywhere outside the sandbox workspace, must not send mutating requests, and must never
+        contact NEAR mainnet or a public testnet or any other live target.
+
+        From project root {{params.project_root}} record the immutable revision, the crate layout, and the
+        exact toolchain, resolving {{params.rust_toolchain}} and {{params.contract_crate}} against the
+        repository rather than assuming them. Do not assume a workspace: near/core-contracts ships no root
+        Cargo workspace and every contract is its own crate with its own near-sdk version (2.0, 3.1 and
+        4.0.0-pre.4 all appear), while near/intents is a resolver-3 workspace on near-sdk 5.29.0 and
+        sputnik-dao is a workspace whose crates each carry their own build.sh. Record each crate's near-sdk
+        version, because the SDK generation decides which hazards exist at all. Record the pinned toolchain
+        from rust-toolchain or rust-toolchain.toml and from CI, and record the wasm32-unknown-unknown
+        target requirement. State plainly that the scan image ships no Rust toolchain, no cargo-near and no
+        neard, so toolchain bootstrap is an explicit step that may block the run.
+
+        Record the build and test commands the repository actually declares, not invented ones: ./build.sh
+        to wasm32-unknown-unknown for core-contracts; per-crate ./build.sh calling `cargo near build
+        reproducible-wasm` for sputnik-dao and near/intents, which needs Docker plus the digest-pinned
+        sourcescan/cargo-near image and is therefore usually unavailable here, leaving the
+        non-reproducible lane as the only feasible one; `cargo test`, `cargo test --workspace`, `make test`
+        (= cargo test --all --all-features) and targeted `cargo integration-tests <defuse|poa|escrow-swap>`.
+        Resolve {{params.sandbox_harness}} from the test sources: near-sdk-sim (near_sdk_sim::{deploy,
+        init_simulator}, e.g. lockup/tests/spec.rs), near-kit at crates/testing/sandbox with
+        SandboxConfig::shared() which downloads a neard binary, or near-workspaces. Resolve
+        {{params.wasm_artifact_dir}} and list the committed artifacts: core-contracts commits all 15
+        contract wasms under res/ and loads them with lazy_static_include_bytes!, which makes its
+        simulation tests the most offline-friendly lane in this family and requires no wasm build;
+        sputnikdao2 commits sputnikdao2_original.wasm and ref_exchange_release.wasm as upgrade fixtures;
+        near/intents integration tests require res/*.wasm to already exist.
+
+        Enumerate every test path that performs network access and name it explicitly, above all
+        sputnikdao2/tests/utils/mod.rs, which starts a sandbox and then calls
+        sandbox.import_account(RPCEndpoint::mainnet().url, "sputnik-dao.near") so the default test path
+        contacts live mainnet RPC. Treat that as network access permitted only when the scan's
+        operator-authorized network targets allow it: while {{params.mainnet_import_endpoint_alias}} is
+        unconfigured set network_readiness to blocked, name the missing input in gaps, and record that the
+        imported account must be pinned or stubbed and the substitution recorded before those tests run.
+
+        Then map the contract surface: which contracts custody user funds or staked NEAR, the public
+        methods and their `#[payable]`, `#[private]` and `#[init]` attributes, the cross-contract promise
+        and callback graph with the callback that resolves each promise, the owner, DAO, role and policy
+        registries, the storage-deposit registry and its unregistration path, the NEP-141 and NEP-171
+        entry points implemented, the migrate and upgrade methods and their state layout, and the
+        collections whose growth is unbounded. Publish one structured dossier and report no vulnerabilities
+        here.
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["revision", "crate_layout", "rust_toolchain", "dependency_bootstrap", "build_command", "test_command", "sandbox_harness", "network_readiness", "components", "gaps"],
+          "properties": {
+            "revision": {"type": "string"},
+            "crate_layout": {"type": "string", "description": "workspace or standalone-crates, resolved from the manifests; core-contracts has no root workspace"},
+            "near_sdk_versions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["crate", "near_sdk_version"],
+                "properties": {
+                  "crate": {"type": "string"},
+                  "near_sdk_version": {"type": "string"},
+                  "evidence": {"type": "string", "description": "file:line"}
+                }
+              }
+            },
+            "rust_toolchain": {"type": "string", "description": "Pinned toolchain resolved from rust-toolchain, rust-toolchain.toml or CI, plus the wasm32-unknown-unknown target requirement"},
+            "dependency_bootstrap": {"type": "array", "items": {"type": "string"}, "description": "Ordered commands that make the project buildable from an image with no rustup, cargo-near or neard"},
+            "build_command": {"type": "string"},
+            "reproducible_build_available": {"type": "boolean", "description": "false when cargo near build reproducible-wasm cannot run because Docker or the pinned sourcescan/cargo-near image is unavailable"},
+            "test_command": {"type": "string"},
+            "offline_test_lane": {"type": "string", "description": "The subset of the suite that runs with no network and no wasm rebuild, such as core-contracts near-sdk-sim tests over committed res/*.wasm, or none"},
+            "sandbox_harness": {"type": "string", "enum": ["near-sdk-sim", "near-kit", "near-workspaces", "none"]},
+            "committed_wasm_artifacts": {"type": "array", "items": {"type": "string"}, "description": "Repository-relative committed wasm reusable instead of rebuilding, including upgrade fixtures"},
+            "network_test_paths": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["path", "host", "purpose"],
+                "properties": {
+                  "path": {"type": "string", "description": "file:line of the test path that performs network access"},
+                  "host": {"type": "string"},
+                  "purpose": {"type": "string"},
+                  "substitution": {"type": "string", "description": "How the imported account is pinned or stubbed when the host is not operator-authorized"}
+                }
+              }
+            },
+            "network_readiness": {"type": "string", "enum": ["ready", "blocked"]},
+            "components": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "role"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "role": {"type": "string", "description": "fund custody, staking pool, promise callback, privileged owner or DAO policy, storage-deposit registry, NEP-141 or NEP-171 entry point, migrate or upgrade path, or unbounded collection"},
+                  "attributes": {"type": "string", "description": "payable, private, init, view, or none"},
+                  "evidence": {"type": "string", "description": "file:line"}
+                }
+              }
+            },
+            "gaps": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: map-contract-invariants
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-rust-review
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Using {{tasks.pin-target-and-toolchain.output}}, write the invariant set this protocol class is
+        actually paid for breaking, with repository-relative evidence for each. The full run tool surface
+        remains available; this task reads and reasons only, must not change state outside the sandbox
+        workspace, must not claim a test result it did not produce, and must never contact NEAR mainnet, a
+        public testnet, or any other live target.
+
+        Anchor every invariant in NEAR's asynchronous execution model rather than in EVM intuitions: a
+        `Promise` does not resolve within the calling function, so any state written before the callback
+        runs is visible to other transactions in between, and a failed promise does not revert the caller.
+        Cover, at minimum: (1) cross-contract call and callback safety — no callback assumes atomicity with
+        its caller, every callback is `#[private]` so no external account can forge a resolution, every
+        `PromiseResult::Failed` and `NotReady` branch is handled, and no refund path double-credits when a
+        transfer fails after the balance was already restored; (2) authorization — `predecessor_account_id`
+        is used wherever the immediate caller matters and `signer_account_id` is never trusted as an
+        authorization check, privileged methods assert one yoctoNEAR so a restricted function-call access
+        key cannot invoke them, owner, DAO role and policy registries admit exactly the intended callers on
+        every path, and access-key allowances cannot be abused to escalate; (3) storage staking and deposit
+        accounting — storage_deposit registration, unregistration and refunds conserve value and cannot
+        strand another account's stake, and no collection grows unboundedly on a path whose iteration must
+        later fit in one function call, which would permanently lock the state behind a gas ceiling;
+        (4) token standards — NEP-141 `ft_transfer_call` and NEP-171 `nft_transfer_call` receiver flows
+        resolve correctly, `ft_on_transfer` refund accounting returns exactly the unused amount, and no
+        intent or settlement flow credits a balance before the underlying transfer resolves; (5) gas
+        accounting — prepaid gas splits across chained promises always leave enough for the final callback,
+        and no path exists where a callback cannot be paid for and the state is left half-applied;
+        (6) upgrade and migration — `migrate` methods are callable only by the intended authority, the
+        state layout change is total over the old layout, and no DAO proposal, policy or bounty path lets a
+        lower-privileged actor upgrade the contract or rewrite the policy; (7) arithmetic and serialization
+        — `U128` and `Balance` math cannot overflow or truncate, rounding is always against the caller, and
+        Borsh and JSON round trips agree so a value cannot change meaning across the wire.
+
+        For each invariant record the protected asset, the least-privileged attacker, the allowed
+        transition, where enforcement lives, the alternate paths that reach the same state, the impact when
+        it breaks, and the concrete local validation target: an existing near-sdk-sim spec test, a near-kit
+        sandbox integration test, an existing sputnikdao2/tests helper to reuse, a unit test module, or a
+        new test file path. Rank the hypotheses by the impact clause they would reach, not by novelty.
+        Report no findings here.
+      dependsOn:
+        - pin-target-and-toolchain
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["invariants", "ranked_hypotheses", "limitations"],
+          "properties": {
+            "invariants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "class", "property", "asset", "attacker", "enforcement", "validation_target"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "class": {"type": "string", "enum": ["promise_callback", "authorization", "storage_staking", "token_standard", "gas_accounting", "upgrade_migration", "arithmetic_serialization"]},
+                  "property": {"type": "string"},
+                  "asset": {"type": "string"},
+                  "attacker": {"type": "string"},
+                  "enforcement": {"type": "string", "description": "file:line where the invariant is enforced, or unenforced"},
+                  "alternate_paths": {"type": "array", "items": {"type": "string"}},
+                  "validation_target": {"type": "string", "description": "Existing near-sdk-sim spec test, near-kit sandbox test, sputnikdao2/tests helper, unit test module, or the new test file this invariant will be asserted in"}
+                }
+              }
+            },
+            "ranked_hypotheses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["invariant", "controlled_input", "expected_transition", "falsifier"],
+                "properties": {
+                  "invariant": {"type": "string"},
+                  "controlled_input": {"type": "string"},
+                  "expected_transition": {"type": "string"},
+                  "falsifier": {"type": "string"},
+                  "evidence": {"type": "string", "description": "file:line"}
+                }
+              }
+            },
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: hunt-identity-keys-and-access-control
+      role: vulnerability-hunter
+      category: access-control
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-rust-review
+      objective: >-
+        Hunt signer_account_id versus predecessor_account_id confusion, full-access and function-call key
+        assumptions, DAO roles, initialization and migration authorization, callback privacy and alternate entry
+        points using {{tasks.map-contract-invariants.output}}. Report concrete least-privileged attack paths with
+        file:line evidence; leave execution to validation.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-contract-invariants
+
+    - name: hunt-promises-callbacks-and-rollback
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-rust-review
+      objective: >-
+        Trace every Promise chain, callback result, gas allocation and failure branch. Hunt state committed before
+        an external promise, missing private-callback checks, double settlement, retry/replay, partial failure and
+        callback result decoding bugs. Compare synchronous assumptions with NEAR's asynchronous execution model and
+        report each reachable invariant violation.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-contract-invariants
+
+    - name: hunt-storage-deposits-and-accounting
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-dimensional-analysis
+      objective: >-
+        Hunt attached-deposit accounting, storage staking/refunds, yoctoNEAR guards, integer and decimal conversion,
+        token/share accounting and gas-locking paths. Check that every success, failure, unregister and cleanup path
+        closes balances exactly and cannot strand another user's storage stake or funds.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-contract-invariants
+
+    - name: hunt-token-receivers-migrations-and-intents
+      role: vulnerability-hunter
+      category: trust-boundary
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Hunt NEP-141/171 receiver callbacks, resolve-transfer behavior, refund amounts, serialization and state
+        migration, intent signature/domain/nonce binding, DAO proposal execution and cross-contract return-value
+        assumptions. Select the lanes that match the exact repository profile and report provider-specific paths,
+        not generic Rust findings.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-contract-invariants
+
+    - name: validate-candidates-in-harness
+      role: exploit-validator
+      category: other
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-harness-writing
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-rust-review
+        - name: exploit-poc-discipline
+      objective: >-
+        In one write-capable run, bootstrap the sandbox, build and calibrate the oracle, then reproduce or kill
+        candidate findings recorded by the four discovery lanes. Do not originate new vulnerabilities. The full
+        run tool surface remains available and is intentional here: this is the only task that builds and
+        executes code. All execution is local. Never change state on any live, public or third-party
+        system, never send a mutating request to a deployed contract, never send a transaction to NEAR
+        mainnet or a public testnet, and never test against a deployed account; every governing program
+        treats that as grounds for a permanent ban.
+
+        Bootstrap exactly what {{tasks.pin-target-and-toolchain.output}} recorded, remembering that the scan
+        image ships no rustup, no cargo, no cargo-near and no neard: install the pinned toolchain and the
+        wasm32-unknown-unknown target, run the recorded bootstrap in order, then the recorded build and
+        test command. Record every command with its exit status. Prefer the offline lane: reuse the
+        committed artifacts in {{params.wasm_artifact_dir}} instead of rebuilding, since core-contracts
+        loads all 15 committed res/*.wasm through lazy_static_include_bytes! and sputnikdao2 ships
+        sputnikdao2_original.wasm and ref_exchange_release.wasm as upgrade fixtures, and near/intents
+        integration tests need res/*.wasm to already exist. Do not attempt `cargo near build
+        reproducible-wasm` unless Docker and the digest-pinned sourcescan/cargo-near image are both
+        present; otherwise use the non-reproducible lane and record the substitution. An old-SDK crate that
+        no longer compiles on a modern toolchain — the live risk for core-contracts, whose CI pinned Rust
+        1.59 — is a recorded blocker, never something to work around silently by bumping dependencies.
+        Before running any suite, neutralize the network paths the dossier listed: sputnikdao2's default
+        test setup calls sandbox.import_account against live mainnet RPC, so run it only when
+        {{params.mainnet_import_endpoint_alias}} names an operator-authorized alias; otherwise pin or stub
+        the imported account state, record the substitution, set sandbox_status accordingly, and never let
+        a test path reach an unauthorized host.
+
+        Turn the invariants in {{tasks.map-contract-invariants.output}} into 5 to 15 executable assertions
+        on the strongest substrate available, added as Rust tests in the repository's own harness so the
+        proof of concept is runnable by the program exactly as submitted: near-sdk-sim spec tests for
+        core-contracts, near-kit sandbox integration tests under crates/testing/sandbox for near/intents,
+        and sputnikdao2/tests reusing the existing setup helpers rather than a parallel scaffold. Calibrate
+        each assertion with a temporary mutant that SHOULD make it fail; an invariant counts as calibrated
+        only when it is executable and kills its mutant, because an assertion that survives cannot detect
+        its own violation. Remove every mutant before finishing. A green harness never means the target is
+        safe; it means only not found under the recorded bounds.
+
+        Validate in payout order: promise and callback safety first,
+        including non-private callbacks, unhandled PromiseResult::Failed and double-crediting refunds; then
+        predecessor-versus-signer authorization and the one-yoctoNEAR assertion on privileged and role or
+        policy methods; then storage-staking and deposit accounting plus unbounded collections that push a
+        method past the gas ceiling and lock state; then NEP-141 and NEP-171 receiver flows, ft_on_transfer
+        refund accounting and intent or settlement paths that credit before a transfer resolves; then
+        prepaid-gas splits across chained promises, including a callback that cannot be paid for; then
+        migrate, state-layout and DAO self-upgrade paths; then U128 and Balance arithmetic and Borsh/JSON
+        round trips. Templated unchecked-arithmetic and missing-assert patterns stay available but sit off the
+        default path, because bot-findable means unpayable under duplicate rules. Every broken verdict needs the exact command and seed, the failing assertion, the
+        observed balance or state delta, a negative control that did not trigger, and the calibration
+        mutant proving the oracle can fail. Record the reproducibility class and never generalize a
+        local-only result into a claim about deployed configuration. A hypothesis without a failing
+        assertion is refuted or untested and may not be reported.
+      dependsOn:
+        - pin-target-and-toolchain
+        - map-contract-invariants
+        - hunt-identity-keys-and-access-control
+        - hunt-promises-callbacks-and-rollback
+        - hunt-storage-deposits-and-accounting
+        - hunt-token-receivers-migrations-and-intents
+      outputSchema: |-
+        {
+          "type": "object",
+          "required": ["bootstrap_status", "sandbox_status", "executable_invariant_count", "calibrated_invariant_count", "tool_runs", "hypotheses", "limitations"],
+          "properties": {
+            "bootstrap_status": {"type": "string", "enum": ["built", "partial", "blocked"], "description": "built only when the recorded build and test command both ran"},
+            "bootstrap_blocker": {"type": "string", "description": "Required when bootstrap_status is not built, for example an old near-sdk crate that no longer compiles on a modern toolchain"},
+            "sandbox_status": {"type": "string", "enum": ["executed", "substituted", "blocked"], "description": "substituted when a mainnet import was pinned or stubbed instead of contacting the live endpoint"},
+            "sandbox_blocker": {"type": "string"},
+            "wasm_source": {"type": "string", "enum": ["committed_artifacts", "local_build", "reproducible_build", "none"]},
+            "network_substitutions": {"type": "array", "items": {"type": "string"}, "description": "Each test path whose live-RPC import was pinned or stubbed, with what replaced it"},
+            "executable_invariant_count": {"type": "integer", "minimum": 0},
+            "calibrated_invariant_count": {"type": "integer", "minimum": 0, "description": "Must not exceed executable_invariant_count"},
+            "tool_runs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["tool", "command", "exit_status"],
+                "properties": {
+                  "tool": {"type": "string"},
+                  "command": {"type": "string"},
+                  "exit_status": {"type": "string"},
+                  "seed": {"type": "string"},
+                  "attempts": {"type": "integer", "minimum": 0},
+                  "successes": {"type": "integer", "minimum": 0}
+                }
+              }
+            },
+            "hypotheses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["invariant", "attacker", "verdict"],
+                "properties": {
+                  "invariant": {"type": "string"},
+                  "attacker": {"type": "string"},
+                  "verdict": {"type": "string", "enum": ["broken", "refuted", "untested"]},
+                  "missing_dependency": {"type": "string", "description": "Required when verdict is untested"},
+                  "fingerprint": {"type": "string", "description": "Required when verdict is broken"},
+                  "reproduction": {
+                    "type": "object",
+                    "required": ["command", "substrate", "test_path", "failing_assertion", "observed_delta", "negative_control_passed", "oracle_can_fail", "reproducibility_class"],
+                    "properties": {
+                      "command": {"type": "string"},
+                      "seed": {"type": "string"},
+                      "substrate": {"type": "string", "enum": ["unit_tests", "near_sdk_sim", "near_kit_sandbox", "near_workspaces_sandbox"]},
+                      "test_path": {"type": "string", "description": "Repository-relative path of the added Rust test the program can run unchanged"},
+                      "failing_assertion": {"type": "string"},
+                      "observed_delta": {"type": "string"},
+                      "negative_control_passed": {"type": "boolean"},
+                      "oracle_can_fail": {"type": "boolean"},
+                      "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]}
+                    }
+                  }
+                },
+                "allOf": [
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "broken"}}}, "then": {"required": ["fingerprint", "reproduction"]}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "untested"}}}, "then": {"required": ["missing_dependency"]}}
+                ]
+              }
+            },
+            "limitations": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+    - name: quantify-impact-and-submission-readiness
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: exploit-poc-discipline
+      objective: >-
+        Price and qualify only hypotheses with verdict broken and a valid reproduction in
+        {{tasks.validate-candidates-in-harness.output}}. The full run tool surface remains available; this task
+        must not change state outside the sandbox workspace and must never contact the program, the
+        protocol, NEAR mainnet, a public testnet, or any deployed system.
+
+        The run prompt already carries the governing program's typed scope — pocRequired, pocEnvironment,
+        prohibitedTesting, knownIssues and impacts — and that typed scope is authoritative over anything
+        assumed here. Obey pocEnvironment as the hard substrate constraint: it decides which substrate a
+        proof of concept may run on, and no reading of it ever permits a transaction against NEAR mainnet
+        or a public testnet. A knownIssues match blocks provider submission but does not erase a technically
+        confirmed defect. Never violate prohibitedTesting; if existing evidence did, block submission and require
+        a fresh safe reproduction rather than repackaging it.
+
+        Measure value at risk on the substrate that actually settled the claim: locked or drainable NEAR
+        and token balances, stranded storage stake, or permanently gas-locked state, each expressed at the
+        revision it was measured at, with deployed exposure labelled unverified rather than estimated
+        whenever the reproduction ran only against the repository's own harness. Record the capital the
+        attacker fronts, the capital they risk, and the privileges, access-key type and timing they need —
+        a full-access key, a function-call key, a DAO role, or none. Map each candidate onto the program's
+        eligibility rules. Copy a typed impact verbatim when present; otherwise copy the matching vulnerability or
+        asset rule verbatim from scopePolicy and mark the source. Never invent a clause or translate severity.
+
+        Then apply the submission gate these programs publish, and mark a candidate submission-ready only
+        when all of it holds: a runnable coded proof of concept exists whenever pocRequired is true, because
+        an explanation is not a proof of concept; the proof of concept ran only on a substrate
+        pocEnvironment permits and never against deployed code, which every governing program enforces with
+        a permanent ban; it does not test third-party contracts or run denial of service or
+        traffic-generating attacks; it is delivered as a Rust test the program can run in the repository's
+        own suite, ideally as a diff against the existing near-sdk-sim, near-kit or sputnikdao2 suite; it
+        is a single issue, written in English, with no raw scanner or model output pasted in; and it states
+        the revision, toolchain and harness it was produced at. Record the fix suggestion when the program
+        requires one. Anything failing the gate is reported as not submission-ready with the exact missing
+        element, while retaining the technically confirmed finding in the internal report.
+      dependsOn:
+        - validate-candidates-in-harness
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fingerprint", "eligibility_clause", "eligibility_source", "max_achievable_impact", "poc_runnable", "poc_substrate_permitted", "known_issue_match", "technical_status", "submission_ready"],
+            "properties": {
+              "fingerprint": {"type": "string"},
+              "eligibility_clause": {"type": "string"},
+              "eligibility_source": {"type": "string", "enum": ["typed_impact", "scope_policy", "unavailable"]},
+              "program_severity": {"type": "string"},
+              "max_achievable_impact": {"type": "string"},
+              "funds_at_risk": {"type": "string", "description": "Measured value plus the revision it was measured at, or why no measurement is possible"},
+              "attacker_capital": {"type": "string"},
+              "required_privilege": {"type": "string", "description": "full-access key, function-call access key, DAO role, contract owner, or none"},
+              "preconditions": {"type": "string"},
+              "poc_runnable": {"type": "boolean", "description": "A coded Rust test the program can execute unchanged in its own harness"},
+              "poc_command": {"type": "string"},
+              "poc_substrate_permitted": {"type": "boolean", "description": "false unless execution stayed on a substrate the program's pocEnvironment permits"},
+              "known_issue_match": {"type": "string", "minLength": 1, "description": "The verbatim knownIssues clause sharing this root cause, or exactly none"},
+              "fix_suggestion": {"type": "string"},
+              "technical_status": {"const": "confirmed"},
+              "submission_ready": {"type": "boolean"},
+              "blocking_gap": {"type": "string", "description": "Required when submission_ready is false"}
+            },
+            "allOf": [
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": false}}}, "then": {"required": ["blocking_gap"]}},
+              {"if": {"required": ["submission_ready"], "properties": {"submission_ready": {"const": true}}}, "then": {"properties": {"eligibility_clause": {"minLength": 1}, "poc_runnable": {"const": true}, "poc_substrate_permitted": {"const": true}, "known_issue_match": {"const": "none"}, "eligibility_source": {"not": {"const": "unavailable"}}}}}
+            ]
+          }
+        }
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: trail-of-bits-fp-check
+      objective: >-
+        Assemble the report from {{tasks.quantify-impact-and-submission-readiness.output}} under one
+        admission rule: a finding survives only when a named calibrated invariant broke, a runnable failing
+        Rust assertion on a permitted local substrate proves it, the negative control did not trigger, the
+        oracle was shown capable of failing, and the technical proof passed. Eligibility affects submission
+        readiness, not whether the underlying defect exists. Provider submission readiness is a separate label: a missing eligibility clause or
+        prerequisite blocks submission but must not erase a technically confirmed vulnerability. The full run tool surface remains available; this task must not change
+        state outside the sandbox workspace and must never contact NEAR mainnet, a public testnet, or any
+        deployed system.
+
+        Label near-sdk-sim and sandbox evidence for what it is — a result about the repository's code at a
+        revision — without implying deployed exposure that was never verified. Drop refuted and unproved claims,
+        including analyses that read well but never broke anything. Prefer an empty report to a padded one:
+        reporting is rationed, a rejected submission costs more than a withheld one, and these programs
+        explicitly reject scanner-shaped reports without demonstrated impact. State the bounded negative
+        result explicitly — which invariants were tested, at which revision, toolchain and harness, on
+        which substrate, which wasm artifacts were reused rather than rebuilt, and which lanes were blocked
+        by a missing Rust toolchain, a missing cargo-near or neard, an unbuildable old-SDK crate, or an
+        unauthorized mainnet-import endpoint — so a clean or blocked run is recorded as not found under
+        those bounds rather than as a clean bill of health. Then submit the final scan report.
+      dependsOn:
+        - quantify-impact-and-submission-readiness

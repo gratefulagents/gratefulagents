@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/Kamino-Finance/klend
       baseBranch: master
-      workflowRef: solana-anchor-security-review
+      workflowRef: solana-defi-program-review
       policyPackRef: bug-bounty
       scanName: immunefi-kamino-klend
       displayName: Kamino KLend
@@ -17,6 +17,8 @@ spec:
   programURL: https://immunefi.com/bug-bounty/kamino/scope/
   verifiedAt: 2026-08-12T00:00:00Z
   severitySystem: immunefi-v2.3
+  pocRequired: true
+  pocEnvironment: mainnet-fork
   primacy: impact
   inScopeImpacts:
     - impact: "Manipulation of governance voting result deviating from voted outcome and resulting in a direct change from intended effect of original results"

@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/wormhole-foundation/wormhole
       baseBranch: main
-      workflowRef: bridge-l2-zk-security-review
+      workflowRef: cross-chain-messaging-review
       policyPackRef: bug-bounty
       scanName: immunefi-wormhole
       displayName: Wormhole
@@ -17,6 +17,8 @@ spec:
   programURL: https://immunefi.com/bug-bounty/wormhole/scope/
   verifiedAt: 2026-08-12T00:00:00Z
   severitySystem: immunefi-v2.3
+  pocRequired: true
+  pocEnvironment: mainnet-fork
   inScopeImpacts:
     - impact: "Unauthorized changes to protocol parameters through governance resulting in direct loss of funds (i.e. spoofing Governance actions)"
       level: critical

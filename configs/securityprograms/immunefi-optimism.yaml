@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/ethereum-optimism/optimism
       baseBranch: develop
-      workflowRef: blockchain-protocol-audit
+      workflowRef: rollup-stack-review
       policyPackRef: bug-bounty
       scanName: immunefi-optimism
       displayName: Optimism
@@ -17,6 +17,8 @@ spec:
   programURL: https://immunefi.com/bug-bounty/optimism/scope/
   verifiedAt: 2026-08-12T00:00:00Z
   severitySystem: immunefi-v2.3
+  pocRequired: true
+  pocEnvironment: mainnet-fork
   primacy: impact
   inScopeImpacts:
     - impact: "Direct loss of funds, not including proposer/challenger bonds or fee vaults"

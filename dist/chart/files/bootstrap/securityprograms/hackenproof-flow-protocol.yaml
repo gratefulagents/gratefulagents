@@ -1,0 +1,157 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-flow-protocol
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/onflow/flow-go
+      baseBranch: master
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: flow-go
+      displayName: Flow protocol node implementation
+      priority: 46
+      featured: true
+    - repositoryURL: https://github.com/onflow/cadence
+      baseBranch: master
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: flow-cadence
+      displayName: Cadence language runtime
+      priority: 47
+      featured: true
+    - repositoryURL: https://github.com/onflow/flow-evm-bridge
+      baseBranch: main
+      workflowRef: flow-cadence-review
+      policyPackRef: bug-bounty
+      scanName: flow-evm-bridge
+      displayName: Flow EVM Bridge contracts and handlers
+      priority: 48
+      featured: true
+    - repositoryURL: https://github.com/onflow/flow-core-contracts
+      baseBranch: master
+      workflowRef: flow-cadence-review
+      policyPackRef: bug-bounty
+      scanName: flow-core-contracts
+      displayName: Flow core contracts
+      priority: 49
+      featured: true
+    - repositoryURL: https://github.com/onflow/crypto
+      baseBranch: main
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: flow-crypto
+      displayName: Flow cryptography library
+      priority: 50
+      featured: false
+    - repositoryURL: https://github.com/onflow/atree
+      baseBranch: main
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: flow-atree
+      displayName: Atree storage library
+      priority: 51
+      featured: false
+    - repositoryURL: https://github.com/onflow/ccf
+      baseBranch: main
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: flow-ccf
+      displayName: Cadence Compact Format
+      priority: 52
+      featured: false
+  provider: HackenProof
+  displayName: Flow Protocol
+  programURL: https://hackenproof.com/programs/flow-protocol
+  verifiedAt: 2026-08-17T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  assets:
+    - repositoryURL: https://github.com/onflow/flow-go
+      displayName: flow-go (Protocol, Critical)
+    - repositoryURL: https://github.com/onflow/crypto
+      displayName: crypto (Protocol, Critical)
+    - repositoryURL: https://github.com/onflow/cadence
+      displayName: cadence (Protocol, Critical)
+    - repositoryURL: https://github.com/onflow/atree
+      displayName: atree (Protocol, Critical)
+    - repositoryURL: https://github.com/onflow/ccf
+      displayName: ccf (Protocol, Critical)
+    - repositoryURL: https://github.com/onflow/flow-core-contracts
+      displayName: flow-core-contracts (Smart Contract, Critical)
+    - repositoryURL: https://github.com/onflow/flow-evm-bridge
+      displayName: flow-evm-bridge (Smart Contract, Critical)
+  inScopeImpacts:
+    - impact: Vulnerability in the execution layer, leading to unauthorized account manipulation, or circumvention of resource semantics (e.g. unauthorized resource construction, duplication, or destruction).
+      level: critical
+      assetType: Protocol
+    - impact: Vulnerability in the protocol layer, originating from a malicious access node, leading to altering existing data in the databases of execution or consensus nodes.
+      level: critical
+      assetType: Protocol
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-17.
+
+    Live Program is active now.
+    Range of bounty: $0 - $25,000.
+    Critical: $25,000. The program accepts only Critical severity reports; High, Medium, and Low carry no reward band.
+    The focus area separately states "Severity: **Critical** Reward: **$100,000 USD." together with "Note: Reward level depends on value at risk. The maximum reward is the lesser of $100,000 or the on-chain value  at risk." Both the displayed $25,000 band and the $100,000 focus-area figure are transcribed exactly as published.
+    The program requires 0 reputation points and a proof of concept, and HackenProof charges a $1 submission fee. The program does not mark KYC as required.
+
+    Exact source scope and import boundaries
+    - https://github.com/onflow/flow-go (Protocol, Critical)
+    - https://github.com/onflow/crypto (Protocol, Critical)
+    - https://github.com/onflow/cadence (Protocol, Critical)
+    - https://github.com/onflow/atree (Protocol, Critical)
+    - https://github.com/onflow/ccf (Protocol, Critical)
+    - https://github.com/onflow/flow-core-contracts (Smart Contract, Critical)
+    - https://github.com/onflow/flow-evm-bridge (Smart Contract, Critical)
+
+    All seven in-scope repositories are imported at their published roots. Repository default branches were verified as master for flow-go, cadence, and flow-core-contracts, and main for crypto, atree, ccf, and flow-evm-bridge.
+
+    Reward tiers and classification
+    A report qualifies as Critical if it demonstrates one or more of the following: Vulnerability in the execution layer, leading to unauthorized account manipulation, or circumvention of resource semantics (e.g. unauthorized resource construction, duplication, or destruction). Vulnerability in the protocol layer, originating from a malicious access node, leading to altering existing data in the databases of execution or consensus nodes.
+
+    Permissionless node limitation
+    Flow still relies on protocol-compliant nodes and bounties are limited to permissionless node types. Only attacks originating from unstaked Access and observer nodes qualify. Protocol-level vulnerabilities which are only exploitable through the control of Collection, Consensus, Execution or Verification nodes are excluded.
+
+    Target-specific scope clarifications
+    Atree: to qualify for a Flow protocol reward, the vulnerability reproducer should use an unmodified version of flow-emulator on Flow localnet. If modifying the source code of any Flow component is necessary to reproduce the vulnerability, describe each modification and why the vulnerability cannot be reproduced without modifying Flow components. Security reports should not evaluate Atree as a standalone component, because Atree relies on limits and security guarantees provided by other components in Flow such as onflow/cadence and onflow/flow-go. Before submitting a report, try to reproduce the vulnerability using a Cadence script running on an unmodified flow-emulator.
+    Flow EVM Bridge: reports are in scope only if they demonstrate a vulnerability in contracts and handlers in https://github.com/onflow/flow-evm-bridge, or in logic exercised when bridging assets between Cadence and EVM, including incorrect value conversion between UFix64 and uint256 (decimals, rounding, truncation) that results in loss of escrowed funds; loss, theft, or permanent lock of assets escrowed by the bridge; bypass or incorrect behavior of pause, association, admin, or COA logic; forcing the bridge COA or handlers to call untrusted contracts in a way that can drain, corrupt, or mis-account bridge escrows; unauthorized capability claims on bridge-managed resources; bypassing entitlement checks in bridge Cadence contracts; resource duplication or loss during cross-VM asset transfer; and incorrect handling of Cadence NFT metadata when bridging to EVM. The PoC must deploy a standards-compliant ERC20/ERC721 or Cadence FT/NFT contract and demonstrate that the desync arises from bridge logic, not from nonstandard token behavior.
+
+    Reproduction requirements
+    Reports which follow the general and target-specific reporting requirements are much more likely to be prioritized for review, and reports that do not follow them might not receive a response. Wherever possible use a sequence of contract deployments and transactions sent to the network rather than unit or integration tests as reproducers. Reproduction steps must use either the emulator initialized from Flow CLI or the Flow Local Instrumented Test Environment (FLITE, also known as localnet), must use the latest version of Flow CLI, and must include the version of the environment used. A valid report must demonstrate an exploit against the official, unmodified source code in scope; if the exploit requires modifying the source of any Flow component, the report must include a detailed description of each modification, a justification for why it is necessary, and the modifications themselves as a .diff or .patch file. Document each reproduction step with exact commands and their full output, and complete and minimal required source code for contracts, transactions, and scripts.
+    For the Flow execution layer the published procedure is: start the emulator or localnet environment; create and set up the victim account, which must deploy only intentionally correct contracts, because reports where the vulnerability exists solely due to a bug in the victim's own smart contract are not valid; record and include the state before the exploit; create and set up the attacker account; execute the exploit, where the exploit transaction must be signed exclusively by the attacker's account, since co-signing by the victim or any other privileged account invalidates the report; and demonstrate the resulting state change with the same state-checking script.
+
+    Safe harbor
+    Security research and vulnerability disclosure conducted in accordance with this policy is considered authorized. Flow will not initiate legal action and waives any claims under the Computer Fraud and Abuse Act (CFAA) or similar international anti-hacking laws.
+
+    Eligibility, reporting, and disclosure
+    The issue must not already be known, either by internal discovery or other reports. The report must provide a demonstrable vulnerability which, if exploited, would materially affect the confidentiality, integrity, or availability of the assets and requires technical mitigation. Current and former employees and contractors of the company are ineligible. Use the exact email address associated with the HackenProof account for all communications, and report exclusively through HackenProof within 24 hours of discovery. AI-generated reports without a runnable PoC are not accepted; submitters must attach actual logs, terminal output, and a runnable script rather than pseudocode, and must reference specific commit hashes of the repositories being tested. Do not include sensitive data in reports. Keep information about any vulnerability confidential between the submitter and the HackenProof and company team, and do not communicate any details to third parties without express permission, even after a fix. For a chain of vulnerabilities only the single vulnerability with the highest severity is paid.
+  outOfScope:
+    - Protocol-level vulnerabilities which are only exploitable through the control of Collection, Consensus, Execution or Verification nodes
+    - Denial of service, network outages, or performance degradation.
+    - Griefing attacks where the attacker causes damage or inconvenience to others without gaining unauthorized access to accounts or on-chain assets.
+    - Theoretical vulnerabilities without any proof or demonstration
+    - Old compiler version, or compiler version is not locked
+    - Vulnerabilities in imported contracts
+    - Code style guide violations, redundant code, best practice issues
+    - Gas optimizations
+    - Vulnerabilities that can be exploited through front-run attacks only
+    - Reports based solely on static analysis tool output without manual validation.
+    - Reports that describe vulnerabilities in dependencies outside of the target repositories (e.g., upstream Go libraries, libp2p internals).
+    - Flow EVM Bridge - issues that affect standalone handled assets only (e.g. WFLOW behavior) and would exist even without the bridge, unless they directly impact bridge escrows or users during bridging
+    - Flow EVM Bridge - attacks that rely on deliberately malicious ERC20/ERC721 contracts that lie about balances or totalSupply, emit fake or spoofed events, or otherwise violate basic ERC20/ERC721 assumptions, where the impact is limited to that same malicious asset and its own holders
+    - Flow EVM Bridge - any attack that requires deploying a contract that intentionally violates the behavioral spec of its token standard (ERC20, ERC721, Cadence FT, or Cadence NFT), regardless of the specific mechanism used
+    - Flow EVM Bridge - PoCs that do not use the flow-evm-bridge contracts and instead reimplement similar logic in a separate local project
+    - Flow EVM Bridge - theoretical concerns or design critiques without a practical exploit and without impact on users who bridge assets
+    - Flow EVM Bridge - reports that do not include a runnable PoC against flow-evm-bridge contracts and do not demonstrate impact on bridge users
+  prohibitedTesting:
+    - No Automated Overload - do not use web scanners to crawl, "hammer" endpoints, generate massive traffic, spam forms or account creation flows
+    - No Denial of Service - do not perform any attack that may cause DoS/DDoS to the network, hosts, or applications
+    - No Non-Technical Attacks - social engineering, phishing, spam, or physical attacks against employees, offices, or data centers are strictly prohibited
+    - No Data Destruction - do not download, destroy, or disclose any confidential or personal information you may encounter
+    - Data Privacy - localize all tests to your own accounts; avoid compromising personal data or modifying/accessing other users' data
+    - Service Integrity - make every effort to avoid damaging or restricting the availability of services, and stop testing immediately if you notice service degradation
+    - Keep information about any vulnerability confidential and do not communicate details to third parties without express permission, even after a fix
