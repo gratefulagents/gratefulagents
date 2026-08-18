@@ -59,7 +59,7 @@ If an MCP policy denies by default, add the names of selected MCP servers to **A
 
 ## Docker-in-Docker (admin-only)
 
-Cluster admins can let a Project's runs execute real `docker` commands (`docker build`, `docker run`, `docker compose`) by setting `spec.dockerInDocker: true` on the `Project` resource — or `spec.defaults.dockerInDocker: true` on an individual trigger resource — via kubectl/GitOps. Each run pod then gets a **privileged** `docker:dind` sidecar listening on loopback, and the worker's `DOCKER_HOST` points at it (including inside the command sandbox). Because the sidecar requires a privileged container, the option is off by default, is not exposed through the dashboard, and is rejected for SecurityScans, which execute untrusted third-party code.
+Cluster admins can let a Project's runs execute real `docker` commands (`docker build`, `docker run`, `docker compose`) by setting `spec.dockerInDocker: true` on the `Project` resource — or `spec.defaults.dockerInDocker: true` on an individual trigger resource, including `SecurityScan` — via kubectl/GitOps. Each run pod then gets a **privileged** `docker:dind` sidecar listening on loopback, and the worker's `DOCKER_HOST` points at it (including inside the command sandbox). Because the sidecar requires a privileged container, the option is off by default, is not exposed through the dashboard, and is stripped from exported and imported security packs.
 
 
 ## Custom instructions

@@ -520,8 +520,6 @@ func insecureScanDefaults(d triggersv1alpha1.AgentRunDefaults) string {
 		return "spec.defaults.disableCommandSandbox is not allowed for SecurityScans: scans execute untrusted third-party code"
 	case d.KubernetesAdmin:
 		return "spec.defaults.kubernetesAdmin is not allowed for SecurityScans: scans execute untrusted third-party code"
-	case d.DockerInDocker:
-		return "spec.defaults.dockerInDocker is not allowed for SecurityScans: scans execute untrusted third-party code"
 	}
 	return ""
 }

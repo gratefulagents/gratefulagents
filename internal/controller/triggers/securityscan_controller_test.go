@@ -123,6 +123,32 @@ func TestSecurityScanReconcileManualOnlyCreatesNoAutomaticRuns(t *testing.T) {
 	}
 }
 
+// TestSecurityScanReconcileDockerInDockerAllowed pins that the admin-set
+// dockerInDocker default — unlike disableCommandSandbox and kubernetesAdmin —
+// is permitted for scans and propagates onto the created AgentRun, so security
+// tooling that needs a Docker daemon can run inside scans.
+func TestSecurityScanReconcileDockerInDockerAllowed(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := securityScanTestScan()
+	scan.Spec.Defaults.DockerInDocker = true
+	reconciler, k8sClient, _ := newSecurityScanReconciler(t, now, scan)
+
+	if _, err := reconciler.Reconcile(context.Background(), securityScanRequest(scan)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 1 {
+		t.Fatalf("AgentRuns = %d, want 1", len(runs))
+	}
+	if !runs[0].Spec.DockerInDocker {
+		t.Fatal("run Spec.DockerInDocker = false, want true (copied from scan defaults)")
+	}
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.LastError != "" {
+		t.Fatalf("LastError = %q, want empty (dockerInDocker must not be treated as insecure defaults)", updated.Status.LastError)
+	}
+}
+
 func TestSecurityScanReconcileManualOnlyProcessesRunNow(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := securityScanWithRunNowToken(now, "tok-1")
@@ -768,7 +794,6 @@ func TestSecurityScanReconcileInsecureDefaultsRejected(t *testing.T) {
 	for name, mutate := range map[string]func(*triggersv1alpha1.SecurityScan){
 		"disableCommandSandbox": func(scan *triggersv1alpha1.SecurityScan) { scan.Spec.Defaults.DisableCommandSandbox = true },
 		"kubernetesAdmin":       func(scan *triggersv1alpha1.SecurityScan) { scan.Spec.Defaults.KubernetesAdmin = true },
-		"dockerInDocker":        func(scan *triggersv1alpha1.SecurityScan) { scan.Spec.Defaults.DockerInDocker = true },
 	} {
 		t.Run(name, func(t *testing.T) {
 			now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

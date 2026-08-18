@@ -139,7 +139,9 @@ spec:
   # AgentRun defaults for scan runs (model, provider, secrets, runtime, and so on).
   # The controller forces defaults.repoURL and defaults.baseBranch from the scan
   # target, and applies the "security-scan" mode unless defaults.modeRef is set.
-  # disableCommandSandbox, kubernetesAdmin, and dockerInDocker are not allowed for SecurityScans.
+  # disableCommandSandbox and kubernetesAdmin are not allowed for SecurityScans.
+  # dockerInDocker (admin-only, kubectl/GitOps) is allowed when scan tooling
+  # needs a Docker daemon; it adds a privileged docker:dind sidecar to scan runs.
   defaults:
     model: gpt-5.4
     provider: openai
