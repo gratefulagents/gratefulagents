@@ -28,17 +28,12 @@ const (
 	bootstrapSyncedVersionAnnotation  = "platform.gratefulagents.dev/bootstrap-synced-version"
 	bootstrapSpecHashAnnotation       = "platform.gratefulagents.dev/bootstrap-spec-hash"
 	bootstrapReplacesHashesAnnotation = "platform.gratefulagents.dev/bootstrap-replaces-spec-hashes"
-	bootstrapRequiredSkillAnnotation  = "platform.gratefulagents.dev/bootstrap-required-skill"
-	bootstrapSyncProtocolVersion      = "v4"
+	bootstrapSyncProtocolVersion      = "v5"
 )
 
-// syncBootstrapResources makes the chart's namespaced, reusable defaults
-// available where a user's runs can actually reference them. The Helm chart
-// installs these resources in the manager namespace, while security library
-// references are deliberately namespace-local. Curated security Skills are
-// normally installed only after an explicit user action. A narrowly annotated
-// required Skill is seeded when refreshed workflows depend on it, so upgrades
-// remain referentially valid; unrelated curated security Skills stay opt-in.
+// syncBootstrapResources makes the chart's non-security namespaced defaults
+// available where a user's runs can reference them. Shipped security library
+// resources are installed only through an explicit catalog action.
 //
 // Only explicitly marked chart defaults are copied; arbitrary resources in the
 // manager namespace remain private. Existing resources win so a user can edit
@@ -73,7 +68,7 @@ func (s *Server) syncBootstrapResources(ctx context.Context, targetNamespace str
 	for i := range skills.Items {
 		source := &skills.Items[i]
 		if !isBootstrapDefault(source) ||
-			(source.Annotations[securitySkillBundleAnnotation] == "true" && source.Annotations[bootstrapRequiredSkillAnnotation] != "true") {
+			source.Annotations[securitySkillBundleAnnotation] == "true" {
 			continue
 		}
 		if err := s.createBootstrapResource(ctx, source, &platformv1alpha1.Skill{
@@ -83,80 +78,6 @@ func (s *Server) syncBootstrapResources(ctx context.Context, targetNamespace str
 		}
 	}
 
-	var workflows triggersv1alpha1.SecurityWorkflowList
-	if err := reader.List(ctx, &workflows, client.InNamespace(sourceNamespace)); err != nil {
-		return mapK8sError("list bootstrap SecurityWorkflows", err)
-	}
-	for i := range workflows.Items {
-		source := &workflows.Items[i]
-		if isBootstrapDefault(source) {
-			if err := s.createBootstrapResource(ctx, source, &triggersv1alpha1.SecurityWorkflow{
-				ObjectMeta: bootstrapObjectMeta(source, targetNamespace), Spec: source.DeepCopy().Spec,
-			}); err != nil {
-				return err
-			}
-		}
-	}
-
-	var rankers triggersv1alpha1.SecurityRankerList
-	if err := reader.List(ctx, &rankers, client.InNamespace(sourceNamespace)); err != nil {
-		return mapK8sError("list bootstrap SecurityRankers", err)
-	}
-	for i := range rankers.Items {
-		source := &rankers.Items[i]
-		if isBootstrapDefault(source) {
-			if err := s.createBootstrapResource(ctx, source, &triggersv1alpha1.SecurityRanker{
-				ObjectMeta: bootstrapObjectMeta(source, targetNamespace), Spec: source.DeepCopy().Spec,
-			}); err != nil {
-				return err
-			}
-		}
-	}
-
-	var scripts triggersv1alpha1.SecurityPostScriptList
-	if err := reader.List(ctx, &scripts, client.InNamespace(sourceNamespace)); err != nil {
-		return mapK8sError("list bootstrap SecurityPostScripts", err)
-	}
-	for i := range scripts.Items {
-		source := &scripts.Items[i]
-		if isBootstrapDefault(source) {
-			if err := s.createBootstrapResource(ctx, source, &triggersv1alpha1.SecurityPostScript{
-				ObjectMeta: bootstrapObjectMeta(source, targetNamespace), Spec: source.DeepCopy().Spec,
-			}); err != nil {
-				return err
-			}
-		}
-	}
-
-	var packs triggersv1alpha1.SecurityPolicyPackList
-	if err := reader.List(ctx, &packs, client.InNamespace(sourceNamespace)); err != nil {
-		return mapK8sError("list bootstrap SecurityPolicyPacks", err)
-	}
-	for i := range packs.Items {
-		source := &packs.Items[i]
-		if isBootstrapDefault(source) {
-			if err := s.createBootstrapResource(ctx, source, &triggersv1alpha1.SecurityPolicyPack{
-				ObjectMeta: bootstrapObjectMeta(source, targetNamespace), Spec: source.DeepCopy().Spec,
-			}); err != nil {
-				return err
-			}
-		}
-	}
-
-	var programs triggersv1alpha1.SecurityProgramList
-	if err := reader.List(ctx, &programs, client.InNamespace(sourceNamespace)); err != nil {
-		return mapK8sError("list bootstrap SecurityPrograms", err)
-	}
-	for i := range programs.Items {
-		source := &programs.Items[i]
-		if isBootstrapDefault(source) {
-			if err := s.createBootstrapResource(ctx, source, &triggersv1alpha1.SecurityProgram{
-				ObjectMeta: bootstrapObjectMeta(source, targetNamespace), Spec: source.DeepCopy().Spec,
-			}); err != nil {
-				return err
-			}
-		}
-	}
 	if err := s.markBootstrapSynced(ctx, reader, targetNamespace, bundleVersion); err != nil {
 		return err
 	}

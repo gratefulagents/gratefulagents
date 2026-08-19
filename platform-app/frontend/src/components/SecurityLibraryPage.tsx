@@ -59,6 +59,7 @@ import {
   packRetentionSummary,
 } from "@/components/SecurityPolicyPackDialog";
 import { SecurityProgramDialog } from "@/components/SecurityProgramDialog";
+import { SecurityCatalogDialog } from "@/components/SecurityCatalogDialog";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import {
@@ -1231,6 +1232,7 @@ export function SecurityLibraryPage() {
       nav={<SecurityNav />}
       actions={
         <>
+          <SecurityCatalogDialog onInstalled={fetchAll} />
           <ExportSecurityPackDialog
             workflows={workflows.map((w) => w.name)}
             rankers={rankers.map((r) => r.name)}

@@ -407,6 +407,13 @@ service PlatformService {
   rpc GetSecuritySkillsStatus(google.protobuf.Empty) returns (SecuritySkillsStatus);
   rpc InstallSecuritySkills(google.protobuf.Empty) returns (SecuritySkillsStatus);
 
+  // The shipped security catalog is discovered from bootstrap defaults in the
+  // manager namespace. Requests intentionally carry no namespace: installs
+  // always target the authenticated caller's personal namespace.
+  rpc ListSecurityCatalog(google.protobuf.Empty) returns (SecurityCatalog);
+  rpc DryRunSecurityCatalogInstall(SecurityCatalogInstallRequest) returns (SecurityCatalogInstallResponse);
+  rpc ApplySecurityCatalogInstall(SecurityCatalogInstallRequest) returns (SecurityCatalogInstallResponse);
+
   // Agent bug reports: durable platform/tooling bug reports, complaints, and
   // feature requests filed by agents via the report_bug tool. Reports
   // deduplicate per (namespace, fingerprint) across runs and are triaged by
@@ -5528,6 +5535,76 @@ message SecuritySkillsStatus {
   int32 installed_count = 3;
   int32 available_count = 4;
   int32 conflict_count = 5;
+}
+
+enum SecurityCatalogKind {
+  SECURITY_CATALOG_KIND_UNSPECIFIED = 0;
+  SECURITY_CATALOG_KIND_SKILL = 1;
+  SECURITY_CATALOG_KIND_WORKFLOW = 2;
+  SECURITY_CATALOG_KIND_RANKER = 3;
+  SECURITY_CATALOG_KIND_POST_SCRIPT = 4;
+  SECURITY_CATALOG_KIND_POLICY_PACK = 5;
+  SECURITY_CATALOG_KIND_PROGRAM = 6;
+}
+
+enum SecurityCatalogInstallState {
+  SECURITY_CATALOG_INSTALL_STATE_UNSPECIFIED = 0;
+  SECURITY_CATALOG_INSTALL_STATE_NOT_INSTALLED = 1;
+  SECURITY_CATALOG_INSTALL_STATE_INSTALLED = 2;
+  SECURITY_CATALOG_INSTALL_STATE_UPDATE_AVAILABLE = 3;
+  SECURITY_CATALOG_INSTALL_STATE_MODIFIED = 4;
+  SECURITY_CATALOG_INSTALL_STATE_CONFLICT = 5;
+}
+
+message SecurityCatalogRef {
+  SecurityCatalogKind kind = 1;
+  string name = 2;
+}
+
+message SecurityCatalogDependency {
+  SecurityCatalogRef resource = 1;
+  bool required = 2;
+}
+
+message SecurityCatalogEntry {
+  SecurityCatalogRef resource = 1;
+  string title = 2;
+  string description = 3;
+  repeated SecurityCatalogDependency dependencies = 4;
+  bool ready = 5;
+  string readiness_message = 6;
+  SecurityCatalogInstallState install_state = 7;
+}
+
+message SecurityCatalog {
+  string revision = 1;
+  bool ready = 2;
+  string readiness_message = 3;
+  repeated SecurityCatalogEntry entries = 4;
+}
+
+message SecurityCatalogInstallRequest {
+  string catalog_revision = 1;
+  repeated SecurityCatalogRef resources = 2;
+  // Required by apply and returned by the preceding dry run.
+  string plan_revision = 3;
+}
+
+message SecurityCatalogInstallResult {
+  SecurityCatalogEntry entry = 1;
+  // Dry-run actions: create, refresh, unchanged, blocked.
+  // Apply actions: created, refreshed, adopted, claimed, unchanged, blocked, failed.
+  string action = 2;
+  string message = 3;
+}
+
+message SecurityCatalogInstallResponse {
+  string catalog_revision = 1;
+  // True only when apply persisted at least one resource or ownership mutation.
+  bool applied = 2;
+  repeated SecurityCatalogInstallResult results = 3;
+  // Fingerprint of the reviewed plan and destination state.
+  string plan_revision = 4;
 }
 
 message SecurityProgramScanTarget {

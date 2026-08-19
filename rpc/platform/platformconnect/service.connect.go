@@ -692,6 +692,15 @@ const (
 	// PlatformServiceInstallSecuritySkillsProcedure is the fully-qualified name of the
 	// PlatformService's InstallSecuritySkills RPC.
 	PlatformServiceInstallSecuritySkillsProcedure = "/platform.v1.PlatformService/InstallSecuritySkills"
+	// PlatformServiceListSecurityCatalogProcedure is the fully-qualified name of the PlatformService's
+	// ListSecurityCatalog RPC.
+	PlatformServiceListSecurityCatalogProcedure = "/platform.v1.PlatformService/ListSecurityCatalog"
+	// PlatformServiceDryRunSecurityCatalogInstallProcedure is the fully-qualified name of the
+	// PlatformService's DryRunSecurityCatalogInstall RPC.
+	PlatformServiceDryRunSecurityCatalogInstallProcedure = "/platform.v1.PlatformService/DryRunSecurityCatalogInstall"
+	// PlatformServiceApplySecurityCatalogInstallProcedure is the fully-qualified name of the
+	// PlatformService's ApplySecurityCatalogInstall RPC.
+	PlatformServiceApplySecurityCatalogInstallProcedure = "/platform.v1.PlatformService/ApplySecurityCatalogInstall"
 	// PlatformServiceListBugReportsProcedure is the fully-qualified name of the PlatformService's
 	// ListBugReports RPC.
 	PlatformServiceListBugReportsProcedure = "/platform.v1.PlatformService/ListBugReports"
@@ -1086,6 +1095,12 @@ type PlatformServiceClient interface {
 	// installation copies or refreshes only untouched curated bundle members.
 	GetSecuritySkillsStatus(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
 	InstallSecuritySkills(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
+	// The shipped security catalog is discovered from bootstrap defaults in the
+	// manager namespace. Requests intentionally carry no namespace: installs
+	// always target the authenticated caller's personal namespace.
+	ListSecurityCatalog(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecurityCatalog], error)
+	DryRunSecurityCatalogInstall(context.Context, *connect.Request[platform.SecurityCatalogInstallRequest]) (*connect.Response[platform.SecurityCatalogInstallResponse], error)
+	ApplySecurityCatalogInstall(context.Context, *connect.Request[platform.SecurityCatalogInstallRequest]) (*connect.Response[platform.SecurityCatalogInstallResponse], error)
 	// Agent bug reports: durable platform/tooling bug reports, complaints, and
 	// feature requests filed by agents via the report_bug tool. Reports
 	// deduplicate per (namespace, fingerprint) across runs and are triaged by
@@ -2431,6 +2446,24 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("InstallSecuritySkills")),
 			connect.WithClientOptions(opts...),
 		),
+		listSecurityCatalog: connect.NewClient[emptypb.Empty, platform.SecurityCatalog](
+			httpClient,
+			baseURL+PlatformServiceListSecurityCatalogProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityCatalog")),
+			connect.WithClientOptions(opts...),
+		),
+		dryRunSecurityCatalogInstall: connect.NewClient[platform.SecurityCatalogInstallRequest, platform.SecurityCatalogInstallResponse](
+			httpClient,
+			baseURL+PlatformServiceDryRunSecurityCatalogInstallProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("DryRunSecurityCatalogInstall")),
+			connect.WithClientOptions(opts...),
+		),
+		applySecurityCatalogInstall: connect.NewClient[platform.SecurityCatalogInstallRequest, platform.SecurityCatalogInstallResponse](
+			httpClient,
+			baseURL+PlatformServiceApplySecurityCatalogInstallProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ApplySecurityCatalogInstall")),
+			connect.WithClientOptions(opts...),
+		),
 		listBugReports: connect.NewClient[platform.ListBugReportsRequest, platform.ListBugReportsResponse](
 			httpClient,
 			baseURL+PlatformServiceListBugReportsProcedure,
@@ -2668,6 +2701,9 @@ type platformServiceClient struct {
 	getSecurityScanReport                  *connect.Client[platform.GetSecurityScanReportRequest, platform.GetSecurityScanReportResponse]
 	getSecuritySkillsStatus                *connect.Client[emptypb.Empty, platform.SecuritySkillsStatus]
 	installSecuritySkills                  *connect.Client[emptypb.Empty, platform.SecuritySkillsStatus]
+	listSecurityCatalog                    *connect.Client[emptypb.Empty, platform.SecurityCatalog]
+	dryRunSecurityCatalogInstall           *connect.Client[platform.SecurityCatalogInstallRequest, platform.SecurityCatalogInstallResponse]
+	applySecurityCatalogInstall            *connect.Client[platform.SecurityCatalogInstallRequest, platform.SecurityCatalogInstallResponse]
 	listBugReports                         *connect.Client[platform.ListBugReportsRequest, platform.ListBugReportsResponse]
 	updateBugReportStatus                  *connect.Client[platform.UpdateBugReportStatusRequest, platform.BugReport]
 }
@@ -3778,6 +3814,21 @@ func (c *platformServiceClient) InstallSecuritySkills(ctx context.Context, req *
 	return c.installSecuritySkills.CallUnary(ctx, req)
 }
 
+// ListSecurityCatalog calls platform.v1.PlatformService.ListSecurityCatalog.
+func (c *platformServiceClient) ListSecurityCatalog(ctx context.Context, req *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecurityCatalog], error) {
+	return c.listSecurityCatalog.CallUnary(ctx, req)
+}
+
+// DryRunSecurityCatalogInstall calls platform.v1.PlatformService.DryRunSecurityCatalogInstall.
+func (c *platformServiceClient) DryRunSecurityCatalogInstall(ctx context.Context, req *connect.Request[platform.SecurityCatalogInstallRequest]) (*connect.Response[platform.SecurityCatalogInstallResponse], error) {
+	return c.dryRunSecurityCatalogInstall.CallUnary(ctx, req)
+}
+
+// ApplySecurityCatalogInstall calls platform.v1.PlatformService.ApplySecurityCatalogInstall.
+func (c *platformServiceClient) ApplySecurityCatalogInstall(ctx context.Context, req *connect.Request[platform.SecurityCatalogInstallRequest]) (*connect.Response[platform.SecurityCatalogInstallResponse], error) {
+	return c.applySecurityCatalogInstall.CallUnary(ctx, req)
+}
+
 // ListBugReports calls platform.v1.PlatformService.ListBugReports.
 func (c *platformServiceClient) ListBugReports(ctx context.Context, req *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error) {
 	return c.listBugReports.CallUnary(ctx, req)
@@ -4174,6 +4225,12 @@ type PlatformServiceHandler interface {
 	// installation copies or refreshes only untouched curated bundle members.
 	GetSecuritySkillsStatus(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
 	InstallSecuritySkills(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error)
+	// The shipped security catalog is discovered from bootstrap defaults in the
+	// manager namespace. Requests intentionally carry no namespace: installs
+	// always target the authenticated caller's personal namespace.
+	ListSecurityCatalog(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecurityCatalog], error)
+	DryRunSecurityCatalogInstall(context.Context, *connect.Request[platform.SecurityCatalogInstallRequest]) (*connect.Response[platform.SecurityCatalogInstallResponse], error)
+	ApplySecurityCatalogInstall(context.Context, *connect.Request[platform.SecurityCatalogInstallRequest]) (*connect.Response[platform.SecurityCatalogInstallResponse], error)
 	// Agent bug reports: durable platform/tooling bug reports, complaints, and
 	// feature requests filed by agents via the report_bug tool. Reports
 	// deduplicate per (namespace, fingerprint) across runs and are triaged by
@@ -5515,6 +5572,24 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("InstallSecuritySkills")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceListSecurityCatalogHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityCatalogProcedure,
+		svc.ListSecurityCatalog,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityCatalog")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceDryRunSecurityCatalogInstallHandler := connect.NewUnaryHandler(
+		PlatformServiceDryRunSecurityCatalogInstallProcedure,
+		svc.DryRunSecurityCatalogInstall,
+		connect.WithSchema(platformServiceMethods.ByName("DryRunSecurityCatalogInstall")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceApplySecurityCatalogInstallHandler := connect.NewUnaryHandler(
+		PlatformServiceApplySecurityCatalogInstallProcedure,
+		svc.ApplySecurityCatalogInstall,
+		connect.WithSchema(platformServiceMethods.ByName("ApplySecurityCatalogInstall")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceListBugReportsHandler := connect.NewUnaryHandler(
 		PlatformServiceListBugReportsProcedure,
 		svc.ListBugReports,
@@ -5969,6 +6044,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceGetSecuritySkillsStatusHandler.ServeHTTP(w, r)
 		case PlatformServiceInstallSecuritySkillsProcedure:
 			platformServiceInstallSecuritySkillsHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityCatalogProcedure:
+			platformServiceListSecurityCatalogHandler.ServeHTTP(w, r)
+		case PlatformServiceDryRunSecurityCatalogInstallProcedure:
+			platformServiceDryRunSecurityCatalogInstallHandler.ServeHTTP(w, r)
+		case PlatformServiceApplySecurityCatalogInstallProcedure:
+			platformServiceApplySecurityCatalogInstallHandler.ServeHTTP(w, r)
 		case PlatformServiceListBugReportsProcedure:
 			platformServiceListBugReportsHandler.ServeHTTP(w, r)
 		case PlatformServiceUpdateBugReportStatusProcedure:
@@ -6860,6 +6941,18 @@ func (UnimplementedPlatformServiceHandler) GetSecuritySkillsStatus(context.Conte
 
 func (UnimplementedPlatformServiceHandler) InstallSecuritySkills(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecuritySkillsStatus], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.InstallSecuritySkills is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityCatalog(context.Context, *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecurityCatalog], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityCatalog is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) DryRunSecurityCatalogInstall(context.Context, *connect.Request[platform.SecurityCatalogInstallRequest]) (*connect.Response[platform.SecurityCatalogInstallResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DryRunSecurityCatalogInstall is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ApplySecurityCatalogInstall(context.Context, *connect.Request[platform.SecurityCatalogInstallRequest]) (*connect.Response[platform.SecurityCatalogInstallResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ApplySecurityCatalogInstall is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) ListBugReports(context.Context, *connect.Request[platform.ListBugReportsRequest]) (*connect.Response[platform.ListBugReportsResponse], error) {

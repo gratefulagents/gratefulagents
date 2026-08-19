@@ -266,6 +266,30 @@ func (h *PlatformServiceConnectHandler) InstallSecuritySkills(ctx context.Contex
 	return connect.NewResponse(resp), nil
 }
 
+func (h *PlatformServiceConnectHandler) ListSecurityCatalog(ctx context.Context, req *connect.Request[emptypb.Empty]) (*connect.Response[platform.SecurityCatalog], error) {
+	resp, err := h.srv.ListSecurityCatalog(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) DryRunSecurityCatalogInstall(ctx context.Context, req *connect.Request[platform.SecurityCatalogInstallRequest]) (*connect.Response[platform.SecurityCatalogInstallResponse], error) {
+	resp, err := h.srv.DryRunSecurityCatalogInstall(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *PlatformServiceConnectHandler) ApplySecurityCatalogInstall(ctx context.Context, req *connect.Request[platform.SecurityCatalogInstallRequest]) (*connect.Response[platform.SecurityCatalogInstallResponse], error) {
+	resp, err := h.srv.ApplySecurityCatalogInstall(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *PlatformServiceConnectHandler) ListSkillCatalog(ctx context.Context, req *connect.Request[platform.ListSkillCatalogRequest]) (*connect.Response[platform.ListSkillCatalogResponse], error) {
 	resp, err := h.srv.ListSkillCatalog(ctx, req.Msg)
 	if err != nil {
