@@ -264,6 +264,7 @@ export const errorScenario: Scenario = {
 
   skillPackages: [],
   runtimeImages: runtimeImageCatalog(),
+  sshTunnels: [],
   modes: modeCatalog(),
   models: MODEL_LIST,
   credentials: create(MyCredentialsSchema, { namespace: NS }),

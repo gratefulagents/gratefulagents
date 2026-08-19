@@ -76,6 +76,9 @@ service PlatformService {
   // Namespaced dashboard resources always resolve to the verified caller's
   // personal namespace. These requests intentionally carry no namespace.
   rpc ListRuntimeProfiles(ListRuntimeProfilesRequest) returns (ListRuntimeProfilesResponse);
+  // SSHTunnel resources are kubectl/GitOps-authored; the dashboard lists them
+  // (name + health) so run defaults can reference a tunnel by picking it.
+  rpc ListSSHTunnels(ListSSHTunnelsRequest) returns (ListSSHTunnelsResponse);
   rpc CreateRuntimeProfile(CreateRuntimeProfileRequest) returns (RuntimeProfile);
   rpc UpdateRuntimeProfile(UpdateRuntimeProfileRequest) returns (RuntimeProfile);
   rpc DeleteRuntimeProfile(DeleteRuntimeProfileRequest) returns (google.protobuf.Empty);
@@ -1697,6 +1700,33 @@ message ListRuntimeProfilesRequest {}
 message ListRuntimeProfilesResponse {
   string namespace = 1;
   repeated RuntimeProfile profiles = 2;
+}
+
+// SSHTunnel summarizes a namespaced SSHTunnel resource (kubectl/GitOps-
+// managed) so the dashboard can reference tunnels by name in run defaults and
+// surface their health. Secret contents never appear here.
+message SSHTunnel {
+  string namespace = 1;
+  string name = 2;
+  // host/port/user identify the SSH server; remote_host/remote_port are the
+  // forward destination as resolved on that server.
+  string host = 3;
+  int32 port = 4;
+  string user = 5;
+  string remote_host = 6;
+  int32 remote_port = 7;
+  string description = 8;
+  // phase mirrors status.phase: "Ready", "Invalid", or empty while pending.
+  string phase = 9;
+  // message is the human-readable detail from the Ready condition (why the
+  // tunnel is or is not usable).
+  string message = 10;
+  int64 created_at_unix = 11;
+}
+message ListSSHTunnelsRequest {}
+message ListSSHTunnelsResponse {
+  string namespace = 1;
+  repeated SSHTunnel tunnels = 2;
 }
 message CreateRuntimeProfileRequest { RuntimeProfile profile = 1; }
 message UpdateRuntimeProfileRequest { RuntimeProfile profile = 1; }

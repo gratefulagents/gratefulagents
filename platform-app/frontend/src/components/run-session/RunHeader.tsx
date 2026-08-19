@@ -329,6 +329,19 @@ function RunStatusChip({
             label="Provider"
             value={<span className="font-mono">{current.provider} · {runAuthLabel(run, current.provider)}</span>}
           />
+          {run.sshTunnelRef && (
+            <Fact
+              label="SSH tunnel"
+              value={
+                <span
+                  className="font-mono"
+                  title="Model traffic goes through this SSHTunnel's per-run sidecar; it overrides the OpenAI base URL."
+                >
+                  {run.sshTunnelRef}
+                </span>
+              }
+            />
+          )}
           <Fact label="Reasoning" value={<span className="font-mono">{run.resolvedReasoningLevel || "default"}</span>} />
           <Fact label="Branch" value={<span className="font-mono">{run.baseBranch || "main"}</span>} />
           {run.maxRuntime && <Fact label="Max runtime" value={<span className="font-mono">{run.maxRuntime}</span>} />}
