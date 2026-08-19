@@ -27,6 +27,7 @@ func TestSourceAdaptersExposeAuthModeAndOAuthSecret(t *testing.T) {
 		Spec: triggersv1alpha1.ProjectSpec{
 			DisplayName:     "Payments",
 			KubernetesAdmin: true,
+			DockerInDocker:  true,
 			Defaults: triggersv1alpha1.AgentRunDefaults{
 				AuthMode: platformv1alpha1.AgentRunAuthModeOAuth,
 				Secrets:  triggersv1alpha1.AgentRunSecrets{OpenAIOAuthSecret: "openai-oauth"},
@@ -39,6 +40,9 @@ func TestSourceAdaptersExposeAuthModeAndOAuthSecret(t *testing.T) {
 	}
 	if !projectSourcePB.KubernetesAdmin {
 		t.Fatalf("project source KubernetesAdmin = false, want true")
+	}
+	if !projectSourcePB.DockerInDocker {
+		t.Fatalf("project source DockerInDocker = false, want true")
 	}
 
 	cronSource := &triggersv1alpha1.Cron{

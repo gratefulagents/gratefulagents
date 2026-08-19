@@ -66,6 +66,7 @@ func k8sAgentRunToProto(run *platformv1alpha1.AgentRun) *platform.AgentRun {
 	pb.Revision = run.Spec.Repository.Revision
 	pb.Model = run.Spec.Model
 	pb.KubernetesAdmin = run.Spec.KubernetesAdmin
+	pb.DockerInDocker = run.Spec.DockerInDocker
 	pb.AuthMode = string(run.Spec.AuthMode)
 	pb.OpenaiBaseUrl = run.Spec.OpenAIBaseURL
 	if run.Spec.SSHTunnelRef != nil {

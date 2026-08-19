@@ -287,6 +287,7 @@ func TestCreateAgentRunInheritsProjectKubernetesAdmin(t *testing.T) {
 		Spec: triggersv1alpha1.ProjectSpec{
 			DisplayName:     "Payments",
 			KubernetesAdmin: true,
+			DockerInDocker:  true,
 			Defaults: triggersv1alpha1.AgentRunDefaults{
 				RepoURL:    "https://github.com/example/repo.git",
 				BaseBranch: "main",
@@ -312,12 +313,18 @@ func TestCreateAgentRunInheritsProjectKubernetesAdmin(t *testing.T) {
 	if !resp.KubernetesAdmin {
 		t.Fatalf("response KubernetesAdmin = false, want true")
 	}
+	if !resp.DockerInDocker {
+		t.Fatalf("response DockerInDocker = false, want true")
+	}
 	run := &platformv1alpha1.AgentRun{}
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "run-admin"}, run); err != nil {
 		t.Fatalf("Get(AgentRun) error = %v", err)
 	}
 	if !run.Spec.KubernetesAdmin {
 		t.Fatalf("Spec.KubernetesAdmin = false, want true")
+	}
+	if !run.Spec.DockerInDocker {
+		t.Fatalf("Spec.DockerInDocker = false, want true")
 	}
 }
 
@@ -1398,6 +1405,7 @@ func TestCreateAgentRunInheritsSourceDefaultsKubernetesAdmin(t *testing.T) {
 				Provider:        triggersv1alpha1.ProviderOpenAI,
 				AuthMode:        platformv1alpha1.AgentRunAuthModeAPIKey,
 				KubernetesAdmin: true,
+				DockerInDocker:  true,
 				Secrets:         triggersv1alpha1.AgentRunSecrets{ProviderKeys: []platformv1alpha1.ProviderKeyRef{{Provider: triggersv1alpha1.ProviderOpenAI, SecretName: "openai-secret"}}},
 			},
 		},
@@ -1423,5 +1431,8 @@ func TestCreateAgentRunInheritsSourceDefaultsKubernetesAdmin(t *testing.T) {
 	}
 	if !run.Spec.KubernetesAdmin {
 		t.Fatalf("Spec.KubernetesAdmin = false, want true (inherited from source defaults)")
+	}
+	if !run.Spec.DockerInDocker {
+		t.Fatalf("Spec.DockerInDocker = false, want true (inherited from source defaults)")
 	}
 }
