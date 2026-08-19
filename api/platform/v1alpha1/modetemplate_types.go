@@ -28,16 +28,17 @@ const (
 )
 
 // ModeReasoningLevel controls reasoning effort.
-// +kubebuilder:validation:Enum=none;low;medium;high;xhigh;max
+// +kubebuilder:validation:Enum=none;minimal;low;medium;high;xhigh;max
 type ModeReasoningLevel string
 
 const (
-	ReasoningNone   ModeReasoningLevel = "none"
-	ReasoningLow    ModeReasoningLevel = "low"
-	ReasoningMedium ModeReasoningLevel = "medium"
-	ReasoningHigh   ModeReasoningLevel = "high"
-	ReasoningXHigh  ModeReasoningLevel = "xhigh"
-	ReasoningMax    ModeReasoningLevel = "max"
+	ReasoningNone    ModeReasoningLevel = "none"
+	ReasoningMinimal ModeReasoningLevel = "minimal"
+	ReasoningLow     ModeReasoningLevel = "low"
+	ReasoningMedium  ModeReasoningLevel = "medium"
+	ReasoningHigh    ModeReasoningLevel = "high"
+	ReasoningXHigh   ModeReasoningLevel = "xhigh"
+	ReasoningMax     ModeReasoningLevel = "max"
 )
 
 // ModeConstraints defines runtime limits for a mode.

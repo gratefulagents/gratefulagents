@@ -773,7 +773,7 @@ type UpdateAgentRunRuntimeConfigRequest struct {
 	// update_reasoning_level disambiguates proto3 empty string: when true,
 	// reasoning_level is applied and an empty value clears the run-level override.
 	UpdateReasoningLevel bool `protobuf:"varint,5,opt,name=update_reasoning_level,json=updateReasoningLevel,proto3" json:"update_reasoning_level,omitempty"`
-	// reasoning_level is one of: none, low, medium, high, xhigh, max. Empty uses
+	// reasoning_level is one of: none, minimal, low, medium, high, xhigh, max. Empty uses
 	// the provider/model default when update_reasoning_level is true.
 	ReasoningLevel string `protobuf:"bytes,6,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -6801,7 +6801,7 @@ type CreateAgentRunRequest struct {
 	OpenaiOauthSecret  string                 `protobuf:"bytes,16,opt,name=openai_oauth_secret,json=openaiOauthSecret,proto3" json:"openai_oauth_secret,omitempty"`
 	ProviderKeys       []*ProviderKeyRef      `protobuf:"bytes,17,rep,name=provider_keys,json=providerKeys,proto3" json:"provider_keys,omitempty"`
 	// reasoning_level optionally sets the model reasoning effort for this run
-	// (one of: none, low, medium, high, xhigh, max). Empty uses the provider/model default.
+	// (one of: none, minimal, low, medium, high, xhigh, max). Empty uses the provider/model default.
 	ReasoningLevel string `protobuf:"bytes,18,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"`
 	// image_data_urls are optional image attachments for the initial user request,
 	// as data URLs (e.g. "data:image/png;base64,..."). Supported by vision models.
@@ -7593,7 +7593,7 @@ type SlackAgent struct {
 	// it creates. Token values are write-only and never returned.
 	GithubTokenPresent bool `protobuf:"varint,42,opt,name=github_token_present,json=githubTokenPresent,proto3" json:"github_token_present,omitempty"`
 	// reasoning_level is the default model reasoning effort for runs this agent
-	// creates (none|low|medium|high|xhigh|max; empty = provider/model default).
+	// creates (none|minimal|low|medium|high|xhigh|max; empty = provider/model default).
 	ReasoningLevel string `protobuf:"bytes,43,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"`
 	// additional_repo_urls are extra git repositories cloned into each run's
 	// sandbox at startup.
@@ -10250,7 +10250,7 @@ type RoleInstruction struct {
 	ToolAccess       string                 `protobuf:"bytes,4,opt,name=tool_access,json=toolAccess,proto3" json:"tool_access,omitempty"`                                                                                               // full | read-only | analysis | execution
 	Model            string                 `protobuf:"bytes,5,opt,name=model,proto3" json:"model,omitempty"`                                                                                                                           // legacy provider-independent value; runtime routing ignores it
 	ModelsByProvider map[string]string      `protobuf:"bytes,6,rep,name=models_by_provider,json=modelsByProvider,proto3" json:"models_by_provider,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // active provider -> role model; missing provider inherits parent
-	ReasoningLevel   string                 `protobuf:"bytes,7,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"`                                                                                   // empty inherits parent; none | low | medium | high | xhigh | max
+	ReasoningLevel   string                 `protobuf:"bytes,7,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"`                                                                                   // empty inherits parent; none | minimal | low | medium | high | xhigh | max
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -10930,7 +10930,7 @@ type UpdateSlackAgentRequest struct {
 	// to the saved token.
 	GithubToken string `protobuf:"bytes,41,opt,name=github_token,json=githubToken,proto3" json:"github_token,omitempty"`
 	// reasoning_level sets the default model reasoning effort for runs this
-	// agent creates (one of: none, low, medium, high, xhigh, max). Assigned as a
+	// agent creates (one of: none, minimal, low, medium, high, xhigh, max). Assigned as a
 	// whole on every save; empty = provider/model default.
 	ReasoningLevel string `protobuf:"bytes,42,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"`
 	// additional_repo_urls are extra git repositories cloned into each run's
@@ -12180,7 +12180,7 @@ type ModelDefaults struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Provider string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
 	Model    string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
-	// reasoning_level is one of "", "none", "low", "medium", "high", "xhigh",
+	// reasoning_level is one of "", "none", "minimal", "low", "medium", "high", "xhigh",
 	// "max". Empty means the provider/model default.
 	ReasoningLevel string `protobuf:"bytes,3,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"`
 	// disabled turns off automatic application without clearing the values.
@@ -16237,7 +16237,7 @@ type CreateProjectRequest struct {
 	McpServerRefs []string `protobuf:"bytes,31,rep,name=mcp_server_refs,json=mcpServerRefs,proto3" json:"mcp_server_refs,omitempty"`
 	SkillRefs     []string `protobuf:"bytes,32,rep,name=skill_refs,json=skillRefs,proto3" json:"skill_refs,omitempty"`
 	// reasoning_level optionally sets the default model reasoning effort for runs
-	// created from this project (one of: none, low, medium, high, xhigh, max).
+	// created from this project (one of: none, minimal, low, medium, high, xhigh, max).
 	// Empty uses the provider/model default.
 	ReasoningLevel string `protobuf:"bytes,29,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"`
 	// additional_repo_urls are extra git repositories cloned into each run's
@@ -16547,7 +16547,7 @@ type UpdateProjectRequest struct {
 	McpServerRefs []string `protobuf:"bytes,29,rep,name=mcp_server_refs,json=mcpServerRefs,proto3" json:"mcp_server_refs,omitempty"`
 	SkillRefs     []string `protobuf:"bytes,30,rep,name=skill_refs,json=skillRefs,proto3" json:"skill_refs,omitempty"`
 	// reasoning_level sets the default model reasoning effort for runs created
-	// from this project (one of: none, low, medium, high, xhigh, max). Empty
+	// from this project (one of: none, minimal, low, medium, high, xhigh, max). Empty
 	// clears the default (provider/model default applies).
 	ReasoningLevel string `protobuf:"bytes,27,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"`
 	// additional_repo_urls replaces the project's extra git repositories cloned
@@ -18433,7 +18433,7 @@ type Project struct {
 	Owner        *ResourceOwner `protobuf:"bytes,41,opt,name=owner,proto3" json:"owner,omitempty"`
 	MyPermission string         `protobuf:"bytes,42,opt,name=my_permission,json=myPermission,proto3" json:"my_permission,omitempty"`
 	// reasoning_level is the default model reasoning effort for runs created from
-	// this project (one of: none, low, medium, high, xhigh, max). Empty means the
+	// this project (one of: none, minimal, low, medium, high, xhigh, max). Empty means the
 	// provider/model default.
 	ReasoningLevel string `protobuf:"bytes,43,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"`
 	// additional_repo_urls are extra git repositories cloned into each run's
@@ -21954,7 +21954,7 @@ type AgentRunDefaults struct {
 	AllowedModels      []string `protobuf:"bytes,6,rep,name=allowed_models,json=allowedModels,proto3" json:"allowed_models,omitempty"`
 	Provider           string   `protobuf:"bytes,7,opt,name=provider,proto3" json:"provider,omitempty"`
 	AuthMode           string   `protobuf:"bytes,8,opt,name=auth_mode,json=authMode,proto3" json:"auth_mode,omitempty"`                   // api-key | oauth
-	ReasoningLevel     string   `protobuf:"bytes,9,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"` // none|low|medium|high|xhigh|max; empty = provider default
+	ReasoningLevel     string   `protobuf:"bytes,9,opt,name=reasoning_level,json=reasoningLevel,proto3" json:"reasoning_level,omitempty"` // none|minimal|low|medium|high|xhigh|max; empty = provider default
 	OpenaiBaseUrl      string   `protobuf:"bytes,10,opt,name=openai_base_url,json=openaiBaseUrl,proto3" json:"openai_base_url,omitempty"`
 	OpenaiApi          string   `protobuf:"bytes,11,opt,name=openai_api,json=openaiApi,proto3" json:"openai_api,omitempty"` // responses | chat-completions
 	Timeout            string   `protobuf:"bytes,12,opt,name=timeout,proto3" json:"timeout,omitempty"`                      // Go duration string, e.g. "30m"

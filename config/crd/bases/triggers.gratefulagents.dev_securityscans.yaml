@@ -363,6 +363,7 @@ spec:
                     allOf:
                     - enum:
                       - none
+                      - minimal
                       - low
                       - medium
                       - high
@@ -370,6 +371,7 @@ spec:
                       - max
                     - enum:
                       - none
+                      - minimal
                       - low
                       - medium
                       - high
