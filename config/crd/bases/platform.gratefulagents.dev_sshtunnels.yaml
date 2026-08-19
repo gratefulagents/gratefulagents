@@ -4,19 +4,22 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.0
-  name: roleinstructions.platform.gratefulagents.dev
+  name: sshtunnels.platform.gratefulagents.dev
 spec:
   group: platform.gratefulagents.dev
   names:
-    kind: RoleInstruction
-    listKind: RoleInstructionList
-    plural: roleinstructions
-    singular: roleinstruction
-  scope: Cluster
+    kind: SSHTunnel
+    listKind: SSHTunnelList
+    plural: sshtunnels
+    singular: sshtunnel
+  scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.description
-      name: Description
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .spec.host
+      name: Host
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -24,10 +27,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: |-
-          RoleInstruction is the Schema for the roleinstructions API.
-          Each CR defines the full behavioral prompt for one agent role.
-          The CR name must match the role name (e.g. "executor", "debugger").
+        description: SSHTunnel is the Schema for SSH tunnels to self-hosted inference
+          endpoints.
         properties:
           apiVersion:
             description: |-
@@ -48,62 +49,92 @@ spec:
             type: object
           spec:
             description: |-
-              RoleInstructionSpec defines the behavioral prompt for an agent role.
-              The CR name MUST match the role name in AgentCatalog
-              (e.g. "executor", "debugger", "code-reviewer").
-              Convention: role name = RoleInstruction CR name. No explicit refs needed.
+              SSHTunnelSpec describes an SSH local port-forward to a self-hosted,
+              OpenAI-compatible inference endpoint that is reachable only over SSH.
+
+              A run that references the tunnel (spec.sshTunnelRef) gets a hardened SSH
+              sidecar that forwards 127.0.0.1:localPort inside the run pod to
+              remoteHost:remotePort as seen from the SSH server, and its OPENAI_BASE_URL
+              is pointed at http://127.0.0.1:localPort<baseURLPath>. The private key is
+              mounted only into the sidecar container, never into the worker container.
             properties:
+              baseURLPath:
+                default: /v1
+                description: |-
+                  baseURLPath is appended to http://127.0.0.1:localPort to form the
+                  OPENAI_BASE_URL for runs using this tunnel.
+                type: string
               description:
                 description: |-
-                  Description is a short one-line summary used for HandoffDescription
-                  and tool catalog entries.
+                  description is a short human-readable summary shown when browsing
+                  tunnels.
                 type: string
-              instructions:
+              host:
                 description: |-
-                  Instructions is the full structured prompt injected into this role's
-                  system context. Supports XML-structured sections like <identity>,
-                  <constraints>, <delegation>, <execution_loop>, <style>, etc.
+                  host is the SSH server address (DNS name or IP) that fronts the
+                  inference endpoint.
+                minLength: 1
                 type: string
-              model:
+              image:
                 description: |-
-                  Model is a legacy provider-independent value retained for API
-                  compatibility. Runtime role routing uses ModelsByProvider; when the active
-                  provider has no entry, the role inherits the parent run's model.
+                  image overrides the SSH sidecar image for this tunnel. It must provide
+                  /bin/sh and an OpenSSH client. Defaults to the operator-configured
+                  tunnel image.
                 type: string
-              modelsByProvider:
-                additionalProperties:
-                  type: string
+              localPort:
+                default: 8434
                 description: |-
-                  ModelsByProvider maps provider names (for example "openai", "anthropic",
-                  or "copilot") to the model this role should use with that provider. When
-                  the active provider has no entry, the role inherits the parent run's model.
+                  localPort is the loopback port the sidecar listens on inside the run
+                  pod. The worker reaches the endpoint at http://127.0.0.1:localPort.
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              port:
+                default: 22
+                description: port is the SSH server port.
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              remoteHost:
+                default: 127.0.0.1
+                description: |-
+                  remoteHost is the forward destination as resolved on the SSH server.
+                  Keep the inference server bound to loopback so SSH is the only way in.
+                type: string
+              remotePort:
+                description: remotePort is the inference endpoint port on remoteHost.
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              secretRef:
+                description: |-
+                  secretRef names a Secret in the tunnel's namespace that must contain
+                  the keys "privateKey" (SSH private key) and "known_hosts" (pinned host
+                  key entries; StrictHostKeyChecking is always enforced against them).
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
                 type: object
-              reasoningLevel:
+              user:
                 description: |-
-                  ReasoningLevel controls reasoning effort for this role. When empty, the
-                  role inherits the parent run's reasoning level.
-                enum:
-                - none
-                - minimal
-                - low
-                - medium
-                - high
-                - xhigh
-                - max
-                type: string
-              toolAccess:
-                description: ToolAccess controls which tools this role can use.
-                enum:
-                - full
-                - read-only
-                - analysis
-                - execution
+                  user is the SSH login user. Use a dedicated no-shell account whose
+                  authorized_keys entry restricts the key to this single forward, e.g.
+                  restrict,port-forwarding,permitopen="127.0.0.1:8000".
+                minLength: 1
                 type: string
             required:
-            - instructions
+            - host
+            - remotePort
+            - secretRef
+            - user
             type: object
           status:
-            description: RoleInstructionStatus defines the observed state of RoleInstruction.
+            description: SSHTunnelStatus defines the observed state of SSHTunnel.
             properties:
               conditions:
                 items:

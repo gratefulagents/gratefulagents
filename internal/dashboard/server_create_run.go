@@ -308,6 +308,9 @@ func (s *Server) createAgentRunFromRequest(ctx context.Context, req *platform.Cr
 	if defaults.Team != nil {
 		run.Spec.Team = defaults.Team.DeepCopy()
 	}
+	if defaults.SSHTunnelRef != nil {
+		run.Spec.SSHTunnelRef = defaults.SSHTunnelRef.DeepCopy()
+	}
 	if project, ok := owner.(*triggersv1alpha1.Project); ok {
 		if project.Spec.ReviewLoop != nil && !project.Spec.ReviewLoop.Disabled {
 			run.Annotations[projectReviewLoopAnnotation] = projectReviewLoopEnabled
@@ -595,6 +598,7 @@ func resolveReasoningLevel(value string) (platformv1alpha1.ModeReasoningLevel, e
 	case "":
 		return "", nil
 	case platformv1alpha1.ReasoningNone,
+		platformv1alpha1.ReasoningMinimal,
 		platformv1alpha1.ReasoningLow,
 		platformv1alpha1.ReasoningMedium,
 		platformv1alpha1.ReasoningHigh,
@@ -602,7 +606,7 @@ func resolveReasoningLevel(value string) (platformv1alpha1.ModeReasoningLevel, e
 		platformv1alpha1.ReasoningMax:
 		return platformv1alpha1.ModeReasoningLevel(level), nil
 	default:
-		return "", fmt.Errorf("invalid reasoning level %q (want one of none, low, medium, high, xhigh, max)", value)
+		return "", fmt.Errorf("invalid reasoning level %q (want one of none, minimal, low, medium, high, xhigh, max)", value)
 	}
 }
 

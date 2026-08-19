@@ -492,7 +492,7 @@ message UpdateAgentRunRuntimeConfigRequest {
   // update_reasoning_level disambiguates proto3 empty string: when true,
   // reasoning_level is applied and an empty value clears the run-level override.
   bool update_reasoning_level = 5;
-  // reasoning_level is one of: none, low, medium, high, xhigh, max. Empty uses
+  // reasoning_level is one of: none, minimal, low, medium, high, xhigh, max. Empty uses
   // the provider/model default when update_reasoning_level is true.
   string reasoning_level = 6;
 }
@@ -880,6 +880,9 @@ message AgentRun {
   // additional_repo_urls are extra git repositories cloned into the run's
   // sandbox at startup (under repos/<name> next to the primary repository).
   repeated string additional_repo_urls = 35;
+  // ssh_tunnel_ref names the SSHTunnel resource fronting this run's
+  // OpenAI-compatible inference endpoint (empty when the run does not use one).
+  string ssh_tunnel_ref = 36;
 
   // status
   string phase = 40;
@@ -1352,7 +1355,7 @@ message CreateAgentRunRequest {
   string openai_oauth_secret = 16;
   repeated ProviderKeyRef provider_keys = 17;
   // reasoning_level optionally sets the model reasoning effort for this run
-  // (one of: none, low, medium, high, xhigh, max). Empty uses the provider/model default.
+  // (one of: none, minimal, low, medium, high, xhigh, max). Empty uses the provider/model default.
   string reasoning_level = 18;
   // image_data_urls are optional image attachments for the initial user request,
   // as data URLs (e.g. "data:image/png;base64,..."). Supported by vision models.
@@ -1537,7 +1540,7 @@ message SlackAgent {
   // it creates. Token values are write-only and never returned.
   bool github_token_present = 42;
   // reasoning_level is the default model reasoning effort for runs this agent
-  // creates (none|low|medium|high|xhigh|max; empty = provider/model default).
+  // creates (none|minimal|low|medium|high|xhigh|max; empty = provider/model default).
   string reasoning_level = 43;
   // additional_repo_urls are extra git repositories cloned into each run's
   // sandbox at startup.
@@ -1761,7 +1764,7 @@ message RoleInstruction {
   string tool_access = 4; // full | read-only | analysis | execution
   string model = 5; // legacy provider-independent value; runtime routing ignores it
   map<string, string> models_by_provider = 6; // active provider -> role model; missing provider inherits parent
-  string reasoning_level = 7; // empty inherits parent; none | low | medium | high | xhigh | max
+  string reasoning_level = 7; // empty inherits parent; none | minimal | low | medium | high | xhigh | max
 }
 message ListRoleInstructionsRequest {}
 message ListRoleInstructionsResponse { repeated RoleInstruction instructions = 1; }
@@ -1883,7 +1886,7 @@ message UpdateSlackAgentRequest {
   // to the saved token.
   string github_token = 41;
   // reasoning_level sets the default model reasoning effort for runs this
-  // agent creates (one of: none, low, medium, high, xhigh, max). Assigned as a
+  // agent creates (one of: none, minimal, low, medium, high, xhigh, max). Assigned as a
   // whole on every save; empty = provider/model default.
   string reasoning_level = 42;
   // additional_repo_urls are extra git repositories cloned into each run's
@@ -2015,7 +2018,7 @@ message UpdateMyRoleModelPreferencesRequest {
 message ModelDefaults {
   string provider = 1;
   string model = 2;
-  // reasoning_level is one of "", "none", "low", "medium", "high", "xhigh",
+  // reasoning_level is one of "", "none", "minimal", "low", "medium", "high", "xhigh",
   // "max". Empty means the provider/model default.
   string reasoning_level = 3;
   // disabled turns off automatic application without clearing the values.
@@ -2529,7 +2532,7 @@ message CreateProjectRequest {
   repeated string mcp_server_refs = 31;
   repeated string skill_refs = 32;
   // reasoning_level optionally sets the default model reasoning effort for runs
-  // created from this project (one of: none, low, medium, high, xhigh, max).
+  // created from this project (one of: none, minimal, low, medium, high, xhigh, max).
   // Empty uses the provider/model default.
   string reasoning_level = 29;
   // additional_repo_urls are extra git repositories cloned into each run's
@@ -2584,7 +2587,7 @@ message UpdateProjectRequest {
   repeated string mcp_server_refs = 29;
   repeated string skill_refs = 30;
   // reasoning_level sets the default model reasoning effort for runs created
-  // from this project (one of: none, low, medium, high, xhigh, max). Empty
+  // from this project (one of: none, minimal, low, medium, high, xhigh, max). Empty
   // clears the default (provider/model default applies).
   string reasoning_level = 27;
   // additional_repo_urls replaces the project's extra git repositories cloned
@@ -2827,7 +2830,7 @@ message Project {
   ResourceOwner owner = 41;
   string my_permission = 42;
   // reasoning_level is the default model reasoning effort for runs created from
-  // this project (one of: none, low, medium, high, xhigh, max). Empty means the
+  // this project (one of: none, minimal, low, medium, high, xhigh, max). Empty means the
   // provider/model default.
   string reasoning_level = 43;
   // additional_repo_urls are extra git repositories cloned into each run's
@@ -3275,7 +3278,7 @@ message AgentRunDefaults {
   repeated string allowed_models = 6;
   string provider = 7;
   string auth_mode = 8;       // api-key | oauth
-  string reasoning_level = 9; // none|low|medium|high|xhigh|max; empty = provider default
+  string reasoning_level = 9; // none|minimal|low|medium|high|xhigh|max; empty = provider default
   string openai_base_url = 10;
   string openai_api = 11; // responses | chat-completions
   string timeout = 12;    // Go duration string, e.g. "30m"
@@ -3297,6 +3300,11 @@ message AgentRunDefaults {
   string workflow_mode = 21;  // auto | chat
   string mode_ref = 22;       // ModeTemplate name
   string execution_mode = 23; // linear | team
+  // ssh_tunnel_ref names an SSHTunnel resource (same namespace) fronting a
+  // self-hosted OpenAI-compatible inference endpoint. Runs created from these
+  // defaults get a hardened per-run SSH port-forward sidecar and their
+  // OPENAI_BASE_URL points at the tunnel (overriding openai_base_url).
+  string ssh_tunnel_ref = 26;
 }
 
 // TriggerPolicies carries the dashboard-managed runtime/MCP policy

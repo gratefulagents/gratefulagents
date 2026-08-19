@@ -518,6 +518,18 @@ export function RunDefaultsRows({
               placeholder="https://api.openai.com/v1"
             />
           </FlowField>
+          <FlowField
+            id={`${idPrefix}-ssh-tunnel-ref`}
+            label="SSH tunnel"
+            hint="SSHTunnel resource name for a self-hosted endpoint reachable only over SSH. Overrides the OpenAI base URL."
+          >
+            <Input
+              id={`${idPrefix}-ssh-tunnel-ref`}
+              value={value.sshTunnelRef}
+              onChange={(event) => set("sshTunnelRef", event.target.value)}
+              placeholder="my-tunnel"
+            />
+          </FlowField>
           <FlowField id={`${idPrefix}-openai-api`} label="OpenAI API">
             <select
               id={`${idPrefix}-openai-api`}

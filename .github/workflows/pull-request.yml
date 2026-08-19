@@ -143,6 +143,9 @@ jobs:
           - image: injector
             dockerfile: ./Dockerfile.injector
             runner: ubuntu-24.04
+          - image: tunnel
+            dockerfile: ./Dockerfile.tunnel
+            runner: ubuntu-24.04
           - image: security-tools-amd64
             dockerfile: ./Dockerfile.security-tools
             platform: linux/amd64

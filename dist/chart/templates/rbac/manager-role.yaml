@@ -132,6 +132,7 @@ rules:
   - runtimeprofiles
   - securitytoolruns
   - skills
+  - sshtunnels
   verbs:
   - create
   - delete
@@ -155,6 +156,7 @@ rules:
   - runtimeprofiles/status
   - securitytoolruns/status
   - skills/status
+  - sshtunnels/status
   verbs:
   - get
   - patch

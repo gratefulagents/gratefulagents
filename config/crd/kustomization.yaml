@@ -17,6 +17,7 @@ resources:
 - bases/platform.gratefulagents.dev_mcpservers.yaml
 - bases/platform.gratefulagents.dev_skills.yaml
 - bases/platform.gratefulagents.dev_securitytoolruns.yaml
+- bases/platform.gratefulagents.dev_sshtunnels.yaml
 
 - bases/triggers.gratefulagents.dev_githubrepositories.yaml
 - bases/triggers.gratefulagents.dev_maintainerworkitems.yaml

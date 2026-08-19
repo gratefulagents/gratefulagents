@@ -84,6 +84,7 @@ spec:
                                     role inherits the parent run's reasoning level.
                                 enum:
                                     - none
+                                    - minimal
                                     - low
                                     - medium
                                     - high

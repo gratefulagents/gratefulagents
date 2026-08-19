@@ -1670,6 +1670,11 @@ func createPlanPod(ctx context.Context, c client.Client, run *platformv1alpha1.A
 	// Secret-backed env declared by attached MCP servers (incl. skill-required ones).
 	envs = append(envs, resolveMCPServerSecretEnvs(ctx, c, run)...)
 	pod.Spec = buildCommonPodSpec(ctxlessRun(run), saName, []string{"/opt/gratefulagents/bin/agent", "run"}, envs, nil, nil)
+	sshTunnel, err := resolveSSHTunnel(ctx, c, run)
+	if err != nil {
+		return "", err
+	}
+	ensureSSHTunnelSidecar(&pod.Spec, sshTunnel)
 	if err := c.Create(ctx, pod); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			existing := &corev1.Pod{}

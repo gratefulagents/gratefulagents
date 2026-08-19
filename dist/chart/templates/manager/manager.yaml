@@ -65,6 +65,8 @@ spec:
                       value: {{ .Values.agentImages.worker | quote }}
                     - name: INJECTOR_IMAGE
                       value: {{ .Values.agentImages.injector | quote }}
+                    - name: SSH_TUNNEL_IMAGE
+                      value: {{ .Values.agentImages.sshTunnel | quote }}
                     {{- $securityTools := .Values.securityTools | default dict }}
                     - name: SECURITY_TOOLS_IMAGE
                       value: {{ include "gratefulagents.securityToolsImage" . | quote }}
