@@ -314,6 +314,7 @@ func (r *AgentRunOverseerReconciler) desiredOverseerRun(primary *platformv1alpha
 		ReasoningLevel:     primary.Spec.ReasoningLevel,
 		AuthMode:           primary.Spec.AuthMode,
 		OpenAIBaseURL:      primary.Spec.OpenAIBaseURL,
+		SSHTunnelRef:       copyNamedRef(primary.Spec.SSHTunnelRef),
 		Image:              primary.Spec.Image,
 		RuntimeProfileRef:  copyNamedRef(primary.Spec.RuntimeProfileRef),
 		GuardrailPolicyRef: copyNamedRef(primary.Spec.GuardrailPolicyRef),

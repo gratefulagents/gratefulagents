@@ -58,6 +58,7 @@ func fullParityDefaults() *platform.AgentRunDefaults {
 		WorkflowMode:      "auto",
 		ModeRef:           "deep-research",
 		ExecutionMode:     "linear",
+		SshTunnelRef:      "llm-tunnel",
 	}
 }
 

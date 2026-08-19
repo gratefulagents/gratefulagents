@@ -97,7 +97,9 @@ kubectl get sshtunnels
 
 ## 4. Reference the tunnel from a run
 
-Set `spec.sshTunnelRef` on the `AgentRun` (alongside your model name and an API key credential if your server requires one):
+The easiest way is via run defaults: in the dashboard, open a project or trigger's **Run defaults → Advanced** and set the **SSH tunnel** field to the `SSHTunnel` resource name. Every run created from that source (including scheduled and trigger-driven runs, and their overseers) then routes its OpenAI-compatible traffic through the tunnel.
+
+You can also set `spec.sshTunnelRef` on an `AgentRun` directly (alongside your model name and an API key credential if your server requires one):
 
 ```yaml
 apiVersion: platform.gratefulagents.dev/v1alpha1
