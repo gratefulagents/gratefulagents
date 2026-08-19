@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createClient, Code, ConnectError } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
-import { PlatformService } from "../../../frontend/src/rpc/platform/service_pb";
+import {
+  PlatformService,
+  SecurityCatalogInstallState,
+  SecurityCatalogKind,
+} from "../../../frontend/src/rpc/platform/service_pb";
 import { AuthService } from "../../../frontend/src/rpc/auth/service_pb";
 import { defaultScenario } from "../fixtures/default";
 import { startFakeBackend, type FakeBackend } from "./fake-backend";
@@ -117,6 +121,37 @@ describe("fake backend", () => {
     expect(after.state).toBe("installed");
     // The backend clones fixtures; interactive mutation must not leak back.
     expect(defaultScenario.securitySkillsInstalled).toBe(false);
+  });
+
+  it("previews and applies the dependency-expanded security catalog", async () => {
+    const catalog = await platform.listSecurityCatalog({});
+    const program = catalog.entries.find(
+      (entry) => entry.resource?.kind === SecurityCatalogKind.PROGRAM,
+    );
+    expect(catalog.ready).toBe(true);
+    expect(program?.resource).toBeDefined();
+
+    const preview = await platform.dryRunSecurityCatalogInstall({
+      catalogRevision: catalog.revision,
+      resources: [program!.resource!],
+    });
+    expect(preview.planRevision).not.toBe("");
+    expect(preview.results.length).toBeGreaterThan(1);
+    expect(preview.results.at(-1)?.entry?.resource?.name).toBe(program!.resource!.name);
+
+    const applied = await platform.applySecurityCatalogInstall({
+      catalogRevision: catalog.revision,
+      planRevision: preview.planRevision,
+      resources: [program!.resource!],
+    });
+    expect(applied.applied).toBe(true);
+    expect(applied.results.some((result) => result.action === "created")).toBe(true);
+    expect((await platform.listSecurityCatalog({})).entries.find(
+      (entry) => entry.resource?.name === program!.resource!.name,
+    )?.installState).toBe(SecurityCatalogInstallState.INSTALLED);
+    expect(defaultScenario.securityCatalog.entries.find(
+      (entry) => entry.resource?.name === program!.resource!.name,
+    )?.installState).toBe(SecurityCatalogInstallState.NOT_INSTALLED);
   });
 
   it("lists bug report fixtures and applies status/category filters", async () => {

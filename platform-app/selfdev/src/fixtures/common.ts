@@ -9,6 +9,10 @@ import {
   type ProjectMetrics,
   type ResourceOwner,
   ResourceOwnerSchema,
+  SecurityCatalogInstallState,
+  SecurityCatalogKind,
+  type SecurityCatalog,
+  SecurityCatalogSchema,
   type RuntimeImageOption,
   RuntimeImageOptionSchema,
 } from "../../../frontend/src/rpc/platform/service_pb";
@@ -40,6 +44,76 @@ export const TEAMMATE: ResourceOwner = create(ResourceOwnerSchema, {
   name: "Riley Rivera",
   picture: "",
 });
+
+export function securityCatalogFixture(): SecurityCatalog {
+  return create(SecurityCatalogSchema, {
+    revision: "selfdev-security-catalog-v1",
+    ready: true,
+    entries: [
+      {
+        resource: { kind: SecurityCatalogKind.PROGRAM, name: "open-ledger-bounty" },
+        title: "Open Ledger bounty program",
+        description: "Verified program scope with two importable repository targets.",
+        ready: true,
+        installState: SecurityCatalogInstallState.NOT_INSTALLED,
+        dependencies: [
+          { resource: { kind: SecurityCatalogKind.WORKFLOW, name: "smart-contract-review" }, required: true },
+          { resource: { kind: SecurityCatalogKind.POLICY_PACK, name: "bug-bounty" }, required: true },
+        ],
+      },
+      {
+        resource: { kind: SecurityCatalogKind.WORKFLOW, name: "smart-contract-review" },
+        title: "Smart contract review",
+        description: "Parallel review workflow for authorization, accounting, and integration risks.",
+        ready: true,
+        installState: SecurityCatalogInstallState.UPDATE_AVAILABLE,
+        dependencies: [
+          { resource: { kind: SecurityCatalogKind.SKILL, name: "security-scan" }, required: true },
+          { resource: { kind: SecurityCatalogKind.SKILL, name: "evm-low-level-and-deployment-review" }, required: true },
+        ],
+      },
+      {
+        resource: { kind: SecurityCatalogKind.POLICY_PACK, name: "bug-bounty" },
+        title: "Bug bounty policy",
+        description: "Submission-focused validation, eligibility, and report-quality defaults.",
+        ready: true,
+        installState: SecurityCatalogInstallState.NOT_INSTALLED,
+        dependencies: [
+          { resource: { kind: SecurityCatalogKind.RANKER, name: "bug-bounty-triage" }, required: true },
+          { resource: { kind: SecurityCatalogKind.POST_SCRIPT, name: "validate-finding" }, required: true },
+        ],
+      },
+      {
+        resource: { kind: SecurityCatalogKind.SKILL, name: "security-scan" },
+        title: "Security scan",
+        description: "Core vulnerability discovery and evidence discipline.",
+        ready: true,
+        installState: SecurityCatalogInstallState.INSTALLED,
+      },
+      {
+        resource: { kind: SecurityCatalogKind.SKILL, name: "evm-low-level-and-deployment-review" },
+        title: "EVM deployment review",
+        description: "Low-level EVM, proxy, signature, and deployment analysis.",
+        ready: true,
+        installState: SecurityCatalogInstallState.NOT_INSTALLED,
+      },
+      {
+        resource: { kind: SecurityCatalogKind.RANKER, name: "bug-bounty-triage" },
+        title: "Bug bounty triage",
+        description: "Ranks findings by accepted impact and submission readiness.",
+        ready: true,
+        installState: SecurityCatalogInstallState.NOT_INSTALLED,
+      },
+      {
+        resource: { kind: SecurityCatalogKind.POST_SCRIPT, name: "validate-finding" },
+        title: "Validate finding",
+        description: "Reproduces candidate findings and rejects false positives.",
+        ready: true,
+        installState: SecurityCatalogInstallState.NOT_INSTALLED,
+      },
+    ],
+  });
+}
 
 export function metrics(overrides: Partial<ProjectMetrics> = {}): ProjectMetrics {
   return create(ProjectMetricsSchema, {

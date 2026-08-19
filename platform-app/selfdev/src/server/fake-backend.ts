@@ -79,10 +79,14 @@ import {
   ProviderOAuthStartSchema,
   ReadFileResponseSchema,
   SecurityFindingEventSchema,
+  SecurityCatalogInstallResponseSchema,
+  SecurityCatalogInstallState,
   SecuritySkillsStatusSchema,
   SkillInfoSchema,
   SwitchAgentRunModeResponseSchema,
   type AgentRun,
+  type SecurityCatalogEntry,
+  type SecurityCatalogInstallRequest,
   type SecurityFinding,
   type SecurityScan,
   type UpsertSkillRequest,
@@ -402,6 +406,55 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
     const run = findRun(namespace, name);
     if (!run) throw notFound(`agent run ${namespace}/${name}`);
     return run;
+  };
+
+  const catalogKey = (entry: SecurityCatalogEntry): string =>
+    `${entry.resource?.kind ?? 0}:${entry.resource?.name ?? ""}`;
+  const catalogPlan = (req: SecurityCatalogInstallRequest) => {
+    if (req.catalogRevision !== s.securityCatalog.revision) {
+      throw new ConnectError("security catalog revision is stale", Code.FailedPrecondition);
+    }
+    const byKey = new Map(s.securityCatalog.entries.map((entry) => [catalogKey(entry), entry]));
+    const ordered: SecurityCatalogEntry[] = [];
+    const visited = new Set<string>();
+    const visit = (entry: SecurityCatalogEntry) => {
+      const key = catalogKey(entry);
+      if (visited.has(key)) return;
+      visited.add(key);
+      for (const dependency of entry.dependencies) {
+        if (!dependency.resource) continue;
+        const target = byKey.get(`${dependency.resource.kind}:${dependency.resource.name}`);
+        if (target) visit(target);
+      }
+      ordered.push(entry);
+    };
+    for (const resource of req.resources) {
+      const entry = byKey.get(`${resource.kind}:${resource.name}`);
+      if (entry) visit(entry);
+    }
+    const planRevision = `selfdev-plan-${ordered.map(catalogKey).join("-")}`;
+    return create(SecurityCatalogInstallResponseSchema, {
+      catalogRevision: s.securityCatalog.revision,
+      planRevision,
+      results: ordered.map((entry) => ({
+        entry,
+        action:
+          entry.installState === SecurityCatalogInstallState.INSTALLED
+            ? "unchanged"
+            : entry.installState === SecurityCatalogInstallState.UPDATE_AVAILABLE
+              ? "refresh"
+              : entry.installState === SecurityCatalogInstallState.MODIFIED ||
+                  entry.installState === SecurityCatalogInstallState.CONFLICT
+                ? "blocked"
+                : "create",
+        message:
+          entry.installState === SecurityCatalogInstallState.MODIFIED
+            ? "The installed catalog resource was modified."
+            : entry.installState === SecurityCatalogInstallState.CONFLICT
+              ? "An unrelated same-name resource already exists."
+              : "",
+      })),
+    });
   };
 
   const impl: AnyImpl = {
@@ -891,6 +944,21 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
       );
       if (!program) throw notFound(`security program ${req.namespace}/${req.name}`);
       return program;
+    },
+    listSecurityCatalog: async () => s.securityCatalog,
+    dryRunSecurityCatalogInstall: async (req: SecurityCatalogInstallRequest) => catalogPlan(req),
+    applySecurityCatalogInstall: async (req: SecurityCatalogInstallRequest) => {
+      const response = catalogPlan(req);
+      if (req.planRevision !== response.planRevision) {
+        throw new ConnectError("security catalog installation plan revision is stale", Code.FailedPrecondition);
+      }
+      for (const result of response.results) {
+        if (!result.entry || result.action === "blocked" || result.action === "unchanged") continue;
+        result.action = result.action === "refresh" ? "refreshed" : "created";
+        result.entry.installState = SecurityCatalogInstallState.INSTALLED;
+        response.applied = true;
+      }
+      return response;
     },
     getSecuritySkillsStatus: async () =>
       create(SecuritySkillsStatusSchema, {

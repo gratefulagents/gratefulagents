@@ -578,6 +578,7 @@ describe("SecurityLibraryPage URL state", () => {
     expect(await screen.findByText("No reusable workflows yet")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Create your first workflow/ })).toBeTruthy();
     // The rich empty state replaces the table, not the toolbar.
+    expect(screen.getByRole("button", { name: "Add from shipped catalog" })).toBeTruthy();
     expect(screen.getByTestId("export-pack")).toBeTruthy();
   });
   it("writes a filter picked in the filter bar into the URL", async () => {

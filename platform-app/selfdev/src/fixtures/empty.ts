@@ -13,7 +13,14 @@ import {
 } from "../../../frontend/src/rpc/platform/service_pb";
 import type { Scenario } from "../scenario";
 import { SCENARIO_NOW } from "../time";
-import { MODEL_LIST, NAMESPACE as NS, USER, modeCatalog, runtimeImageCatalog } from "./common";
+import {
+  MODEL_LIST,
+  NAMESPACE as NS,
+  USER,
+  modeCatalog,
+  runtimeImageCatalog,
+  securityCatalogFixture,
+} from "./common";
 
 export const emptyScenario: Scenario = {
   name: "empty",
@@ -49,6 +56,7 @@ export const emptyScenario: Scenario = {
   securityPrograms: [],
   securitySavedFilters: [],
   securitySkillsInstalled: false,
+  securityCatalog: securityCatalogFixture(),
   bugReports: [],
 
   skillPackages: [],
