@@ -68,6 +68,8 @@ jobs:
             dockerfile: ./Dockerfile.worker
           - image: injector
             dockerfile: ./Dockerfile.injector
+          - image: tunnel
+            dockerfile: ./Dockerfile.tunnel
     uses: docker/github-builder/.github/workflows/build.yml@v1
     permissions:
       contents: read

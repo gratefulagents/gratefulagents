@@ -497,6 +497,12 @@ type AgentRunSpec struct {
 	MCPPolicyRef *NamedRef `json:"mcpPolicyRef,omitempty"`
 	// +optional
 	GuardrailPolicyRef *NamedRef `json:"guardrailPolicyRef,omitempty"`
+	// SSHTunnelRef names an SSHTunnel (same namespace) that fronts the run's
+	// OpenAI-compatible inference endpoint. When set, a hardened SSH
+	// port-forward sidecar joins the run pod and OPENAI_BASE_URL points at
+	// the tunnel's loopback listener, overriding spec.openaiBaseURL.
+	// +optional
+	SSHTunnelRef *NamedRef `json:"sshTunnelRef,omitempty"`
 	// MCPServerRefs lists MCPServer resources (same namespace) whose MCP
 	// server configs are attached to this run.
 	// +listType=atomic

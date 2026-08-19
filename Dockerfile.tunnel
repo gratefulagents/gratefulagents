@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+
+# SSH tunnel sidecar image — the smallest possible OpenSSH client used by the
+# per-run tunnel sidecar that AgentRun pods gain when they reference an
+# SSHTunnel resource. The controller supplies the full ssh invocation (see
+# internal/controller/platform/sshtunnel_support.go); this image only needs
+# /bin/sh, an ssh client, and busybox nc for the startup probe.
+#
+# The container runs as the non-root uid 65532 with all capabilities dropped
+# and a read-only root filesystem; the pod spec mounts a writable HOME.
+FROM alpine:3.22
+
+RUN apk add --no-cache openssh-client && \
+    addgroup -g 65532 tunnel && \
+    adduser -D -H -u 65532 -G tunnel tunnel
+
+USER 65532:65532
+
+# The controller always sets an explicit command; keep a safe default that
+# never opens a connection on its own.
+ENTRYPOINT ["/bin/sh", "-c", "echo 'gratefulagents tunnel image: the platform controller supplies the ssh command' >&2; exit 1"]
