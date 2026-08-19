@@ -191,6 +191,9 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		},
 	}
 	expectedLatestReleaseTargets := map[string]map[string]string{
+		"firedancer": {
+			"firedancer": "v1.1.4",
+		},
 		"hackenproof-deltaprime": {
 			"deltaprime-contracts": "v1.1.0",
 		},
@@ -371,8 +374,16 @@ func TestSecurityProgramLibrary(t *testing.T) {
 					}
 				}
 			}
-			if program.Name == "firedancer" && len(targets) != 0 {
-				t.Error("Firedancer must not suggest a scan target without a selected in-scope release")
+			if program.Name == "firedancer" {
+				if len(targets) != 1 {
+					t.Fatalf("Firedancer importable scan target count = %d, want 1", len(targets))
+				}
+				if got := targets[0].RepositoryURL; got != "https://github.com/firedancer-io/firedancer" {
+					t.Errorf("Firedancer scan target repository = %q, want official repository", got)
+				}
+				if got := targets[0].WorkflowRef; got != "blockchain-protocol-audit" {
+					t.Errorf("Firedancer scan target workflow = %q, want blockchain-protocol-audit", got)
+				}
 			}
 			if program.Name == "immunefi-ethena" {
 				if len(targets) != 0 {
