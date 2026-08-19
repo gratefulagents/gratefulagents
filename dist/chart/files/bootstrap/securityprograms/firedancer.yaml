@@ -3,6 +3,17 @@ kind: SecurityProgram
 metadata:
   name: firedancer
 spec:
+  scanTargets:
+    - repositoryURL: https://github.com/firedancer-io/firedancer
+      baseBranch: v1.1.4
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: firedancer
+      displayName: Firedancer validator at v1.1.4
+      priority: 22
+      featured: false
+      parameterValues:
+        release_tag: v1.1.4
   provider: Firedancer
   displayName: Firedancer
   programURL: https://bounty.firedancer.io/
