@@ -307,6 +307,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := (&platformcontroller.SSHTunnelReconciler{
+		Client: mgr.GetClient(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SSHTunnel")
+		os.Exit(1)
+	}
+
 	if err := (&platformcontroller.RuntimeProfileReconciler{
 		Client: mgr.GetClient(),
 	}).SetupWithManager(mgr); err != nil {

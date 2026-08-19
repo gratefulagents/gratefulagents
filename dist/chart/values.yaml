@@ -94,6 +94,9 @@ manager:
 agentImages:
   worker: ghcr.io/gratefulagents/worker:latest
   injector: ghcr.io/gratefulagents/injector:latest
+  ## Minimal OpenSSH client image used for the per-run SSH tunnel sidecar
+  ## injected when an AgentRun references an SSHTunnel resource.
+  sshTunnel: ghcr.io/gratefulagents/tunnel:latest
   ## Image running deterministic security tools in SecurityToolRun Jobs.
   ## When empty, the chart replaces the trailing "controller" in
   ## manager.image.repository with "security-tools" and uses manager.image.tag,

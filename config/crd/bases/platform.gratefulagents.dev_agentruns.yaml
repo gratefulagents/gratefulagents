@@ -439,6 +439,18 @@ spec:
                 - kind
                 - name
                 type: object
+              sshTunnelRef:
+                description: |-
+                  SSHTunnelRef names an SSHTunnel (same namespace) that fronts the run's
+                  OpenAI-compatible inference endpoint. When set, a hardened SSH
+                  port-forward sidecar joins the run pod and OPENAI_BASE_URL points at
+                  the tunnel's loopback listener, overriding spec.openaiBaseURL.
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
               team:
                 description: AgentRunTeamSpec defines the predeclared team-mode orchestration
                   contract.
