@@ -329,6 +329,14 @@ func (h *PlatformServiceConnectHandler) ListRuntimeProfiles(ctx context.Context,
 	return connect.NewResponse(resp), nil
 }
 
+func (h *PlatformServiceConnectHandler) ListSSHTunnels(ctx context.Context, req *connect.Request[platform.ListSSHTunnelsRequest]) (*connect.Response[platform.ListSSHTunnelsResponse], error) {
+	resp, err := h.srv.ListSSHTunnels(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (h *PlatformServiceConnectHandler) CreateRuntimeProfile(ctx context.Context, req *connect.Request[platform.CreateRuntimeProfileRequest]) (*connect.Response[platform.RuntimeProfile], error) {
 	resp, err := h.srv.CreateRuntimeProfile(ctx, req.Msg)
 	if err != nil {

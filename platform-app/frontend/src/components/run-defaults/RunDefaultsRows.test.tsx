@@ -24,6 +24,31 @@ vi.mock("@/lib/client", () => ({
         models: provider === "openai" ? ["gpt-5", "gpt-5-mini"] : ["claude-opus", "claude-sonnet"],
       }),
     ),
+    listSSHTunnels: vi.fn().mockResolvedValue({
+      namespace: "user-alice",
+      tunnels: [
+        {
+          namespace: "user-alice",
+          name: "gpu-vllm",
+          host: "gpu.example.com",
+          port: 22,
+          user: "tunnel",
+          remoteHost: "127.0.0.1",
+          remotePort: 8000,
+          phase: "Ready",
+          message: "Validated SSH tunnel to tunnel@gpu.example.com",
+        },
+        {
+          namespace: "user-alice",
+          name: "legacy-llama",
+          host: "llama.example.com",
+          user: "tunnel",
+          remotePort: 8080,
+          phase: "Invalid",
+          message: 'secret "llama-ssh" not found',
+        },
+      ],
+    }),
   },
 }));
 
@@ -88,5 +113,41 @@ describe("RunDefaultsRows model picker", () => {
         expect.anything(),
       );
     });
+  });
+});
+
+describe("RunDefaultsRows SSH tunnel picker", () => {
+  it("lists tunnels with their health, shows the selection's status, and updates the defaults", async () => {
+    render(<Harness />);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Advanced/ }));
+    await waitFor(() => {
+      expect(client.listSSHTunnels).toHaveBeenCalled();
+    });
+
+    const picker = (await screen.findByLabelText("SSH tunnel")) as HTMLSelectElement;
+    expect(Array.from(picker.options).map((option) => option.value)).toEqual([
+      "",
+      "gpu-vllm",
+      "legacy-llama",
+    ]);
+    expect(Array.from(picker.options).map((option) => option.textContent)).toEqual([
+      "none",
+      "gpu-vllm — Ready",
+      "legacy-llama — Invalid",
+    ]);
+
+    fireEvent.change(picker, { target: { value: "gpu-vllm" } });
+    expect((screen.getByLabelText("SSH tunnel") as HTMLSelectElement).value).toBe("gpu-vllm");
+    expect(
+      screen.getByText(
+        "Ready — tunnel@gpu.example.com:22 → 127.0.0.1:8000 · Validated SSH tunnel to tunnel@gpu.example.com",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("SSH tunnel"), { target: { value: "legacy-llama" } });
+    expect(
+      screen.getByText('Invalid — tunnel@llama.example.com → 127.0.0.1:8080 · secret "llama-ssh" not found'),
+    ).toBeTruthy();
   });
 });

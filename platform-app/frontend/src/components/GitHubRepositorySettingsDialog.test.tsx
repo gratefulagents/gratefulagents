@@ -23,6 +23,7 @@ vi.mock("@/lib/client", () => ({
       secrets: [{ name: "github-webhook-secret", keys: ["secret"] }],
     }),
     listAvailableModels: vi.fn().mockResolvedValue({ models: [] }),
+    listSSHTunnels: vi.fn().mockResolvedValue({ namespace: "user-alice", tunnels: [] }),
     updateGitHubRepository: vi.fn().mockResolvedValue({}),
   },
 }));

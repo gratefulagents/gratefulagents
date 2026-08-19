@@ -9256,6 +9256,226 @@ func (x *ListRuntimeProfilesResponse) GetProfiles() []*RuntimeProfile {
 	return nil
 }
 
+// SSHTunnel summarizes a namespaced SSHTunnel resource (kubectl/GitOps-
+// managed) so the dashboard can reference tunnels by name in run defaults and
+// surface their health. Secret contents never appear here.
+type SSHTunnel struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Namespace string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Name      string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// host/port/user identify the SSH server; remote_host/remote_port are the
+	// forward destination as resolved on that server.
+	Host        string `protobuf:"bytes,3,opt,name=host,proto3" json:"host,omitempty"`
+	Port        int32  `protobuf:"varint,4,opt,name=port,proto3" json:"port,omitempty"`
+	User        string `protobuf:"bytes,5,opt,name=user,proto3" json:"user,omitempty"`
+	RemoteHost  string `protobuf:"bytes,6,opt,name=remote_host,json=remoteHost,proto3" json:"remote_host,omitempty"`
+	RemotePort  int32  `protobuf:"varint,7,opt,name=remote_port,json=remotePort,proto3" json:"remote_port,omitempty"`
+	Description string `protobuf:"bytes,8,opt,name=description,proto3" json:"description,omitempty"`
+	// phase mirrors status.phase: "Ready", "Invalid", or empty while pending.
+	Phase string `protobuf:"bytes,9,opt,name=phase,proto3" json:"phase,omitempty"`
+	// message is the human-readable detail from the Ready condition (why the
+	// tunnel is or is not usable).
+	Message       string `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
+	CreatedAtUnix int64  `protobuf:"varint,11,opt,name=created_at_unix,json=createdAtUnix,proto3" json:"created_at_unix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SSHTunnel) Reset() {
+	*x = SSHTunnel{}
+	mi := &file_rpc_platform_service_proto_msgTypes[89]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SSHTunnel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SSHTunnel) ProtoMessage() {}
+
+func (x *SSHTunnel) ProtoReflect() protoreflect.Message {
+	mi := &file_rpc_platform_service_proto_msgTypes[89]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SSHTunnel.ProtoReflect.Descriptor instead.
+func (*SSHTunnel) Descriptor() ([]byte, []int) {
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{89}
+}
+
+func (x *SSHTunnel) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *SSHTunnel) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SSHTunnel) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *SSHTunnel) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *SSHTunnel) GetUser() string {
+	if x != nil {
+		return x.User
+	}
+	return ""
+}
+
+func (x *SSHTunnel) GetRemoteHost() string {
+	if x != nil {
+		return x.RemoteHost
+	}
+	return ""
+}
+
+func (x *SSHTunnel) GetRemotePort() int32 {
+	if x != nil {
+		return x.RemotePort
+	}
+	return 0
+}
+
+func (x *SSHTunnel) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *SSHTunnel) GetPhase() string {
+	if x != nil {
+		return x.Phase
+	}
+	return ""
+}
+
+func (x *SSHTunnel) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *SSHTunnel) GetCreatedAtUnix() int64 {
+	if x != nil {
+		return x.CreatedAtUnix
+	}
+	return 0
+}
+
+type ListSSHTunnelsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSSHTunnelsRequest) Reset() {
+	*x = ListSSHTunnelsRequest{}
+	mi := &file_rpc_platform_service_proto_msgTypes[90]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSSHTunnelsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSSHTunnelsRequest) ProtoMessage() {}
+
+func (x *ListSSHTunnelsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_rpc_platform_service_proto_msgTypes[90]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSSHTunnelsRequest.ProtoReflect.Descriptor instead.
+func (*ListSSHTunnelsRequest) Descriptor() ([]byte, []int) {
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{90}
+}
+
+type ListSSHTunnelsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Tunnels       []*SSHTunnel           `protobuf:"bytes,2,rep,name=tunnels,proto3" json:"tunnels,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListSSHTunnelsResponse) Reset() {
+	*x = ListSSHTunnelsResponse{}
+	mi := &file_rpc_platform_service_proto_msgTypes[91]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListSSHTunnelsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListSSHTunnelsResponse) ProtoMessage() {}
+
+func (x *ListSSHTunnelsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_rpc_platform_service_proto_msgTypes[91]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListSSHTunnelsResponse.ProtoReflect.Descriptor instead.
+func (*ListSSHTunnelsResponse) Descriptor() ([]byte, []int) {
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{91}
+}
+
+func (x *ListSSHTunnelsResponse) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *ListSSHTunnelsResponse) GetTunnels() []*SSHTunnel {
+	if x != nil {
+		return x.Tunnels
+	}
+	return nil
+}
+
 type CreateRuntimeProfileRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Profile       *RuntimeProfile        `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
@@ -9265,7 +9485,7 @@ type CreateRuntimeProfileRequest struct {
 
 func (x *CreateRuntimeProfileRequest) Reset() {
 	*x = CreateRuntimeProfileRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[89]
+	mi := &file_rpc_platform_service_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9277,7 +9497,7 @@ func (x *CreateRuntimeProfileRequest) String() string {
 func (*CreateRuntimeProfileRequest) ProtoMessage() {}
 
 func (x *CreateRuntimeProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[89]
+	mi := &file_rpc_platform_service_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9290,7 +9510,7 @@ func (x *CreateRuntimeProfileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRuntimeProfileRequest.ProtoReflect.Descriptor instead.
 func (*CreateRuntimeProfileRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{89}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *CreateRuntimeProfileRequest) GetProfile() *RuntimeProfile {
@@ -9309,7 +9529,7 @@ type UpdateRuntimeProfileRequest struct {
 
 func (x *UpdateRuntimeProfileRequest) Reset() {
 	*x = UpdateRuntimeProfileRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[90]
+	mi := &file_rpc_platform_service_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9321,7 +9541,7 @@ func (x *UpdateRuntimeProfileRequest) String() string {
 func (*UpdateRuntimeProfileRequest) ProtoMessage() {}
 
 func (x *UpdateRuntimeProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[90]
+	mi := &file_rpc_platform_service_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9334,7 +9554,7 @@ func (x *UpdateRuntimeProfileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRuntimeProfileRequest.ProtoReflect.Descriptor instead.
 func (*UpdateRuntimeProfileRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{90}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *UpdateRuntimeProfileRequest) GetProfile() *RuntimeProfile {
@@ -9353,7 +9573,7 @@ type DeleteRuntimeProfileRequest struct {
 
 func (x *DeleteRuntimeProfileRequest) Reset() {
 	*x = DeleteRuntimeProfileRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[91]
+	mi := &file_rpc_platform_service_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9365,7 +9585,7 @@ func (x *DeleteRuntimeProfileRequest) String() string {
 func (*DeleteRuntimeProfileRequest) ProtoMessage() {}
 
 func (x *DeleteRuntimeProfileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[91]
+	mi := &file_rpc_platform_service_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9378,7 +9598,7 @@ func (x *DeleteRuntimeProfileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRuntimeProfileRequest.ProtoReflect.Descriptor instead.
 func (*DeleteRuntimeProfileRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{91}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{94}
 }
 
 func (x *DeleteRuntimeProfileRequest) GetName() string {
@@ -9398,7 +9618,7 @@ type MCPAllowedServer struct {
 
 func (x *MCPAllowedServer) Reset() {
 	*x = MCPAllowedServer{}
-	mi := &file_rpc_platform_service_proto_msgTypes[92]
+	mi := &file_rpc_platform_service_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9410,7 +9630,7 @@ func (x *MCPAllowedServer) String() string {
 func (*MCPAllowedServer) ProtoMessage() {}
 
 func (x *MCPAllowedServer) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[92]
+	mi := &file_rpc_platform_service_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9423,7 +9643,7 @@ func (x *MCPAllowedServer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MCPAllowedServer.ProtoReflect.Descriptor instead.
 func (*MCPAllowedServer) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{92}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *MCPAllowedServer) GetName() string {
@@ -9451,7 +9671,7 @@ type MCPBreakGlass struct {
 
 func (x *MCPBreakGlass) Reset() {
 	*x = MCPBreakGlass{}
-	mi := &file_rpc_platform_service_proto_msgTypes[93]
+	mi := &file_rpc_platform_service_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9463,7 +9683,7 @@ func (x *MCPBreakGlass) String() string {
 func (*MCPBreakGlass) ProtoMessage() {}
 
 func (x *MCPBreakGlass) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[93]
+	mi := &file_rpc_platform_service_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9476,7 +9696,7 @@ func (x *MCPBreakGlass) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MCPBreakGlass.ProtoReflect.Descriptor instead.
 func (*MCPBreakGlass) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{93}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *MCPBreakGlass) GetEnabled() bool {
@@ -9515,7 +9735,7 @@ type MCPPolicy struct {
 
 func (x *MCPPolicy) Reset() {
 	*x = MCPPolicy{}
-	mi := &file_rpc_platform_service_proto_msgTypes[94]
+	mi := &file_rpc_platform_service_proto_msgTypes[97]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9527,7 +9747,7 @@ func (x *MCPPolicy) String() string {
 func (*MCPPolicy) ProtoMessage() {}
 
 func (x *MCPPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[94]
+	mi := &file_rpc_platform_service_proto_msgTypes[97]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9540,7 +9760,7 @@ func (x *MCPPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MCPPolicy.ProtoReflect.Descriptor instead.
 func (*MCPPolicy) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{94}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{97}
 }
 
 func (x *MCPPolicy) GetNamespace() string {
@@ -9593,7 +9813,7 @@ type ListMCPPoliciesRequest struct {
 
 func (x *ListMCPPoliciesRequest) Reset() {
 	*x = ListMCPPoliciesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[95]
+	mi := &file_rpc_platform_service_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9605,7 +9825,7 @@ func (x *ListMCPPoliciesRequest) String() string {
 func (*ListMCPPoliciesRequest) ProtoMessage() {}
 
 func (x *ListMCPPoliciesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[95]
+	mi := &file_rpc_platform_service_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9618,7 +9838,7 @@ func (x *ListMCPPoliciesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMCPPoliciesRequest.ProtoReflect.Descriptor instead.
 func (*ListMCPPoliciesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{95}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{98}
 }
 
 type ListMCPPoliciesResponse struct {
@@ -9631,7 +9851,7 @@ type ListMCPPoliciesResponse struct {
 
 func (x *ListMCPPoliciesResponse) Reset() {
 	*x = ListMCPPoliciesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[96]
+	mi := &file_rpc_platform_service_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9643,7 +9863,7 @@ func (x *ListMCPPoliciesResponse) String() string {
 func (*ListMCPPoliciesResponse) ProtoMessage() {}
 
 func (x *ListMCPPoliciesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[96]
+	mi := &file_rpc_platform_service_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9656,7 +9876,7 @@ func (x *ListMCPPoliciesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMCPPoliciesResponse.ProtoReflect.Descriptor instead.
 func (*ListMCPPoliciesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{96}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{99}
 }
 
 func (x *ListMCPPoliciesResponse) GetNamespace() string {
@@ -9682,7 +9902,7 @@ type CreateMCPPolicyRequest struct {
 
 func (x *CreateMCPPolicyRequest) Reset() {
 	*x = CreateMCPPolicyRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[97]
+	mi := &file_rpc_platform_service_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9694,7 +9914,7 @@ func (x *CreateMCPPolicyRequest) String() string {
 func (*CreateMCPPolicyRequest) ProtoMessage() {}
 
 func (x *CreateMCPPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[97]
+	mi := &file_rpc_platform_service_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9707,7 +9927,7 @@ func (x *CreateMCPPolicyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMCPPolicyRequest.ProtoReflect.Descriptor instead.
 func (*CreateMCPPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{97}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{100}
 }
 
 func (x *CreateMCPPolicyRequest) GetPolicy() *MCPPolicy {
@@ -9726,7 +9946,7 @@ type UpdateMCPPolicyRequest struct {
 
 func (x *UpdateMCPPolicyRequest) Reset() {
 	*x = UpdateMCPPolicyRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[98]
+	mi := &file_rpc_platform_service_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9738,7 +9958,7 @@ func (x *UpdateMCPPolicyRequest) String() string {
 func (*UpdateMCPPolicyRequest) ProtoMessage() {}
 
 func (x *UpdateMCPPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[98]
+	mi := &file_rpc_platform_service_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9751,7 +9971,7 @@ func (x *UpdateMCPPolicyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMCPPolicyRequest.ProtoReflect.Descriptor instead.
 func (*UpdateMCPPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{98}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *UpdateMCPPolicyRequest) GetPolicy() *MCPPolicy {
@@ -9770,7 +9990,7 @@ type DeleteMCPPolicyRequest struct {
 
 func (x *DeleteMCPPolicyRequest) Reset() {
 	*x = DeleteMCPPolicyRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[99]
+	mi := &file_rpc_platform_service_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9782,7 +10002,7 @@ func (x *DeleteMCPPolicyRequest) String() string {
 func (*DeleteMCPPolicyRequest) ProtoMessage() {}
 
 func (x *DeleteMCPPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[99]
+	mi := &file_rpc_platform_service_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9795,7 +10015,7 @@ func (x *DeleteMCPPolicyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteMCPPolicyRequest.ProtoReflect.Descriptor instead.
 func (*DeleteMCPPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{99}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *DeleteMCPPolicyRequest) GetName() string {
@@ -9819,7 +10039,7 @@ type GuardrailRule struct {
 
 func (x *GuardrailRule) Reset() {
 	*x = GuardrailRule{}
-	mi := &file_rpc_platform_service_proto_msgTypes[100]
+	mi := &file_rpc_platform_service_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9831,7 +10051,7 @@ func (x *GuardrailRule) String() string {
 func (*GuardrailRule) ProtoMessage() {}
 
 func (x *GuardrailRule) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[100]
+	mi := &file_rpc_platform_service_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9844,7 +10064,7 @@ func (x *GuardrailRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GuardrailRule.ProtoReflect.Descriptor instead.
 func (*GuardrailRule) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{100}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *GuardrailRule) GetName() string {
@@ -9900,7 +10120,7 @@ type GuardrailPolicy struct {
 
 func (x *GuardrailPolicy) Reset() {
 	*x = GuardrailPolicy{}
-	mi := &file_rpc_platform_service_proto_msgTypes[101]
+	mi := &file_rpc_platform_service_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9912,7 +10132,7 @@ func (x *GuardrailPolicy) String() string {
 func (*GuardrailPolicy) ProtoMessage() {}
 
 func (x *GuardrailPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[101]
+	mi := &file_rpc_platform_service_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9925,7 +10145,7 @@ func (x *GuardrailPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GuardrailPolicy.ProtoReflect.Descriptor instead.
 func (*GuardrailPolicy) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{101}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{104}
 }
 
 func (x *GuardrailPolicy) GetNamespace() string {
@@ -9957,7 +10177,7 @@ type ListGuardrailPoliciesRequest struct {
 
 func (x *ListGuardrailPoliciesRequest) Reset() {
 	*x = ListGuardrailPoliciesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[102]
+	mi := &file_rpc_platform_service_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9969,7 +10189,7 @@ func (x *ListGuardrailPoliciesRequest) String() string {
 func (*ListGuardrailPoliciesRequest) ProtoMessage() {}
 
 func (x *ListGuardrailPoliciesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[102]
+	mi := &file_rpc_platform_service_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9982,7 +10202,7 @@ func (x *ListGuardrailPoliciesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGuardrailPoliciesRequest.ProtoReflect.Descriptor instead.
 func (*ListGuardrailPoliciesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{102}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{105}
 }
 
 type ListGuardrailPoliciesResponse struct {
@@ -9995,7 +10215,7 @@ type ListGuardrailPoliciesResponse struct {
 
 func (x *ListGuardrailPoliciesResponse) Reset() {
 	*x = ListGuardrailPoliciesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[103]
+	mi := &file_rpc_platform_service_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10007,7 +10227,7 @@ func (x *ListGuardrailPoliciesResponse) String() string {
 func (*ListGuardrailPoliciesResponse) ProtoMessage() {}
 
 func (x *ListGuardrailPoliciesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[103]
+	mi := &file_rpc_platform_service_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10020,7 +10240,7 @@ func (x *ListGuardrailPoliciesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGuardrailPoliciesResponse.ProtoReflect.Descriptor instead.
 func (*ListGuardrailPoliciesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{103}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{106}
 }
 
 func (x *ListGuardrailPoliciesResponse) GetNamespace() string {
@@ -10046,7 +10266,7 @@ type CreateGuardrailPolicyRequest struct {
 
 func (x *CreateGuardrailPolicyRequest) Reset() {
 	*x = CreateGuardrailPolicyRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[104]
+	mi := &file_rpc_platform_service_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10058,7 +10278,7 @@ func (x *CreateGuardrailPolicyRequest) String() string {
 func (*CreateGuardrailPolicyRequest) ProtoMessage() {}
 
 func (x *CreateGuardrailPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[104]
+	mi := &file_rpc_platform_service_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10071,7 +10291,7 @@ func (x *CreateGuardrailPolicyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateGuardrailPolicyRequest.ProtoReflect.Descriptor instead.
 func (*CreateGuardrailPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{104}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *CreateGuardrailPolicyRequest) GetPolicy() *GuardrailPolicy {
@@ -10090,7 +10310,7 @@ type UpdateGuardrailPolicyRequest struct {
 
 func (x *UpdateGuardrailPolicyRequest) Reset() {
 	*x = UpdateGuardrailPolicyRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[105]
+	mi := &file_rpc_platform_service_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10102,7 +10322,7 @@ func (x *UpdateGuardrailPolicyRequest) String() string {
 func (*UpdateGuardrailPolicyRequest) ProtoMessage() {}
 
 func (x *UpdateGuardrailPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[105]
+	mi := &file_rpc_platform_service_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10115,7 +10335,7 @@ func (x *UpdateGuardrailPolicyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateGuardrailPolicyRequest.ProtoReflect.Descriptor instead.
 func (*UpdateGuardrailPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{105}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *UpdateGuardrailPolicyRequest) GetPolicy() *GuardrailPolicy {
@@ -10134,7 +10354,7 @@ type DeleteGuardrailPolicyRequest struct {
 
 func (x *DeleteGuardrailPolicyRequest) Reset() {
 	*x = DeleteGuardrailPolicyRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[106]
+	mi := &file_rpc_platform_service_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10146,7 +10366,7 @@ func (x *DeleteGuardrailPolicyRequest) String() string {
 func (*DeleteGuardrailPolicyRequest) ProtoMessage() {}
 
 func (x *DeleteGuardrailPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[106]
+	mi := &file_rpc_platform_service_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10159,7 +10379,7 @@ func (x *DeleteGuardrailPolicyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteGuardrailPolicyRequest.ProtoReflect.Descriptor instead.
 func (*DeleteGuardrailPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{106}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *DeleteGuardrailPolicyRequest) GetName() string {
@@ -10177,7 +10397,7 @@ type ListModeTemplatesRequest struct {
 
 func (x *ListModeTemplatesRequest) Reset() {
 	*x = ListModeTemplatesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[107]
+	mi := &file_rpc_platform_service_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10189,7 +10409,7 @@ func (x *ListModeTemplatesRequest) String() string {
 func (*ListModeTemplatesRequest) ProtoMessage() {}
 
 func (x *ListModeTemplatesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[107]
+	mi := &file_rpc_platform_service_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10202,7 +10422,7 @@ func (x *ListModeTemplatesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListModeTemplatesRequest.ProtoReflect.Descriptor instead.
 func (*ListModeTemplatesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{107}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{110}
 }
 
 type ListModeTemplatesResponse struct {
@@ -10214,7 +10434,7 @@ type ListModeTemplatesResponse struct {
 
 func (x *ListModeTemplatesResponse) Reset() {
 	*x = ListModeTemplatesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[108]
+	mi := &file_rpc_platform_service_proto_msgTypes[111]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10226,7 +10446,7 @@ func (x *ListModeTemplatesResponse) String() string {
 func (*ListModeTemplatesResponse) ProtoMessage() {}
 
 func (x *ListModeTemplatesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[108]
+	mi := &file_rpc_platform_service_proto_msgTypes[111]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10239,7 +10459,7 @@ func (x *ListModeTemplatesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListModeTemplatesResponse.ProtoReflect.Descriptor instead.
 func (*ListModeTemplatesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{108}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{111}
 }
 
 func (x *ListModeTemplatesResponse) GetTemplates() []*ModeTemplate {
@@ -10258,7 +10478,7 @@ type CreateModeTemplateRequest struct {
 
 func (x *CreateModeTemplateRequest) Reset() {
 	*x = CreateModeTemplateRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[109]
+	mi := &file_rpc_platform_service_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10270,7 +10490,7 @@ func (x *CreateModeTemplateRequest) String() string {
 func (*CreateModeTemplateRequest) ProtoMessage() {}
 
 func (x *CreateModeTemplateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[109]
+	mi := &file_rpc_platform_service_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10283,7 +10503,7 @@ func (x *CreateModeTemplateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateModeTemplateRequest.ProtoReflect.Descriptor instead.
 func (*CreateModeTemplateRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{109}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{112}
 }
 
 func (x *CreateModeTemplateRequest) GetTemplate() *ModeTemplate {
@@ -10302,7 +10522,7 @@ type UpdateModeTemplateRequest struct {
 
 func (x *UpdateModeTemplateRequest) Reset() {
 	*x = UpdateModeTemplateRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[110]
+	mi := &file_rpc_platform_service_proto_msgTypes[113]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10314,7 +10534,7 @@ func (x *UpdateModeTemplateRequest) String() string {
 func (*UpdateModeTemplateRequest) ProtoMessage() {}
 
 func (x *UpdateModeTemplateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[110]
+	mi := &file_rpc_platform_service_proto_msgTypes[113]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10327,7 +10547,7 @@ func (x *UpdateModeTemplateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateModeTemplateRequest.ProtoReflect.Descriptor instead.
 func (*UpdateModeTemplateRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{110}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{113}
 }
 
 func (x *UpdateModeTemplateRequest) GetTemplate() *ModeTemplate {
@@ -10346,7 +10566,7 @@ type DeleteModeTemplateRequest struct {
 
 func (x *DeleteModeTemplateRequest) Reset() {
 	*x = DeleteModeTemplateRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[111]
+	mi := &file_rpc_platform_service_proto_msgTypes[114]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10358,7 +10578,7 @@ func (x *DeleteModeTemplateRequest) String() string {
 func (*DeleteModeTemplateRequest) ProtoMessage() {}
 
 func (x *DeleteModeTemplateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[111]
+	mi := &file_rpc_platform_service_proto_msgTypes[114]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10371,7 +10591,7 @@ func (x *DeleteModeTemplateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteModeTemplateRequest.ProtoReflect.Descriptor instead.
 func (*DeleteModeTemplateRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{111}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{114}
 }
 
 func (x *DeleteModeTemplateRequest) GetName() string {
@@ -10396,7 +10616,7 @@ type RoleInstruction struct {
 
 func (x *RoleInstruction) Reset() {
 	*x = RoleInstruction{}
-	mi := &file_rpc_platform_service_proto_msgTypes[112]
+	mi := &file_rpc_platform_service_proto_msgTypes[115]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10408,7 +10628,7 @@ func (x *RoleInstruction) String() string {
 func (*RoleInstruction) ProtoMessage() {}
 
 func (x *RoleInstruction) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[112]
+	mi := &file_rpc_platform_service_proto_msgTypes[115]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10421,7 +10641,7 @@ func (x *RoleInstruction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoleInstruction.ProtoReflect.Descriptor instead.
 func (*RoleInstruction) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{112}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{115}
 }
 
 func (x *RoleInstruction) GetName() string {
@@ -10481,7 +10701,7 @@ type ListRoleInstructionsRequest struct {
 
 func (x *ListRoleInstructionsRequest) Reset() {
 	*x = ListRoleInstructionsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[113]
+	mi := &file_rpc_platform_service_proto_msgTypes[116]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10493,7 +10713,7 @@ func (x *ListRoleInstructionsRequest) String() string {
 func (*ListRoleInstructionsRequest) ProtoMessage() {}
 
 func (x *ListRoleInstructionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[113]
+	mi := &file_rpc_platform_service_proto_msgTypes[116]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10506,7 +10726,7 @@ func (x *ListRoleInstructionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRoleInstructionsRequest.ProtoReflect.Descriptor instead.
 func (*ListRoleInstructionsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{113}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{116}
 }
 
 type ListRoleInstructionsResponse struct {
@@ -10518,7 +10738,7 @@ type ListRoleInstructionsResponse struct {
 
 func (x *ListRoleInstructionsResponse) Reset() {
 	*x = ListRoleInstructionsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[114]
+	mi := &file_rpc_platform_service_proto_msgTypes[117]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10530,7 +10750,7 @@ func (x *ListRoleInstructionsResponse) String() string {
 func (*ListRoleInstructionsResponse) ProtoMessage() {}
 
 func (x *ListRoleInstructionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[114]
+	mi := &file_rpc_platform_service_proto_msgTypes[117]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10543,7 +10763,7 @@ func (x *ListRoleInstructionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRoleInstructionsResponse.ProtoReflect.Descriptor instead.
 func (*ListRoleInstructionsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{114}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{117}
 }
 
 func (x *ListRoleInstructionsResponse) GetInstructions() []*RoleInstruction {
@@ -10562,7 +10782,7 @@ type CreateRoleInstructionRequest struct {
 
 func (x *CreateRoleInstructionRequest) Reset() {
 	*x = CreateRoleInstructionRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[115]
+	mi := &file_rpc_platform_service_proto_msgTypes[118]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10574,7 +10794,7 @@ func (x *CreateRoleInstructionRequest) String() string {
 func (*CreateRoleInstructionRequest) ProtoMessage() {}
 
 func (x *CreateRoleInstructionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[115]
+	mi := &file_rpc_platform_service_proto_msgTypes[118]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10587,7 +10807,7 @@ func (x *CreateRoleInstructionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRoleInstructionRequest.ProtoReflect.Descriptor instead.
 func (*CreateRoleInstructionRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{115}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{118}
 }
 
 func (x *CreateRoleInstructionRequest) GetInstruction() *RoleInstruction {
@@ -10606,7 +10826,7 @@ type UpdateRoleInstructionRequest struct {
 
 func (x *UpdateRoleInstructionRequest) Reset() {
 	*x = UpdateRoleInstructionRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[116]
+	mi := &file_rpc_platform_service_proto_msgTypes[119]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10618,7 +10838,7 @@ func (x *UpdateRoleInstructionRequest) String() string {
 func (*UpdateRoleInstructionRequest) ProtoMessage() {}
 
 func (x *UpdateRoleInstructionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[116]
+	mi := &file_rpc_platform_service_proto_msgTypes[119]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10631,7 +10851,7 @@ func (x *UpdateRoleInstructionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRoleInstructionRequest.ProtoReflect.Descriptor instead.
 func (*UpdateRoleInstructionRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{116}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{119}
 }
 
 func (x *UpdateRoleInstructionRequest) GetInstruction() *RoleInstruction {
@@ -10650,7 +10870,7 @@ type DeleteRoleInstructionRequest struct {
 
 func (x *DeleteRoleInstructionRequest) Reset() {
 	*x = DeleteRoleInstructionRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[117]
+	mi := &file_rpc_platform_service_proto_msgTypes[120]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10662,7 +10882,7 @@ func (x *DeleteRoleInstructionRequest) String() string {
 func (*DeleteRoleInstructionRequest) ProtoMessage() {}
 
 func (x *DeleteRoleInstructionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[117]
+	mi := &file_rpc_platform_service_proto_msgTypes[120]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10675,7 +10895,7 @@ func (x *DeleteRoleInstructionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRoleInstructionRequest.ProtoReflect.Descriptor instead.
 func (*DeleteRoleInstructionRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{117}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{120}
 }
 
 func (x *DeleteRoleInstructionRequest) GetName() string {
@@ -10697,7 +10917,7 @@ type RuntimeImageVersion struct {
 
 func (x *RuntimeImageVersion) Reset() {
 	*x = RuntimeImageVersion{}
-	mi := &file_rpc_platform_service_proto_msgTypes[118]
+	mi := &file_rpc_platform_service_proto_msgTypes[121]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10709,7 +10929,7 @@ func (x *RuntimeImageVersion) String() string {
 func (*RuntimeImageVersion) ProtoMessage() {}
 
 func (x *RuntimeImageVersion) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[118]
+	mi := &file_rpc_platform_service_proto_msgTypes[121]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10722,7 +10942,7 @@ func (x *RuntimeImageVersion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeImageVersion.ProtoReflect.Descriptor instead.
 func (*RuntimeImageVersion) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{118}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{121}
 }
 
 func (x *RuntimeImageVersion) GetVersion() string {
@@ -10763,7 +10983,7 @@ type RuntimeImageOption struct {
 
 func (x *RuntimeImageOption) Reset() {
 	*x = RuntimeImageOption{}
-	mi := &file_rpc_platform_service_proto_msgTypes[119]
+	mi := &file_rpc_platform_service_proto_msgTypes[122]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10775,7 +10995,7 @@ func (x *RuntimeImageOption) String() string {
 func (*RuntimeImageOption) ProtoMessage() {}
 
 func (x *RuntimeImageOption) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[119]
+	mi := &file_rpc_platform_service_proto_msgTypes[122]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10788,7 +11008,7 @@ func (x *RuntimeImageOption) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeImageOption.ProtoReflect.Descriptor instead.
 func (*RuntimeImageOption) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{119}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{122}
 }
 
 func (x *RuntimeImageOption) GetId() string {
@@ -10834,7 +11054,7 @@ type ListRuntimeImagesRequest struct {
 
 func (x *ListRuntimeImagesRequest) Reset() {
 	*x = ListRuntimeImagesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[120]
+	mi := &file_rpc_platform_service_proto_msgTypes[123]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10846,7 +11066,7 @@ func (x *ListRuntimeImagesRequest) String() string {
 func (*ListRuntimeImagesRequest) ProtoMessage() {}
 
 func (x *ListRuntimeImagesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[120]
+	mi := &file_rpc_platform_service_proto_msgTypes[123]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10859,7 +11079,7 @@ func (x *ListRuntimeImagesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRuntimeImagesRequest.ProtoReflect.Descriptor instead.
 func (*ListRuntimeImagesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{120}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{123}
 }
 
 type ListRuntimeImagesResponse struct {
@@ -10871,7 +11091,7 @@ type ListRuntimeImagesResponse struct {
 
 func (x *ListRuntimeImagesResponse) Reset() {
 	*x = ListRuntimeImagesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[121]
+	mi := &file_rpc_platform_service_proto_msgTypes[124]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10883,7 +11103,7 @@ func (x *ListRuntimeImagesResponse) String() string {
 func (*ListRuntimeImagesResponse) ProtoMessage() {}
 
 func (x *ListRuntimeImagesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[121]
+	mi := &file_rpc_platform_service_proto_msgTypes[124]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10896,7 +11116,7 @@ func (x *ListRuntimeImagesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRuntimeImagesResponse.ProtoReflect.Descriptor instead.
 func (*ListRuntimeImagesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{121}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{124}
 }
 
 func (x *ListRuntimeImagesResponse) GetImages() []*RuntimeImageOption {
@@ -10914,7 +11134,7 @@ type ListSlackAgentsRequest struct {
 
 func (x *ListSlackAgentsRequest) Reset() {
 	*x = ListSlackAgentsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[122]
+	mi := &file_rpc_platform_service_proto_msgTypes[125]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10926,7 +11146,7 @@ func (x *ListSlackAgentsRequest) String() string {
 func (*ListSlackAgentsRequest) ProtoMessage() {}
 
 func (x *ListSlackAgentsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[122]
+	mi := &file_rpc_platform_service_proto_msgTypes[125]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10939,7 +11159,7 @@ func (x *ListSlackAgentsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSlackAgentsRequest.ProtoReflect.Descriptor instead.
 func (*ListSlackAgentsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{122}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{125}
 }
 
 type ListSlackAgentsResponse struct {
@@ -10952,7 +11172,7 @@ type ListSlackAgentsResponse struct {
 
 func (x *ListSlackAgentsResponse) Reset() {
 	*x = ListSlackAgentsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[123]
+	mi := &file_rpc_platform_service_proto_msgTypes[126]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10964,7 +11184,7 @@ func (x *ListSlackAgentsResponse) String() string {
 func (*ListSlackAgentsResponse) ProtoMessage() {}
 
 func (x *ListSlackAgentsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[123]
+	mi := &file_rpc_platform_service_proto_msgTypes[126]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10977,7 +11197,7 @@ func (x *ListSlackAgentsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSlackAgentsResponse.ProtoReflect.Descriptor instead.
 func (*ListSlackAgentsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{123}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{126}
 }
 
 func (x *ListSlackAgentsResponse) GetNamespace() string {
@@ -11081,7 +11301,7 @@ type UpdateSlackAgentRequest struct {
 
 func (x *UpdateSlackAgentRequest) Reset() {
 	*x = UpdateSlackAgentRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[124]
+	mi := &file_rpc_platform_service_proto_msgTypes[127]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11093,7 +11313,7 @@ func (x *UpdateSlackAgentRequest) String() string {
 func (*UpdateSlackAgentRequest) ProtoMessage() {}
 
 func (x *UpdateSlackAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[124]
+	mi := &file_rpc_platform_service_proto_msgTypes[127]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11106,7 +11326,7 @@ func (x *UpdateSlackAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSlackAgentRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSlackAgentRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{124}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{127}
 }
 
 func (x *UpdateSlackAgentRequest) GetBotToken() string {
@@ -11365,7 +11585,7 @@ type SlackDraft struct {
 
 func (x *SlackDraft) Reset() {
 	*x = SlackDraft{}
-	mi := &file_rpc_platform_service_proto_msgTypes[125]
+	mi := &file_rpc_platform_service_proto_msgTypes[128]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11377,7 +11597,7 @@ func (x *SlackDraft) String() string {
 func (*SlackDraft) ProtoMessage() {}
 
 func (x *SlackDraft) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[125]
+	mi := &file_rpc_platform_service_proto_msgTypes[128]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11390,7 +11610,7 @@ func (x *SlackDraft) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SlackDraft.ProtoReflect.Descriptor instead.
 func (*SlackDraft) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{125}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{128}
 }
 
 func (x *SlackDraft) GetId() string {
@@ -11462,7 +11682,7 @@ type ListSlackDraftsRequest struct {
 
 func (x *ListSlackDraftsRequest) Reset() {
 	*x = ListSlackDraftsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[126]
+	mi := &file_rpc_platform_service_proto_msgTypes[129]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11474,7 +11694,7 @@ func (x *ListSlackDraftsRequest) String() string {
 func (*ListSlackDraftsRequest) ProtoMessage() {}
 
 func (x *ListSlackDraftsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[126]
+	mi := &file_rpc_platform_service_proto_msgTypes[129]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11487,7 +11707,7 @@ func (x *ListSlackDraftsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSlackDraftsRequest.ProtoReflect.Descriptor instead.
 func (*ListSlackDraftsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{126}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{129}
 }
 
 func (x *ListSlackDraftsRequest) GetName() string {
@@ -11521,7 +11741,7 @@ type ListSlackDraftsResponse struct {
 
 func (x *ListSlackDraftsResponse) Reset() {
 	*x = ListSlackDraftsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[127]
+	mi := &file_rpc_platform_service_proto_msgTypes[130]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11533,7 +11753,7 @@ func (x *ListSlackDraftsResponse) String() string {
 func (*ListSlackDraftsResponse) ProtoMessage() {}
 
 func (x *ListSlackDraftsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[127]
+	mi := &file_rpc_platform_service_proto_msgTypes[130]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11546,7 +11766,7 @@ func (x *ListSlackDraftsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSlackDraftsResponse.ProtoReflect.Descriptor instead.
 func (*ListSlackDraftsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{127}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{130}
 }
 
 func (x *ListSlackDraftsResponse) GetNamespace() string {
@@ -11572,7 +11792,7 @@ type DeleteSlackAgentRequest struct {
 
 func (x *DeleteSlackAgentRequest) Reset() {
 	*x = DeleteSlackAgentRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[128]
+	mi := &file_rpc_platform_service_proto_msgTypes[131]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11584,7 +11804,7 @@ func (x *DeleteSlackAgentRequest) String() string {
 func (*DeleteSlackAgentRequest) ProtoMessage() {}
 
 func (x *DeleteSlackAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[128]
+	mi := &file_rpc_platform_service_proto_msgTypes[131]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11597,7 +11817,7 @@ func (x *DeleteSlackAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSlackAgentRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSlackAgentRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{128}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{131}
 }
 
 func (x *DeleteSlackAgentRequest) GetName() string {
@@ -11634,7 +11854,7 @@ type SlackWorkspace struct {
 
 func (x *SlackWorkspace) Reset() {
 	*x = SlackWorkspace{}
-	mi := &file_rpc_platform_service_proto_msgTypes[129]
+	mi := &file_rpc_platform_service_proto_msgTypes[132]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11646,7 +11866,7 @@ func (x *SlackWorkspace) String() string {
 func (*SlackWorkspace) ProtoMessage() {}
 
 func (x *SlackWorkspace) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[129]
+	mi := &file_rpc_platform_service_proto_msgTypes[132]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11659,7 +11879,7 @@ func (x *SlackWorkspace) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SlackWorkspace.ProtoReflect.Descriptor instead.
 func (*SlackWorkspace) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{129}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{132}
 }
 
 func (x *SlackWorkspace) GetNamespace() string {
@@ -11763,7 +11983,7 @@ type ListSlackWorkspacesRequest struct {
 
 func (x *ListSlackWorkspacesRequest) Reset() {
 	*x = ListSlackWorkspacesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[130]
+	mi := &file_rpc_platform_service_proto_msgTypes[133]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11775,7 +11995,7 @@ func (x *ListSlackWorkspacesRequest) String() string {
 func (*ListSlackWorkspacesRequest) ProtoMessage() {}
 
 func (x *ListSlackWorkspacesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[130]
+	mi := &file_rpc_platform_service_proto_msgTypes[133]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11788,7 +12008,7 @@ func (x *ListSlackWorkspacesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSlackWorkspacesRequest.ProtoReflect.Descriptor instead.
 func (*ListSlackWorkspacesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{130}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{133}
 }
 
 type ListSlackWorkspacesResponse struct {
@@ -11800,7 +12020,7 @@ type ListSlackWorkspacesResponse struct {
 
 func (x *ListSlackWorkspacesResponse) Reset() {
 	*x = ListSlackWorkspacesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[131]
+	mi := &file_rpc_platform_service_proto_msgTypes[134]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11812,7 +12032,7 @@ func (x *ListSlackWorkspacesResponse) String() string {
 func (*ListSlackWorkspacesResponse) ProtoMessage() {}
 
 func (x *ListSlackWorkspacesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[131]
+	mi := &file_rpc_platform_service_proto_msgTypes[134]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11825,7 +12045,7 @@ func (x *ListSlackWorkspacesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSlackWorkspacesResponse.ProtoReflect.Descriptor instead.
 func (*ListSlackWorkspacesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{131}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{134}
 }
 
 func (x *ListSlackWorkspacesResponse) GetWorkspaces() []*SlackWorkspace {
@@ -11853,7 +12073,7 @@ type UpdateSlackWorkspaceRequest struct {
 
 func (x *UpdateSlackWorkspaceRequest) Reset() {
 	*x = UpdateSlackWorkspaceRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[132]
+	mi := &file_rpc_platform_service_proto_msgTypes[135]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11865,7 +12085,7 @@ func (x *UpdateSlackWorkspaceRequest) String() string {
 func (*UpdateSlackWorkspaceRequest) ProtoMessage() {}
 
 func (x *UpdateSlackWorkspaceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[132]
+	mi := &file_rpc_platform_service_proto_msgTypes[135]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11878,7 +12098,7 @@ func (x *UpdateSlackWorkspaceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSlackWorkspaceRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSlackWorkspaceRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{132}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{135}
 }
 
 func (x *UpdateSlackWorkspaceRequest) GetName() string {
@@ -11932,7 +12152,7 @@ type DeleteSlackWorkspaceRequest struct {
 
 func (x *DeleteSlackWorkspaceRequest) Reset() {
 	*x = DeleteSlackWorkspaceRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[133]
+	mi := &file_rpc_platform_service_proto_msgTypes[136]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11944,7 +12164,7 @@ func (x *DeleteSlackWorkspaceRequest) String() string {
 func (*DeleteSlackWorkspaceRequest) ProtoMessage() {}
 
 func (x *DeleteSlackWorkspaceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[133]
+	mi := &file_rpc_platform_service_proto_msgTypes[136]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11957,7 +12177,7 @@ func (x *DeleteSlackWorkspaceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSlackWorkspaceRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSlackWorkspaceRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{133}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{136}
 }
 
 func (x *DeleteSlackWorkspaceRequest) GetName() string {
@@ -11980,7 +12200,7 @@ type Soul struct {
 
 func (x *Soul) Reset() {
 	*x = Soul{}
-	mi := &file_rpc_platform_service_proto_msgTypes[134]
+	mi := &file_rpc_platform_service_proto_msgTypes[137]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11992,7 +12212,7 @@ func (x *Soul) String() string {
 func (*Soul) ProtoMessage() {}
 
 func (x *Soul) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[134]
+	mi := &file_rpc_platform_service_proto_msgTypes[137]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12005,7 +12225,7 @@ func (x *Soul) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Soul.ProtoReflect.Descriptor instead.
 func (*Soul) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{134}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{137}
 }
 
 func (x *Soul) GetContent() string {
@@ -12030,7 +12250,7 @@ type GetMySoulRequest struct {
 
 func (x *GetMySoulRequest) Reset() {
 	*x = GetMySoulRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[135]
+	mi := &file_rpc_platform_service_proto_msgTypes[138]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12042,7 +12262,7 @@ func (x *GetMySoulRequest) String() string {
 func (*GetMySoulRequest) ProtoMessage() {}
 
 func (x *GetMySoulRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[135]
+	mi := &file_rpc_platform_service_proto_msgTypes[138]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12055,7 +12275,7 @@ func (x *GetMySoulRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMySoulRequest.ProtoReflect.Descriptor instead.
 func (*GetMySoulRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{135}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{138}
 }
 
 // UpdateMySoulRequest sets the calling user's own SOUL content. The content is
@@ -12069,7 +12289,7 @@ type UpdateMySoulRequest struct {
 
 func (x *UpdateMySoulRequest) Reset() {
 	*x = UpdateMySoulRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[136]
+	mi := &file_rpc_platform_service_proto_msgTypes[139]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12081,7 +12301,7 @@ func (x *UpdateMySoulRequest) String() string {
 func (*UpdateMySoulRequest) ProtoMessage() {}
 
 func (x *UpdateMySoulRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[136]
+	mi := &file_rpc_platform_service_proto_msgTypes[139]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12094,7 +12314,7 @@ func (x *UpdateMySoulRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMySoulRequest.ProtoReflect.Descriptor instead.
 func (*UpdateMySoulRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{136}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{139}
 }
 
 func (x *UpdateMySoulRequest) GetContent() string {
@@ -12119,7 +12339,7 @@ type RoleModelPreference struct {
 
 func (x *RoleModelPreference) Reset() {
 	*x = RoleModelPreference{}
-	mi := &file_rpc_platform_service_proto_msgTypes[137]
+	mi := &file_rpc_platform_service_proto_msgTypes[140]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12131,7 +12351,7 @@ func (x *RoleModelPreference) String() string {
 func (*RoleModelPreference) ProtoMessage() {}
 
 func (x *RoleModelPreference) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[137]
+	mi := &file_rpc_platform_service_proto_msgTypes[140]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12144,7 +12364,7 @@ func (x *RoleModelPreference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoleModelPreference.ProtoReflect.Descriptor instead.
 func (*RoleModelPreference) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{137}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{140}
 }
 
 func (x *RoleModelPreference) GetRoleName() string {
@@ -12185,7 +12405,7 @@ type RoleModelPreferences struct {
 
 func (x *RoleModelPreferences) Reset() {
 	*x = RoleModelPreferences{}
-	mi := &file_rpc_platform_service_proto_msgTypes[138]
+	mi := &file_rpc_platform_service_proto_msgTypes[141]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12197,7 +12417,7 @@ func (x *RoleModelPreferences) String() string {
 func (*RoleModelPreferences) ProtoMessage() {}
 
 func (x *RoleModelPreferences) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[138]
+	mi := &file_rpc_platform_service_proto_msgTypes[141]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12210,7 +12430,7 @@ func (x *RoleModelPreferences) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoleModelPreferences.ProtoReflect.Descriptor instead.
 func (*RoleModelPreferences) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{138}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{141}
 }
 
 func (x *RoleModelPreferences) GetPreferences() []*RoleModelPreference {
@@ -12235,7 +12455,7 @@ type GetMyRoleModelPreferencesRequest struct {
 
 func (x *GetMyRoleModelPreferencesRequest) Reset() {
 	*x = GetMyRoleModelPreferencesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[139]
+	mi := &file_rpc_platform_service_proto_msgTypes[142]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12247,7 +12467,7 @@ func (x *GetMyRoleModelPreferencesRequest) String() string {
 func (*GetMyRoleModelPreferencesRequest) ProtoMessage() {}
 
 func (x *GetMyRoleModelPreferencesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[139]
+	mi := &file_rpc_platform_service_proto_msgTypes[142]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12260,7 +12480,7 @@ func (x *GetMyRoleModelPreferencesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMyRoleModelPreferencesRequest.ProtoReflect.Descriptor instead.
 func (*GetMyRoleModelPreferencesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{139}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{142}
 }
 
 // UpdateMyRoleModelPreferencesRequest atomically replaces all preferences for
@@ -12274,7 +12494,7 @@ type UpdateMyRoleModelPreferencesRequest struct {
 
 func (x *UpdateMyRoleModelPreferencesRequest) Reset() {
 	*x = UpdateMyRoleModelPreferencesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[140]
+	mi := &file_rpc_platform_service_proto_msgTypes[143]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12286,7 +12506,7 @@ func (x *UpdateMyRoleModelPreferencesRequest) String() string {
 func (*UpdateMyRoleModelPreferencesRequest) ProtoMessage() {}
 
 func (x *UpdateMyRoleModelPreferencesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[140]
+	mi := &file_rpc_platform_service_proto_msgTypes[143]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12299,7 +12519,7 @@ func (x *UpdateMyRoleModelPreferencesRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use UpdateMyRoleModelPreferencesRequest.ProtoReflect.Descriptor instead.
 func (*UpdateMyRoleModelPreferencesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{140}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{143}
 }
 
 func (x *UpdateMyRoleModelPreferencesRequest) GetPreferences() []*RoleModelPreference {
@@ -12334,7 +12554,7 @@ type ModelDefaults struct {
 
 func (x *ModelDefaults) Reset() {
 	*x = ModelDefaults{}
-	mi := &file_rpc_platform_service_proto_msgTypes[141]
+	mi := &file_rpc_platform_service_proto_msgTypes[144]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12346,7 +12566,7 @@ func (x *ModelDefaults) String() string {
 func (*ModelDefaults) ProtoMessage() {}
 
 func (x *ModelDefaults) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[141]
+	mi := &file_rpc_platform_service_proto_msgTypes[144]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12359,7 +12579,7 @@ func (x *ModelDefaults) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModelDefaults.ProtoReflect.Descriptor instead.
 func (*ModelDefaults) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{141}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{144}
 }
 
 func (x *ModelDefaults) GetProvider() string {
@@ -12412,7 +12632,7 @@ type GetMyModelDefaultsRequest struct {
 
 func (x *GetMyModelDefaultsRequest) Reset() {
 	*x = GetMyModelDefaultsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[142]
+	mi := &file_rpc_platform_service_proto_msgTypes[145]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12424,7 +12644,7 @@ func (x *GetMyModelDefaultsRequest) String() string {
 func (*GetMyModelDefaultsRequest) ProtoMessage() {}
 
 func (x *GetMyModelDefaultsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[142]
+	mi := &file_rpc_platform_service_proto_msgTypes[145]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12437,7 +12657,7 @@ func (x *GetMyModelDefaultsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMyModelDefaultsRequest.ProtoReflect.Descriptor instead.
 func (*GetMyModelDefaultsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{142}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{145}
 }
 
 // UpdateMyModelDefaultsRequest replaces the calling user's model defaults.
@@ -12457,7 +12677,7 @@ type UpdateMyModelDefaultsRequest struct {
 
 func (x *UpdateMyModelDefaultsRequest) Reset() {
 	*x = UpdateMyModelDefaultsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[143]
+	mi := &file_rpc_platform_service_proto_msgTypes[146]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12469,7 +12689,7 @@ func (x *UpdateMyModelDefaultsRequest) String() string {
 func (*UpdateMyModelDefaultsRequest) ProtoMessage() {}
 
 func (x *UpdateMyModelDefaultsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[143]
+	mi := &file_rpc_platform_service_proto_msgTypes[146]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12482,7 +12702,7 @@ func (x *UpdateMyModelDefaultsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMyModelDefaultsRequest.ProtoReflect.Descriptor instead.
 func (*UpdateMyModelDefaultsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{143}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{146}
 }
 
 func (x *UpdateMyModelDefaultsRequest) GetProvider() string {
@@ -12536,7 +12756,7 @@ type GitIdentity struct {
 
 func (x *GitIdentity) Reset() {
 	*x = GitIdentity{}
-	mi := &file_rpc_platform_service_proto_msgTypes[144]
+	mi := &file_rpc_platform_service_proto_msgTypes[147]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12548,7 +12768,7 @@ func (x *GitIdentity) String() string {
 func (*GitIdentity) ProtoMessage() {}
 
 func (x *GitIdentity) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[144]
+	mi := &file_rpc_platform_service_proto_msgTypes[147]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12561,7 +12781,7 @@ func (x *GitIdentity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitIdentity.ProtoReflect.Descriptor instead.
 func (*GitIdentity) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{144}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{147}
 }
 
 func (x *GitIdentity) GetName() string {
@@ -12593,7 +12813,7 @@ type GetMyGitIdentityRequest struct {
 
 func (x *GetMyGitIdentityRequest) Reset() {
 	*x = GetMyGitIdentityRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[145]
+	mi := &file_rpc_platform_service_proto_msgTypes[148]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12605,7 +12825,7 @@ func (x *GetMyGitIdentityRequest) String() string {
 func (*GetMyGitIdentityRequest) ProtoMessage() {}
 
 func (x *GetMyGitIdentityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[145]
+	mi := &file_rpc_platform_service_proto_msgTypes[148]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12618,7 +12838,7 @@ func (x *GetMyGitIdentityRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMyGitIdentityRequest.ProtoReflect.Descriptor instead.
 func (*GetMyGitIdentityRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{145}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{148}
 }
 
 // UpdateMyGitIdentityRequest sets the calling user's git commit identity.
@@ -12633,7 +12853,7 @@ type UpdateMyGitIdentityRequest struct {
 
 func (x *UpdateMyGitIdentityRequest) Reset() {
 	*x = UpdateMyGitIdentityRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[146]
+	mi := &file_rpc_platform_service_proto_msgTypes[149]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12645,7 +12865,7 @@ func (x *UpdateMyGitIdentityRequest) String() string {
 func (*UpdateMyGitIdentityRequest) ProtoMessage() {}
 
 func (x *UpdateMyGitIdentityRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[146]
+	mi := &file_rpc_platform_service_proto_msgTypes[149]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12658,7 +12878,7 @@ func (x *UpdateMyGitIdentityRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMyGitIdentityRequest.ProtoReflect.Descriptor instead.
 func (*UpdateMyGitIdentityRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{146}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{149}
 }
 
 func (x *UpdateMyGitIdentityRequest) GetName() string {
@@ -12685,7 +12905,7 @@ type TeamParentRef struct {
 
 func (x *TeamParentRef) Reset() {
 	*x = TeamParentRef{}
-	mi := &file_rpc_platform_service_proto_msgTypes[147]
+	mi := &file_rpc_platform_service_proto_msgTypes[150]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12697,7 +12917,7 @@ func (x *TeamParentRef) String() string {
 func (*TeamParentRef) ProtoMessage() {}
 
 func (x *TeamParentRef) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[147]
+	mi := &file_rpc_platform_service_proto_msgTypes[150]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12710,7 +12930,7 @@ func (x *TeamParentRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeamParentRef.ProtoReflect.Descriptor instead.
 func (*TeamParentRef) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{147}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{150}
 }
 
 func (x *TeamParentRef) GetNamespace() string {
@@ -12737,7 +12957,7 @@ type TeamChildRef struct {
 
 func (x *TeamChildRef) Reset() {
 	*x = TeamChildRef{}
-	mi := &file_rpc_platform_service_proto_msgTypes[148]
+	mi := &file_rpc_platform_service_proto_msgTypes[151]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12749,7 +12969,7 @@ func (x *TeamChildRef) String() string {
 func (*TeamChildRef) ProtoMessage() {}
 
 func (x *TeamChildRef) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[148]
+	mi := &file_rpc_platform_service_proto_msgTypes[151]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12762,7 +12982,7 @@ func (x *TeamChildRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeamChildRef.ProtoReflect.Descriptor instead.
 func (*TeamChildRef) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{148}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{151}
 }
 
 func (x *TeamChildRef) GetNamespace() string {
@@ -12795,7 +13015,7 @@ type TeamChildRunStatus struct {
 
 func (x *TeamChildRunStatus) Reset() {
 	*x = TeamChildRunStatus{}
-	mi := &file_rpc_platform_service_proto_msgTypes[149]
+	mi := &file_rpc_platform_service_proto_msgTypes[152]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12807,7 +13027,7 @@ func (x *TeamChildRunStatus) String() string {
 func (*TeamChildRunStatus) ProtoMessage() {}
 
 func (x *TeamChildRunStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[149]
+	mi := &file_rpc_platform_service_proto_msgTypes[152]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12820,7 +13040,7 @@ func (x *TeamChildRunStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeamChildRunStatus.ProtoReflect.Descriptor instead.
 func (*TeamChildRunStatus) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{149}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{152}
 }
 
 func (x *TeamChildRunStatus) GetName() string {
@@ -12890,7 +13110,7 @@ type CreateTeamChildRunRequest struct {
 
 func (x *CreateTeamChildRunRequest) Reset() {
 	*x = CreateTeamChildRunRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[150]
+	mi := &file_rpc_platform_service_proto_msgTypes[153]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12902,7 +13122,7 @@ func (x *CreateTeamChildRunRequest) String() string {
 func (*CreateTeamChildRunRequest) ProtoMessage() {}
 
 func (x *CreateTeamChildRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[150]
+	mi := &file_rpc_platform_service_proto_msgTypes[153]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12915,7 +13135,7 @@ func (x *CreateTeamChildRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTeamChildRunRequest.ProtoReflect.Descriptor instead.
 func (*CreateTeamChildRunRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{150}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{153}
 }
 
 func (x *CreateTeamChildRunRequest) GetParent() *TeamParentRef {
@@ -12949,7 +13169,7 @@ type ListTeamChildRunsRequest struct {
 
 func (x *ListTeamChildRunsRequest) Reset() {
 	*x = ListTeamChildRunsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[151]
+	mi := &file_rpc_platform_service_proto_msgTypes[154]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12961,7 +13181,7 @@ func (x *ListTeamChildRunsRequest) String() string {
 func (*ListTeamChildRunsRequest) ProtoMessage() {}
 
 func (x *ListTeamChildRunsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[151]
+	mi := &file_rpc_platform_service_proto_msgTypes[154]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12974,7 +13194,7 @@ func (x *ListTeamChildRunsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTeamChildRunsRequest.ProtoReflect.Descriptor instead.
 func (*ListTeamChildRunsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{151}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{154}
 }
 
 func (x *ListTeamChildRunsRequest) GetParent() *TeamParentRef {
@@ -13000,7 +13220,7 @@ type ListTeamChildRunsResponse struct {
 
 func (x *ListTeamChildRunsResponse) Reset() {
 	*x = ListTeamChildRunsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[152]
+	mi := &file_rpc_platform_service_proto_msgTypes[155]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13012,7 +13232,7 @@ func (x *ListTeamChildRunsResponse) String() string {
 func (*ListTeamChildRunsResponse) ProtoMessage() {}
 
 func (x *ListTeamChildRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[152]
+	mi := &file_rpc_platform_service_proto_msgTypes[155]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13025,7 +13245,7 @@ func (x *ListTeamChildRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTeamChildRunsResponse.ProtoReflect.Descriptor instead.
 func (*ListTeamChildRunsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{152}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{155}
 }
 
 func (x *ListTeamChildRunsResponse) GetChildren() []*TeamChildRunStatus {
@@ -13045,7 +13265,7 @@ type GetTeamChildRunStatusRequest struct {
 
 func (x *GetTeamChildRunStatusRequest) Reset() {
 	*x = GetTeamChildRunStatusRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[153]
+	mi := &file_rpc_platform_service_proto_msgTypes[156]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13057,7 +13277,7 @@ func (x *GetTeamChildRunStatusRequest) String() string {
 func (*GetTeamChildRunStatusRequest) ProtoMessage() {}
 
 func (x *GetTeamChildRunStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[153]
+	mi := &file_rpc_platform_service_proto_msgTypes[156]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13070,7 +13290,7 @@ func (x *GetTeamChildRunStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTeamChildRunStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetTeamChildRunStatusRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{153}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{156}
 }
 
 func (x *GetTeamChildRunStatusRequest) GetParent() *TeamParentRef {
@@ -13097,7 +13317,7 @@ type GetTeamChildRunLogsRequest struct {
 
 func (x *GetTeamChildRunLogsRequest) Reset() {
 	*x = GetTeamChildRunLogsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[154]
+	mi := &file_rpc_platform_service_proto_msgTypes[157]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13109,7 +13329,7 @@ func (x *GetTeamChildRunLogsRequest) String() string {
 func (*GetTeamChildRunLogsRequest) ProtoMessage() {}
 
 func (x *GetTeamChildRunLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[154]
+	mi := &file_rpc_platform_service_proto_msgTypes[157]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13122,7 +13342,7 @@ func (x *GetTeamChildRunLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTeamChildRunLogsRequest.ProtoReflect.Descriptor instead.
 func (*GetTeamChildRunLogsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{154}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{157}
 }
 
 func (x *GetTeamChildRunLogsRequest) GetParent() *TeamParentRef {
@@ -13155,7 +13375,7 @@ type TeamChildRunLogs struct {
 
 func (x *TeamChildRunLogs) Reset() {
 	*x = TeamChildRunLogs{}
-	mi := &file_rpc_platform_service_proto_msgTypes[155]
+	mi := &file_rpc_platform_service_proto_msgTypes[158]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13167,7 +13387,7 @@ func (x *TeamChildRunLogs) String() string {
 func (*TeamChildRunLogs) ProtoMessage() {}
 
 func (x *TeamChildRunLogs) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[155]
+	mi := &file_rpc_platform_service_proto_msgTypes[158]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13180,7 +13400,7 @@ func (x *TeamChildRunLogs) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeamChildRunLogs.ProtoReflect.Descriptor instead.
 func (*TeamChildRunLogs) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{155}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{158}
 }
 
 func (x *TeamChildRunLogs) GetStatus() *TeamChildRunStatus {
@@ -13250,7 +13470,7 @@ type GetTeamChildRunArtifactRequest struct {
 
 func (x *GetTeamChildRunArtifactRequest) Reset() {
 	*x = GetTeamChildRunArtifactRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[156]
+	mi := &file_rpc_platform_service_proto_msgTypes[159]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13262,7 +13482,7 @@ func (x *GetTeamChildRunArtifactRequest) String() string {
 func (*GetTeamChildRunArtifactRequest) ProtoMessage() {}
 
 func (x *GetTeamChildRunArtifactRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[156]
+	mi := &file_rpc_platform_service_proto_msgTypes[159]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13275,7 +13495,7 @@ func (x *GetTeamChildRunArtifactRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTeamChildRunArtifactRequest.ProtoReflect.Descriptor instead.
 func (*GetTeamChildRunArtifactRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{156}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{159}
 }
 
 func (x *GetTeamChildRunArtifactRequest) GetParent() *TeamParentRef {
@@ -13313,7 +13533,7 @@ type TeamChildRunArtifact struct {
 
 func (x *TeamChildRunArtifact) Reset() {
 	*x = TeamChildRunArtifact{}
-	mi := &file_rpc_platform_service_proto_msgTypes[157]
+	mi := &file_rpc_platform_service_proto_msgTypes[160]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13325,7 +13545,7 @@ func (x *TeamChildRunArtifact) String() string {
 func (*TeamChildRunArtifact) ProtoMessage() {}
 
 func (x *TeamChildRunArtifact) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[157]
+	mi := &file_rpc_platform_service_proto_msgTypes[160]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13338,7 +13558,7 @@ func (x *TeamChildRunArtifact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeamChildRunArtifact.ProtoReflect.Descriptor instead.
 func (*TeamChildRunArtifact) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{157}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{160}
 }
 
 func (x *TeamChildRunArtifact) GetArtifact() string {
@@ -13394,7 +13614,7 @@ type SendTeamChildMessageRequest struct {
 
 func (x *SendTeamChildMessageRequest) Reset() {
 	*x = SendTeamChildMessageRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[158]
+	mi := &file_rpc_platform_service_proto_msgTypes[161]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13406,7 +13626,7 @@ func (x *SendTeamChildMessageRequest) String() string {
 func (*SendTeamChildMessageRequest) ProtoMessage() {}
 
 func (x *SendTeamChildMessageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[158]
+	mi := &file_rpc_platform_service_proto_msgTypes[161]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13419,7 +13639,7 @@ func (x *SendTeamChildMessageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendTeamChildMessageRequest.ProtoReflect.Descriptor instead.
 func (*SendTeamChildMessageRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{158}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{161}
 }
 
 func (x *SendTeamChildMessageRequest) GetParent() *TeamParentRef {
@@ -13452,7 +13672,7 @@ type GetAgentRunTeamStatusRequest struct {
 
 func (x *GetAgentRunTeamStatusRequest) Reset() {
 	*x = GetAgentRunTeamStatusRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[159]
+	mi := &file_rpc_platform_service_proto_msgTypes[162]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13464,7 +13684,7 @@ func (x *GetAgentRunTeamStatusRequest) String() string {
 func (*GetAgentRunTeamStatusRequest) ProtoMessage() {}
 
 func (x *GetAgentRunTeamStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[159]
+	mi := &file_rpc_platform_service_proto_msgTypes[162]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13477,7 +13697,7 @@ func (x *GetAgentRunTeamStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentRunTeamStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetAgentRunTeamStatusRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{159}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{162}
 }
 
 func (x *GetAgentRunTeamStatusRequest) GetParent() *TeamParentRef {
@@ -13499,7 +13719,7 @@ type WaitForTeamRunChangeRequest struct {
 
 func (x *WaitForTeamRunChangeRequest) Reset() {
 	*x = WaitForTeamRunChangeRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[160]
+	mi := &file_rpc_platform_service_proto_msgTypes[163]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13511,7 +13731,7 @@ func (x *WaitForTeamRunChangeRequest) String() string {
 func (*WaitForTeamRunChangeRequest) ProtoMessage() {}
 
 func (x *WaitForTeamRunChangeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[160]
+	mi := &file_rpc_platform_service_proto_msgTypes[163]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13524,7 +13744,7 @@ func (x *WaitForTeamRunChangeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitForTeamRunChangeRequest.ProtoReflect.Descriptor instead.
 func (*WaitForTeamRunChangeRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{160}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{163}
 }
 
 func (x *WaitForTeamRunChangeRequest) GetParent() *TeamParentRef {
@@ -13566,7 +13786,7 @@ type WaitForTeamRunChangeResponse struct {
 
 func (x *WaitForTeamRunChangeResponse) Reset() {
 	*x = WaitForTeamRunChangeResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[161]
+	mi := &file_rpc_platform_service_proto_msgTypes[164]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13578,7 +13798,7 @@ func (x *WaitForTeamRunChangeResponse) String() string {
 func (*WaitForTeamRunChangeResponse) ProtoMessage() {}
 
 func (x *WaitForTeamRunChangeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[161]
+	mi := &file_rpc_platform_service_proto_msgTypes[164]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13591,7 +13811,7 @@ func (x *WaitForTeamRunChangeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitForTeamRunChangeResponse.ProtoReflect.Descriptor instead.
 func (*WaitForTeamRunChangeResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{161}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{164}
 }
 
 func (x *WaitForTeamRunChangeResponse) GetChanged() bool {
@@ -13625,7 +13845,7 @@ type CancelTeamChildRunRequest struct {
 
 func (x *CancelTeamChildRunRequest) Reset() {
 	*x = CancelTeamChildRunRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[162]
+	mi := &file_rpc_platform_service_proto_msgTypes[165]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13637,7 +13857,7 @@ func (x *CancelTeamChildRunRequest) String() string {
 func (*CancelTeamChildRunRequest) ProtoMessage() {}
 
 func (x *CancelTeamChildRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[162]
+	mi := &file_rpc_platform_service_proto_msgTypes[165]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13650,7 +13870,7 @@ func (x *CancelTeamChildRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelTeamChildRunRequest.ProtoReflect.Descriptor instead.
 func (*CancelTeamChildRunRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{162}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{165}
 }
 
 func (x *CancelTeamChildRunRequest) GetParent() *TeamParentRef {
@@ -13677,7 +13897,7 @@ type RetryTeamChildRunRequest struct {
 
 func (x *RetryTeamChildRunRequest) Reset() {
 	*x = RetryTeamChildRunRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[163]
+	mi := &file_rpc_platform_service_proto_msgTypes[166]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13689,7 +13909,7 @@ func (x *RetryTeamChildRunRequest) String() string {
 func (*RetryTeamChildRunRequest) ProtoMessage() {}
 
 func (x *RetryTeamChildRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[163]
+	mi := &file_rpc_platform_service_proto_msgTypes[166]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13702,7 +13922,7 @@ func (x *RetryTeamChildRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetryTeamChildRunRequest.ProtoReflect.Descriptor instead.
 func (*RetryTeamChildRunRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{163}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{166}
 }
 
 func (x *RetryTeamChildRunRequest) GetParent() *TeamParentRef {
@@ -13728,7 +13948,7 @@ type GetTeamApprovalStatusRequest struct {
 
 func (x *GetTeamApprovalStatusRequest) Reset() {
 	*x = GetTeamApprovalStatusRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[164]
+	mi := &file_rpc_platform_service_proto_msgTypes[167]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13740,7 +13960,7 @@ func (x *GetTeamApprovalStatusRequest) String() string {
 func (*GetTeamApprovalStatusRequest) ProtoMessage() {}
 
 func (x *GetTeamApprovalStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[164]
+	mi := &file_rpc_platform_service_proto_msgTypes[167]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13753,7 +13973,7 @@ func (x *GetTeamApprovalStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTeamApprovalStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetTeamApprovalStatusRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{164}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{167}
 }
 
 func (x *GetTeamApprovalStatusRequest) GetParent() *TeamParentRef {
@@ -13772,7 +13992,7 @@ type TeamApprovalStatus struct {
 
 func (x *TeamApprovalStatus) Reset() {
 	*x = TeamApprovalStatus{}
-	mi := &file_rpc_platform_service_proto_msgTypes[165]
+	mi := &file_rpc_platform_service_proto_msgTypes[168]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13784,7 +14004,7 @@ func (x *TeamApprovalStatus) String() string {
 func (*TeamApprovalStatus) ProtoMessage() {}
 
 func (x *TeamApprovalStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[165]
+	mi := &file_rpc_platform_service_proto_msgTypes[168]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13797,7 +14017,7 @@ func (x *TeamApprovalStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeamApprovalStatus.ProtoReflect.Descriptor instead.
 func (*TeamApprovalStatus) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{165}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{168}
 }
 
 func (x *TeamApprovalStatus) GetState() string {
@@ -13822,7 +14042,7 @@ type GetDiffRequest struct {
 
 func (x *GetDiffRequest) Reset() {
 	*x = GetDiffRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[166]
+	mi := &file_rpc_platform_service_proto_msgTypes[169]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13834,7 +14054,7 @@ func (x *GetDiffRequest) String() string {
 func (*GetDiffRequest) ProtoMessage() {}
 
 func (x *GetDiffRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[166]
+	mi := &file_rpc_platform_service_proto_msgTypes[169]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13847,7 +14067,7 @@ func (x *GetDiffRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDiffRequest.ProtoReflect.Descriptor instead.
 func (*GetDiffRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{166}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{169}
 }
 
 func (x *GetDiffRequest) GetNamespace() string {
@@ -13894,7 +14114,7 @@ type GetDiffResponse struct {
 
 func (x *GetDiffResponse) Reset() {
 	*x = GetDiffResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[167]
+	mi := &file_rpc_platform_service_proto_msgTypes[170]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13906,7 +14126,7 @@ func (x *GetDiffResponse) String() string {
 func (*GetDiffResponse) ProtoMessage() {}
 
 func (x *GetDiffResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[167]
+	mi := &file_rpc_platform_service_proto_msgTypes[170]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13919,7 +14139,7 @@ func (x *GetDiffResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDiffResponse.ProtoReflect.Descriptor instead.
 func (*GetDiffResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{167}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{170}
 }
 
 func (x *GetDiffResponse) GetDiff() string {
@@ -13976,7 +14196,7 @@ type ListFilesRequest struct {
 
 func (x *ListFilesRequest) Reset() {
 	*x = ListFilesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[168]
+	mi := &file_rpc_platform_service_proto_msgTypes[171]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13988,7 +14208,7 @@ func (x *ListFilesRequest) String() string {
 func (*ListFilesRequest) ProtoMessage() {}
 
 func (x *ListFilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[168]
+	mi := &file_rpc_platform_service_proto_msgTypes[171]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14001,7 +14221,7 @@ func (x *ListFilesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFilesRequest.ProtoReflect.Descriptor instead.
 func (*ListFilesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{168}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{171}
 }
 
 func (x *ListFilesRequest) GetNamespace() string {
@@ -14041,7 +14261,7 @@ type ListFilesResponse struct {
 
 func (x *ListFilesResponse) Reset() {
 	*x = ListFilesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[169]
+	mi := &file_rpc_platform_service_proto_msgTypes[172]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14053,7 +14273,7 @@ func (x *ListFilesResponse) String() string {
 func (*ListFilesResponse) ProtoMessage() {}
 
 func (x *ListFilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[169]
+	mi := &file_rpc_platform_service_proto_msgTypes[172]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14066,7 +14286,7 @@ func (x *ListFilesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFilesResponse.ProtoReflect.Descriptor instead.
 func (*ListFilesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{169}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{172}
 }
 
 func (x *ListFilesResponse) GetFiles() []*FileEntry {
@@ -14087,7 +14307,7 @@ type FileEntry struct {
 
 func (x *FileEntry) Reset() {
 	*x = FileEntry{}
-	mi := &file_rpc_platform_service_proto_msgTypes[170]
+	mi := &file_rpc_platform_service_proto_msgTypes[173]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14099,7 +14319,7 @@ func (x *FileEntry) String() string {
 func (*FileEntry) ProtoMessage() {}
 
 func (x *FileEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[170]
+	mi := &file_rpc_platform_service_proto_msgTypes[173]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14112,7 +14332,7 @@ func (x *FileEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileEntry.ProtoReflect.Descriptor instead.
 func (*FileEntry) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{170}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{173}
 }
 
 func (x *FileEntry) GetName() string {
@@ -14152,7 +14372,7 @@ type ListWorkspaceFilesRequest struct {
 
 func (x *ListWorkspaceFilesRequest) Reset() {
 	*x = ListWorkspaceFilesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[171]
+	mi := &file_rpc_platform_service_proto_msgTypes[174]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14164,7 +14384,7 @@ func (x *ListWorkspaceFilesRequest) String() string {
 func (*ListWorkspaceFilesRequest) ProtoMessage() {}
 
 func (x *ListWorkspaceFilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[171]
+	mi := &file_rpc_platform_service_proto_msgTypes[174]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14177,7 +14397,7 @@ func (x *ListWorkspaceFilesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWorkspaceFilesRequest.ProtoReflect.Descriptor instead.
 func (*ListWorkspaceFilesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{171}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{174}
 }
 
 func (x *ListWorkspaceFilesRequest) GetNamespace() string {
@@ -14221,7 +14441,7 @@ type ListWorkspaceFilesResponse struct {
 
 func (x *ListWorkspaceFilesResponse) Reset() {
 	*x = ListWorkspaceFilesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[172]
+	mi := &file_rpc_platform_service_proto_msgTypes[175]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14233,7 +14453,7 @@ func (x *ListWorkspaceFilesResponse) String() string {
 func (*ListWorkspaceFilesResponse) ProtoMessage() {}
 
 func (x *ListWorkspaceFilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[172]
+	mi := &file_rpc_platform_service_proto_msgTypes[175]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14246,7 +14466,7 @@ func (x *ListWorkspaceFilesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListWorkspaceFilesResponse.ProtoReflect.Descriptor instead.
 func (*ListWorkspaceFilesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{172}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{175}
 }
 
 func (x *ListWorkspaceFilesResponse) GetPaths() []string {
@@ -14277,7 +14497,7 @@ type RepositoryInfo struct {
 
 func (x *RepositoryInfo) Reset() {
 	*x = RepositoryInfo{}
-	mi := &file_rpc_platform_service_proto_msgTypes[173]
+	mi := &file_rpc_platform_service_proto_msgTypes[176]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14289,7 +14509,7 @@ func (x *RepositoryInfo) String() string {
 func (*RepositoryInfo) ProtoMessage() {}
 
 func (x *RepositoryInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[173]
+	mi := &file_rpc_platform_service_proto_msgTypes[176]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14302,7 +14522,7 @@ func (x *RepositoryInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RepositoryInfo.ProtoReflect.Descriptor instead.
 func (*RepositoryInfo) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{173}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{176}
 }
 
 func (x *RepositoryInfo) GetName() string {
@@ -14356,7 +14576,7 @@ type CloneRepositoryRequest struct {
 
 func (x *CloneRepositoryRequest) Reset() {
 	*x = CloneRepositoryRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[174]
+	mi := &file_rpc_platform_service_proto_msgTypes[177]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14368,7 +14588,7 @@ func (x *CloneRepositoryRequest) String() string {
 func (*CloneRepositoryRequest) ProtoMessage() {}
 
 func (x *CloneRepositoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[174]
+	mi := &file_rpc_platform_service_proto_msgTypes[177]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14381,7 +14601,7 @@ func (x *CloneRepositoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloneRepositoryRequest.ProtoReflect.Descriptor instead.
 func (*CloneRepositoryRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{174}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{177}
 }
 
 func (x *CloneRepositoryRequest) GetNamespace() string {
@@ -14428,7 +14648,7 @@ type CloneRepositoryResponse struct {
 
 func (x *CloneRepositoryResponse) Reset() {
 	*x = CloneRepositoryResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[175]
+	mi := &file_rpc_platform_service_proto_msgTypes[178]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14440,7 +14660,7 @@ func (x *CloneRepositoryResponse) String() string {
 func (*CloneRepositoryResponse) ProtoMessage() {}
 
 func (x *CloneRepositoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[175]
+	mi := &file_rpc_platform_service_proto_msgTypes[178]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14453,7 +14673,7 @@ func (x *CloneRepositoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloneRepositoryResponse.ProtoReflect.Descriptor instead.
 func (*CloneRepositoryResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{175}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{178}
 }
 
 func (x *CloneRepositoryResponse) GetRepository() *RepositoryInfo {
@@ -14476,7 +14696,7 @@ type ListRepositoriesRequest struct {
 
 func (x *ListRepositoriesRequest) Reset() {
 	*x = ListRepositoriesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[176]
+	mi := &file_rpc_platform_service_proto_msgTypes[179]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14488,7 +14708,7 @@ func (x *ListRepositoriesRequest) String() string {
 func (*ListRepositoriesRequest) ProtoMessage() {}
 
 func (x *ListRepositoriesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[176]
+	mi := &file_rpc_platform_service_proto_msgTypes[179]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14501,7 +14721,7 @@ func (x *ListRepositoriesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRepositoriesRequest.ProtoReflect.Descriptor instead.
 func (*ListRepositoriesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{176}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{179}
 }
 
 func (x *ListRepositoriesRequest) GetNamespace() string {
@@ -14534,7 +14754,7 @@ type ListRepositoriesResponse struct {
 
 func (x *ListRepositoriesResponse) Reset() {
 	*x = ListRepositoriesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[177]
+	mi := &file_rpc_platform_service_proto_msgTypes[180]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14546,7 +14766,7 @@ func (x *ListRepositoriesResponse) String() string {
 func (*ListRepositoriesResponse) ProtoMessage() {}
 
 func (x *ListRepositoriesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[177]
+	mi := &file_rpc_platform_service_proto_msgTypes[180]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14559,7 +14779,7 @@ func (x *ListRepositoriesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRepositoriesResponse.ProtoReflect.Descriptor instead.
 func (*ListRepositoriesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{177}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{180}
 }
 
 func (x *ListRepositoriesResponse) GetRepositories() []*RepositoryInfo {
@@ -14585,7 +14805,7 @@ type ReadFileRequest struct {
 
 func (x *ReadFileRequest) Reset() {
 	*x = ReadFileRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[178]
+	mi := &file_rpc_platform_service_proto_msgTypes[181]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14597,7 +14817,7 @@ func (x *ReadFileRequest) String() string {
 func (*ReadFileRequest) ProtoMessage() {}
 
 func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[178]
+	mi := &file_rpc_platform_service_proto_msgTypes[181]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14610,7 +14830,7 @@ func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileRequest.ProtoReflect.Descriptor instead.
 func (*ReadFileRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{178}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{181}
 }
 
 func (x *ReadFileRequest) GetNamespace() string {
@@ -14665,7 +14885,7 @@ type ReadFileResponse struct {
 
 func (x *ReadFileResponse) Reset() {
 	*x = ReadFileResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[179]
+	mi := &file_rpc_platform_service_proto_msgTypes[182]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14677,7 +14897,7 @@ func (x *ReadFileResponse) String() string {
 func (*ReadFileResponse) ProtoMessage() {}
 
 func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[179]
+	mi := &file_rpc_platform_service_proto_msgTypes[182]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14690,7 +14910,7 @@ func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadFileResponse.ProtoReflect.Descriptor instead.
 func (*ReadFileResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{179}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{182}
 }
 
 func (x *ReadFileResponse) GetContent() string {
@@ -14718,7 +14938,7 @@ type UpdateLinearProjectInstructionsRequest struct {
 
 func (x *UpdateLinearProjectInstructionsRequest) Reset() {
 	*x = UpdateLinearProjectInstructionsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[180]
+	mi := &file_rpc_platform_service_proto_msgTypes[183]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14730,7 +14950,7 @@ func (x *UpdateLinearProjectInstructionsRequest) String() string {
 func (*UpdateLinearProjectInstructionsRequest) ProtoMessage() {}
 
 func (x *UpdateLinearProjectInstructionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[180]
+	mi := &file_rpc_platform_service_proto_msgTypes[183]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14743,7 +14963,7 @@ func (x *UpdateLinearProjectInstructionsRequest) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use UpdateLinearProjectInstructionsRequest.ProtoReflect.Descriptor instead.
 func (*UpdateLinearProjectInstructionsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{180}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{183}
 }
 
 func (x *UpdateLinearProjectInstructionsRequest) GetNamespace() string {
@@ -14775,7 +14995,7 @@ type UpdateLinearProjectInstructionsResponse struct {
 
 func (x *UpdateLinearProjectInstructionsResponse) Reset() {
 	*x = UpdateLinearProjectInstructionsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[181]
+	mi := &file_rpc_platform_service_proto_msgTypes[184]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14787,7 +15007,7 @@ func (x *UpdateLinearProjectInstructionsResponse) String() string {
 func (*UpdateLinearProjectInstructionsResponse) ProtoMessage() {}
 
 func (x *UpdateLinearProjectInstructionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[181]
+	mi := &file_rpc_platform_service_proto_msgTypes[184]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14800,7 +15020,7 @@ func (x *UpdateLinearProjectInstructionsResponse) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use UpdateLinearProjectInstructionsResponse.ProtoReflect.Descriptor instead.
 func (*UpdateLinearProjectInstructionsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{181}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{184}
 }
 
 type GetTeamRuntimeRequest struct {
@@ -14813,7 +15033,7 @@ type GetTeamRuntimeRequest struct {
 
 func (x *GetTeamRuntimeRequest) Reset() {
 	*x = GetTeamRuntimeRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[182]
+	mi := &file_rpc_platform_service_proto_msgTypes[185]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14825,7 +15045,7 @@ func (x *GetTeamRuntimeRequest) String() string {
 func (*GetTeamRuntimeRequest) ProtoMessage() {}
 
 func (x *GetTeamRuntimeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[182]
+	mi := &file_rpc_platform_service_proto_msgTypes[185]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14838,7 +15058,7 @@ func (x *GetTeamRuntimeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTeamRuntimeRequest.ProtoReflect.Descriptor instead.
 func (*GetTeamRuntimeRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{182}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{185}
 }
 
 func (x *GetTeamRuntimeRequest) GetNamespace() string {
@@ -14865,7 +15085,7 @@ type WatchTeamRuntimeRequest struct {
 
 func (x *WatchTeamRuntimeRequest) Reset() {
 	*x = WatchTeamRuntimeRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[183]
+	mi := &file_rpc_platform_service_proto_msgTypes[186]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14877,7 +15097,7 @@ func (x *WatchTeamRuntimeRequest) String() string {
 func (*WatchTeamRuntimeRequest) ProtoMessage() {}
 
 func (x *WatchTeamRuntimeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[183]
+	mi := &file_rpc_platform_service_proto_msgTypes[186]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14890,7 +15110,7 @@ func (x *WatchTeamRuntimeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchTeamRuntimeRequest.ProtoReflect.Descriptor instead.
 func (*WatchTeamRuntimeRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{183}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{186}
 }
 
 func (x *WatchTeamRuntimeRequest) GetNamespace() string {
@@ -14933,7 +15153,7 @@ type TeamRuntime struct {
 
 func (x *TeamRuntime) Reset() {
 	*x = TeamRuntime{}
-	mi := &file_rpc_platform_service_proto_msgTypes[184]
+	mi := &file_rpc_platform_service_proto_msgTypes[187]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14945,7 +15165,7 @@ func (x *TeamRuntime) String() string {
 func (*TeamRuntime) ProtoMessage() {}
 
 func (x *TeamRuntime) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[184]
+	mi := &file_rpc_platform_service_proto_msgTypes[187]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14958,7 +15178,7 @@ func (x *TeamRuntime) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeamRuntime.ProtoReflect.Descriptor instead.
 func (*TeamRuntime) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{184}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{187}
 }
 
 func (x *TeamRuntime) GetNamespace() string {
@@ -15100,7 +15320,7 @@ type TeamRuntimeTask struct {
 
 func (x *TeamRuntimeTask) Reset() {
 	*x = TeamRuntimeTask{}
-	mi := &file_rpc_platform_service_proto_msgTypes[185]
+	mi := &file_rpc_platform_service_proto_msgTypes[188]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15112,7 +15332,7 @@ func (x *TeamRuntimeTask) String() string {
 func (*TeamRuntimeTask) ProtoMessage() {}
 
 func (x *TeamRuntimeTask) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[185]
+	mi := &file_rpc_platform_service_proto_msgTypes[188]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15125,7 +15345,7 @@ func (x *TeamRuntimeTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeamRuntimeTask.ProtoReflect.Descriptor instead.
 func (*TeamRuntimeTask) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{185}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{188}
 }
 
 func (x *TeamRuntimeTask) GetName() string {
@@ -15273,7 +15493,7 @@ type TeamRuntimeEventCheckpoint struct {
 
 func (x *TeamRuntimeEventCheckpoint) Reset() {
 	*x = TeamRuntimeEventCheckpoint{}
-	mi := &file_rpc_platform_service_proto_msgTypes[186]
+	mi := &file_rpc_platform_service_proto_msgTypes[189]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15285,7 +15505,7 @@ func (x *TeamRuntimeEventCheckpoint) String() string {
 func (*TeamRuntimeEventCheckpoint) ProtoMessage() {}
 
 func (x *TeamRuntimeEventCheckpoint) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[186]
+	mi := &file_rpc_platform_service_proto_msgTypes[189]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15298,7 +15518,7 @@ func (x *TeamRuntimeEventCheckpoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TeamRuntimeEventCheckpoint.ProtoReflect.Descriptor instead.
 func (*TeamRuntimeEventCheckpoint) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{186}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{189}
 }
 
 func (x *TeamRuntimeEventCheckpoint) GetStreamId() string {
@@ -15344,7 +15564,7 @@ type ModeTransitionEvent struct {
 
 func (x *ModeTransitionEvent) Reset() {
 	*x = ModeTransitionEvent{}
-	mi := &file_rpc_platform_service_proto_msgTypes[187]
+	mi := &file_rpc_platform_service_proto_msgTypes[190]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15356,7 +15576,7 @@ func (x *ModeTransitionEvent) String() string {
 func (*ModeTransitionEvent) ProtoMessage() {}
 
 func (x *ModeTransitionEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[187]
+	mi := &file_rpc_platform_service_proto_msgTypes[190]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15369,7 +15589,7 @@ func (x *ModeTransitionEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModeTransitionEvent.ProtoReflect.Descriptor instead.
 func (*ModeTransitionEvent) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{187}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{190}
 }
 
 func (x *ModeTransitionEvent) GetFromMode() string {
@@ -15434,7 +15654,7 @@ type ModeConstraints struct {
 
 func (x *ModeConstraints) Reset() {
 	*x = ModeConstraints{}
-	mi := &file_rpc_platform_service_proto_msgTypes[188]
+	mi := &file_rpc_platform_service_proto_msgTypes[191]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15446,7 +15666,7 @@ func (x *ModeConstraints) String() string {
 func (*ModeConstraints) ProtoMessage() {}
 
 func (x *ModeConstraints) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[188]
+	mi := &file_rpc_platform_service_proto_msgTypes[191]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15459,7 +15679,7 @@ func (x *ModeConstraints) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModeConstraints.ProtoReflect.Descriptor instead.
 func (*ModeConstraints) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{188}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{191}
 }
 
 func (x *ModeConstraints) GetMaxTurns() int32 {
@@ -15522,7 +15742,7 @@ type ModeTemplate struct {
 
 func (x *ModeTemplate) Reset() {
 	*x = ModeTemplate{}
-	mi := &file_rpc_platform_service_proto_msgTypes[189]
+	mi := &file_rpc_platform_service_proto_msgTypes[192]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15534,7 +15754,7 @@ func (x *ModeTemplate) String() string {
 func (*ModeTemplate) ProtoMessage() {}
 
 func (x *ModeTemplate) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[189]
+	mi := &file_rpc_platform_service_proto_msgTypes[192]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15547,7 +15767,7 @@ func (x *ModeTemplate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ModeTemplate.ProtoReflect.Descriptor instead.
 func (*ModeTemplate) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{189}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{192}
 }
 
 func (x *ModeTemplate) GetName() string {
@@ -15664,7 +15884,7 @@ type ListAvailableModesRequest struct {
 
 func (x *ListAvailableModesRequest) Reset() {
 	*x = ListAvailableModesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[190]
+	mi := &file_rpc_platform_service_proto_msgTypes[193]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15676,7 +15896,7 @@ func (x *ListAvailableModesRequest) String() string {
 func (*ListAvailableModesRequest) ProtoMessage() {}
 
 func (x *ListAvailableModesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[190]
+	mi := &file_rpc_platform_service_proto_msgTypes[193]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15689,7 +15909,7 @@ func (x *ListAvailableModesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAvailableModesRequest.ProtoReflect.Descriptor instead.
 func (*ListAvailableModesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{190}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{193}
 }
 
 func (x *ListAvailableModesRequest) GetNamespace() string {
@@ -15708,7 +15928,7 @@ type ListAvailableModesResponse struct {
 
 func (x *ListAvailableModesResponse) Reset() {
 	*x = ListAvailableModesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[191]
+	mi := &file_rpc_platform_service_proto_msgTypes[194]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15720,7 +15940,7 @@ func (x *ListAvailableModesResponse) String() string {
 func (*ListAvailableModesResponse) ProtoMessage() {}
 
 func (x *ListAvailableModesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[191]
+	mi := &file_rpc_platform_service_proto_msgTypes[194]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15733,7 +15953,7 @@ func (x *ListAvailableModesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAvailableModesResponse.ProtoReflect.Descriptor instead.
 func (*ListAvailableModesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{191}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{194}
 }
 
 func (x *ListAvailableModesResponse) GetModes() []*ModeTemplate {
@@ -15753,7 +15973,7 @@ type GetModeTemplateRequest struct {
 
 func (x *GetModeTemplateRequest) Reset() {
 	*x = GetModeTemplateRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[192]
+	mi := &file_rpc_platform_service_proto_msgTypes[195]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15765,7 +15985,7 @@ func (x *GetModeTemplateRequest) String() string {
 func (*GetModeTemplateRequest) ProtoMessage() {}
 
 func (x *GetModeTemplateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[192]
+	mi := &file_rpc_platform_service_proto_msgTypes[195]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15778,7 +15998,7 @@ func (x *GetModeTemplateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetModeTemplateRequest.ProtoReflect.Descriptor instead.
 func (*GetModeTemplateRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{192}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{195}
 }
 
 func (x *GetModeTemplateRequest) GetNamespace() string {
@@ -15809,7 +16029,7 @@ type SwitchAgentRunModeRequest struct {
 
 func (x *SwitchAgentRunModeRequest) Reset() {
 	*x = SwitchAgentRunModeRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[193]
+	mi := &file_rpc_platform_service_proto_msgTypes[196]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15821,7 +16041,7 @@ func (x *SwitchAgentRunModeRequest) String() string {
 func (*SwitchAgentRunModeRequest) ProtoMessage() {}
 
 func (x *SwitchAgentRunModeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[193]
+	mi := &file_rpc_platform_service_proto_msgTypes[196]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15834,7 +16054,7 @@ func (x *SwitchAgentRunModeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SwitchAgentRunModeRequest.ProtoReflect.Descriptor instead.
 func (*SwitchAgentRunModeRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{193}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{196}
 }
 
 func (x *SwitchAgentRunModeRequest) GetNamespace() string {
@@ -15892,7 +16112,7 @@ type SwitchAgentRunModeResponse struct {
 
 func (x *SwitchAgentRunModeResponse) Reset() {
 	*x = SwitchAgentRunModeResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[194]
+	mi := &file_rpc_platform_service_proto_msgTypes[197]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15904,7 +16124,7 @@ func (x *SwitchAgentRunModeResponse) String() string {
 func (*SwitchAgentRunModeResponse) ProtoMessage() {}
 
 func (x *SwitchAgentRunModeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[194]
+	mi := &file_rpc_platform_service_proto_msgTypes[197]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15917,7 +16137,7 @@ func (x *SwitchAgentRunModeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SwitchAgentRunModeResponse.ProtoReflect.Descriptor instead.
 func (*SwitchAgentRunModeResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{194}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{197}
 }
 
 func (x *SwitchAgentRunModeResponse) GetResult() string {
@@ -15967,7 +16187,7 @@ type EvidenceGateResult struct {
 
 func (x *EvidenceGateResult) Reset() {
 	*x = EvidenceGateResult{}
-	mi := &file_rpc_platform_service_proto_msgTypes[195]
+	mi := &file_rpc_platform_service_proto_msgTypes[198]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15979,7 +16199,7 @@ func (x *EvidenceGateResult) String() string {
 func (*EvidenceGateResult) ProtoMessage() {}
 
 func (x *EvidenceGateResult) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[195]
+	mi := &file_rpc_platform_service_proto_msgTypes[198]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15992,7 +16212,7 @@ func (x *EvidenceGateResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EvidenceGateResult.ProtoReflect.Descriptor instead.
 func (*EvidenceGateResult) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{195}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{198}
 }
 
 func (x *EvidenceGateResult) GetGate() string {
@@ -16034,7 +16254,7 @@ type ListProjectsRequest struct {
 
 func (x *ListProjectsRequest) Reset() {
 	*x = ListProjectsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[196]
+	mi := &file_rpc_platform_service_proto_msgTypes[199]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16046,7 +16266,7 @@ func (x *ListProjectsRequest) String() string {
 func (*ListProjectsRequest) ProtoMessage() {}
 
 func (x *ListProjectsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[196]
+	mi := &file_rpc_platform_service_proto_msgTypes[199]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16059,7 +16279,7 @@ func (x *ListProjectsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProjectsRequest.ProtoReflect.Descriptor instead.
 func (*ListProjectsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{196}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{199}
 }
 
 func (x *ListProjectsRequest) GetNamespace() string {
@@ -16092,7 +16312,7 @@ type ListProjectsResponse struct {
 
 func (x *ListProjectsResponse) Reset() {
 	*x = ListProjectsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[197]
+	mi := &file_rpc_platform_service_proto_msgTypes[200]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16104,7 +16324,7 @@ func (x *ListProjectsResponse) String() string {
 func (*ListProjectsResponse) ProtoMessage() {}
 
 func (x *ListProjectsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[197]
+	mi := &file_rpc_platform_service_proto_msgTypes[200]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16117,7 +16337,7 @@ func (x *ListProjectsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProjectsResponse.ProtoReflect.Descriptor instead.
 func (*ListProjectsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{197}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{200}
 }
 
 func (x *ListProjectsResponse) GetProjects() []*Project {
@@ -16137,7 +16357,7 @@ type GetProjectRequest struct {
 
 func (x *GetProjectRequest) Reset() {
 	*x = GetProjectRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[198]
+	mi := &file_rpc_platform_service_proto_msgTypes[201]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16149,7 +16369,7 @@ func (x *GetProjectRequest) String() string {
 func (*GetProjectRequest) ProtoMessage() {}
 
 func (x *GetProjectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[198]
+	mi := &file_rpc_platform_service_proto_msgTypes[201]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16162,7 +16382,7 @@ func (x *GetProjectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProjectRequest.ProtoReflect.Descriptor instead.
 func (*GetProjectRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{198}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{201}
 }
 
 func (x *GetProjectRequest) GetNamespace() string {
@@ -16188,7 +16408,7 @@ type WatchProjectsRequest struct {
 
 func (x *WatchProjectsRequest) Reset() {
 	*x = WatchProjectsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[199]
+	mi := &file_rpc_platform_service_proto_msgTypes[202]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16200,7 +16420,7 @@ func (x *WatchProjectsRequest) String() string {
 func (*WatchProjectsRequest) ProtoMessage() {}
 
 func (x *WatchProjectsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[199]
+	mi := &file_rpc_platform_service_proto_msgTypes[202]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16213,7 +16433,7 @@ func (x *WatchProjectsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchProjectsRequest.ProtoReflect.Descriptor instead.
 func (*WatchProjectsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{199}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{202}
 }
 
 func (x *WatchProjectsRequest) GetNamespace() string {
@@ -16233,7 +16453,7 @@ type ProjectEvent struct {
 
 func (x *ProjectEvent) Reset() {
 	*x = ProjectEvent{}
-	mi := &file_rpc_platform_service_proto_msgTypes[200]
+	mi := &file_rpc_platform_service_proto_msgTypes[203]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16245,7 +16465,7 @@ func (x *ProjectEvent) String() string {
 func (*ProjectEvent) ProtoMessage() {}
 
 func (x *ProjectEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[200]
+	mi := &file_rpc_platform_service_proto_msgTypes[203]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16258,7 +16478,7 @@ func (x *ProjectEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectEvent.ProtoReflect.Descriptor instead.
 func (*ProjectEvent) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{200}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{203}
 }
 
 func (x *ProjectEvent) GetType() string {
@@ -16286,7 +16506,7 @@ type ProjectCredentialStatus struct {
 
 func (x *ProjectCredentialStatus) Reset() {
 	*x = ProjectCredentialStatus{}
-	mi := &file_rpc_platform_service_proto_msgTypes[201]
+	mi := &file_rpc_platform_service_proto_msgTypes[204]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16298,7 +16518,7 @@ func (x *ProjectCredentialStatus) String() string {
 func (*ProjectCredentialStatus) ProtoMessage() {}
 
 func (x *ProjectCredentialStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[201]
+	mi := &file_rpc_platform_service_proto_msgTypes[204]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16311,7 +16531,7 @@ func (x *ProjectCredentialStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectCredentialStatus.ProtoReflect.Descriptor instead.
 func (*ProjectCredentialStatus) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{201}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{204}
 }
 
 func (x *ProjectCredentialStatus) GetGithubTokenPresent() bool {
@@ -16403,7 +16623,7 @@ type CreateProjectRequest struct {
 
 func (x *CreateProjectRequest) Reset() {
 	*x = CreateProjectRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[202]
+	mi := &file_rpc_platform_service_proto_msgTypes[205]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16415,7 +16635,7 @@ func (x *CreateProjectRequest) String() string {
 func (*CreateProjectRequest) ProtoMessage() {}
 
 func (x *CreateProjectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[202]
+	mi := &file_rpc_platform_service_proto_msgTypes[205]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16428,7 +16648,7 @@ func (x *CreateProjectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateProjectRequest.ProtoReflect.Descriptor instead.
 func (*CreateProjectRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{202}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{205}
 }
 
 func (x *CreateProjectRequest) GetNamespace() string {
@@ -16725,7 +16945,7 @@ type UpdateProjectRequest struct {
 
 func (x *UpdateProjectRequest) Reset() {
 	*x = UpdateProjectRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[203]
+	mi := &file_rpc_platform_service_proto_msgTypes[206]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16737,7 +16957,7 @@ func (x *UpdateProjectRequest) String() string {
 func (*UpdateProjectRequest) ProtoMessage() {}
 
 func (x *UpdateProjectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[203]
+	mi := &file_rpc_platform_service_proto_msgTypes[206]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16750,7 +16970,7 @@ func (x *UpdateProjectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateProjectRequest.ProtoReflect.Descriptor instead.
 func (*UpdateProjectRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{203}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{206}
 }
 
 func (x *UpdateProjectRequest) GetNamespace() string {
@@ -17004,7 +17224,7 @@ type ProjectTriggerCondition struct {
 
 func (x *ProjectTriggerCondition) Reset() {
 	*x = ProjectTriggerCondition{}
-	mi := &file_rpc_platform_service_proto_msgTypes[204]
+	mi := &file_rpc_platform_service_proto_msgTypes[207]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17016,7 +17236,7 @@ func (x *ProjectTriggerCondition) String() string {
 func (*ProjectTriggerCondition) ProtoMessage() {}
 
 func (x *ProjectTriggerCondition) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[204]
+	mi := &file_rpc_platform_service_proto_msgTypes[207]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17029,7 +17249,7 @@ func (x *ProjectTriggerCondition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectTriggerCondition.ProtoReflect.Descriptor instead.
 func (*ProjectTriggerCondition) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{204}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{207}
 }
 
 func (x *ProjectTriggerCondition) GetType() string {
@@ -17095,7 +17315,7 @@ type GitHubProjectTrigger struct {
 
 func (x *GitHubProjectTrigger) Reset() {
 	*x = GitHubProjectTrigger{}
-	mi := &file_rpc_platform_service_proto_msgTypes[205]
+	mi := &file_rpc_platform_service_proto_msgTypes[208]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17107,7 +17327,7 @@ func (x *GitHubProjectTrigger) String() string {
 func (*GitHubProjectTrigger) ProtoMessage() {}
 
 func (x *GitHubProjectTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[205]
+	mi := &file_rpc_platform_service_proto_msgTypes[208]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17120,7 +17340,7 @@ func (x *GitHubProjectTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitHubProjectTrigger.ProtoReflect.Descriptor instead.
 func (*GitHubProjectTrigger) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{205}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{208}
 }
 
 func (x *GitHubProjectTrigger) GetConnectionRef() string {
@@ -17272,7 +17492,7 @@ type SlackProjectTrigger struct {
 
 func (x *SlackProjectTrigger) Reset() {
 	*x = SlackProjectTrigger{}
-	mi := &file_rpc_platform_service_proto_msgTypes[206]
+	mi := &file_rpc_platform_service_proto_msgTypes[209]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17284,7 +17504,7 @@ func (x *SlackProjectTrigger) String() string {
 func (*SlackProjectTrigger) ProtoMessage() {}
 
 func (x *SlackProjectTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[206]
+	mi := &file_rpc_platform_service_proto_msgTypes[209]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17297,7 +17517,7 @@ func (x *SlackProjectTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SlackProjectTrigger.ProtoReflect.Descriptor instead.
 func (*SlackProjectTrigger) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{206}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{209}
 }
 
 func (x *SlackProjectTrigger) GetConnectionRef() string {
@@ -17347,7 +17567,7 @@ type CronProjectTrigger struct {
 
 func (x *CronProjectTrigger) Reset() {
 	*x = CronProjectTrigger{}
-	mi := &file_rpc_platform_service_proto_msgTypes[207]
+	mi := &file_rpc_platform_service_proto_msgTypes[210]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17359,7 +17579,7 @@ func (x *CronProjectTrigger) String() string {
 func (*CronProjectTrigger) ProtoMessage() {}
 
 func (x *CronProjectTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[207]
+	mi := &file_rpc_platform_service_proto_msgTypes[210]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17372,7 +17592,7 @@ func (x *CronProjectTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CronProjectTrigger.ProtoReflect.Descriptor instead.
 func (*CronProjectTrigger) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{207}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{210}
 }
 
 func (x *CronProjectTrigger) GetSchedule() string {
@@ -17417,7 +17637,7 @@ type LinearProjectTrigger struct {
 
 func (x *LinearProjectTrigger) Reset() {
 	*x = LinearProjectTrigger{}
-	mi := &file_rpc_platform_service_proto_msgTypes[208]
+	mi := &file_rpc_platform_service_proto_msgTypes[211]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17429,7 +17649,7 @@ func (x *LinearProjectTrigger) String() string {
 func (*LinearProjectTrigger) ProtoMessage() {}
 
 func (x *LinearProjectTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[208]
+	mi := &file_rpc_platform_service_proto_msgTypes[211]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17442,7 +17662,7 @@ func (x *LinearProjectTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LinearProjectTrigger.ProtoReflect.Descriptor instead.
 func (*LinearProjectTrigger) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{208}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{211}
 }
 
 func (x *LinearProjectTrigger) GetConnectionRef() string {
@@ -17517,7 +17737,7 @@ type ProjectTrigger struct {
 
 func (x *ProjectTrigger) Reset() {
 	*x = ProjectTrigger{}
-	mi := &file_rpc_platform_service_proto_msgTypes[209]
+	mi := &file_rpc_platform_service_proto_msgTypes[212]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17529,7 +17749,7 @@ func (x *ProjectTrigger) String() string {
 func (*ProjectTrigger) ProtoMessage() {}
 
 func (x *ProjectTrigger) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[209]
+	mi := &file_rpc_platform_service_proto_msgTypes[212]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17542,7 +17762,7 @@ func (x *ProjectTrigger) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectTrigger.ProtoReflect.Descriptor instead.
 func (*ProjectTrigger) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{209}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{212}
 }
 
 func (x *ProjectTrigger) GetName() string {
@@ -17655,7 +17875,7 @@ type CreateProjectTriggerRequest struct {
 
 func (x *CreateProjectTriggerRequest) Reset() {
 	*x = CreateProjectTriggerRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[210]
+	mi := &file_rpc_platform_service_proto_msgTypes[213]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17667,7 +17887,7 @@ func (x *CreateProjectTriggerRequest) String() string {
 func (*CreateProjectTriggerRequest) ProtoMessage() {}
 
 func (x *CreateProjectTriggerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[210]
+	mi := &file_rpc_platform_service_proto_msgTypes[213]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17680,7 +17900,7 @@ func (x *CreateProjectTriggerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateProjectTriggerRequest.ProtoReflect.Descriptor instead.
 func (*CreateProjectTriggerRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{210}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{213}
 }
 
 func (x *CreateProjectTriggerRequest) GetNamespace() string {
@@ -17723,7 +17943,7 @@ type UpdateProjectTriggerRequest struct {
 
 func (x *UpdateProjectTriggerRequest) Reset() {
 	*x = UpdateProjectTriggerRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[211]
+	mi := &file_rpc_platform_service_proto_msgTypes[214]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17735,7 +17955,7 @@ func (x *UpdateProjectTriggerRequest) String() string {
 func (*UpdateProjectTriggerRequest) ProtoMessage() {}
 
 func (x *UpdateProjectTriggerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[211]
+	mi := &file_rpc_platform_service_proto_msgTypes[214]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17748,7 +17968,7 @@ func (x *UpdateProjectTriggerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateProjectTriggerRequest.ProtoReflect.Descriptor instead.
 func (*UpdateProjectTriggerRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{211}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{214}
 }
 
 func (x *UpdateProjectTriggerRequest) GetNamespace() string {
@@ -17790,7 +18010,7 @@ type DeleteProjectTriggerRequest struct {
 
 func (x *DeleteProjectTriggerRequest) Reset() {
 	*x = DeleteProjectTriggerRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[212]
+	mi := &file_rpc_platform_service_proto_msgTypes[215]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17802,7 +18022,7 @@ func (x *DeleteProjectTriggerRequest) String() string {
 func (*DeleteProjectTriggerRequest) ProtoMessage() {}
 
 func (x *DeleteProjectTriggerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[212]
+	mi := &file_rpc_platform_service_proto_msgTypes[215]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17815,7 +18035,7 @@ func (x *DeleteProjectTriggerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteProjectTriggerRequest.ProtoReflect.Descriptor instead.
 func (*DeleteProjectTriggerRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{212}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{215}
 }
 
 func (x *DeleteProjectTriggerRequest) GetNamespace() string {
@@ -17851,7 +18071,7 @@ type SetProjectTriggerEnabledRequest struct {
 
 func (x *SetProjectTriggerEnabledRequest) Reset() {
 	*x = SetProjectTriggerEnabledRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[213]
+	mi := &file_rpc_platform_service_proto_msgTypes[216]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17863,7 +18083,7 @@ func (x *SetProjectTriggerEnabledRequest) String() string {
 func (*SetProjectTriggerEnabledRequest) ProtoMessage() {}
 
 func (x *SetProjectTriggerEnabledRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[213]
+	mi := &file_rpc_platform_service_proto_msgTypes[216]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17876,7 +18096,7 @@ func (x *SetProjectTriggerEnabledRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetProjectTriggerEnabledRequest.ProtoReflect.Descriptor instead.
 func (*SetProjectTriggerEnabledRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{213}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{216}
 }
 
 func (x *SetProjectTriggerEnabledRequest) GetNamespace() string {
@@ -17917,7 +18137,7 @@ type DeleteProjectRequest struct {
 
 func (x *DeleteProjectRequest) Reset() {
 	*x = DeleteProjectRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[214]
+	mi := &file_rpc_platform_service_proto_msgTypes[217]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17929,7 +18149,7 @@ func (x *DeleteProjectRequest) String() string {
 func (*DeleteProjectRequest) ProtoMessage() {}
 
 func (x *DeleteProjectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[214]
+	mi := &file_rpc_platform_service_proto_msgTypes[217]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17942,7 +18162,7 @@ func (x *DeleteProjectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteProjectRequest.ProtoReflect.Descriptor instead.
 func (*DeleteProjectRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{214}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{217}
 }
 
 func (x *DeleteProjectRequest) GetNamespace() string {
@@ -17979,7 +18199,7 @@ type GitHubConnection struct {
 
 func (x *GitHubConnection) Reset() {
 	*x = GitHubConnection{}
-	mi := &file_rpc_platform_service_proto_msgTypes[215]
+	mi := &file_rpc_platform_service_proto_msgTypes[218]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17991,7 +18211,7 @@ func (x *GitHubConnection) String() string {
 func (*GitHubConnection) ProtoMessage() {}
 
 func (x *GitHubConnection) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[215]
+	mi := &file_rpc_platform_service_proto_msgTypes[218]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18004,7 +18224,7 @@ func (x *GitHubConnection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitHubConnection.ProtoReflect.Descriptor instead.
 func (*GitHubConnection) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{215}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{218}
 }
 
 func (x *GitHubConnection) GetTokenSecret() string {
@@ -18072,7 +18292,7 @@ type SlackConnection struct {
 
 func (x *SlackConnection) Reset() {
 	*x = SlackConnection{}
-	mi := &file_rpc_platform_service_proto_msgTypes[216]
+	mi := &file_rpc_platform_service_proto_msgTypes[219]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18084,7 +18304,7 @@ func (x *SlackConnection) String() string {
 func (*SlackConnection) ProtoMessage() {}
 
 func (x *SlackConnection) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[216]
+	mi := &file_rpc_platform_service_proto_msgTypes[219]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18097,7 +18317,7 @@ func (x *SlackConnection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SlackConnection.ProtoReflect.Descriptor instead.
 func (*SlackConnection) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{216}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{219}
 }
 
 func (x *SlackConnection) GetTokensSecret() string {
@@ -18163,7 +18383,7 @@ type LinearConnection struct {
 
 func (x *LinearConnection) Reset() {
 	*x = LinearConnection{}
-	mi := &file_rpc_platform_service_proto_msgTypes[217]
+	mi := &file_rpc_platform_service_proto_msgTypes[220]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18175,7 +18395,7 @@ func (x *LinearConnection) String() string {
 func (*LinearConnection) ProtoMessage() {}
 
 func (x *LinearConnection) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[217]
+	mi := &file_rpc_platform_service_proto_msgTypes[220]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18188,7 +18408,7 @@ func (x *LinearConnection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LinearConnection.ProtoReflect.Descriptor instead.
 func (*LinearConnection) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{217}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{220}
 }
 
 func (x *LinearConnection) GetApiKeySecret() string {
@@ -18226,7 +18446,7 @@ type Connection struct {
 
 func (x *Connection) Reset() {
 	*x = Connection{}
-	mi := &file_rpc_platform_service_proto_msgTypes[218]
+	mi := &file_rpc_platform_service_proto_msgTypes[221]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18238,7 +18458,7 @@ func (x *Connection) String() string {
 func (*Connection) ProtoMessage() {}
 
 func (x *Connection) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[218]
+	mi := &file_rpc_platform_service_proto_msgTypes[221]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18251,7 +18471,7 @@ func (x *Connection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Connection.ProtoReflect.Descriptor instead.
 func (*Connection) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{218}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{221}
 }
 
 func (x *Connection) GetNamespace() string {
@@ -18305,7 +18525,7 @@ type ListConnectionsRequest struct {
 
 func (x *ListConnectionsRequest) Reset() {
 	*x = ListConnectionsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[219]
+	mi := &file_rpc_platform_service_proto_msgTypes[222]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18317,7 +18537,7 @@ func (x *ListConnectionsRequest) String() string {
 func (*ListConnectionsRequest) ProtoMessage() {}
 
 func (x *ListConnectionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[219]
+	mi := &file_rpc_platform_service_proto_msgTypes[222]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18330,7 +18550,7 @@ func (x *ListConnectionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConnectionsRequest.ProtoReflect.Descriptor instead.
 func (*ListConnectionsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{219}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{222}
 }
 
 func (x *ListConnectionsRequest) GetNamespace() string {
@@ -18349,7 +18569,7 @@ type ListConnectionsResponse struct {
 
 func (x *ListConnectionsResponse) Reset() {
 	*x = ListConnectionsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[220]
+	mi := &file_rpc_platform_service_proto_msgTypes[223]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18361,7 +18581,7 @@ func (x *ListConnectionsResponse) String() string {
 func (*ListConnectionsResponse) ProtoMessage() {}
 
 func (x *ListConnectionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[220]
+	mi := &file_rpc_platform_service_proto_msgTypes[223]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18374,7 +18594,7 @@ func (x *ListConnectionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListConnectionsResponse.ProtoReflect.Descriptor instead.
 func (*ListConnectionsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{220}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{223}
 }
 
 func (x *ListConnectionsResponse) GetConnections() []*Connection {
@@ -18395,7 +18615,7 @@ type CreateConnectionRequest struct {
 
 func (x *CreateConnectionRequest) Reset() {
 	*x = CreateConnectionRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[221]
+	mi := &file_rpc_platform_service_proto_msgTypes[224]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18407,7 +18627,7 @@ func (x *CreateConnectionRequest) String() string {
 func (*CreateConnectionRequest) ProtoMessage() {}
 
 func (x *CreateConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[221]
+	mi := &file_rpc_platform_service_proto_msgTypes[224]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18420,7 +18640,7 @@ func (x *CreateConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateConnectionRequest.ProtoReflect.Descriptor instead.
 func (*CreateConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{221}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{224}
 }
 
 func (x *CreateConnectionRequest) GetNamespace() string {
@@ -18455,7 +18675,7 @@ type UpdateConnectionRequest struct {
 
 func (x *UpdateConnectionRequest) Reset() {
 	*x = UpdateConnectionRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[222]
+	mi := &file_rpc_platform_service_proto_msgTypes[225]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18467,7 +18687,7 @@ func (x *UpdateConnectionRequest) String() string {
 func (*UpdateConnectionRequest) ProtoMessage() {}
 
 func (x *UpdateConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[222]
+	mi := &file_rpc_platform_service_proto_msgTypes[225]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18480,7 +18700,7 @@ func (x *UpdateConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateConnectionRequest.ProtoReflect.Descriptor instead.
 func (*UpdateConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{222}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{225}
 }
 
 func (x *UpdateConnectionRequest) GetNamespace() string {
@@ -18514,7 +18734,7 @@ type DeleteConnectionRequest struct {
 
 func (x *DeleteConnectionRequest) Reset() {
 	*x = DeleteConnectionRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[223]
+	mi := &file_rpc_platform_service_proto_msgTypes[226]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18526,7 +18746,7 @@ func (x *DeleteConnectionRequest) String() string {
 func (*DeleteConnectionRequest) ProtoMessage() {}
 
 func (x *DeleteConnectionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[223]
+	mi := &file_rpc_platform_service_proto_msgTypes[226]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18539,7 +18759,7 @@ func (x *DeleteConnectionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteConnectionRequest.ProtoReflect.Descriptor instead.
 func (*DeleteConnectionRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{223}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{226}
 }
 
 func (x *DeleteConnectionRequest) GetNamespace() string {
@@ -18622,7 +18842,7 @@ type Project struct {
 
 func (x *Project) Reset() {
 	*x = Project{}
-	mi := &file_rpc_platform_service_proto_msgTypes[224]
+	mi := &file_rpc_platform_service_proto_msgTypes[227]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18634,7 +18854,7 @@ func (x *Project) String() string {
 func (*Project) ProtoMessage() {}
 
 func (x *Project) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[224]
+	mi := &file_rpc_platform_service_proto_msgTypes[227]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18647,7 +18867,7 @@ func (x *Project) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Project.ProtoReflect.Descriptor instead.
 func (*Project) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{224}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{227}
 }
 
 func (x *Project) GetNamespace() string {
@@ -18927,7 +19147,7 @@ type ProjectMetrics struct {
 
 func (x *ProjectMetrics) Reset() {
 	*x = ProjectMetrics{}
-	mi := &file_rpc_platform_service_proto_msgTypes[225]
+	mi := &file_rpc_platform_service_proto_msgTypes[228]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18939,7 +19159,7 @@ func (x *ProjectMetrics) String() string {
 func (*ProjectMetrics) ProtoMessage() {}
 
 func (x *ProjectMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[225]
+	mi := &file_rpc_platform_service_proto_msgTypes[228]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18952,7 +19172,7 @@ func (x *ProjectMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectMetrics.ProtoReflect.Descriptor instead.
 func (*ProjectMetrics) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{225}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{228}
 }
 
 func (x *ProjectMetrics) GetTotalRuns() int32 {
@@ -19034,7 +19254,7 @@ type ListGitHubRepositoriesRequest struct {
 
 func (x *ListGitHubRepositoriesRequest) Reset() {
 	*x = ListGitHubRepositoriesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[226]
+	mi := &file_rpc_platform_service_proto_msgTypes[229]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19046,7 +19266,7 @@ func (x *ListGitHubRepositoriesRequest) String() string {
 func (*ListGitHubRepositoriesRequest) ProtoMessage() {}
 
 func (x *ListGitHubRepositoriesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[226]
+	mi := &file_rpc_platform_service_proto_msgTypes[229]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19059,7 +19279,7 @@ func (x *ListGitHubRepositoriesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGitHubRepositoriesRequest.ProtoReflect.Descriptor instead.
 func (*ListGitHubRepositoriesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{226}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{229}
 }
 
 func (x *ListGitHubRepositoriesRequest) GetNamespace() string {
@@ -19078,7 +19298,7 @@ type ListGitHubRepositoriesResponse struct {
 
 func (x *ListGitHubRepositoriesResponse) Reset() {
 	*x = ListGitHubRepositoriesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[227]
+	mi := &file_rpc_platform_service_proto_msgTypes[230]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19090,7 +19310,7 @@ func (x *ListGitHubRepositoriesResponse) String() string {
 func (*ListGitHubRepositoriesResponse) ProtoMessage() {}
 
 func (x *ListGitHubRepositoriesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[227]
+	mi := &file_rpc_platform_service_proto_msgTypes[230]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19103,7 +19323,7 @@ func (x *ListGitHubRepositoriesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGitHubRepositoriesResponse.ProtoReflect.Descriptor instead.
 func (*ListGitHubRepositoriesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{227}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{230}
 }
 
 func (x *ListGitHubRepositoriesResponse) GetRepositories() []*GitHubRepository {
@@ -19123,7 +19343,7 @@ type GetGitHubRepositoryRequest struct {
 
 func (x *GetGitHubRepositoryRequest) Reset() {
 	*x = GetGitHubRepositoryRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[228]
+	mi := &file_rpc_platform_service_proto_msgTypes[231]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19135,7 +19355,7 @@ func (x *GetGitHubRepositoryRequest) String() string {
 func (*GetGitHubRepositoryRequest) ProtoMessage() {}
 
 func (x *GetGitHubRepositoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[228]
+	mi := &file_rpc_platform_service_proto_msgTypes[231]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19148,7 +19368,7 @@ func (x *GetGitHubRepositoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGitHubRepositoryRequest.ProtoReflect.Descriptor instead.
 func (*GetGitHubRepositoryRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{228}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{231}
 }
 
 func (x *GetGitHubRepositoryRequest) GetNamespace() string {
@@ -19174,7 +19394,7 @@ type WatchGitHubRepositoriesRequest struct {
 
 func (x *WatchGitHubRepositoriesRequest) Reset() {
 	*x = WatchGitHubRepositoriesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[229]
+	mi := &file_rpc_platform_service_proto_msgTypes[232]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19186,7 +19406,7 @@ func (x *WatchGitHubRepositoriesRequest) String() string {
 func (*WatchGitHubRepositoriesRequest) ProtoMessage() {}
 
 func (x *WatchGitHubRepositoriesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[229]
+	mi := &file_rpc_platform_service_proto_msgTypes[232]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19199,7 +19419,7 @@ func (x *WatchGitHubRepositoriesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchGitHubRepositoriesRequest.ProtoReflect.Descriptor instead.
 func (*WatchGitHubRepositoriesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{229}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{232}
 }
 
 func (x *WatchGitHubRepositoriesRequest) GetNamespace() string {
@@ -19219,7 +19439,7 @@ type GitHubRepositoryEvent struct {
 
 func (x *GitHubRepositoryEvent) Reset() {
 	*x = GitHubRepositoryEvent{}
-	mi := &file_rpc_platform_service_proto_msgTypes[230]
+	mi := &file_rpc_platform_service_proto_msgTypes[233]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19231,7 +19451,7 @@ func (x *GitHubRepositoryEvent) String() string {
 func (*GitHubRepositoryEvent) ProtoMessage() {}
 
 func (x *GitHubRepositoryEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[230]
+	mi := &file_rpc_platform_service_proto_msgTypes[233]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19244,7 +19464,7 @@ func (x *GitHubRepositoryEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitHubRepositoryEvent.ProtoReflect.Descriptor instead.
 func (*GitHubRepositoryEvent) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{230}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{233}
 }
 
 func (x *GitHubRepositoryEvent) GetType() string {
@@ -19302,7 +19522,7 @@ type GitHubRepositoryTriggerSettings struct {
 
 func (x *GitHubRepositoryTriggerSettings) Reset() {
 	*x = GitHubRepositoryTriggerSettings{}
-	mi := &file_rpc_platform_service_proto_msgTypes[231]
+	mi := &file_rpc_platform_service_proto_msgTypes[234]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19314,7 +19534,7 @@ func (x *GitHubRepositoryTriggerSettings) String() string {
 func (*GitHubRepositoryTriggerSettings) ProtoMessage() {}
 
 func (x *GitHubRepositoryTriggerSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[231]
+	mi := &file_rpc_platform_service_proto_msgTypes[234]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19327,7 +19547,7 @@ func (x *GitHubRepositoryTriggerSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitHubRepositoryTriggerSettings.ProtoReflect.Descriptor instead.
 func (*GitHubRepositoryTriggerSettings) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{231}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{234}
 }
 
 func (x *GitHubRepositoryTriggerSettings) GetPollInterval() string {
@@ -19499,7 +19719,7 @@ type GitHubRepositoryMaintainerStatus struct {
 
 func (x *GitHubRepositoryMaintainerStatus) Reset() {
 	*x = GitHubRepositoryMaintainerStatus{}
-	mi := &file_rpc_platform_service_proto_msgTypes[232]
+	mi := &file_rpc_platform_service_proto_msgTypes[235]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19511,7 +19731,7 @@ func (x *GitHubRepositoryMaintainerStatus) String() string {
 func (*GitHubRepositoryMaintainerStatus) ProtoMessage() {}
 
 func (x *GitHubRepositoryMaintainerStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[232]
+	mi := &file_rpc_platform_service_proto_msgTypes[235]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19524,7 +19744,7 @@ func (x *GitHubRepositoryMaintainerStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitHubRepositoryMaintainerStatus.ProtoReflect.Descriptor instead.
 func (*GitHubRepositoryMaintainerStatus) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{232}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{235}
 }
 
 func (x *GitHubRepositoryMaintainerStatus) GetRunName() string {
@@ -19582,7 +19802,7 @@ type ListMaintainerWorkItemsRequest struct {
 
 func (x *ListMaintainerWorkItemsRequest) Reset() {
 	*x = ListMaintainerWorkItemsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[233]
+	mi := &file_rpc_platform_service_proto_msgTypes[236]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19594,7 +19814,7 @@ func (x *ListMaintainerWorkItemsRequest) String() string {
 func (*ListMaintainerWorkItemsRequest) ProtoMessage() {}
 
 func (x *ListMaintainerWorkItemsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[233]
+	mi := &file_rpc_platform_service_proto_msgTypes[236]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19607,7 +19827,7 @@ func (x *ListMaintainerWorkItemsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMaintainerWorkItemsRequest.ProtoReflect.Descriptor instead.
 func (*ListMaintainerWorkItemsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{233}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{236}
 }
 
 func (x *ListMaintainerWorkItemsRequest) GetNamespace() string {
@@ -19634,7 +19854,7 @@ type ListMaintainerWorkItemsResponse struct {
 
 func (x *ListMaintainerWorkItemsResponse) Reset() {
 	*x = ListMaintainerWorkItemsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[234]
+	mi := &file_rpc_platform_service_proto_msgTypes[237]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19646,7 +19866,7 @@ func (x *ListMaintainerWorkItemsResponse) String() string {
 func (*ListMaintainerWorkItemsResponse) ProtoMessage() {}
 
 func (x *ListMaintainerWorkItemsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[234]
+	mi := &file_rpc_platform_service_proto_msgTypes[237]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19659,7 +19879,7 @@ func (x *ListMaintainerWorkItemsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMaintainerWorkItemsResponse.ProtoReflect.Descriptor instead.
 func (*ListMaintainerWorkItemsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{234}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{237}
 }
 
 func (x *ListMaintainerWorkItemsResponse) GetItems() []*MaintainerWorkItem {
@@ -19689,7 +19909,7 @@ type MaintainerWorkItemAgentRun struct {
 
 func (x *MaintainerWorkItemAgentRun) Reset() {
 	*x = MaintainerWorkItemAgentRun{}
-	mi := &file_rpc_platform_service_proto_msgTypes[235]
+	mi := &file_rpc_platform_service_proto_msgTypes[238]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19701,7 +19921,7 @@ func (x *MaintainerWorkItemAgentRun) String() string {
 func (*MaintainerWorkItemAgentRun) ProtoMessage() {}
 
 func (x *MaintainerWorkItemAgentRun) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[235]
+	mi := &file_rpc_platform_service_proto_msgTypes[238]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19714,7 +19934,7 @@ func (x *MaintainerWorkItemAgentRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerWorkItemAgentRun.ProtoReflect.Descriptor instead.
 func (*MaintainerWorkItemAgentRun) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{235}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{238}
 }
 
 func (x *MaintainerWorkItemAgentRun) GetName() string {
@@ -19762,7 +19982,7 @@ type MaintainerWorkItemPullRequest struct {
 
 func (x *MaintainerWorkItemPullRequest) Reset() {
 	*x = MaintainerWorkItemPullRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[236]
+	mi := &file_rpc_platform_service_proto_msgTypes[239]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19774,7 +19994,7 @@ func (x *MaintainerWorkItemPullRequest) String() string {
 func (*MaintainerWorkItemPullRequest) ProtoMessage() {}
 
 func (x *MaintainerWorkItemPullRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[236]
+	mi := &file_rpc_platform_service_proto_msgTypes[239]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19787,7 +20007,7 @@ func (x *MaintainerWorkItemPullRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerWorkItemPullRequest.ProtoReflect.Descriptor instead.
 func (*MaintainerWorkItemPullRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{236}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{239}
 }
 
 func (x *MaintainerWorkItemPullRequest) GetRepository() string {
@@ -19859,7 +20079,7 @@ type MaintainerWorkItemDecision struct {
 
 func (x *MaintainerWorkItemDecision) Reset() {
 	*x = MaintainerWorkItemDecision{}
-	mi := &file_rpc_platform_service_proto_msgTypes[237]
+	mi := &file_rpc_platform_service_proto_msgTypes[240]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19871,7 +20091,7 @@ func (x *MaintainerWorkItemDecision) String() string {
 func (*MaintainerWorkItemDecision) ProtoMessage() {}
 
 func (x *MaintainerWorkItemDecision) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[237]
+	mi := &file_rpc_platform_service_proto_msgTypes[240]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19884,7 +20104,7 @@ func (x *MaintainerWorkItemDecision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerWorkItemDecision.ProtoReflect.Descriptor instead.
 func (*MaintainerWorkItemDecision) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{237}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{240}
 }
 
 func (x *MaintainerWorkItemDecision) GetId() string {
@@ -19961,7 +20181,7 @@ type MaintainerWorkItem struct {
 
 func (x *MaintainerWorkItem) Reset() {
 	*x = MaintainerWorkItem{}
-	mi := &file_rpc_platform_service_proto_msgTypes[238]
+	mi := &file_rpc_platform_service_proto_msgTypes[241]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19973,7 +20193,7 @@ func (x *MaintainerWorkItem) String() string {
 func (*MaintainerWorkItem) ProtoMessage() {}
 
 func (x *MaintainerWorkItem) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[238]
+	mi := &file_rpc_platform_service_proto_msgTypes[241]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19986,7 +20206,7 @@ func (x *MaintainerWorkItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerWorkItem.ProtoReflect.Descriptor instead.
 func (*MaintainerWorkItem) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{238}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{241}
 }
 
 func (x *MaintainerWorkItem) GetNamespace() string {
@@ -20247,7 +20467,7 @@ type MaintainerWorkItemLink struct {
 
 func (x *MaintainerWorkItemLink) Reset() {
 	*x = MaintainerWorkItemLink{}
-	mi := &file_rpc_platform_service_proto_msgTypes[239]
+	mi := &file_rpc_platform_service_proto_msgTypes[242]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20259,7 +20479,7 @@ func (x *MaintainerWorkItemLink) String() string {
 func (*MaintainerWorkItemLink) ProtoMessage() {}
 
 func (x *MaintainerWorkItemLink) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[239]
+	mi := &file_rpc_platform_service_proto_msgTypes[242]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20272,7 +20492,7 @@ func (x *MaintainerWorkItemLink) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerWorkItemLink.ProtoReflect.Descriptor instead.
 func (*MaintainerWorkItemLink) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{239}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{242}
 }
 
 func (x *MaintainerWorkItemLink) GetWorkItemName() string {
@@ -20316,7 +20536,7 @@ type MaintainerBoardCapacity struct {
 
 func (x *MaintainerBoardCapacity) Reset() {
 	*x = MaintainerBoardCapacity{}
-	mi := &file_rpc_platform_service_proto_msgTypes[240]
+	mi := &file_rpc_platform_service_proto_msgTypes[243]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20328,7 +20548,7 @@ func (x *MaintainerBoardCapacity) String() string {
 func (*MaintainerBoardCapacity) ProtoMessage() {}
 
 func (x *MaintainerBoardCapacity) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[240]
+	mi := &file_rpc_platform_service_proto_msgTypes[243]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20341,7 +20561,7 @@ func (x *MaintainerBoardCapacity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerBoardCapacity.ProtoReflect.Descriptor instead.
 func (*MaintainerBoardCapacity) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{240}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{243}
 }
 
 func (x *MaintainerBoardCapacity) GetDispatchesToday() int32 {
@@ -20382,7 +20602,7 @@ type MaintainerAcceptedScopeInput struct {
 
 func (x *MaintainerAcceptedScopeInput) Reset() {
 	*x = MaintainerAcceptedScopeInput{}
-	mi := &file_rpc_platform_service_proto_msgTypes[241]
+	mi := &file_rpc_platform_service_proto_msgTypes[244]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20394,7 +20614,7 @@ func (x *MaintainerAcceptedScopeInput) String() string {
 func (*MaintainerAcceptedScopeInput) ProtoMessage() {}
 
 func (x *MaintainerAcceptedScopeInput) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[241]
+	mi := &file_rpc_platform_service_proto_msgTypes[244]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20407,7 +20627,7 @@ func (x *MaintainerAcceptedScopeInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerAcceptedScopeInput.ProtoReflect.Descriptor instead.
 func (*MaintainerAcceptedScopeInput) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{241}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{244}
 }
 
 func (x *MaintainerAcceptedScopeInput) GetStatement() string {
@@ -20436,7 +20656,7 @@ type MaintainerTriageInput struct {
 
 func (x *MaintainerTriageInput) Reset() {
 	*x = MaintainerTriageInput{}
-	mi := &file_rpc_platform_service_proto_msgTypes[242]
+	mi := &file_rpc_platform_service_proto_msgTypes[245]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20448,7 +20668,7 @@ func (x *MaintainerTriageInput) String() string {
 func (*MaintainerTriageInput) ProtoMessage() {}
 
 func (x *MaintainerTriageInput) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[242]
+	mi := &file_rpc_platform_service_proto_msgTypes[245]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20461,7 +20681,7 @@ func (x *MaintainerTriageInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerTriageInput.ProtoReflect.Descriptor instead.
 func (*MaintainerTriageInput) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{242}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{245}
 }
 
 func (x *MaintainerTriageInput) GetDisposition() string {
@@ -20502,7 +20722,7 @@ type MaintainerBreakdownInput struct {
 
 func (x *MaintainerBreakdownInput) Reset() {
 	*x = MaintainerBreakdownInput{}
-	mi := &file_rpc_platform_service_proto_msgTypes[243]
+	mi := &file_rpc_platform_service_proto_msgTypes[246]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20514,7 +20734,7 @@ func (x *MaintainerBreakdownInput) String() string {
 func (*MaintainerBreakdownInput) ProtoMessage() {}
 
 func (x *MaintainerBreakdownInput) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[243]
+	mi := &file_rpc_platform_service_proto_msgTypes[246]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20527,7 +20747,7 @@ func (x *MaintainerBreakdownInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerBreakdownInput.ProtoReflect.Descriptor instead.
 func (*MaintainerBreakdownInput) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{243}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{246}
 }
 
 func (x *MaintainerBreakdownInput) GetChildWorkItemNames() []string {
@@ -20555,7 +20775,7 @@ type MaintainerRequestDecisionInput struct {
 
 func (x *MaintainerRequestDecisionInput) Reset() {
 	*x = MaintainerRequestDecisionInput{}
-	mi := &file_rpc_platform_service_proto_msgTypes[244]
+	mi := &file_rpc_platform_service_proto_msgTypes[247]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20567,7 +20787,7 @@ func (x *MaintainerRequestDecisionInput) String() string {
 func (*MaintainerRequestDecisionInput) ProtoMessage() {}
 
 func (x *MaintainerRequestDecisionInput) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[244]
+	mi := &file_rpc_platform_service_proto_msgTypes[247]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20580,7 +20800,7 @@ func (x *MaintainerRequestDecisionInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerRequestDecisionInput.ProtoReflect.Descriptor instead.
 func (*MaintainerRequestDecisionInput) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{244}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{247}
 }
 
 func (x *MaintainerRequestDecisionInput) GetDecisionId() string {
@@ -20614,7 +20834,7 @@ type MaintainerResolveDecisionInput struct {
 
 func (x *MaintainerResolveDecisionInput) Reset() {
 	*x = MaintainerResolveDecisionInput{}
-	mi := &file_rpc_platform_service_proto_msgTypes[245]
+	mi := &file_rpc_platform_service_proto_msgTypes[248]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20626,7 +20846,7 @@ func (x *MaintainerResolveDecisionInput) String() string {
 func (*MaintainerResolveDecisionInput) ProtoMessage() {}
 
 func (x *MaintainerResolveDecisionInput) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[245]
+	mi := &file_rpc_platform_service_proto_msgTypes[248]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20639,7 +20859,7 @@ func (x *MaintainerResolveDecisionInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerResolveDecisionInput.ProtoReflect.Descriptor instead.
 func (*MaintainerResolveDecisionInput) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{245}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{248}
 }
 
 func (x *MaintainerResolveDecisionInput) GetDecisionId() string {
@@ -20665,7 +20885,7 @@ type MaintainerDispatchInput struct {
 
 func (x *MaintainerDispatchInput) Reset() {
 	*x = MaintainerDispatchInput{}
-	mi := &file_rpc_platform_service_proto_msgTypes[246]
+	mi := &file_rpc_platform_service_proto_msgTypes[249]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20677,7 +20897,7 @@ func (x *MaintainerDispatchInput) String() string {
 func (*MaintainerDispatchInput) ProtoMessage() {}
 
 func (x *MaintainerDispatchInput) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[246]
+	mi := &file_rpc_platform_service_proto_msgTypes[249]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20690,7 +20910,7 @@ func (x *MaintainerDispatchInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerDispatchInput.ProtoReflect.Descriptor instead.
 func (*MaintainerDispatchInput) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{246}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{249}
 }
 
 func (x *MaintainerDispatchInput) GetMode() string {
@@ -20711,7 +20931,7 @@ type MaintainerRequestMergeInput struct {
 
 func (x *MaintainerRequestMergeInput) Reset() {
 	*x = MaintainerRequestMergeInput{}
-	mi := &file_rpc_platform_service_proto_msgTypes[247]
+	mi := &file_rpc_platform_service_proto_msgTypes[250]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20723,7 +20943,7 @@ func (x *MaintainerRequestMergeInput) String() string {
 func (*MaintainerRequestMergeInput) ProtoMessage() {}
 
 func (x *MaintainerRequestMergeInput) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[247]
+	mi := &file_rpc_platform_service_proto_msgTypes[250]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20736,7 +20956,7 @@ func (x *MaintainerRequestMergeInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerRequestMergeInput.ProtoReflect.Descriptor instead.
 func (*MaintainerRequestMergeInput) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{247}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{250}
 }
 
 func (x *MaintainerRequestMergeInput) GetPullRequestNumber() int32 {
@@ -20770,7 +20990,7 @@ type MaintainerFinalizeInput struct {
 
 func (x *MaintainerFinalizeInput) Reset() {
 	*x = MaintainerFinalizeInput{}
-	mi := &file_rpc_platform_service_proto_msgTypes[248]
+	mi := &file_rpc_platform_service_proto_msgTypes[251]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20782,7 +21002,7 @@ func (x *MaintainerFinalizeInput) String() string {
 func (*MaintainerFinalizeInput) ProtoMessage() {}
 
 func (x *MaintainerFinalizeInput) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[248]
+	mi := &file_rpc_platform_service_proto_msgTypes[251]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20795,7 +21015,7 @@ func (x *MaintainerFinalizeInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MaintainerFinalizeInput.ProtoReflect.Descriptor instead.
 func (*MaintainerFinalizeInput) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{248}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{251}
 }
 
 func (x *MaintainerFinalizeInput) GetDeliverySummary() string {
@@ -20833,7 +21053,7 @@ type IssueMaintainerCommandRequest struct {
 
 func (x *IssueMaintainerCommandRequest) Reset() {
 	*x = IssueMaintainerCommandRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[249]
+	mi := &file_rpc_platform_service_proto_msgTypes[252]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20845,7 +21065,7 @@ func (x *IssueMaintainerCommandRequest) String() string {
 func (*IssueMaintainerCommandRequest) ProtoMessage() {}
 
 func (x *IssueMaintainerCommandRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[249]
+	mi := &file_rpc_platform_service_proto_msgTypes[252]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20858,7 +21078,7 @@ func (x *IssueMaintainerCommandRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IssueMaintainerCommandRequest.ProtoReflect.Descriptor instead.
 func (*IssueMaintainerCommandRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{249}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{252}
 }
 
 func (x *IssueMaintainerCommandRequest) GetNamespace() string {
@@ -20964,7 +21184,7 @@ type IssueMaintainerCommandResponse struct {
 
 func (x *IssueMaintainerCommandResponse) Reset() {
 	*x = IssueMaintainerCommandResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[250]
+	mi := &file_rpc_platform_service_proto_msgTypes[253]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20976,7 +21196,7 @@ func (x *IssueMaintainerCommandResponse) String() string {
 func (*IssueMaintainerCommandResponse) ProtoMessage() {}
 
 func (x *IssueMaintainerCommandResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[250]
+	mi := &file_rpc_platform_service_proto_msgTypes[253]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20989,7 +21209,7 @@ func (x *IssueMaintainerCommandResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IssueMaintainerCommandResponse.ProtoReflect.Descriptor instead.
 func (*IssueMaintainerCommandResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{250}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{253}
 }
 
 func (x *IssueMaintainerCommandResponse) GetCommandName() string {
@@ -21078,7 +21298,7 @@ type GitHubRepository struct {
 
 func (x *GitHubRepository) Reset() {
 	*x = GitHubRepository{}
-	mi := &file_rpc_platform_service_proto_msgTypes[251]
+	mi := &file_rpc_platform_service_proto_msgTypes[254]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21090,7 +21310,7 @@ func (x *GitHubRepository) String() string {
 func (*GitHubRepository) ProtoMessage() {}
 
 func (x *GitHubRepository) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[251]
+	mi := &file_rpc_platform_service_proto_msgTypes[254]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21103,7 +21323,7 @@ func (x *GitHubRepository) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitHubRepository.ProtoReflect.Descriptor instead.
 func (*GitHubRepository) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{251}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{254}
 }
 
 func (x *GitHubRepository) GetNamespace() string {
@@ -21376,7 +21596,7 @@ type GitHubAppConfig struct {
 
 func (x *GitHubAppConfig) Reset() {
 	*x = GitHubAppConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[252]
+	mi := &file_rpc_platform_service_proto_msgTypes[255]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21388,7 +21608,7 @@ func (x *GitHubAppConfig) String() string {
 func (*GitHubAppConfig) ProtoMessage() {}
 
 func (x *GitHubAppConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[252]
+	mi := &file_rpc_platform_service_proto_msgTypes[255]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21401,7 +21621,7 @@ func (x *GitHubAppConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitHubAppConfig.ProtoReflect.Descriptor instead.
 func (*GitHubAppConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{252}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{255}
 }
 
 func (x *GitHubAppConfig) GetConfigured() bool {
@@ -21436,7 +21656,7 @@ type GitHubAppInstallation struct {
 
 func (x *GitHubAppInstallation) Reset() {
 	*x = GitHubAppInstallation{}
-	mi := &file_rpc_platform_service_proto_msgTypes[253]
+	mi := &file_rpc_platform_service_proto_msgTypes[256]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21448,7 +21668,7 @@ func (x *GitHubAppInstallation) String() string {
 func (*GitHubAppInstallation) ProtoMessage() {}
 
 func (x *GitHubAppInstallation) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[253]
+	mi := &file_rpc_platform_service_proto_msgTypes[256]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21461,7 +21681,7 @@ func (x *GitHubAppInstallation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitHubAppInstallation.ProtoReflect.Descriptor instead.
 func (*GitHubAppInstallation) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{253}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{256}
 }
 
 func (x *GitHubAppInstallation) GetId() int64 {
@@ -21494,7 +21714,7 @@ type ListGitHubAppInstallationsResponse struct {
 
 func (x *ListGitHubAppInstallationsResponse) Reset() {
 	*x = ListGitHubAppInstallationsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[254]
+	mi := &file_rpc_platform_service_proto_msgTypes[257]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21506,7 +21726,7 @@ func (x *ListGitHubAppInstallationsResponse) String() string {
 func (*ListGitHubAppInstallationsResponse) ProtoMessage() {}
 
 func (x *ListGitHubAppInstallationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[254]
+	mi := &file_rpc_platform_service_proto_msgTypes[257]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21519,7 +21739,7 @@ func (x *ListGitHubAppInstallationsResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use ListGitHubAppInstallationsResponse.ProtoReflect.Descriptor instead.
 func (*ListGitHubAppInstallationsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{254}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{257}
 }
 
 func (x *ListGitHubAppInstallationsResponse) GetInstallations() []*GitHubAppInstallation {
@@ -21538,7 +21758,7 @@ type ListGitHubAppInstallationRepositoriesRequest struct {
 
 func (x *ListGitHubAppInstallationRepositoriesRequest) Reset() {
 	*x = ListGitHubAppInstallationRepositoriesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[255]
+	mi := &file_rpc_platform_service_proto_msgTypes[258]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21550,7 +21770,7 @@ func (x *ListGitHubAppInstallationRepositoriesRequest) String() string {
 func (*ListGitHubAppInstallationRepositoriesRequest) ProtoMessage() {}
 
 func (x *ListGitHubAppInstallationRepositoriesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[255]
+	mi := &file_rpc_platform_service_proto_msgTypes[258]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21563,7 +21783,7 @@ func (x *ListGitHubAppInstallationRepositoriesRequest) ProtoReflect() protorefle
 
 // Deprecated: Use ListGitHubAppInstallationRepositoriesRequest.ProtoReflect.Descriptor instead.
 func (*ListGitHubAppInstallationRepositoriesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{255}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{258}
 }
 
 func (x *ListGitHubAppInstallationRepositoriesRequest) GetInstallationId() int64 {
@@ -21587,7 +21807,7 @@ type GitHubAppInstallationRepository struct {
 
 func (x *GitHubAppInstallationRepository) Reset() {
 	*x = GitHubAppInstallationRepository{}
-	mi := &file_rpc_platform_service_proto_msgTypes[256]
+	mi := &file_rpc_platform_service_proto_msgTypes[259]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21599,7 +21819,7 @@ func (x *GitHubAppInstallationRepository) String() string {
 func (*GitHubAppInstallationRepository) ProtoMessage() {}
 
 func (x *GitHubAppInstallationRepository) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[256]
+	mi := &file_rpc_platform_service_proto_msgTypes[259]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21612,7 +21832,7 @@ func (x *GitHubAppInstallationRepository) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GitHubAppInstallationRepository.ProtoReflect.Descriptor instead.
 func (*GitHubAppInstallationRepository) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{256}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{259}
 }
 
 func (x *GitHubAppInstallationRepository) GetOwner() string {
@@ -21666,7 +21886,7 @@ type ListGitHubAppInstallationRepositoriesResponse struct {
 
 func (x *ListGitHubAppInstallationRepositoriesResponse) Reset() {
 	*x = ListGitHubAppInstallationRepositoriesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[257]
+	mi := &file_rpc_platform_service_proto_msgTypes[260]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21678,7 +21898,7 @@ func (x *ListGitHubAppInstallationRepositoriesResponse) String() string {
 func (*ListGitHubAppInstallationRepositoriesResponse) ProtoMessage() {}
 
 func (x *ListGitHubAppInstallationRepositoriesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[257]
+	mi := &file_rpc_platform_service_proto_msgTypes[260]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21691,7 +21911,7 @@ func (x *ListGitHubAppInstallationRepositoriesResponse) ProtoReflect() protorefl
 
 // Deprecated: Use ListGitHubAppInstallationRepositoriesResponse.ProtoReflect.Descriptor instead.
 func (*ListGitHubAppInstallationRepositoriesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{257}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{260}
 }
 
 func (x *ListGitHubAppInstallationRepositoriesResponse) GetRepositories() []*GitHubAppInstallationRepository {
@@ -21740,7 +21960,7 @@ type CreateGitHubRepositoryFromInstallationRequest struct {
 
 func (x *CreateGitHubRepositoryFromInstallationRequest) Reset() {
 	*x = CreateGitHubRepositoryFromInstallationRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[258]
+	mi := &file_rpc_platform_service_proto_msgTypes[261]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21752,7 +21972,7 @@ func (x *CreateGitHubRepositoryFromInstallationRequest) String() string {
 func (*CreateGitHubRepositoryFromInstallationRequest) ProtoMessage() {}
 
 func (x *CreateGitHubRepositoryFromInstallationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[258]
+	mi := &file_rpc_platform_service_proto_msgTypes[261]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21765,7 +21985,7 @@ func (x *CreateGitHubRepositoryFromInstallationRequest) ProtoReflect() protorefl
 
 // Deprecated: Use CreateGitHubRepositoryFromInstallationRequest.ProtoReflect.Descriptor instead.
 func (*CreateGitHubRepositoryFromInstallationRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{258}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{261}
 }
 
 func (x *CreateGitHubRepositoryFromInstallationRequest) GetInstallationId() int64 {
@@ -21945,7 +22165,7 @@ type CreateGitHubRepositoryFromTokenRequest struct {
 
 func (x *CreateGitHubRepositoryFromTokenRequest) Reset() {
 	*x = CreateGitHubRepositoryFromTokenRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[259]
+	mi := &file_rpc_platform_service_proto_msgTypes[262]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -21957,7 +22177,7 @@ func (x *CreateGitHubRepositoryFromTokenRequest) String() string {
 func (*CreateGitHubRepositoryFromTokenRequest) ProtoMessage() {}
 
 func (x *CreateGitHubRepositoryFromTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[259]
+	mi := &file_rpc_platform_service_proto_msgTypes[262]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -21970,7 +22190,7 @@ func (x *CreateGitHubRepositoryFromTokenRequest) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use CreateGitHubRepositoryFromTokenRequest.ProtoReflect.Descriptor instead.
 func (*CreateGitHubRepositoryFromTokenRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{259}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{262}
 }
 
 func (x *CreateGitHubRepositoryFromTokenRequest) GetOwner() string {
@@ -22155,7 +22375,7 @@ type AgentRunDefaults struct {
 
 func (x *AgentRunDefaults) Reset() {
 	*x = AgentRunDefaults{}
-	mi := &file_rpc_platform_service_proto_msgTypes[260]
+	mi := &file_rpc_platform_service_proto_msgTypes[263]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22167,7 +22387,7 @@ func (x *AgentRunDefaults) String() string {
 func (*AgentRunDefaults) ProtoMessage() {}
 
 func (x *AgentRunDefaults) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[260]
+	mi := &file_rpc_platform_service_proto_msgTypes[263]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22180,7 +22400,7 @@ func (x *AgentRunDefaults) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentRunDefaults.ProtoReflect.Descriptor instead.
 func (*AgentRunDefaults) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{260}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{263}
 }
 
 func (x *AgentRunDefaults) GetRepoUrl() string {
@@ -22379,7 +22599,7 @@ type TriggerPolicies struct {
 
 func (x *TriggerPolicies) Reset() {
 	*x = TriggerPolicies{}
-	mi := &file_rpc_platform_service_proto_msgTypes[261]
+	mi := &file_rpc_platform_service_proto_msgTypes[264]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22391,7 +22611,7 @@ func (x *TriggerPolicies) String() string {
 func (*TriggerPolicies) ProtoMessage() {}
 
 func (x *TriggerPolicies) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[261]
+	mi := &file_rpc_platform_service_proto_msgTypes[264]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22404,7 +22624,7 @@ func (x *TriggerPolicies) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerPolicies.ProtoReflect.Descriptor instead.
 func (*TriggerPolicies) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{261}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{264}
 }
 
 func (x *TriggerPolicies) GetConfigureRuntimeProfile() bool {
@@ -22479,7 +22699,7 @@ type UpdateGitHubRepositoryRequest struct {
 
 func (x *UpdateGitHubRepositoryRequest) Reset() {
 	*x = UpdateGitHubRepositoryRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[262]
+	mi := &file_rpc_platform_service_proto_msgTypes[265]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22491,7 +22711,7 @@ func (x *UpdateGitHubRepositoryRequest) String() string {
 func (*UpdateGitHubRepositoryRequest) ProtoMessage() {}
 
 func (x *UpdateGitHubRepositoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[262]
+	mi := &file_rpc_platform_service_proto_msgTypes[265]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22504,7 +22724,7 @@ func (x *UpdateGitHubRepositoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateGitHubRepositoryRequest.ProtoReflect.Descriptor instead.
 func (*UpdateGitHubRepositoryRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{262}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{265}
 }
 
 func (x *UpdateGitHubRepositoryRequest) GetNamespace() string {
@@ -22599,7 +22819,7 @@ type CreateLinearProjectRequest struct {
 
 func (x *CreateLinearProjectRequest) Reset() {
 	*x = CreateLinearProjectRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[263]
+	mi := &file_rpc_platform_service_proto_msgTypes[266]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22611,7 +22831,7 @@ func (x *CreateLinearProjectRequest) String() string {
 func (*CreateLinearProjectRequest) ProtoMessage() {}
 
 func (x *CreateLinearProjectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[263]
+	mi := &file_rpc_platform_service_proto_msgTypes[266]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22624,7 +22844,7 @@ func (x *CreateLinearProjectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateLinearProjectRequest.ProtoReflect.Descriptor instead.
 func (*CreateLinearProjectRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{263}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{266}
 }
 
 func (x *CreateLinearProjectRequest) GetName() string {
@@ -22713,7 +22933,7 @@ type UpdateLinearProjectRequest struct {
 
 func (x *UpdateLinearProjectRequest) Reset() {
 	*x = UpdateLinearProjectRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[264]
+	mi := &file_rpc_platform_service_proto_msgTypes[267]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22725,7 +22945,7 @@ func (x *UpdateLinearProjectRequest) String() string {
 func (*UpdateLinearProjectRequest) ProtoMessage() {}
 
 func (x *UpdateLinearProjectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[264]
+	mi := &file_rpc_platform_service_proto_msgTypes[267]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22738,7 +22958,7 @@ func (x *UpdateLinearProjectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateLinearProjectRequest.ProtoReflect.Descriptor instead.
 func (*UpdateLinearProjectRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{264}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{267}
 }
 
 func (x *UpdateLinearProjectRequest) GetNamespace() string {
@@ -22785,7 +23005,7 @@ type ListCronsRequest struct {
 
 func (x *ListCronsRequest) Reset() {
 	*x = ListCronsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[265]
+	mi := &file_rpc_platform_service_proto_msgTypes[268]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22797,7 +23017,7 @@ func (x *ListCronsRequest) String() string {
 func (*ListCronsRequest) ProtoMessage() {}
 
 func (x *ListCronsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[265]
+	mi := &file_rpc_platform_service_proto_msgTypes[268]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22810,7 +23030,7 @@ func (x *ListCronsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCronsRequest.ProtoReflect.Descriptor instead.
 func (*ListCronsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{265}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{268}
 }
 
 func (x *ListCronsRequest) GetNamespace() string {
@@ -22829,7 +23049,7 @@ type ListCronsResponse struct {
 
 func (x *ListCronsResponse) Reset() {
 	*x = ListCronsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[266]
+	mi := &file_rpc_platform_service_proto_msgTypes[269]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22841,7 +23061,7 @@ func (x *ListCronsResponse) String() string {
 func (*ListCronsResponse) ProtoMessage() {}
 
 func (x *ListCronsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[266]
+	mi := &file_rpc_platform_service_proto_msgTypes[269]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22854,7 +23074,7 @@ func (x *ListCronsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCronsResponse.ProtoReflect.Descriptor instead.
 func (*ListCronsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{266}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{269}
 }
 
 func (x *ListCronsResponse) GetCrons() []*Cron {
@@ -22874,7 +23094,7 @@ type GetCronRequest struct {
 
 func (x *GetCronRequest) Reset() {
 	*x = GetCronRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[267]
+	mi := &file_rpc_platform_service_proto_msgTypes[270]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22886,7 +23106,7 @@ func (x *GetCronRequest) String() string {
 func (*GetCronRequest) ProtoMessage() {}
 
 func (x *GetCronRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[267]
+	mi := &file_rpc_platform_service_proto_msgTypes[270]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22899,7 +23119,7 @@ func (x *GetCronRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCronRequest.ProtoReflect.Descriptor instead.
 func (*GetCronRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{267}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{270}
 }
 
 func (x *GetCronRequest) GetNamespace() string {
@@ -22925,7 +23145,7 @@ type WatchCronsRequest struct {
 
 func (x *WatchCronsRequest) Reset() {
 	*x = WatchCronsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[268]
+	mi := &file_rpc_platform_service_proto_msgTypes[271]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22937,7 +23157,7 @@ func (x *WatchCronsRequest) String() string {
 func (*WatchCronsRequest) ProtoMessage() {}
 
 func (x *WatchCronsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[268]
+	mi := &file_rpc_platform_service_proto_msgTypes[271]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22950,7 +23170,7 @@ func (x *WatchCronsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchCronsRequest.ProtoReflect.Descriptor instead.
 func (*WatchCronsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{268}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{271}
 }
 
 func (x *WatchCronsRequest) GetNamespace() string {
@@ -22970,7 +23190,7 @@ type CronEvent struct {
 
 func (x *CronEvent) Reset() {
 	*x = CronEvent{}
-	mi := &file_rpc_platform_service_proto_msgTypes[269]
+	mi := &file_rpc_platform_service_proto_msgTypes[272]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -22982,7 +23202,7 @@ func (x *CronEvent) String() string {
 func (*CronEvent) ProtoMessage() {}
 
 func (x *CronEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[269]
+	mi := &file_rpc_platform_service_proto_msgTypes[272]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -22995,7 +23215,7 @@ func (x *CronEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CronEvent.ProtoReflect.Descriptor instead.
 func (*CronEvent) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{269}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{272}
 }
 
 func (x *CronEvent) GetType() string {
@@ -23036,7 +23256,7 @@ type CreateCronRequest struct {
 
 func (x *CreateCronRequest) Reset() {
 	*x = CreateCronRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[270]
+	mi := &file_rpc_platform_service_proto_msgTypes[273]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23048,7 +23268,7 @@ func (x *CreateCronRequest) String() string {
 func (*CreateCronRequest) ProtoMessage() {}
 
 func (x *CreateCronRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[270]
+	mi := &file_rpc_platform_service_proto_msgTypes[273]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23061,7 +23281,7 @@ func (x *CreateCronRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateCronRequest.ProtoReflect.Descriptor instead.
 func (*CreateCronRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{270}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{273}
 }
 
 func (x *CreateCronRequest) GetNamespace() string {
@@ -23156,7 +23376,7 @@ type UpdateCronRequest struct {
 
 func (x *UpdateCronRequest) Reset() {
 	*x = UpdateCronRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[271]
+	mi := &file_rpc_platform_service_proto_msgTypes[274]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23168,7 +23388,7 @@ func (x *UpdateCronRequest) String() string {
 func (*UpdateCronRequest) ProtoMessage() {}
 
 func (x *UpdateCronRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[271]
+	mi := &file_rpc_platform_service_proto_msgTypes[274]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23181,7 +23401,7 @@ func (x *UpdateCronRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateCronRequest.ProtoReflect.Descriptor instead.
 func (*UpdateCronRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{271}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{274}
 }
 
 func (x *UpdateCronRequest) GetNamespace() string {
@@ -23264,7 +23484,7 @@ type DeleteCronRequest struct {
 
 func (x *DeleteCronRequest) Reset() {
 	*x = DeleteCronRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[272]
+	mi := &file_rpc_platform_service_proto_msgTypes[275]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23276,7 +23496,7 @@ func (x *DeleteCronRequest) String() string {
 func (*DeleteCronRequest) ProtoMessage() {}
 
 func (x *DeleteCronRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[272]
+	mi := &file_rpc_platform_service_proto_msgTypes[275]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23289,7 +23509,7 @@ func (x *DeleteCronRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteCronRequest.ProtoReflect.Descriptor instead.
 func (*DeleteCronRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{272}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{275}
 }
 
 func (x *DeleteCronRequest) GetNamespace() string {
@@ -23357,7 +23577,7 @@ type Cron struct {
 
 func (x *Cron) Reset() {
 	*x = Cron{}
-	mi := &file_rpc_platform_service_proto_msgTypes[273]
+	mi := &file_rpc_platform_service_proto_msgTypes[276]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23369,7 +23589,7 @@ func (x *Cron) String() string {
 func (*Cron) ProtoMessage() {}
 
 func (x *Cron) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[273]
+	mi := &file_rpc_platform_service_proto_msgTypes[276]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23382,7 +23602,7 @@ func (x *Cron) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Cron.ProtoReflect.Descriptor instead.
 func (*Cron) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{273}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{276}
 }
 
 func (x *Cron) GetNamespace() string {
@@ -23640,7 +23860,7 @@ type GetAgentTraceRequest struct {
 
 func (x *GetAgentTraceRequest) Reset() {
 	*x = GetAgentTraceRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[274]
+	mi := &file_rpc_platform_service_proto_msgTypes[277]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23652,7 +23872,7 @@ func (x *GetAgentTraceRequest) String() string {
 func (*GetAgentTraceRequest) ProtoMessage() {}
 
 func (x *GetAgentTraceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[274]
+	mi := &file_rpc_platform_service_proto_msgTypes[277]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23665,7 +23885,7 @@ func (x *GetAgentTraceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentTraceRequest.ProtoReflect.Descriptor instead.
 func (*GetAgentTraceRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{274}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{277}
 }
 
 func (x *GetAgentTraceRequest) GetNamespace() string {
@@ -23695,7 +23915,7 @@ type GetAgentTraceResponse struct {
 
 func (x *GetAgentTraceResponse) Reset() {
 	*x = GetAgentTraceResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[275]
+	mi := &file_rpc_platform_service_proto_msgTypes[278]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23707,7 +23927,7 @@ func (x *GetAgentTraceResponse) String() string {
 func (*GetAgentTraceResponse) ProtoMessage() {}
 
 func (x *GetAgentTraceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[275]
+	mi := &file_rpc_platform_service_proto_msgTypes[278]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23720,7 +23940,7 @@ func (x *GetAgentTraceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentTraceResponse.ProtoReflect.Descriptor instead.
 func (*GetAgentTraceResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{275}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{278}
 }
 
 func (x *GetAgentTraceResponse) GetTraceId() string {
@@ -23768,7 +23988,7 @@ type GetAgentRunErrorsRequest struct {
 
 func (x *GetAgentRunErrorsRequest) Reset() {
 	*x = GetAgentRunErrorsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[276]
+	mi := &file_rpc_platform_service_proto_msgTypes[279]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23780,7 +24000,7 @@ func (x *GetAgentRunErrorsRequest) String() string {
 func (*GetAgentRunErrorsRequest) ProtoMessage() {}
 
 func (x *GetAgentRunErrorsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[276]
+	mi := &file_rpc_platform_service_proto_msgTypes[279]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23793,7 +24013,7 @@ func (x *GetAgentRunErrorsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentRunErrorsRequest.ProtoReflect.Descriptor instead.
 func (*GetAgentRunErrorsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{276}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{279}
 }
 
 func (x *GetAgentRunErrorsRequest) GetNamespace() string {
@@ -23822,7 +24042,7 @@ type AgentRunError struct {
 
 func (x *AgentRunError) Reset() {
 	*x = AgentRunError{}
-	mi := &file_rpc_platform_service_proto_msgTypes[277]
+	mi := &file_rpc_platform_service_proto_msgTypes[280]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23834,7 +24054,7 @@ func (x *AgentRunError) String() string {
 func (*AgentRunError) ProtoMessage() {}
 
 func (x *AgentRunError) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[277]
+	mi := &file_rpc_platform_service_proto_msgTypes[280]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23847,7 +24067,7 @@ func (x *AgentRunError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentRunError.ProtoReflect.Descriptor instead.
 func (*AgentRunError) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{277}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{280}
 }
 
 func (x *AgentRunError) GetTimestampUnix() int64 {
@@ -23889,7 +24109,7 @@ type GetAgentRunErrorsResponse struct {
 
 func (x *GetAgentRunErrorsResponse) Reset() {
 	*x = GetAgentRunErrorsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[278]
+	mi := &file_rpc_platform_service_proto_msgTypes[281]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23901,7 +24121,7 @@ func (x *GetAgentRunErrorsResponse) String() string {
 func (*GetAgentRunErrorsResponse) ProtoMessage() {}
 
 func (x *GetAgentRunErrorsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[278]
+	mi := &file_rpc_platform_service_proto_msgTypes[281]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23914,7 +24134,7 @@ func (x *GetAgentRunErrorsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentRunErrorsResponse.ProtoReflect.Descriptor instead.
 func (*GetAgentRunErrorsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{278}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{281}
 }
 
 func (x *GetAgentRunErrorsResponse) GetErrors() []*AgentRunError {
@@ -23950,7 +24170,7 @@ type GetAgentRunLogsRequest struct {
 
 func (x *GetAgentRunLogsRequest) Reset() {
 	*x = GetAgentRunLogsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[279]
+	mi := &file_rpc_platform_service_proto_msgTypes[282]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -23962,7 +24182,7 @@ func (x *GetAgentRunLogsRequest) String() string {
 func (*GetAgentRunLogsRequest) ProtoMessage() {}
 
 func (x *GetAgentRunLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[279]
+	mi := &file_rpc_platform_service_proto_msgTypes[282]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -23975,7 +24195,7 @@ func (x *GetAgentRunLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentRunLogsRequest.ProtoReflect.Descriptor instead.
 func (*GetAgentRunLogsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{279}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{282}
 }
 
 func (x *GetAgentRunLogsRequest) GetNamespace() string {
@@ -24012,7 +24232,7 @@ type GetAgentRunLogsResponse struct {
 
 func (x *GetAgentRunLogsResponse) Reset() {
 	*x = GetAgentRunLogsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[280]
+	mi := &file_rpc_platform_service_proto_msgTypes[283]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24024,7 +24244,7 @@ func (x *GetAgentRunLogsResponse) String() string {
 func (*GetAgentRunLogsResponse) ProtoMessage() {}
 
 func (x *GetAgentRunLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[280]
+	mi := &file_rpc_platform_service_proto_msgTypes[283]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24037,7 +24257,7 @@ func (x *GetAgentRunLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentRunLogsResponse.ProtoReflect.Descriptor instead.
 func (*GetAgentRunLogsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{280}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{283}
 }
 
 func (x *GetAgentRunLogsResponse) GetContent() string {
@@ -24092,7 +24312,7 @@ type TraceSpan struct {
 
 func (x *TraceSpan) Reset() {
 	*x = TraceSpan{}
-	mi := &file_rpc_platform_service_proto_msgTypes[281]
+	mi := &file_rpc_platform_service_proto_msgTypes[284]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24104,7 +24324,7 @@ func (x *TraceSpan) String() string {
 func (*TraceSpan) ProtoMessage() {}
 
 func (x *TraceSpan) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[281]
+	mi := &file_rpc_platform_service_proto_msgTypes[284]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24117,7 +24337,7 @@ func (x *TraceSpan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TraceSpan.ProtoReflect.Descriptor instead.
 func (*TraceSpan) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{281}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{284}
 }
 
 func (x *TraceSpan) GetSpanId() string {
@@ -24193,7 +24413,7 @@ type TraceSpanTag struct {
 
 func (x *TraceSpanTag) Reset() {
 	*x = TraceSpanTag{}
-	mi := &file_rpc_platform_service_proto_msgTypes[282]
+	mi := &file_rpc_platform_service_proto_msgTypes[285]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24205,7 +24425,7 @@ func (x *TraceSpanTag) String() string {
 func (*TraceSpanTag) ProtoMessage() {}
 
 func (x *TraceSpanTag) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[282]
+	mi := &file_rpc_platform_service_proto_msgTypes[285]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24218,7 +24438,7 @@ func (x *TraceSpanTag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TraceSpanTag.ProtoReflect.Descriptor instead.
 func (*TraceSpanTag) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{282}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{285}
 }
 
 func (x *TraceSpanTag) GetKey() string {
@@ -24245,7 +24465,7 @@ type ExportAgentRunArchiveRequest struct {
 
 func (x *ExportAgentRunArchiveRequest) Reset() {
 	*x = ExportAgentRunArchiveRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[283]
+	mi := &file_rpc_platform_service_proto_msgTypes[286]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24257,7 +24477,7 @@ func (x *ExportAgentRunArchiveRequest) String() string {
 func (*ExportAgentRunArchiveRequest) ProtoMessage() {}
 
 func (x *ExportAgentRunArchiveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[283]
+	mi := &file_rpc_platform_service_proto_msgTypes[286]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24270,7 +24490,7 @@ func (x *ExportAgentRunArchiveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportAgentRunArchiveRequest.ProtoReflect.Descriptor instead.
 func (*ExportAgentRunArchiveRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{283}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{286}
 }
 
 func (x *ExportAgentRunArchiveRequest) GetNamespace() string {
@@ -24300,7 +24520,7 @@ type ExportAgentRunArchiveResponse struct {
 
 func (x *ExportAgentRunArchiveResponse) Reset() {
 	*x = ExportAgentRunArchiveResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[284]
+	mi := &file_rpc_platform_service_proto_msgTypes[287]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24312,7 +24532,7 @@ func (x *ExportAgentRunArchiveResponse) String() string {
 func (*ExportAgentRunArchiveResponse) ProtoMessage() {}
 
 func (x *ExportAgentRunArchiveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[284]
+	mi := &file_rpc_platform_service_proto_msgTypes[287]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24325,7 +24545,7 @@ func (x *ExportAgentRunArchiveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportAgentRunArchiveResponse.ProtoReflect.Descriptor instead.
 func (*ExportAgentRunArchiveResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{284}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{287}
 }
 
 func (x *ExportAgentRunArchiveResponse) GetArchive() []byte {
@@ -24355,7 +24575,7 @@ type ResourceOwner struct {
 
 func (x *ResourceOwner) Reset() {
 	*x = ResourceOwner{}
-	mi := &file_rpc_platform_service_proto_msgTypes[285]
+	mi := &file_rpc_platform_service_proto_msgTypes[288]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24367,7 +24587,7 @@ func (x *ResourceOwner) String() string {
 func (*ResourceOwner) ProtoMessage() {}
 
 func (x *ResourceOwner) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[285]
+	mi := &file_rpc_platform_service_proto_msgTypes[288]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24380,7 +24600,7 @@ func (x *ResourceOwner) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceOwner.ProtoReflect.Descriptor instead.
 func (*ResourceOwner) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{285}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{288}
 }
 
 func (x *ResourceOwner) GetUserId() string {
@@ -24424,7 +24644,7 @@ type ShareResourceRequest struct {
 
 func (x *ShareResourceRequest) Reset() {
 	*x = ShareResourceRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[286]
+	mi := &file_rpc_platform_service_proto_msgTypes[289]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24436,7 +24656,7 @@ func (x *ShareResourceRequest) String() string {
 func (*ShareResourceRequest) ProtoMessage() {}
 
 func (x *ShareResourceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[286]
+	mi := &file_rpc_platform_service_proto_msgTypes[289]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24449,7 +24669,7 @@ func (x *ShareResourceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShareResourceRequest.ProtoReflect.Descriptor instead.
 func (*ShareResourceRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{286}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{289}
 }
 
 func (x *ShareResourceRequest) GetResourceType() string {
@@ -24496,7 +24716,7 @@ type ShareResourceResponse struct {
 
 func (x *ShareResourceResponse) Reset() {
 	*x = ShareResourceResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[287]
+	mi := &file_rpc_platform_service_proto_msgTypes[290]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24508,7 +24728,7 @@ func (x *ShareResourceResponse) String() string {
 func (*ShareResourceResponse) ProtoMessage() {}
 
 func (x *ShareResourceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[287]
+	mi := &file_rpc_platform_service_proto_msgTypes[290]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24521,7 +24741,7 @@ func (x *ShareResourceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShareResourceResponse.ProtoReflect.Descriptor instead.
 func (*ShareResourceResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{287}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{290}
 }
 
 func (x *ShareResourceResponse) GetShare() *ResourceShareInfo {
@@ -24540,7 +24760,7 @@ type RevokeShareRequest struct {
 
 func (x *RevokeShareRequest) Reset() {
 	*x = RevokeShareRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[288]
+	mi := &file_rpc_platform_service_proto_msgTypes[291]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24552,7 +24772,7 @@ func (x *RevokeShareRequest) String() string {
 func (*RevokeShareRequest) ProtoMessage() {}
 
 func (x *RevokeShareRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[288]
+	mi := &file_rpc_platform_service_proto_msgTypes[291]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24565,7 +24785,7 @@ func (x *RevokeShareRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeShareRequest.ProtoReflect.Descriptor instead.
 func (*RevokeShareRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{288}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{291}
 }
 
 func (x *RevokeShareRequest) GetShareId() string {
@@ -24585,7 +24805,7 @@ type UpdateSharePermissionRequest struct {
 
 func (x *UpdateSharePermissionRequest) Reset() {
 	*x = UpdateSharePermissionRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[289]
+	mi := &file_rpc_platform_service_proto_msgTypes[292]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24597,7 +24817,7 @@ func (x *UpdateSharePermissionRequest) String() string {
 func (*UpdateSharePermissionRequest) ProtoMessage() {}
 
 func (x *UpdateSharePermissionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[289]
+	mi := &file_rpc_platform_service_proto_msgTypes[292]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24610,7 +24830,7 @@ func (x *UpdateSharePermissionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSharePermissionRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSharePermissionRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{289}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{292}
 }
 
 func (x *UpdateSharePermissionRequest) GetShareId() string {
@@ -24638,7 +24858,7 @@ type ListSharesRequest struct {
 
 func (x *ListSharesRequest) Reset() {
 	*x = ListSharesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[290]
+	mi := &file_rpc_platform_service_proto_msgTypes[293]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24650,7 +24870,7 @@ func (x *ListSharesRequest) String() string {
 func (*ListSharesRequest) ProtoMessage() {}
 
 func (x *ListSharesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[290]
+	mi := &file_rpc_platform_service_proto_msgTypes[293]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24663,7 +24883,7 @@ func (x *ListSharesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSharesRequest.ProtoReflect.Descriptor instead.
 func (*ListSharesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{290}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{293}
 }
 
 func (x *ListSharesRequest) GetResourceType() string {
@@ -24696,7 +24916,7 @@ type ListSharesResponse struct {
 
 func (x *ListSharesResponse) Reset() {
 	*x = ListSharesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[291]
+	mi := &file_rpc_platform_service_proto_msgTypes[294]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24708,7 +24928,7 @@ func (x *ListSharesResponse) String() string {
 func (*ListSharesResponse) ProtoMessage() {}
 
 func (x *ListSharesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[291]
+	mi := &file_rpc_platform_service_proto_msgTypes[294]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24721,7 +24941,7 @@ func (x *ListSharesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSharesResponse.ProtoReflect.Descriptor instead.
 func (*ListSharesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{291}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{294}
 }
 
 func (x *ListSharesResponse) GetShares() []*ResourceShareInfo {
@@ -24740,7 +24960,7 @@ type ListSharedWithMeRequest struct {
 
 func (x *ListSharedWithMeRequest) Reset() {
 	*x = ListSharedWithMeRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[292]
+	mi := &file_rpc_platform_service_proto_msgTypes[295]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24752,7 +24972,7 @@ func (x *ListSharedWithMeRequest) String() string {
 func (*ListSharedWithMeRequest) ProtoMessage() {}
 
 func (x *ListSharedWithMeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[292]
+	mi := &file_rpc_platform_service_proto_msgTypes[295]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24765,7 +24985,7 @@ func (x *ListSharedWithMeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSharedWithMeRequest.ProtoReflect.Descriptor instead.
 func (*ListSharedWithMeRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{292}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{295}
 }
 
 func (x *ListSharedWithMeRequest) GetResourceType() string {
@@ -24784,7 +25004,7 @@ type ListSharedWithMeResponse struct {
 
 func (x *ListSharedWithMeResponse) Reset() {
 	*x = ListSharedWithMeResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[293]
+	mi := &file_rpc_platform_service_proto_msgTypes[296]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24796,7 +25016,7 @@ func (x *ListSharedWithMeResponse) String() string {
 func (*ListSharedWithMeResponse) ProtoMessage() {}
 
 func (x *ListSharedWithMeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[293]
+	mi := &file_rpc_platform_service_proto_msgTypes[296]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24809,7 +25029,7 @@ func (x *ListSharedWithMeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSharedWithMeResponse.ProtoReflect.Descriptor instead.
 func (*ListSharedWithMeResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{293}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{296}
 }
 
 func (x *ListSharedWithMeResponse) GetResources() []*SharedResource {
@@ -24835,7 +25055,7 @@ type ResourceShareInfo struct {
 
 func (x *ResourceShareInfo) Reset() {
 	*x = ResourceShareInfo{}
-	mi := &file_rpc_platform_service_proto_msgTypes[294]
+	mi := &file_rpc_platform_service_proto_msgTypes[297]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24847,7 +25067,7 @@ func (x *ResourceShareInfo) String() string {
 func (*ResourceShareInfo) ProtoMessage() {}
 
 func (x *ResourceShareInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[294]
+	mi := &file_rpc_platform_service_proto_msgTypes[297]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24860,7 +25080,7 @@ func (x *ResourceShareInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceShareInfo.ProtoReflect.Descriptor instead.
 func (*ResourceShareInfo) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{294}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{297}
 }
 
 func (x *ResourceShareInfo) GetId() string {
@@ -24930,7 +25150,7 @@ type SharedResource struct {
 
 func (x *SharedResource) Reset() {
 	*x = SharedResource{}
-	mi := &file_rpc_platform_service_proto_msgTypes[295]
+	mi := &file_rpc_platform_service_proto_msgTypes[298]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -24942,7 +25162,7 @@ func (x *SharedResource) String() string {
 func (*SharedResource) ProtoMessage() {}
 
 func (x *SharedResource) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[295]
+	mi := &file_rpc_platform_service_proto_msgTypes[298]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -24955,7 +25175,7 @@ func (x *SharedResource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SharedResource.ProtoReflect.Descriptor instead.
 func (*SharedResource) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{295}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{298}
 }
 
 func (x *SharedResource) GetShare() *ResourceShareInfo {
@@ -24989,7 +25209,7 @@ type ListNotificationsRequest struct {
 
 func (x *ListNotificationsRequest) Reset() {
 	*x = ListNotificationsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[296]
+	mi := &file_rpc_platform_service_proto_msgTypes[299]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25001,7 +25221,7 @@ func (x *ListNotificationsRequest) String() string {
 func (*ListNotificationsRequest) ProtoMessage() {}
 
 func (x *ListNotificationsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[296]
+	mi := &file_rpc_platform_service_proto_msgTypes[299]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25014,7 +25234,7 @@ func (x *ListNotificationsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListNotificationsRequest.ProtoReflect.Descriptor instead.
 func (*ListNotificationsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{296}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{299}
 }
 
 func (x *ListNotificationsRequest) GetUnreadOnly() bool {
@@ -25041,7 +25261,7 @@ type ListNotificationsResponse struct {
 
 func (x *ListNotificationsResponse) Reset() {
 	*x = ListNotificationsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[297]
+	mi := &file_rpc_platform_service_proto_msgTypes[300]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25053,7 +25273,7 @@ func (x *ListNotificationsResponse) String() string {
 func (*ListNotificationsResponse) ProtoMessage() {}
 
 func (x *ListNotificationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[297]
+	mi := &file_rpc_platform_service_proto_msgTypes[300]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25066,7 +25286,7 @@ func (x *ListNotificationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListNotificationsResponse.ProtoReflect.Descriptor instead.
 func (*ListNotificationsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{297}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{300}
 }
 
 func (x *ListNotificationsResponse) GetNotifications() []*NotificationInfo {
@@ -25092,7 +25312,7 @@ type MarkNotificationReadRequest struct {
 
 func (x *MarkNotificationReadRequest) Reset() {
 	*x = MarkNotificationReadRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[298]
+	mi := &file_rpc_platform_service_proto_msgTypes[301]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25104,7 +25324,7 @@ func (x *MarkNotificationReadRequest) String() string {
 func (*MarkNotificationReadRequest) ProtoMessage() {}
 
 func (x *MarkNotificationReadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[298]
+	mi := &file_rpc_platform_service_proto_msgTypes[301]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25117,7 +25337,7 @@ func (x *MarkNotificationReadRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarkNotificationReadRequest.ProtoReflect.Descriptor instead.
 func (*MarkNotificationReadRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{298}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{301}
 }
 
 func (x *MarkNotificationReadRequest) GetNotificationId() string {
@@ -25145,7 +25365,7 @@ type NotificationInfo struct {
 
 func (x *NotificationInfo) Reset() {
 	*x = NotificationInfo{}
-	mi := &file_rpc_platform_service_proto_msgTypes[299]
+	mi := &file_rpc_platform_service_proto_msgTypes[302]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25157,7 +25377,7 @@ func (x *NotificationInfo) String() string {
 func (*NotificationInfo) ProtoMessage() {}
 
 func (x *NotificationInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[299]
+	mi := &file_rpc_platform_service_proto_msgTypes[302]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25170,7 +25390,7 @@ func (x *NotificationInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NotificationInfo.ProtoReflect.Descriptor instead.
 func (*NotificationInfo) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{299}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{302}
 }
 
 func (x *NotificationInfo) GetId() string {
@@ -25254,7 +25474,7 @@ type PresenceHeartbeatRequest struct {
 
 func (x *PresenceHeartbeatRequest) Reset() {
 	*x = PresenceHeartbeatRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[300]
+	mi := &file_rpc_platform_service_proto_msgTypes[303]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25266,7 +25486,7 @@ func (x *PresenceHeartbeatRequest) String() string {
 func (*PresenceHeartbeatRequest) ProtoMessage() {}
 
 func (x *PresenceHeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[300]
+	mi := &file_rpc_platform_service_proto_msgTypes[303]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25279,7 +25499,7 @@ func (x *PresenceHeartbeatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PresenceHeartbeatRequest.ProtoReflect.Descriptor instead.
 func (*PresenceHeartbeatRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{300}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{303}
 }
 
 func (x *PresenceHeartbeatRequest) GetResourceType() string {
@@ -25314,7 +25534,7 @@ type GetPresenceRequest struct {
 
 func (x *GetPresenceRequest) Reset() {
 	*x = GetPresenceRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[301]
+	mi := &file_rpc_platform_service_proto_msgTypes[304]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25326,7 +25546,7 @@ func (x *GetPresenceRequest) String() string {
 func (*GetPresenceRequest) ProtoMessage() {}
 
 func (x *GetPresenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[301]
+	mi := &file_rpc_platform_service_proto_msgTypes[304]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25339,7 +25559,7 @@ func (x *GetPresenceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPresenceRequest.ProtoReflect.Descriptor instead.
 func (*GetPresenceRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{301}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{304}
 }
 
 func (x *GetPresenceRequest) GetResourceType() string {
@@ -25372,7 +25592,7 @@ type GetPresenceResponse struct {
 
 func (x *GetPresenceResponse) Reset() {
 	*x = GetPresenceResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[302]
+	mi := &file_rpc_platform_service_proto_msgTypes[305]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25384,7 +25604,7 @@ func (x *GetPresenceResponse) String() string {
 func (*GetPresenceResponse) ProtoMessage() {}
 
 func (x *GetPresenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[302]
+	mi := &file_rpc_platform_service_proto_msgTypes[305]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25397,7 +25617,7 @@ func (x *GetPresenceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPresenceResponse.ProtoReflect.Descriptor instead.
 func (*GetPresenceResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{302}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{305}
 }
 
 func (x *GetPresenceResponse) GetViewers() []*ResourceOwner {
@@ -25418,7 +25638,7 @@ type ExtendAgentRunRuntimeRequest struct {
 
 func (x *ExtendAgentRunRuntimeRequest) Reset() {
 	*x = ExtendAgentRunRuntimeRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[303]
+	mi := &file_rpc_platform_service_proto_msgTypes[306]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25430,7 +25650,7 @@ func (x *ExtendAgentRunRuntimeRequest) String() string {
 func (*ExtendAgentRunRuntimeRequest) ProtoMessage() {}
 
 func (x *ExtendAgentRunRuntimeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[303]
+	mi := &file_rpc_platform_service_proto_msgTypes[306]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25443,7 +25663,7 @@ func (x *ExtendAgentRunRuntimeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExtendAgentRunRuntimeRequest.ProtoReflect.Descriptor instead.
 func (*ExtendAgentRunRuntimeRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{303}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{306}
 }
 
 func (x *ExtendAgentRunRuntimeRequest) GetNamespace() string {
@@ -25477,7 +25697,7 @@ type GetAgentRunPullRequestsRequest struct {
 
 func (x *GetAgentRunPullRequestsRequest) Reset() {
 	*x = GetAgentRunPullRequestsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[304]
+	mi := &file_rpc_platform_service_proto_msgTypes[307]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25489,7 +25709,7 @@ func (x *GetAgentRunPullRequestsRequest) String() string {
 func (*GetAgentRunPullRequestsRequest) ProtoMessage() {}
 
 func (x *GetAgentRunPullRequestsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[304]
+	mi := &file_rpc_platform_service_proto_msgTypes[307]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25502,7 +25722,7 @@ func (x *GetAgentRunPullRequestsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentRunPullRequestsRequest.ProtoReflect.Descriptor instead.
 func (*GetAgentRunPullRequestsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{304}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{307}
 }
 
 func (x *GetAgentRunPullRequestsRequest) GetNamespace() string {
@@ -25528,7 +25748,7 @@ type GetAgentRunPullRequestsResponse struct {
 
 func (x *GetAgentRunPullRequestsResponse) Reset() {
 	*x = GetAgentRunPullRequestsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[305]
+	mi := &file_rpc_platform_service_proto_msgTypes[308]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25540,7 +25760,7 @@ func (x *GetAgentRunPullRequestsResponse) String() string {
 func (*GetAgentRunPullRequestsResponse) ProtoMessage() {}
 
 func (x *GetAgentRunPullRequestsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[305]
+	mi := &file_rpc_platform_service_proto_msgTypes[308]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25553,7 +25773,7 @@ func (x *GetAgentRunPullRequestsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentRunPullRequestsResponse.ProtoReflect.Descriptor instead.
 func (*GetAgentRunPullRequestsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{305}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{308}
 }
 
 func (x *GetAgentRunPullRequestsResponse) GetPullRequests() []*PullRequestDetails {
@@ -25583,7 +25803,7 @@ type PullRequestDetails struct {
 
 func (x *PullRequestDetails) Reset() {
 	*x = PullRequestDetails{}
-	mi := &file_rpc_platform_service_proto_msgTypes[306]
+	mi := &file_rpc_platform_service_proto_msgTypes[309]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25595,7 +25815,7 @@ func (x *PullRequestDetails) String() string {
 func (*PullRequestDetails) ProtoMessage() {}
 
 func (x *PullRequestDetails) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[306]
+	mi := &file_rpc_platform_service_proto_msgTypes[309]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25608,7 +25828,7 @@ func (x *PullRequestDetails) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullRequestDetails.ProtoReflect.Descriptor instead.
 func (*PullRequestDetails) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{306}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{309}
 }
 
 func (x *PullRequestDetails) GetUrl() string {
@@ -25709,7 +25929,7 @@ type PullRequestCheck struct {
 
 func (x *PullRequestCheck) Reset() {
 	*x = PullRequestCheck{}
-	mi := &file_rpc_platform_service_proto_msgTypes[307]
+	mi := &file_rpc_platform_service_proto_msgTypes[310]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25721,7 +25941,7 @@ func (x *PullRequestCheck) String() string {
 func (*PullRequestCheck) ProtoMessage() {}
 
 func (x *PullRequestCheck) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[307]
+	mi := &file_rpc_platform_service_proto_msgTypes[310]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25734,7 +25954,7 @@ func (x *PullRequestCheck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullRequestCheck.ProtoReflect.Descriptor instead.
 func (*PullRequestCheck) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{307}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{310}
 }
 
 func (x *PullRequestCheck) GetName() string {
@@ -25793,7 +26013,7 @@ type PullRequestReviewThread struct {
 
 func (x *PullRequestReviewThread) Reset() {
 	*x = PullRequestReviewThread{}
-	mi := &file_rpc_platform_service_proto_msgTypes[308]
+	mi := &file_rpc_platform_service_proto_msgTypes[311]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25805,7 +26025,7 @@ func (x *PullRequestReviewThread) String() string {
 func (*PullRequestReviewThread) ProtoMessage() {}
 
 func (x *PullRequestReviewThread) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[308]
+	mi := &file_rpc_platform_service_proto_msgTypes[311]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25818,7 +26038,7 @@ func (x *PullRequestReviewThread) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullRequestReviewThread.ProtoReflect.Descriptor instead.
 func (*PullRequestReviewThread) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{308}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{311}
 }
 
 func (x *PullRequestReviewThread) GetId() string {
@@ -25875,7 +26095,7 @@ type PullRequestReviewComment struct {
 
 func (x *PullRequestReviewComment) Reset() {
 	*x = PullRequestReviewComment{}
-	mi := &file_rpc_platform_service_proto_msgTypes[309]
+	mi := &file_rpc_platform_service_proto_msgTypes[312]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25887,7 +26107,7 @@ func (x *PullRequestReviewComment) String() string {
 func (*PullRequestReviewComment) ProtoMessage() {}
 
 func (x *PullRequestReviewComment) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[309]
+	mi := &file_rpc_platform_service_proto_msgTypes[312]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25900,7 +26120,7 @@ func (x *PullRequestReviewComment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullRequestReviewComment.ProtoReflect.Descriptor instead.
 func (*PullRequestReviewComment) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{309}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{312}
 }
 
 func (x *PullRequestReviewComment) GetAuthor() string {
@@ -25948,7 +26168,7 @@ type AgentRunOverseerConfig struct {
 
 func (x *AgentRunOverseerConfig) Reset() {
 	*x = AgentRunOverseerConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[310]
+	mi := &file_rpc_platform_service_proto_msgTypes[313]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -25960,7 +26180,7 @@ func (x *AgentRunOverseerConfig) String() string {
 func (*AgentRunOverseerConfig) ProtoMessage() {}
 
 func (x *AgentRunOverseerConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[310]
+	mi := &file_rpc_platform_service_proto_msgTypes[313]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -25973,7 +26193,7 @@ func (x *AgentRunOverseerConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentRunOverseerConfig.ProtoReflect.Descriptor instead.
 func (*AgentRunOverseerConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{310}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{313}
 }
 
 func (x *AgentRunOverseerConfig) GetModeRefName() string {
@@ -26041,7 +26261,7 @@ type AgentRunOverseerSummary struct {
 
 func (x *AgentRunOverseerSummary) Reset() {
 	*x = AgentRunOverseerSummary{}
-	mi := &file_rpc_platform_service_proto_msgTypes[311]
+	mi := &file_rpc_platform_service_proto_msgTypes[314]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26053,7 +26273,7 @@ func (x *AgentRunOverseerSummary) String() string {
 func (*AgentRunOverseerSummary) ProtoMessage() {}
 
 func (x *AgentRunOverseerSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[311]
+	mi := &file_rpc_platform_service_proto_msgTypes[314]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26066,7 +26286,7 @@ func (x *AgentRunOverseerSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentRunOverseerSummary.ProtoReflect.Descriptor instead.
 func (*AgentRunOverseerSummary) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{311}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{314}
 }
 
 func (x *AgentRunOverseerSummary) GetRunName() string {
@@ -26136,7 +26356,7 @@ type AttachAgentRunOverseerRequest struct {
 
 func (x *AttachAgentRunOverseerRequest) Reset() {
 	*x = AttachAgentRunOverseerRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[312]
+	mi := &file_rpc_platform_service_proto_msgTypes[315]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26148,7 +26368,7 @@ func (x *AttachAgentRunOverseerRequest) String() string {
 func (*AttachAgentRunOverseerRequest) ProtoMessage() {}
 
 func (x *AttachAgentRunOverseerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[312]
+	mi := &file_rpc_platform_service_proto_msgTypes[315]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26161,7 +26381,7 @@ func (x *AttachAgentRunOverseerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttachAgentRunOverseerRequest.ProtoReflect.Descriptor instead.
 func (*AttachAgentRunOverseerRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{312}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{315}
 }
 
 func (x *AttachAgentRunOverseerRequest) GetNamespace() string {
@@ -26198,7 +26418,7 @@ type UpdateAgentRunOverseerRequest struct {
 
 func (x *UpdateAgentRunOverseerRequest) Reset() {
 	*x = UpdateAgentRunOverseerRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[313]
+	mi := &file_rpc_platform_service_proto_msgTypes[316]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26210,7 +26430,7 @@ func (x *UpdateAgentRunOverseerRequest) String() string {
 func (*UpdateAgentRunOverseerRequest) ProtoMessage() {}
 
 func (x *UpdateAgentRunOverseerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[313]
+	mi := &file_rpc_platform_service_proto_msgTypes[316]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26223,7 +26443,7 @@ func (x *UpdateAgentRunOverseerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateAgentRunOverseerRequest.ProtoReflect.Descriptor instead.
 func (*UpdateAgentRunOverseerRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{313}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{316}
 }
 
 func (x *UpdateAgentRunOverseerRequest) GetNamespace() string {
@@ -26271,7 +26491,7 @@ type DetachAgentRunOverseerRequest struct {
 
 func (x *DetachAgentRunOverseerRequest) Reset() {
 	*x = DetachAgentRunOverseerRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[314]
+	mi := &file_rpc_platform_service_proto_msgTypes[317]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26283,7 +26503,7 @@ func (x *DetachAgentRunOverseerRequest) String() string {
 func (*DetachAgentRunOverseerRequest) ProtoMessage() {}
 
 func (x *DetachAgentRunOverseerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[314]
+	mi := &file_rpc_platform_service_proto_msgTypes[317]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26296,7 +26516,7 @@ func (x *DetachAgentRunOverseerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DetachAgentRunOverseerRequest.ProtoReflect.Descriptor instead.
 func (*DetachAgentRunOverseerRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{314}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{317}
 }
 
 func (x *DetachAgentRunOverseerRequest) GetNamespace() string {
@@ -26328,7 +26548,7 @@ type SkillCatalogEntry struct {
 
 func (x *SkillCatalogEntry) Reset() {
 	*x = SkillCatalogEntry{}
-	mi := &file_rpc_platform_service_proto_msgTypes[315]
+	mi := &file_rpc_platform_service_proto_msgTypes[318]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26340,7 +26560,7 @@ func (x *SkillCatalogEntry) String() string {
 func (*SkillCatalogEntry) ProtoMessage() {}
 
 func (x *SkillCatalogEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[315]
+	mi := &file_rpc_platform_service_proto_msgTypes[318]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26353,7 +26573,7 @@ func (x *SkillCatalogEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkillCatalogEntry.ProtoReflect.Descriptor instead.
 func (*SkillCatalogEntry) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{315}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{318}
 }
 
 func (x *SkillCatalogEntry) GetSource() string {
@@ -26411,7 +26631,7 @@ type ListSkillCatalogRequest struct {
 
 func (x *ListSkillCatalogRequest) Reset() {
 	*x = ListSkillCatalogRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[316]
+	mi := &file_rpc_platform_service_proto_msgTypes[319]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26423,7 +26643,7 @@ func (x *ListSkillCatalogRequest) String() string {
 func (*ListSkillCatalogRequest) ProtoMessage() {}
 
 func (x *ListSkillCatalogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[316]
+	mi := &file_rpc_platform_service_proto_msgTypes[319]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26436,7 +26656,7 @@ func (x *ListSkillCatalogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSkillCatalogRequest.ProtoReflect.Descriptor instead.
 func (*ListSkillCatalogRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{316}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{319}
 }
 
 func (x *ListSkillCatalogRequest) GetQuery() string {
@@ -26465,7 +26685,7 @@ type ListSkillCatalogResponse struct {
 
 func (x *ListSkillCatalogResponse) Reset() {
 	*x = ListSkillCatalogResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[317]
+	mi := &file_rpc_platform_service_proto_msgTypes[320]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26477,7 +26697,7 @@ func (x *ListSkillCatalogResponse) String() string {
 func (*ListSkillCatalogResponse) ProtoMessage() {}
 
 func (x *ListSkillCatalogResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[317]
+	mi := &file_rpc_platform_service_proto_msgTypes[320]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26490,7 +26710,7 @@ func (x *ListSkillCatalogResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSkillCatalogResponse.ProtoReflect.Descriptor instead.
 func (*ListSkillCatalogResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{317}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{320}
 }
 
 func (x *ListSkillCatalogResponse) GetSkills() []*SkillCatalogEntry {
@@ -26531,7 +26751,7 @@ type InstallSkillFromCatalogRequest struct {
 
 func (x *InstallSkillFromCatalogRequest) Reset() {
 	*x = InstallSkillFromCatalogRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[318]
+	mi := &file_rpc_platform_service_proto_msgTypes[321]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26543,7 +26763,7 @@ func (x *InstallSkillFromCatalogRequest) String() string {
 func (*InstallSkillFromCatalogRequest) ProtoMessage() {}
 
 func (x *InstallSkillFromCatalogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[318]
+	mi := &file_rpc_platform_service_proto_msgTypes[321]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26556,7 +26776,7 @@ func (x *InstallSkillFromCatalogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstallSkillFromCatalogRequest.ProtoReflect.Descriptor instead.
 func (*InstallSkillFromCatalogRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{318}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{321}
 }
 
 func (x *InstallSkillFromCatalogRequest) GetSource() string {
@@ -26585,7 +26805,7 @@ type UserSecretState struct {
 
 func (x *UserSecretState) Reset() {
 	*x = UserSecretState{}
-	mi := &file_rpc_platform_service_proto_msgTypes[319]
+	mi := &file_rpc_platform_service_proto_msgTypes[322]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26597,7 +26817,7 @@ func (x *UserSecretState) String() string {
 func (*UserSecretState) ProtoMessage() {}
 
 func (x *UserSecretState) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[319]
+	mi := &file_rpc_platform_service_proto_msgTypes[322]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26610,7 +26830,7 @@ func (x *UserSecretState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserSecretState.ProtoReflect.Descriptor instead.
 func (*UserSecretState) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{319}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{322}
 }
 
 func (x *UserSecretState) GetName() string {
@@ -26658,7 +26878,7 @@ type ProjectContent struct {
 
 func (x *ProjectContent) Reset() {
 	*x = ProjectContent{}
-	mi := &file_rpc_platform_service_proto_msgTypes[320]
+	mi := &file_rpc_platform_service_proto_msgTypes[323]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26670,7 +26890,7 @@ func (x *ProjectContent) String() string {
 func (*ProjectContent) ProtoMessage() {}
 
 func (x *ProjectContent) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[320]
+	mi := &file_rpc_platform_service_proto_msgTypes[323]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26683,7 +26903,7 @@ func (x *ProjectContent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectContent.ProtoReflect.Descriptor instead.
 func (*ProjectContent) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{320}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{323}
 }
 
 func (x *ProjectContent) GetId() string {
@@ -26812,7 +27032,7 @@ type ProjectContentVersion struct {
 
 func (x *ProjectContentVersion) Reset() {
 	*x = ProjectContentVersion{}
-	mi := &file_rpc_platform_service_proto_msgTypes[321]
+	mi := &file_rpc_platform_service_proto_msgTypes[324]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26824,7 +27044,7 @@ func (x *ProjectContentVersion) String() string {
 func (*ProjectContentVersion) ProtoMessage() {}
 
 func (x *ProjectContentVersion) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[321]
+	mi := &file_rpc_platform_service_proto_msgTypes[324]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26837,7 +27057,7 @@ func (x *ProjectContentVersion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectContentVersion.ProtoReflect.Descriptor instead.
 func (*ProjectContentVersion) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{321}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{324}
 }
 
 func (x *ProjectContentVersion) GetVersion() int32 {
@@ -26897,7 +27117,7 @@ type ListProjectContentRequest struct {
 
 func (x *ListProjectContentRequest) Reset() {
 	*x = ListProjectContentRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[322]
+	mi := &file_rpc_platform_service_proto_msgTypes[325]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26909,7 +27129,7 @@ func (x *ListProjectContentRequest) String() string {
 func (*ListProjectContentRequest) ProtoMessage() {}
 
 func (x *ListProjectContentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[322]
+	mi := &file_rpc_platform_service_proto_msgTypes[325]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26922,7 +27142,7 @@ func (x *ListProjectContentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProjectContentRequest.ProtoReflect.Descriptor instead.
 func (*ListProjectContentRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{322}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{325}
 }
 
 func (x *ListProjectContentRequest) GetNamespace() string {
@@ -26971,7 +27191,7 @@ type ListProjectContentResponse struct {
 
 func (x *ListProjectContentResponse) Reset() {
 	*x = ListProjectContentResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[323]
+	mi := &file_rpc_platform_service_proto_msgTypes[326]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -26983,7 +27203,7 @@ func (x *ListProjectContentResponse) String() string {
 func (*ListProjectContentResponse) ProtoMessage() {}
 
 func (x *ListProjectContentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[323]
+	mi := &file_rpc_platform_service_proto_msgTypes[326]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -26996,7 +27216,7 @@ func (x *ListProjectContentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListProjectContentResponse.ProtoReflect.Descriptor instead.
 func (*ListProjectContentResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{323}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{326}
 }
 
 func (x *ListProjectContentResponse) GetItems() []*ProjectContent {
@@ -27025,7 +27245,7 @@ type GetProjectContentRequest struct {
 
 func (x *GetProjectContentRequest) Reset() {
 	*x = GetProjectContentRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[324]
+	mi := &file_rpc_platform_service_proto_msgTypes[327]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27037,7 +27257,7 @@ func (x *GetProjectContentRequest) String() string {
 func (*GetProjectContentRequest) ProtoMessage() {}
 
 func (x *GetProjectContentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[324]
+	mi := &file_rpc_platform_service_proto_msgTypes[327]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27050,7 +27270,7 @@ func (x *GetProjectContentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProjectContentRequest.ProtoReflect.Descriptor instead.
 func (*GetProjectContentRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{324}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{327}
 }
 
 func (x *GetProjectContentRequest) GetNamespace() string {
@@ -27092,7 +27312,7 @@ type GetProjectContentResponse struct {
 
 func (x *GetProjectContentResponse) Reset() {
 	*x = GetProjectContentResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[325]
+	mi := &file_rpc_platform_service_proto_msgTypes[328]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27104,7 +27324,7 @@ func (x *GetProjectContentResponse) String() string {
 func (*GetProjectContentResponse) ProtoMessage() {}
 
 func (x *GetProjectContentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[325]
+	mi := &file_rpc_platform_service_proto_msgTypes[328]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27117,7 +27337,7 @@ func (x *GetProjectContentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProjectContentResponse.ProtoReflect.Descriptor instead.
 func (*GetProjectContentResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{325}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{328}
 }
 
 func (x *GetProjectContentResponse) GetItem() *ProjectContent {
@@ -27157,7 +27377,7 @@ type CreateProjectContentRequest struct {
 
 func (x *CreateProjectContentRequest) Reset() {
 	*x = CreateProjectContentRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[326]
+	mi := &file_rpc_platform_service_proto_msgTypes[329]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27169,7 +27389,7 @@ func (x *CreateProjectContentRequest) String() string {
 func (*CreateProjectContentRequest) ProtoMessage() {}
 
 func (x *CreateProjectContentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[326]
+	mi := &file_rpc_platform_service_proto_msgTypes[329]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27182,7 +27402,7 @@ func (x *CreateProjectContentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateProjectContentRequest.ProtoReflect.Descriptor instead.
 func (*CreateProjectContentRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{326}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{329}
 }
 
 func (x *CreateProjectContentRequest) GetNamespace() string {
@@ -27260,7 +27480,7 @@ type UpdateProjectContentRequest struct {
 
 func (x *UpdateProjectContentRequest) Reset() {
 	*x = UpdateProjectContentRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[327]
+	mi := &file_rpc_platform_service_proto_msgTypes[330]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27272,7 +27492,7 @@ func (x *UpdateProjectContentRequest) String() string {
 func (*UpdateProjectContentRequest) ProtoMessage() {}
 
 func (x *UpdateProjectContentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[327]
+	mi := &file_rpc_platform_service_proto_msgTypes[330]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27285,7 +27505,7 @@ func (x *UpdateProjectContentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateProjectContentRequest.ProtoReflect.Descriptor instead.
 func (*UpdateProjectContentRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{327}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{330}
 }
 
 func (x *UpdateProjectContentRequest) GetNamespace() string {
@@ -27370,7 +27590,7 @@ type DuplicateProjectContentRequest struct {
 
 func (x *DuplicateProjectContentRequest) Reset() {
 	*x = DuplicateProjectContentRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[328]
+	mi := &file_rpc_platform_service_proto_msgTypes[331]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27382,7 +27602,7 @@ func (x *DuplicateProjectContentRequest) String() string {
 func (*DuplicateProjectContentRequest) ProtoMessage() {}
 
 func (x *DuplicateProjectContentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[328]
+	mi := &file_rpc_platform_service_proto_msgTypes[331]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27395,7 +27615,7 @@ func (x *DuplicateProjectContentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DuplicateProjectContentRequest.ProtoReflect.Descriptor instead.
 func (*DuplicateProjectContentRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{328}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{331}
 }
 
 func (x *DuplicateProjectContentRequest) GetNamespace() string {
@@ -27441,7 +27661,7 @@ type ListProjectContentVersionsRequest struct {
 
 func (x *ListProjectContentVersionsRequest) Reset() {
 	*x = ListProjectContentVersionsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[329]
+	mi := &file_rpc_platform_service_proto_msgTypes[332]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27453,7 +27673,7 @@ func (x *ListProjectContentVersionsRequest) String() string {
 func (*ListProjectContentVersionsRequest) ProtoMessage() {}
 
 func (x *ListProjectContentVersionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[329]
+	mi := &file_rpc_platform_service_proto_msgTypes[332]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27466,7 +27686,7 @@ func (x *ListProjectContentVersionsRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ListProjectContentVersionsRequest.ProtoReflect.Descriptor instead.
 func (*ListProjectContentVersionsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{329}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{332}
 }
 
 func (x *ListProjectContentVersionsRequest) GetNamespace() string {
@@ -27515,7 +27735,7 @@ type ListProjectContentVersionsResponse struct {
 
 func (x *ListProjectContentVersionsResponse) Reset() {
 	*x = ListProjectContentVersionsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[330]
+	mi := &file_rpc_platform_service_proto_msgTypes[333]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27527,7 +27747,7 @@ func (x *ListProjectContentVersionsResponse) String() string {
 func (*ListProjectContentVersionsResponse) ProtoMessage() {}
 
 func (x *ListProjectContentVersionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[330]
+	mi := &file_rpc_platform_service_proto_msgTypes[333]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27540,7 +27760,7 @@ func (x *ListProjectContentVersionsResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use ListProjectContentVersionsResponse.ProtoReflect.Descriptor instead.
 func (*ListProjectContentVersionsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{330}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{333}
 }
 
 func (x *ListProjectContentVersionsResponse) GetVersions() []*ProjectContentVersion {
@@ -27570,7 +27790,7 @@ type RestoreProjectContentVersionRequest struct {
 
 func (x *RestoreProjectContentVersionRequest) Reset() {
 	*x = RestoreProjectContentVersionRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[331]
+	mi := &file_rpc_platform_service_proto_msgTypes[334]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27582,7 +27802,7 @@ func (x *RestoreProjectContentVersionRequest) String() string {
 func (*RestoreProjectContentVersionRequest) ProtoMessage() {}
 
 func (x *RestoreProjectContentVersionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[331]
+	mi := &file_rpc_platform_service_proto_msgTypes[334]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27595,7 +27815,7 @@ func (x *RestoreProjectContentVersionRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use RestoreProjectContentVersionRequest.ProtoReflect.Descriptor instead.
 func (*RestoreProjectContentVersionRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{331}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{334}
 }
 
 func (x *RestoreProjectContentVersionRequest) GetNamespace() string {
@@ -27647,7 +27867,7 @@ type DeleteProjectContentRequest struct {
 
 func (x *DeleteProjectContentRequest) Reset() {
 	*x = DeleteProjectContentRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[332]
+	mi := &file_rpc_platform_service_proto_msgTypes[335]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27659,7 +27879,7 @@ func (x *DeleteProjectContentRequest) String() string {
 func (*DeleteProjectContentRequest) ProtoMessage() {}
 
 func (x *DeleteProjectContentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[332]
+	mi := &file_rpc_platform_service_proto_msgTypes[335]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27672,7 +27892,7 @@ func (x *DeleteProjectContentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteProjectContentRequest.ProtoReflect.Descriptor instead.
 func (*DeleteProjectContentRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{332}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{335}
 }
 
 func (x *DeleteProjectContentRequest) GetNamespace() string {
@@ -27719,7 +27939,7 @@ type StartProviderOAuthRequest struct {
 
 func (x *StartProviderOAuthRequest) Reset() {
 	*x = StartProviderOAuthRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[333]
+	mi := &file_rpc_platform_service_proto_msgTypes[336]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27731,7 +27951,7 @@ func (x *StartProviderOAuthRequest) String() string {
 func (*StartProviderOAuthRequest) ProtoMessage() {}
 
 func (x *StartProviderOAuthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[333]
+	mi := &file_rpc_platform_service_proto_msgTypes[336]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27744,7 +27964,7 @@ func (x *StartProviderOAuthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartProviderOAuthRequest.ProtoReflect.Descriptor instead.
 func (*StartProviderOAuthRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{333}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{336}
 }
 
 func (x *StartProviderOAuthRequest) GetProvider() string {
@@ -27777,7 +27997,7 @@ type ProviderOAuthStart struct {
 
 func (x *ProviderOAuthStart) Reset() {
 	*x = ProviderOAuthStart{}
-	mi := &file_rpc_platform_service_proto_msgTypes[334]
+	mi := &file_rpc_platform_service_proto_msgTypes[337]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27789,7 +28009,7 @@ func (x *ProviderOAuthStart) String() string {
 func (*ProviderOAuthStart) ProtoMessage() {}
 
 func (x *ProviderOAuthStart) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[334]
+	mi := &file_rpc_platform_service_proto_msgTypes[337]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27802,7 +28022,7 @@ func (x *ProviderOAuthStart) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderOAuthStart.ProtoReflect.Descriptor instead.
 func (*ProviderOAuthStart) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{334}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{337}
 }
 
 func (x *ProviderOAuthStart) GetProvider() string {
@@ -27859,7 +28079,7 @@ type CompleteProviderOAuthRequest struct {
 
 func (x *CompleteProviderOAuthRequest) Reset() {
 	*x = CompleteProviderOAuthRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[335]
+	mi := &file_rpc_platform_service_proto_msgTypes[338]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27871,7 +28091,7 @@ func (x *CompleteProviderOAuthRequest) String() string {
 func (*CompleteProviderOAuthRequest) ProtoMessage() {}
 
 func (x *CompleteProviderOAuthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[335]
+	mi := &file_rpc_platform_service_proto_msgTypes[338]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27884,7 +28104,7 @@ func (x *CompleteProviderOAuthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteProviderOAuthRequest.ProtoReflect.Descriptor instead.
 func (*CompleteProviderOAuthRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{335}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{338}
 }
 
 func (x *CompleteProviderOAuthRequest) GetProvider() string {
@@ -27918,7 +28138,7 @@ type PollProviderOAuthRequest struct {
 
 func (x *PollProviderOAuthRequest) Reset() {
 	*x = PollProviderOAuthRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[336]
+	mi := &file_rpc_platform_service_proto_msgTypes[339]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27930,7 +28150,7 @@ func (x *PollProviderOAuthRequest) String() string {
 func (*PollProviderOAuthRequest) ProtoMessage() {}
 
 func (x *PollProviderOAuthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[336]
+	mi := &file_rpc_platform_service_proto_msgTypes[339]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -27943,7 +28163,7 @@ func (x *PollProviderOAuthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PollProviderOAuthRequest.ProtoReflect.Descriptor instead.
 func (*PollProviderOAuthRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{336}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{339}
 }
 
 func (x *PollProviderOAuthRequest) GetProvider() string {
@@ -27976,7 +28196,7 @@ type ProviderOAuthResult struct {
 
 func (x *ProviderOAuthResult) Reset() {
 	*x = ProviderOAuthResult{}
-	mi := &file_rpc_platform_service_proto_msgTypes[337]
+	mi := &file_rpc_platform_service_proto_msgTypes[340]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -27988,7 +28208,7 @@ func (x *ProviderOAuthResult) String() string {
 func (*ProviderOAuthResult) ProtoMessage() {}
 
 func (x *ProviderOAuthResult) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[337]
+	mi := &file_rpc_platform_service_proto_msgTypes[340]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -28001,7 +28221,7 @@ func (x *ProviderOAuthResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderOAuthResult.ProtoReflect.Descriptor instead.
 func (*ProviderOAuthResult) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{337}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{340}
 }
 
 func (x *ProviderOAuthResult) GetStatus() string {
@@ -28056,7 +28276,7 @@ type ProviderOAuthSubscription struct {
 
 func (x *ProviderOAuthSubscription) Reset() {
 	*x = ProviderOAuthSubscription{}
-	mi := &file_rpc_platform_service_proto_msgTypes[338]
+	mi := &file_rpc_platform_service_proto_msgTypes[341]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -28068,7 +28288,7 @@ func (x *ProviderOAuthSubscription) String() string {
 func (*ProviderOAuthSubscription) ProtoMessage() {}
 
 func (x *ProviderOAuthSubscription) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[338]
+	mi := &file_rpc_platform_service_proto_msgTypes[341]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -28081,7 +28301,7 @@ func (x *ProviderOAuthSubscription) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderOAuthSubscription.ProtoReflect.Descriptor instead.
 func (*ProviderOAuthSubscription) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{338}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{341}
 }
 
 func (x *ProviderOAuthSubscription) GetProvider() string {
@@ -28122,7 +28342,7 @@ type GetMyOpenAIUsageRequest struct {
 
 func (x *GetMyOpenAIUsageRequest) Reset() {
 	*x = GetMyOpenAIUsageRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[339]
+	mi := &file_rpc_platform_service_proto_msgTypes[342]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -28134,7 +28354,7 @@ func (x *GetMyOpenAIUsageRequest) String() string {
 func (*GetMyOpenAIUsageRequest) ProtoMessage() {}
 
 func (x *GetMyOpenAIUsageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[339]
+	mi := &file_rpc_platform_service_proto_msgTypes[342]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -28147,7 +28367,7 @@ func (x *GetMyOpenAIUsageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMyOpenAIUsageRequest.ProtoReflect.Descriptor instead.
 func (*GetMyOpenAIUsageRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{339}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{342}
 }
 
 // MyOpenAIUsage contains only account-level data exposed by the user's
@@ -28176,7 +28396,7 @@ type MyOpenAIUsage struct {
 
 func (x *MyOpenAIUsage) Reset() {
 	*x = MyOpenAIUsage{}
-	mi := &file_rpc_platform_service_proto_msgTypes[340]
+	mi := &file_rpc_platform_service_proto_msgTypes[343]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -28188,7 +28408,7 @@ func (x *MyOpenAIUsage) String() string {
 func (*MyOpenAIUsage) ProtoMessage() {}
 
 func (x *MyOpenAIUsage) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[340]
+	mi := &file_rpc_platform_service_proto_msgTypes[343]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -28201,7 +28421,7 @@ func (x *MyOpenAIUsage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MyOpenAIUsage.ProtoReflect.Descriptor instead.
 func (*MyOpenAIUsage) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{340}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{343}
 }
 
 func (x *MyOpenAIUsage) GetOpenaiOauthPresent() bool {
@@ -28328,7 +28548,7 @@ type OpenAIUsageLimit struct {
 
 func (x *OpenAIUsageLimit) Reset() {
 	*x = OpenAIUsageLimit{}
-	mi := &file_rpc_platform_service_proto_msgTypes[341]
+	mi := &file_rpc_platform_service_proto_msgTypes[344]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -28340,7 +28560,7 @@ func (x *OpenAIUsageLimit) String() string {
 func (*OpenAIUsageLimit) ProtoMessage() {}
 
 func (x *OpenAIUsageLimit) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[341]
+	mi := &file_rpc_platform_service_proto_msgTypes[344]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -28353,7 +28573,7 @@ func (x *OpenAIUsageLimit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenAIUsageLimit.ProtoReflect.Descriptor instead.
 func (*OpenAIUsageLimit) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{341}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{344}
 }
 
 func (x *OpenAIUsageLimit) GetLabel() string {
@@ -28392,7 +28612,7 @@ type GetMyCopilotUsageRequest struct {
 
 func (x *GetMyCopilotUsageRequest) Reset() {
 	*x = GetMyCopilotUsageRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[342]
+	mi := &file_rpc_platform_service_proto_msgTypes[345]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -28404,7 +28624,7 @@ func (x *GetMyCopilotUsageRequest) String() string {
 func (*GetMyCopilotUsageRequest) ProtoMessage() {}
 
 func (x *GetMyCopilotUsageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[342]
+	mi := &file_rpc_platform_service_proto_msgTypes[345]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -28417,7 +28637,7 @@ func (x *GetMyCopilotUsageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMyCopilotUsageRequest.ProtoReflect.Descriptor instead.
 func (*GetMyCopilotUsageRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{342}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{345}
 }
 
 type MyCopilotUsage struct {
@@ -28436,7 +28656,7 @@ type MyCopilotUsage struct {
 
 func (x *MyCopilotUsage) Reset() {
 	*x = MyCopilotUsage{}
-	mi := &file_rpc_platform_service_proto_msgTypes[343]
+	mi := &file_rpc_platform_service_proto_msgTypes[346]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -28448,7 +28668,7 @@ func (x *MyCopilotUsage) String() string {
 func (*MyCopilotUsage) ProtoMessage() {}
 
 func (x *MyCopilotUsage) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[343]
+	mi := &file_rpc_platform_service_proto_msgTypes[346]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -28461,7 +28681,7 @@ func (x *MyCopilotUsage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MyCopilotUsage.ProtoReflect.Descriptor instead.
 func (*MyCopilotUsage) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{343}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{346}
 }
 
 func (x *MyCopilotUsage) GetCopilotOauthPresent() bool {
@@ -28533,7 +28753,7 @@ type CopilotUsageQuota struct {
 
 func (x *CopilotUsageQuota) Reset() {
 	*x = CopilotUsageQuota{}
-	mi := &file_rpc_platform_service_proto_msgTypes[344]
+	mi := &file_rpc_platform_service_proto_msgTypes[347]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -28545,7 +28765,7 @@ func (x *CopilotUsageQuota) String() string {
 func (*CopilotUsageQuota) ProtoMessage() {}
 
 func (x *CopilotUsageQuota) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[344]
+	mi := &file_rpc_platform_service_proto_msgTypes[347]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -28558,7 +28778,7 @@ func (x *CopilotUsageQuota) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CopilotUsageQuota.ProtoReflect.Descriptor instead.
 func (*CopilotUsageQuota) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{344}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{347}
 }
 
 func (x *CopilotUsageQuota) GetName() string {
@@ -28604,7 +28824,7 @@ type GetMyAnthropicUsageRequest struct {
 
 func (x *GetMyAnthropicUsageRequest) Reset() {
 	*x = GetMyAnthropicUsageRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[345]
+	mi := &file_rpc_platform_service_proto_msgTypes[348]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -28616,7 +28836,7 @@ func (x *GetMyAnthropicUsageRequest) String() string {
 func (*GetMyAnthropicUsageRequest) ProtoMessage() {}
 
 func (x *GetMyAnthropicUsageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[345]
+	mi := &file_rpc_platform_service_proto_msgTypes[348]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -28629,7 +28849,7 @@ func (x *GetMyAnthropicUsageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetMyAnthropicUsageRequest.ProtoReflect.Descriptor instead.
 func (*GetMyAnthropicUsageRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{345}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{348}
 }
 
 // MyAnthropicUsage contains only account metadata and allowance information
@@ -28658,7 +28878,7 @@ type MyAnthropicUsage struct {
 
 func (x *MyAnthropicUsage) Reset() {
 	*x = MyAnthropicUsage{}
-	mi := &file_rpc_platform_service_proto_msgTypes[346]
+	mi := &file_rpc_platform_service_proto_msgTypes[349]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -28670,7 +28890,7 @@ func (x *MyAnthropicUsage) String() string {
 func (*MyAnthropicUsage) ProtoMessage() {}
 
 func (x *MyAnthropicUsage) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[346]
+	mi := &file_rpc_platform_service_proto_msgTypes[349]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -28683,7 +28903,7 @@ func (x *MyAnthropicUsage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MyAnthropicUsage.ProtoReflect.Descriptor instead.
 func (*MyAnthropicUsage) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{346}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{349}
 }
 
 func (x *MyAnthropicUsage) GetAnthropicOauthPresent() bool {
@@ -28802,7 +29022,7 @@ type AnthropicUsageLimit struct {
 
 func (x *AnthropicUsageLimit) Reset() {
 	*x = AnthropicUsageLimit{}
-	mi := &file_rpc_platform_service_proto_msgTypes[347]
+	mi := &file_rpc_platform_service_proto_msgTypes[350]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -28814,7 +29034,7 @@ func (x *AnthropicUsageLimit) String() string {
 func (*AnthropicUsageLimit) ProtoMessage() {}
 
 func (x *AnthropicUsageLimit) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[347]
+	mi := &file_rpc_platform_service_proto_msgTypes[350]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -28827,7 +29047,7 @@ func (x *AnthropicUsageLimit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnthropicUsageLimit.ProtoReflect.Descriptor instead.
 func (*AnthropicUsageLimit) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{347}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{350}
 }
 
 func (x *AnthropicUsageLimit) GetLabel() string {
@@ -28873,7 +29093,7 @@ type SecurityScan struct {
 
 func (x *SecurityScan) Reset() {
 	*x = SecurityScan{}
-	mi := &file_rpc_platform_service_proto_msgTypes[348]
+	mi := &file_rpc_platform_service_proto_msgTypes[351]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -28885,7 +29105,7 @@ func (x *SecurityScan) String() string {
 func (*SecurityScan) ProtoMessage() {}
 
 func (x *SecurityScan) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[348]
+	mi := &file_rpc_platform_service_proto_msgTypes[351]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -28898,7 +29118,7 @@ func (x *SecurityScan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScan.ProtoReflect.Descriptor instead.
 func (*SecurityScan) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{348}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{351}
 }
 
 func (x *SecurityScan) GetId() string {
@@ -28989,7 +29209,7 @@ type ListSecurityScansRequest struct {
 
 func (x *ListSecurityScansRequest) Reset() {
 	*x = ListSecurityScansRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[349]
+	mi := &file_rpc_platform_service_proto_msgTypes[352]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -29001,7 +29221,7 @@ func (x *ListSecurityScansRequest) String() string {
 func (*ListSecurityScansRequest) ProtoMessage() {}
 
 func (x *ListSecurityScansRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[349]
+	mi := &file_rpc_platform_service_proto_msgTypes[352]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -29014,7 +29234,7 @@ func (x *ListSecurityScansRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityScansRequest.ProtoReflect.Descriptor instead.
 func (*ListSecurityScansRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{349}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{352}
 }
 
 func (x *ListSecurityScansRequest) GetNamespace() string {
@@ -29047,7 +29267,7 @@ type ListSecurityScansResponse struct {
 
 func (x *ListSecurityScansResponse) Reset() {
 	*x = ListSecurityScansResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[350]
+	mi := &file_rpc_platform_service_proto_msgTypes[353]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -29059,7 +29279,7 @@ func (x *ListSecurityScansResponse) String() string {
 func (*ListSecurityScansResponse) ProtoMessage() {}
 
 func (x *ListSecurityScansResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[350]
+	mi := &file_rpc_platform_service_proto_msgTypes[353]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -29072,7 +29292,7 @@ func (x *ListSecurityScansResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityScansResponse.ProtoReflect.Descriptor instead.
 func (*ListSecurityScansResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{350}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{353}
 }
 
 func (x *ListSecurityScansResponse) GetScans() []*SecurityScan {
@@ -29092,7 +29312,7 @@ type GetSecurityScanRequest struct {
 
 func (x *GetSecurityScanRequest) Reset() {
 	*x = GetSecurityScanRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[351]
+	mi := &file_rpc_platform_service_proto_msgTypes[354]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -29104,7 +29324,7 @@ func (x *GetSecurityScanRequest) String() string {
 func (*GetSecurityScanRequest) ProtoMessage() {}
 
 func (x *GetSecurityScanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[351]
+	mi := &file_rpc_platform_service_proto_msgTypes[354]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -29117,7 +29337,7 @@ func (x *GetSecurityScanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityScanRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityScanRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{351}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{354}
 }
 
 func (x *GetSecurityScanRequest) GetNamespace() string {
@@ -29208,7 +29428,7 @@ type SecurityFinding struct {
 
 func (x *SecurityFinding) Reset() {
 	*x = SecurityFinding{}
-	mi := &file_rpc_platform_service_proto_msgTypes[352]
+	mi := &file_rpc_platform_service_proto_msgTypes[355]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -29220,7 +29440,7 @@ func (x *SecurityFinding) String() string {
 func (*SecurityFinding) ProtoMessage() {}
 
 func (x *SecurityFinding) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[352]
+	mi := &file_rpc_platform_service_proto_msgTypes[355]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -29233,7 +29453,7 @@ func (x *SecurityFinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityFinding.ProtoReflect.Descriptor instead.
 func (*SecurityFinding) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{352}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{355}
 }
 
 func (x *SecurityFinding) GetId() string {
@@ -29605,7 +29825,7 @@ type ListSecurityFindingsRequest struct {
 
 func (x *ListSecurityFindingsRequest) Reset() {
 	*x = ListSecurityFindingsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[353]
+	mi := &file_rpc_platform_service_proto_msgTypes[356]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -29617,7 +29837,7 @@ func (x *ListSecurityFindingsRequest) String() string {
 func (*ListSecurityFindingsRequest) ProtoMessage() {}
 
 func (x *ListSecurityFindingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[353]
+	mi := &file_rpc_platform_service_proto_msgTypes[356]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -29630,7 +29850,7 @@ func (x *ListSecurityFindingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityFindingsRequest.ProtoReflect.Descriptor instead.
 func (*ListSecurityFindingsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{353}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{356}
 }
 
 func (x *ListSecurityFindingsRequest) GetNamespace() string {
@@ -29747,7 +29967,7 @@ type ListSecurityFindingsResponse struct {
 
 func (x *ListSecurityFindingsResponse) Reset() {
 	*x = ListSecurityFindingsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[354]
+	mi := &file_rpc_platform_service_proto_msgTypes[357]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -29759,7 +29979,7 @@ func (x *ListSecurityFindingsResponse) String() string {
 func (*ListSecurityFindingsResponse) ProtoMessage() {}
 
 func (x *ListSecurityFindingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[354]
+	mi := &file_rpc_platform_service_proto_msgTypes[357]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -29772,7 +29992,7 @@ func (x *ListSecurityFindingsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityFindingsResponse.ProtoReflect.Descriptor instead.
 func (*ListSecurityFindingsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{354}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{357}
 }
 
 func (x *ListSecurityFindingsResponse) GetFindings() []*SecurityFinding {
@@ -29799,7 +30019,7 @@ type GetSecurityFindingRequest struct {
 
 func (x *GetSecurityFindingRequest) Reset() {
 	*x = GetSecurityFindingRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[355]
+	mi := &file_rpc_platform_service_proto_msgTypes[358]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -29811,7 +30031,7 @@ func (x *GetSecurityFindingRequest) String() string {
 func (*GetSecurityFindingRequest) ProtoMessage() {}
 
 func (x *GetSecurityFindingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[355]
+	mi := &file_rpc_platform_service_proto_msgTypes[358]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -29824,7 +30044,7 @@ func (x *GetSecurityFindingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityFindingRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityFindingRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{355}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{358}
 }
 
 func (x *GetSecurityFindingRequest) GetId() string {
@@ -29863,7 +30083,7 @@ type SecurityFindingEvent struct {
 
 func (x *SecurityFindingEvent) Reset() {
 	*x = SecurityFindingEvent{}
-	mi := &file_rpc_platform_service_proto_msgTypes[356]
+	mi := &file_rpc_platform_service_proto_msgTypes[359]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -29875,7 +30095,7 @@ func (x *SecurityFindingEvent) String() string {
 func (*SecurityFindingEvent) ProtoMessage() {}
 
 func (x *SecurityFindingEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[356]
+	mi := &file_rpc_platform_service_proto_msgTypes[359]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -29888,7 +30108,7 @@ func (x *SecurityFindingEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityFindingEvent.ProtoReflect.Descriptor instead.
 func (*SecurityFindingEvent) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{356}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{359}
 }
 
 func (x *SecurityFindingEvent) GetId() int64 {
@@ -29943,7 +30163,7 @@ type GetSecurityFindingResponse struct {
 
 func (x *GetSecurityFindingResponse) Reset() {
 	*x = GetSecurityFindingResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[357]
+	mi := &file_rpc_platform_service_proto_msgTypes[360]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -29955,7 +30175,7 @@ func (x *GetSecurityFindingResponse) String() string {
 func (*GetSecurityFindingResponse) ProtoMessage() {}
 
 func (x *GetSecurityFindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[357]
+	mi := &file_rpc_platform_service_proto_msgTypes[360]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -29968,7 +30188,7 @@ func (x *GetSecurityFindingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityFindingResponse.ProtoReflect.Descriptor instead.
 func (*GetSecurityFindingResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{357}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{360}
 }
 
 func (x *GetSecurityFindingResponse) GetFinding() *SecurityFinding {
@@ -29995,7 +30215,7 @@ type GetSecurityFindingSubmissionBundleRequest struct {
 
 func (x *GetSecurityFindingSubmissionBundleRequest) Reset() {
 	*x = GetSecurityFindingSubmissionBundleRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[358]
+	mi := &file_rpc_platform_service_proto_msgTypes[361]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30007,7 +30227,7 @@ func (x *GetSecurityFindingSubmissionBundleRequest) String() string {
 func (*GetSecurityFindingSubmissionBundleRequest) ProtoMessage() {}
 
 func (x *GetSecurityFindingSubmissionBundleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[358]
+	mi := &file_rpc_platform_service_proto_msgTypes[361]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30020,7 +30240,7 @@ func (x *GetSecurityFindingSubmissionBundleRequest) ProtoReflect() protoreflect.
 
 // Deprecated: Use GetSecurityFindingSubmissionBundleRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityFindingSubmissionBundleRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{358}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{361}
 }
 
 func (x *GetSecurityFindingSubmissionBundleRequest) GetNamespace() string {
@@ -30053,7 +30273,7 @@ type GetSecurityFindingSubmissionBundleResponse struct {
 
 func (x *GetSecurityFindingSubmissionBundleResponse) Reset() {
 	*x = GetSecurityFindingSubmissionBundleResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[359]
+	mi := &file_rpc_platform_service_proto_msgTypes[362]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30065,7 +30285,7 @@ func (x *GetSecurityFindingSubmissionBundleResponse) String() string {
 func (*GetSecurityFindingSubmissionBundleResponse) ProtoMessage() {}
 
 func (x *GetSecurityFindingSubmissionBundleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[359]
+	mi := &file_rpc_platform_service_proto_msgTypes[362]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30078,7 +30298,7 @@ func (x *GetSecurityFindingSubmissionBundleResponse) ProtoReflect() protoreflect
 
 // Deprecated: Use GetSecurityFindingSubmissionBundleResponse.ProtoReflect.Descriptor instead.
 func (*GetSecurityFindingSubmissionBundleResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{359}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{362}
 }
 
 func (x *GetSecurityFindingSubmissionBundleResponse) GetStatus() string {
@@ -30147,7 +30367,7 @@ type UpdateSecurityFindingStatusRequest struct {
 
 func (x *UpdateSecurityFindingStatusRequest) Reset() {
 	*x = UpdateSecurityFindingStatusRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[360]
+	mi := &file_rpc_platform_service_proto_msgTypes[363]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30159,7 +30379,7 @@ func (x *UpdateSecurityFindingStatusRequest) String() string {
 func (*UpdateSecurityFindingStatusRequest) ProtoMessage() {}
 
 func (x *UpdateSecurityFindingStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[360]
+	mi := &file_rpc_platform_service_proto_msgTypes[363]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30172,7 +30392,7 @@ func (x *UpdateSecurityFindingStatusRequest) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use UpdateSecurityFindingStatusRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSecurityFindingStatusRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{360}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{363}
 }
 
 func (x *UpdateSecurityFindingStatusRequest) GetId() string {
@@ -30224,7 +30444,7 @@ type GetSecurityFindingSummaryRequest struct {
 
 func (x *GetSecurityFindingSummaryRequest) Reset() {
 	*x = GetSecurityFindingSummaryRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[361]
+	mi := &file_rpc_platform_service_proto_msgTypes[364]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30236,7 +30456,7 @@ func (x *GetSecurityFindingSummaryRequest) String() string {
 func (*GetSecurityFindingSummaryRequest) ProtoMessage() {}
 
 func (x *GetSecurityFindingSummaryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[361]
+	mi := &file_rpc_platform_service_proto_msgTypes[364]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30249,7 +30469,7 @@ func (x *GetSecurityFindingSummaryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityFindingSummaryRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityFindingSummaryRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{361}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{364}
 }
 
 func (x *GetSecurityFindingSummaryRequest) GetNamespace() string {
@@ -30293,7 +30513,7 @@ type GetSecurityFindingSummaryResponse struct {
 
 func (x *GetSecurityFindingSummaryResponse) Reset() {
 	*x = GetSecurityFindingSummaryResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[362]
+	mi := &file_rpc_platform_service_proto_msgTypes[365]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30305,7 +30525,7 @@ func (x *GetSecurityFindingSummaryResponse) String() string {
 func (*GetSecurityFindingSummaryResponse) ProtoMessage() {}
 
 func (x *GetSecurityFindingSummaryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[362]
+	mi := &file_rpc_platform_service_proto_msgTypes[365]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30318,7 +30538,7 @@ func (x *GetSecurityFindingSummaryResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GetSecurityFindingSummaryResponse.ProtoReflect.Descriptor instead.
 func (*GetSecurityFindingSummaryResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{362}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{365}
 }
 
 func (x *GetSecurityFindingSummaryResponse) GetCounts() map[string]int32 {
@@ -30350,7 +30570,7 @@ type SecurityFindingTrends struct {
 
 func (x *SecurityFindingTrends) Reset() {
 	*x = SecurityFindingTrends{}
-	mi := &file_rpc_platform_service_proto_msgTypes[363]
+	mi := &file_rpc_platform_service_proto_msgTypes[366]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30362,7 +30582,7 @@ func (x *SecurityFindingTrends) String() string {
 func (*SecurityFindingTrends) ProtoMessage() {}
 
 func (x *SecurityFindingTrends) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[363]
+	mi := &file_rpc_platform_service_proto_msgTypes[366]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30375,7 +30595,7 @@ func (x *SecurityFindingTrends) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityFindingTrends.ProtoReflect.Descriptor instead.
 func (*SecurityFindingTrends) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{363}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{366}
 }
 
 func (x *SecurityFindingTrends) GetTriagedCount() int32 {
@@ -30433,7 +30653,7 @@ type UpdateSecurityFindingAssigneeRequest struct {
 
 func (x *UpdateSecurityFindingAssigneeRequest) Reset() {
 	*x = UpdateSecurityFindingAssigneeRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[364]
+	mi := &file_rpc_platform_service_proto_msgTypes[367]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30445,7 +30665,7 @@ func (x *UpdateSecurityFindingAssigneeRequest) String() string {
 func (*UpdateSecurityFindingAssigneeRequest) ProtoMessage() {}
 
 func (x *UpdateSecurityFindingAssigneeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[364]
+	mi := &file_rpc_platform_service_proto_msgTypes[367]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30458,7 +30678,7 @@ func (x *UpdateSecurityFindingAssigneeRequest) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use UpdateSecurityFindingAssigneeRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSecurityFindingAssigneeRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{364}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{367}
 }
 
 func (x *UpdateSecurityFindingAssigneeRequest) GetId() string {
@@ -30496,7 +30716,7 @@ type UpdateSecurityFindingTicketRequest struct {
 
 func (x *UpdateSecurityFindingTicketRequest) Reset() {
 	*x = UpdateSecurityFindingTicketRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[365]
+	mi := &file_rpc_platform_service_proto_msgTypes[368]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30508,7 +30728,7 @@ func (x *UpdateSecurityFindingTicketRequest) String() string {
 func (*UpdateSecurityFindingTicketRequest) ProtoMessage() {}
 
 func (x *UpdateSecurityFindingTicketRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[365]
+	mi := &file_rpc_platform_service_proto_msgTypes[368]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30521,7 +30741,7 @@ func (x *UpdateSecurityFindingTicketRequest) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use UpdateSecurityFindingTicketRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSecurityFindingTicketRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{365}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{368}
 }
 
 func (x *UpdateSecurityFindingTicketRequest) GetId() string {
@@ -30568,7 +30788,7 @@ type CreateSecurityFindingTicketRequest struct {
 
 func (x *CreateSecurityFindingTicketRequest) Reset() {
 	*x = CreateSecurityFindingTicketRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[366]
+	mi := &file_rpc_platform_service_proto_msgTypes[369]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30580,7 +30800,7 @@ func (x *CreateSecurityFindingTicketRequest) String() string {
 func (*CreateSecurityFindingTicketRequest) ProtoMessage() {}
 
 func (x *CreateSecurityFindingTicketRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[366]
+	mi := &file_rpc_platform_service_proto_msgTypes[369]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30593,7 +30813,7 @@ func (x *CreateSecurityFindingTicketRequest) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use CreateSecurityFindingTicketRequest.ProtoReflect.Descriptor instead.
 func (*CreateSecurityFindingTicketRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{366}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{369}
 }
 
 func (x *CreateSecurityFindingTicketRequest) GetId() string {
@@ -30657,7 +30877,7 @@ type BulkUpdateSecurityFindingStatusRequest struct {
 
 func (x *BulkUpdateSecurityFindingStatusRequest) Reset() {
 	*x = BulkUpdateSecurityFindingStatusRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[367]
+	mi := &file_rpc_platform_service_proto_msgTypes[370]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30669,7 +30889,7 @@ func (x *BulkUpdateSecurityFindingStatusRequest) String() string {
 func (*BulkUpdateSecurityFindingStatusRequest) ProtoMessage() {}
 
 func (x *BulkUpdateSecurityFindingStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[367]
+	mi := &file_rpc_platform_service_proto_msgTypes[370]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30682,7 +30902,7 @@ func (x *BulkUpdateSecurityFindingStatusRequest) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use BulkUpdateSecurityFindingStatusRequest.ProtoReflect.Descriptor instead.
 func (*BulkUpdateSecurityFindingStatusRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{367}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{370}
 }
 
 func (x *BulkUpdateSecurityFindingStatusRequest) GetNamespace() string {
@@ -30754,7 +30974,7 @@ type BulkUpdateSecurityFindingOutcome struct {
 
 func (x *BulkUpdateSecurityFindingOutcome) Reset() {
 	*x = BulkUpdateSecurityFindingOutcome{}
-	mi := &file_rpc_platform_service_proto_msgTypes[368]
+	mi := &file_rpc_platform_service_proto_msgTypes[371]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30766,7 +30986,7 @@ func (x *BulkUpdateSecurityFindingOutcome) String() string {
 func (*BulkUpdateSecurityFindingOutcome) ProtoMessage() {}
 
 func (x *BulkUpdateSecurityFindingOutcome) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[368]
+	mi := &file_rpc_platform_service_proto_msgTypes[371]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30779,7 +30999,7 @@ func (x *BulkUpdateSecurityFindingOutcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BulkUpdateSecurityFindingOutcome.ProtoReflect.Descriptor instead.
 func (*BulkUpdateSecurityFindingOutcome) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{368}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{371}
 }
 
 func (x *BulkUpdateSecurityFindingOutcome) GetId() string {
@@ -30815,7 +31035,7 @@ type BulkUpdateSecurityFindingStatusResponse struct {
 
 func (x *BulkUpdateSecurityFindingStatusResponse) Reset() {
 	*x = BulkUpdateSecurityFindingStatusResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[369]
+	mi := &file_rpc_platform_service_proto_msgTypes[372]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30827,7 +31047,7 @@ func (x *BulkUpdateSecurityFindingStatusResponse) String() string {
 func (*BulkUpdateSecurityFindingStatusResponse) ProtoMessage() {}
 
 func (x *BulkUpdateSecurityFindingStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[369]
+	mi := &file_rpc_platform_service_proto_msgTypes[372]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30840,7 +31060,7 @@ func (x *BulkUpdateSecurityFindingStatusResponse) ProtoReflect() protoreflect.Me
 
 // Deprecated: Use BulkUpdateSecurityFindingStatusResponse.ProtoReflect.Descriptor instead.
 func (*BulkUpdateSecurityFindingStatusResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{369}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{372}
 }
 
 func (x *BulkUpdateSecurityFindingStatusResponse) GetResults() []*BulkUpdateSecurityFindingOutcome {
@@ -30874,7 +31094,7 @@ type SecuritySavedFilter struct {
 
 func (x *SecuritySavedFilter) Reset() {
 	*x = SecuritySavedFilter{}
-	mi := &file_rpc_platform_service_proto_msgTypes[370]
+	mi := &file_rpc_platform_service_proto_msgTypes[373]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30886,7 +31106,7 @@ func (x *SecuritySavedFilter) String() string {
 func (*SecuritySavedFilter) ProtoMessage() {}
 
 func (x *SecuritySavedFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[370]
+	mi := &file_rpc_platform_service_proto_msgTypes[373]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30899,7 +31119,7 @@ func (x *SecuritySavedFilter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecuritySavedFilter.ProtoReflect.Descriptor instead.
 func (*SecuritySavedFilter) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{370}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{373}
 }
 
 func (x *SecuritySavedFilter) GetId() string {
@@ -30960,7 +31180,7 @@ type ListSecuritySavedFiltersRequest struct {
 
 func (x *ListSecuritySavedFiltersRequest) Reset() {
 	*x = ListSecuritySavedFiltersRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[371]
+	mi := &file_rpc_platform_service_proto_msgTypes[374]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -30972,7 +31192,7 @@ func (x *ListSecuritySavedFiltersRequest) String() string {
 func (*ListSecuritySavedFiltersRequest) ProtoMessage() {}
 
 func (x *ListSecuritySavedFiltersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[371]
+	mi := &file_rpc_platform_service_proto_msgTypes[374]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -30985,7 +31205,7 @@ func (x *ListSecuritySavedFiltersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecuritySavedFiltersRequest.ProtoReflect.Descriptor instead.
 func (*ListSecuritySavedFiltersRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{371}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{374}
 }
 
 func (x *ListSecuritySavedFiltersRequest) GetNamespace() string {
@@ -31004,7 +31224,7 @@ type ListSecuritySavedFiltersResponse struct {
 
 func (x *ListSecuritySavedFiltersResponse) Reset() {
 	*x = ListSecuritySavedFiltersResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[372]
+	mi := &file_rpc_platform_service_proto_msgTypes[375]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31016,7 +31236,7 @@ func (x *ListSecuritySavedFiltersResponse) String() string {
 func (*ListSecuritySavedFiltersResponse) ProtoMessage() {}
 
 func (x *ListSecuritySavedFiltersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[372]
+	mi := &file_rpc_platform_service_proto_msgTypes[375]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31029,7 +31249,7 @@ func (x *ListSecuritySavedFiltersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecuritySavedFiltersResponse.ProtoReflect.Descriptor instead.
 func (*ListSecuritySavedFiltersResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{372}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{375}
 }
 
 func (x *ListSecuritySavedFiltersResponse) GetFilters() []*SecuritySavedFilter {
@@ -31050,7 +31270,7 @@ type SaveSecuritySavedFilterRequest struct {
 
 func (x *SaveSecuritySavedFilterRequest) Reset() {
 	*x = SaveSecuritySavedFilterRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[373]
+	mi := &file_rpc_platform_service_proto_msgTypes[376]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31062,7 +31282,7 @@ func (x *SaveSecuritySavedFilterRequest) String() string {
 func (*SaveSecuritySavedFilterRequest) ProtoMessage() {}
 
 func (x *SaveSecuritySavedFilterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[373]
+	mi := &file_rpc_platform_service_proto_msgTypes[376]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31075,7 +31295,7 @@ func (x *SaveSecuritySavedFilterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveSecuritySavedFilterRequest.ProtoReflect.Descriptor instead.
 func (*SaveSecuritySavedFilterRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{373}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{376}
 }
 
 func (x *SaveSecuritySavedFilterRequest) GetNamespace() string {
@@ -31109,7 +31329,7 @@ type DeleteSecuritySavedFilterRequest struct {
 
 func (x *DeleteSecuritySavedFilterRequest) Reset() {
 	*x = DeleteSecuritySavedFilterRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[374]
+	mi := &file_rpc_platform_service_proto_msgTypes[377]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31121,7 +31341,7 @@ func (x *DeleteSecuritySavedFilterRequest) String() string {
 func (*DeleteSecuritySavedFilterRequest) ProtoMessage() {}
 
 func (x *DeleteSecuritySavedFilterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[374]
+	mi := &file_rpc_platform_service_proto_msgTypes[377]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31134,7 +31354,7 @@ func (x *DeleteSecuritySavedFilterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecuritySavedFilterRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSecuritySavedFilterRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{374}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{377}
 }
 
 func (x *DeleteSecuritySavedFilterRequest) GetNamespace() string {
@@ -31162,7 +31382,7 @@ type ExportSecurityFindingAuditLogRequest struct {
 
 func (x *ExportSecurityFindingAuditLogRequest) Reset() {
 	*x = ExportSecurityFindingAuditLogRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[375]
+	mi := &file_rpc_platform_service_proto_msgTypes[378]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31174,7 +31394,7 @@ func (x *ExportSecurityFindingAuditLogRequest) String() string {
 func (*ExportSecurityFindingAuditLogRequest) ProtoMessage() {}
 
 func (x *ExportSecurityFindingAuditLogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[375]
+	mi := &file_rpc_platform_service_proto_msgTypes[378]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31187,7 +31407,7 @@ func (x *ExportSecurityFindingAuditLogRequest) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use ExportSecurityFindingAuditLogRequest.ProtoReflect.Descriptor instead.
 func (*ExportSecurityFindingAuditLogRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{375}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{378}
 }
 
 func (x *ExportSecurityFindingAuditLogRequest) GetNamespace() string {
@@ -31223,7 +31443,7 @@ type ExportSecurityFindingAuditLogResponse struct {
 
 func (x *ExportSecurityFindingAuditLogResponse) Reset() {
 	*x = ExportSecurityFindingAuditLogResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[376]
+	mi := &file_rpc_platform_service_proto_msgTypes[379]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31235,7 +31455,7 @@ func (x *ExportSecurityFindingAuditLogResponse) String() string {
 func (*ExportSecurityFindingAuditLogResponse) ProtoMessage() {}
 
 func (x *ExportSecurityFindingAuditLogResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[376]
+	mi := &file_rpc_platform_service_proto_msgTypes[379]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31248,7 +31468,7 @@ func (x *ExportSecurityFindingAuditLogResponse) ProtoReflect() protoreflect.Mess
 
 // Deprecated: Use ExportSecurityFindingAuditLogResponse.ProtoReflect.Descriptor instead.
 func (*ExportSecurityFindingAuditLogResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{376}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{379}
 }
 
 func (x *ExportSecurityFindingAuditLogResponse) GetContent() []byte {
@@ -31295,7 +31515,7 @@ type ListSecurityFindingEventsRequest struct {
 
 func (x *ListSecurityFindingEventsRequest) Reset() {
 	*x = ListSecurityFindingEventsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[377]
+	mi := &file_rpc_platform_service_proto_msgTypes[380]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31307,7 +31527,7 @@ func (x *ListSecurityFindingEventsRequest) String() string {
 func (*ListSecurityFindingEventsRequest) ProtoMessage() {}
 
 func (x *ListSecurityFindingEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[377]
+	mi := &file_rpc_platform_service_proto_msgTypes[380]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31320,7 +31540,7 @@ func (x *ListSecurityFindingEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityFindingEventsRequest.ProtoReflect.Descriptor instead.
 func (*ListSecurityFindingEventsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{377}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{380}
 }
 
 func (x *ListSecurityFindingEventsRequest) GetId() string {
@@ -31360,7 +31580,7 @@ type ListSecurityFindingEventsResponse struct {
 
 func (x *ListSecurityFindingEventsResponse) Reset() {
 	*x = ListSecurityFindingEventsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[378]
+	mi := &file_rpc_platform_service_proto_msgTypes[381]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31372,7 +31592,7 @@ func (x *ListSecurityFindingEventsResponse) String() string {
 func (*ListSecurityFindingEventsResponse) ProtoMessage() {}
 
 func (x *ListSecurityFindingEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[378]
+	mi := &file_rpc_platform_service_proto_msgTypes[381]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31385,7 +31605,7 @@ func (x *ListSecurityFindingEventsResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ListSecurityFindingEventsResponse.ProtoReflect.Descriptor instead.
 func (*ListSecurityFindingEventsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{378}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{381}
 }
 
 func (x *ListSecurityFindingEventsResponse) GetEvents() []*SecurityFindingEvent {
@@ -31411,7 +31631,7 @@ type AddSecurityFindingCommentRequest struct {
 
 func (x *AddSecurityFindingCommentRequest) Reset() {
 	*x = AddSecurityFindingCommentRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[379]
+	mi := &file_rpc_platform_service_proto_msgTypes[382]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31423,7 +31643,7 @@ func (x *AddSecurityFindingCommentRequest) String() string {
 func (*AddSecurityFindingCommentRequest) ProtoMessage() {}
 
 func (x *AddSecurityFindingCommentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[379]
+	mi := &file_rpc_platform_service_proto_msgTypes[382]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31436,7 +31656,7 @@ func (x *AddSecurityFindingCommentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddSecurityFindingCommentRequest.ProtoReflect.Descriptor instead.
 func (*AddSecurityFindingCommentRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{379}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{382}
 }
 
 func (x *AddSecurityFindingCommentRequest) GetId() string {
@@ -31485,7 +31705,7 @@ type SecurityScanScopeConfig struct {
 
 func (x *SecurityScanScopeConfig) Reset() {
 	*x = SecurityScanScopeConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[380]
+	mi := &file_rpc_platform_service_proto_msgTypes[383]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31497,7 +31717,7 @@ func (x *SecurityScanScopeConfig) String() string {
 func (*SecurityScanScopeConfig) ProtoMessage() {}
 
 func (x *SecurityScanScopeConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[380]
+	mi := &file_rpc_platform_service_proto_msgTypes[383]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31510,7 +31730,7 @@ func (x *SecurityScanScopeConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanScopeConfig.ProtoReflect.Descriptor instead.
 func (*SecurityScanScopeConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{380}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{383}
 }
 
 func (x *SecurityScanScopeConfig) GetFocus() string {
@@ -31588,7 +31808,7 @@ type SecurityScanTaskConfig struct {
 
 func (x *SecurityScanTaskConfig) Reset() {
 	*x = SecurityScanTaskConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[381]
+	mi := &file_rpc_platform_service_proto_msgTypes[384]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31600,7 +31820,7 @@ func (x *SecurityScanTaskConfig) String() string {
 func (*SecurityScanTaskConfig) ProtoMessage() {}
 
 func (x *SecurityScanTaskConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[381]
+	mi := &file_rpc_platform_service_proto_msgTypes[384]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31613,7 +31833,7 @@ func (x *SecurityScanTaskConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanTaskConfig.ProtoReflect.Descriptor instead.
 func (*SecurityScanTaskConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{381}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{384}
 }
 
 func (x *SecurityScanTaskConfig) GetName() string {
@@ -31755,7 +31975,7 @@ type SecurityScanTaskCondition struct {
 
 func (x *SecurityScanTaskCondition) Reset() {
 	*x = SecurityScanTaskCondition{}
-	mi := &file_rpc_platform_service_proto_msgTypes[382]
+	mi := &file_rpc_platform_service_proto_msgTypes[385]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31767,7 +31987,7 @@ func (x *SecurityScanTaskCondition) String() string {
 func (*SecurityScanTaskCondition) ProtoMessage() {}
 
 func (x *SecurityScanTaskCondition) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[382]
+	mi := &file_rpc_platform_service_proto_msgTypes[385]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31780,7 +32000,7 @@ func (x *SecurityScanTaskCondition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanTaskCondition.ProtoReflect.Descriptor instead.
 func (*SecurityScanTaskCondition) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{382}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{385}
 }
 
 func (x *SecurityScanTaskCondition) GetTask() string {
@@ -31823,7 +32043,7 @@ type SecurityScanTaskTools struct {
 
 func (x *SecurityScanTaskTools) Reset() {
 	*x = SecurityScanTaskTools{}
-	mi := &file_rpc_platform_service_proto_msgTypes[383]
+	mi := &file_rpc_platform_service_proto_msgTypes[386]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31835,7 +32055,7 @@ func (x *SecurityScanTaskTools) String() string {
 func (*SecurityScanTaskTools) ProtoMessage() {}
 
 func (x *SecurityScanTaskTools) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[383]
+	mi := &file_rpc_platform_service_proto_msgTypes[386]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31848,7 +32068,7 @@ func (x *SecurityScanTaskTools) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanTaskTools.ProtoReflect.Descriptor instead.
 func (*SecurityScanTaskTools) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{383}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{386}
 }
 
 func (x *SecurityScanTaskTools) GetAllowed() []string {
@@ -31876,7 +32096,7 @@ type SecurityRankerConfig struct {
 
 func (x *SecurityRankerConfig) Reset() {
 	*x = SecurityRankerConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[384]
+	mi := &file_rpc_platform_service_proto_msgTypes[387]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31888,7 +32108,7 @@ func (x *SecurityRankerConfig) String() string {
 func (*SecurityRankerConfig) ProtoMessage() {}
 
 func (x *SecurityRankerConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[384]
+	mi := &file_rpc_platform_service_proto_msgTypes[387]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31901,7 +32121,7 @@ func (x *SecurityRankerConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityRankerConfig.ProtoReflect.Descriptor instead.
 func (*SecurityRankerConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{384}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{387}
 }
 
 func (x *SecurityRankerConfig) GetName() string {
@@ -31931,7 +32151,7 @@ type SecurityPostScriptConfig struct {
 
 func (x *SecurityPostScriptConfig) Reset() {
 	*x = SecurityPostScriptConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[385]
+	mi := &file_rpc_platform_service_proto_msgTypes[388]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -31943,7 +32163,7 @@ func (x *SecurityPostScriptConfig) String() string {
 func (*SecurityPostScriptConfig) ProtoMessage() {}
 
 func (x *SecurityPostScriptConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[385]
+	mi := &file_rpc_platform_service_proto_msgTypes[388]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -31956,7 +32176,7 @@ func (x *SecurityPostScriptConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityPostScriptConfig.ProtoReflect.Descriptor instead.
 func (*SecurityPostScriptConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{385}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{388}
 }
 
 func (x *SecurityPostScriptConfig) GetName() string {
@@ -31991,7 +32211,7 @@ type SecurityScanDedupeConfig struct {
 
 func (x *SecurityScanDedupeConfig) Reset() {
 	*x = SecurityScanDedupeConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[386]
+	mi := &file_rpc_platform_service_proto_msgTypes[389]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -32003,7 +32223,7 @@ func (x *SecurityScanDedupeConfig) String() string {
 func (*SecurityScanDedupeConfig) ProtoMessage() {}
 
 func (x *SecurityScanDedupeConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[386]
+	mi := &file_rpc_platform_service_proto_msgTypes[389]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -32016,7 +32236,7 @@ func (x *SecurityScanDedupeConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanDedupeConfig.ProtoReflect.Descriptor instead.
 func (*SecurityScanDedupeConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{386}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{389}
 }
 
 func (x *SecurityScanDedupeConfig) GetEnabled() bool {
@@ -32056,7 +32276,7 @@ type SecurityScanTriggersConfig struct {
 
 func (x *SecurityScanTriggersConfig) Reset() {
 	*x = SecurityScanTriggersConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[387]
+	mi := &file_rpc_platform_service_proto_msgTypes[390]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -32068,7 +32288,7 @@ func (x *SecurityScanTriggersConfig) String() string {
 func (*SecurityScanTriggersConfig) ProtoMessage() {}
 
 func (x *SecurityScanTriggersConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[387]
+	mi := &file_rpc_platform_service_proto_msgTypes[390]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -32081,7 +32301,7 @@ func (x *SecurityScanTriggersConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanTriggersConfig.ProtoReflect.Descriptor instead.
 func (*SecurityScanTriggersConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{387}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{390}
 }
 
 func (x *SecurityScanTriggersConfig) GetRepositoryRef() string {
@@ -32143,7 +32363,7 @@ type SecurityScanChecksConfig struct {
 
 func (x *SecurityScanChecksConfig) Reset() {
 	*x = SecurityScanChecksConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[388]
+	mi := &file_rpc_platform_service_proto_msgTypes[391]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -32155,7 +32375,7 @@ func (x *SecurityScanChecksConfig) String() string {
 func (*SecurityScanChecksConfig) ProtoMessage() {}
 
 func (x *SecurityScanChecksConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[388]
+	mi := &file_rpc_platform_service_proto_msgTypes[391]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -32168,7 +32388,7 @@ func (x *SecurityScanChecksConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanChecksConfig.ProtoReflect.Descriptor instead.
 func (*SecurityScanChecksConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{388}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{391}
 }
 
 func (x *SecurityScanChecksConfig) GetEnabled() bool {
@@ -32217,7 +32437,7 @@ type SecurityScanNotificationRuleConfig struct {
 
 func (x *SecurityScanNotificationRuleConfig) Reset() {
 	*x = SecurityScanNotificationRuleConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[389]
+	mi := &file_rpc_platform_service_proto_msgTypes[392]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -32229,7 +32449,7 @@ func (x *SecurityScanNotificationRuleConfig) String() string {
 func (*SecurityScanNotificationRuleConfig) ProtoMessage() {}
 
 func (x *SecurityScanNotificationRuleConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[389]
+	mi := &file_rpc_platform_service_proto_msgTypes[392]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -32242,7 +32462,7 @@ func (x *SecurityScanNotificationRuleConfig) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use SecurityScanNotificationRuleConfig.ProtoReflect.Descriptor instead.
 func (*SecurityScanNotificationRuleConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{389}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{392}
 }
 
 func (x *SecurityScanNotificationRuleConfig) GetName() string {
@@ -32318,7 +32538,7 @@ type SecurityScanCheckState struct {
 
 func (x *SecurityScanCheckState) Reset() {
 	*x = SecurityScanCheckState{}
-	mi := &file_rpc_platform_service_proto_msgTypes[390]
+	mi := &file_rpc_platform_service_proto_msgTypes[393]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -32330,7 +32550,7 @@ func (x *SecurityScanCheckState) String() string {
 func (*SecurityScanCheckState) ProtoMessage() {}
 
 func (x *SecurityScanCheckState) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[390]
+	mi := &file_rpc_platform_service_proto_msgTypes[393]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -32343,7 +32563,7 @@ func (x *SecurityScanCheckState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanCheckState.ProtoReflect.Descriptor instead.
 func (*SecurityScanCheckState) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{390}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{393}
 }
 
 func (x *SecurityScanCheckState) GetRunName() string {
@@ -32416,7 +32636,7 @@ type SecurityScanNotificationState struct {
 
 func (x *SecurityScanNotificationState) Reset() {
 	*x = SecurityScanNotificationState{}
-	mi := &file_rpc_platform_service_proto_msgTypes[391]
+	mi := &file_rpc_platform_service_proto_msgTypes[394]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -32428,7 +32648,7 @@ func (x *SecurityScanNotificationState) String() string {
 func (*SecurityScanNotificationState) ProtoMessage() {}
 
 func (x *SecurityScanNotificationState) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[391]
+	mi := &file_rpc_platform_service_proto_msgTypes[394]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -32441,7 +32661,7 @@ func (x *SecurityScanNotificationState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanNotificationState.ProtoReflect.Descriptor instead.
 func (*SecurityScanNotificationState) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{391}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{394}
 }
 
 func (x *SecurityScanNotificationState) GetLastRunName() string {
@@ -32499,7 +32719,7 @@ type SecurityScanExecutionConfig struct {
 
 func (x *SecurityScanExecutionConfig) Reset() {
 	*x = SecurityScanExecutionConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[392]
+	mi := &file_rpc_platform_service_proto_msgTypes[395]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -32511,7 +32731,7 @@ func (x *SecurityScanExecutionConfig) String() string {
 func (*SecurityScanExecutionConfig) ProtoMessage() {}
 
 func (x *SecurityScanExecutionConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[392]
+	mi := &file_rpc_platform_service_proto_msgTypes[395]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -32524,7 +32744,7 @@ func (x *SecurityScanExecutionConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanExecutionConfig.ProtoReflect.Descriptor instead.
 func (*SecurityScanExecutionConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{392}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{395}
 }
 
 func (x *SecurityScanExecutionConfig) GetMode() string {
@@ -32563,7 +32783,7 @@ type SecurityScanTaskAttemptState struct {
 
 func (x *SecurityScanTaskAttemptState) Reset() {
 	*x = SecurityScanTaskAttemptState{}
-	mi := &file_rpc_platform_service_proto_msgTypes[393]
+	mi := &file_rpc_platform_service_proto_msgTypes[396]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -32575,7 +32795,7 @@ func (x *SecurityScanTaskAttemptState) String() string {
 func (*SecurityScanTaskAttemptState) ProtoMessage() {}
 
 func (x *SecurityScanTaskAttemptState) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[393]
+	mi := &file_rpc_platform_service_proto_msgTypes[396]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -32588,7 +32808,7 @@ func (x *SecurityScanTaskAttemptState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanTaskAttemptState.ProtoReflect.Descriptor instead.
 func (*SecurityScanTaskAttemptState) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{393}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{396}
 }
 
 func (x *SecurityScanTaskAttemptState) GetRunName() string {
@@ -32660,7 +32880,7 @@ type SecurityScanTaskExecutionState struct {
 
 func (x *SecurityScanTaskExecutionState) Reset() {
 	*x = SecurityScanTaskExecutionState{}
-	mi := &file_rpc_platform_service_proto_msgTypes[394]
+	mi := &file_rpc_platform_service_proto_msgTypes[397]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -32672,7 +32892,7 @@ func (x *SecurityScanTaskExecutionState) String() string {
 func (*SecurityScanTaskExecutionState) ProtoMessage() {}
 
 func (x *SecurityScanTaskExecutionState) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[394]
+	mi := &file_rpc_platform_service_proto_msgTypes[397]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -32685,7 +32905,7 @@ func (x *SecurityScanTaskExecutionState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanTaskExecutionState.ProtoReflect.Descriptor instead.
 func (*SecurityScanTaskExecutionState) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{394}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{397}
 }
 
 func (x *SecurityScanTaskExecutionState) GetName() string {
@@ -32827,7 +33047,7 @@ type SecurityScanExecutionState struct {
 
 func (x *SecurityScanExecutionState) Reset() {
 	*x = SecurityScanExecutionState{}
-	mi := &file_rpc_platform_service_proto_msgTypes[395]
+	mi := &file_rpc_platform_service_proto_msgTypes[398]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -32839,7 +33059,7 @@ func (x *SecurityScanExecutionState) String() string {
 func (*SecurityScanExecutionState) ProtoMessage() {}
 
 func (x *SecurityScanExecutionState) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[395]
+	mi := &file_rpc_platform_service_proto_msgTypes[398]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -32852,7 +33072,7 @@ func (x *SecurityScanExecutionState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanExecutionState.ProtoReflect.Descriptor instead.
 func (*SecurityScanExecutionState) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{395}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{398}
 }
 
 func (x *SecurityScanExecutionState) GetId() string {
@@ -32970,7 +33190,7 @@ type SecurityScanFanOutState struct {
 
 func (x *SecurityScanFanOutState) Reset() {
 	*x = SecurityScanFanOutState{}
-	mi := &file_rpc_platform_service_proto_msgTypes[396]
+	mi := &file_rpc_platform_service_proto_msgTypes[399]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -32982,7 +33202,7 @@ func (x *SecurityScanFanOutState) String() string {
 func (*SecurityScanFanOutState) ProtoMessage() {}
 
 func (x *SecurityScanFanOutState) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[396]
+	mi := &file_rpc_platform_service_proto_msgTypes[399]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -32995,7 +33215,7 @@ func (x *SecurityScanFanOutState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanFanOutState.ProtoReflect.Descriptor instead.
 func (*SecurityScanFanOutState) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{396}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{399}
 }
 
 func (x *SecurityScanFanOutState) GetName() string {
@@ -33062,7 +33282,7 @@ type SecurityScanExecutionPlanNode struct {
 
 func (x *SecurityScanExecutionPlanNode) Reset() {
 	*x = SecurityScanExecutionPlanNode{}
-	mi := &file_rpc_platform_service_proto_msgTypes[397]
+	mi := &file_rpc_platform_service_proto_msgTypes[400]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -33074,7 +33294,7 @@ func (x *SecurityScanExecutionPlanNode) String() string {
 func (*SecurityScanExecutionPlanNode) ProtoMessage() {}
 
 func (x *SecurityScanExecutionPlanNode) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[397]
+	mi := &file_rpc_platform_service_proto_msgTypes[400]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -33087,7 +33307,7 @@ func (x *SecurityScanExecutionPlanNode) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanExecutionPlanNode.ProtoReflect.Descriptor instead.
 func (*SecurityScanExecutionPlanNode) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{397}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{400}
 }
 
 func (x *SecurityScanExecutionPlanNode) GetName() string {
@@ -33147,7 +33367,7 @@ type SecurityScanPostScriptJobState struct {
 
 func (x *SecurityScanPostScriptJobState) Reset() {
 	*x = SecurityScanPostScriptJobState{}
-	mi := &file_rpc_platform_service_proto_msgTypes[398]
+	mi := &file_rpc_platform_service_proto_msgTypes[401]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -33159,7 +33379,7 @@ func (x *SecurityScanPostScriptJobState) String() string {
 func (*SecurityScanPostScriptJobState) ProtoMessage() {}
 
 func (x *SecurityScanPostScriptJobState) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[398]
+	mi := &file_rpc_platform_service_proto_msgTypes[401]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -33172,7 +33392,7 @@ func (x *SecurityScanPostScriptJobState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanPostScriptJobState.ProtoReflect.Descriptor instead.
 func (*SecurityScanPostScriptJobState) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{398}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{401}
 }
 
 func (x *SecurityScanPostScriptJobState) GetScript() string {
@@ -33328,7 +33548,7 @@ type SecurityScanConfigSpec struct {
 
 func (x *SecurityScanConfigSpec) Reset() {
 	*x = SecurityScanConfigSpec{}
-	mi := &file_rpc_platform_service_proto_msgTypes[399]
+	mi := &file_rpc_platform_service_proto_msgTypes[402]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -33340,7 +33560,7 @@ func (x *SecurityScanConfigSpec) String() string {
 func (*SecurityScanConfigSpec) ProtoMessage() {}
 
 func (x *SecurityScanConfigSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[399]
+	mi := &file_rpc_platform_service_proto_msgTypes[402]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -33353,7 +33573,7 @@ func (x *SecurityScanConfigSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanConfigSpec.ProtoReflect.Descriptor instead.
 func (*SecurityScanConfigSpec) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{399}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{402}
 }
 
 func (x *SecurityScanConfigSpec) GetRepoUrl() string {
@@ -33629,7 +33849,7 @@ type SecurityScanConfig struct {
 
 func (x *SecurityScanConfig) Reset() {
 	*x = SecurityScanConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[400]
+	mi := &file_rpc_platform_service_proto_msgTypes[403]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -33641,7 +33861,7 @@ func (x *SecurityScanConfig) String() string {
 func (*SecurityScanConfig) ProtoMessage() {}
 
 func (x *SecurityScanConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[400]
+	mi := &file_rpc_platform_service_proto_msgTypes[403]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -33654,7 +33874,7 @@ func (x *SecurityScanConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanConfig.ProtoReflect.Descriptor instead.
 func (*SecurityScanConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{400}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{403}
 }
 
 func (x *SecurityScanConfig) GetNamespace() string {
@@ -33846,7 +34066,7 @@ type SecurityScanRetentionState struct {
 
 func (x *SecurityScanRetentionState) Reset() {
 	*x = SecurityScanRetentionState{}
-	mi := &file_rpc_platform_service_proto_msgTypes[401]
+	mi := &file_rpc_platform_service_proto_msgTypes[404]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -33858,7 +34078,7 @@ func (x *SecurityScanRetentionState) String() string {
 func (*SecurityScanRetentionState) ProtoMessage() {}
 
 func (x *SecurityScanRetentionState) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[401]
+	mi := &file_rpc_platform_service_proto_msgTypes[404]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -33871,7 +34091,7 @@ func (x *SecurityScanRetentionState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanRetentionState.ProtoReflect.Descriptor instead.
 func (*SecurityScanRetentionState) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{401}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{404}
 }
 
 func (x *SecurityScanRetentionState) GetLastSweepTimeUnix() int64 {
@@ -33946,7 +34166,7 @@ type ListSecurityScanConfigsRequest struct {
 
 func (x *ListSecurityScanConfigsRequest) Reset() {
 	*x = ListSecurityScanConfigsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[402]
+	mi := &file_rpc_platform_service_proto_msgTypes[405]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -33958,7 +34178,7 @@ func (x *ListSecurityScanConfigsRequest) String() string {
 func (*ListSecurityScanConfigsRequest) ProtoMessage() {}
 
 func (x *ListSecurityScanConfigsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[402]
+	mi := &file_rpc_platform_service_proto_msgTypes[405]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -33971,7 +34191,7 @@ func (x *ListSecurityScanConfigsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityScanConfigsRequest.ProtoReflect.Descriptor instead.
 func (*ListSecurityScanConfigsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{402}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{405}
 }
 
 func (x *ListSecurityScanConfigsRequest) GetNamespace() string {
@@ -33990,7 +34210,7 @@ type ListSecurityScanConfigsResponse struct {
 
 func (x *ListSecurityScanConfigsResponse) Reset() {
 	*x = ListSecurityScanConfigsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[403]
+	mi := &file_rpc_platform_service_proto_msgTypes[406]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34002,7 +34222,7 @@ func (x *ListSecurityScanConfigsResponse) String() string {
 func (*ListSecurityScanConfigsResponse) ProtoMessage() {}
 
 func (x *ListSecurityScanConfigsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[403]
+	mi := &file_rpc_platform_service_proto_msgTypes[406]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34015,7 +34235,7 @@ func (x *ListSecurityScanConfigsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityScanConfigsResponse.ProtoReflect.Descriptor instead.
 func (*ListSecurityScanConfigsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{403}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{406}
 }
 
 func (x *ListSecurityScanConfigsResponse) GetConfigs() []*SecurityScanConfig {
@@ -34035,7 +34255,7 @@ type GetSecurityScanConfigRequest struct {
 
 func (x *GetSecurityScanConfigRequest) Reset() {
 	*x = GetSecurityScanConfigRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[404]
+	mi := &file_rpc_platform_service_proto_msgTypes[407]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34047,7 +34267,7 @@ func (x *GetSecurityScanConfigRequest) String() string {
 func (*GetSecurityScanConfigRequest) ProtoMessage() {}
 
 func (x *GetSecurityScanConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[404]
+	mi := &file_rpc_platform_service_proto_msgTypes[407]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34060,7 +34280,7 @@ func (x *GetSecurityScanConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityScanConfigRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityScanConfigRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{404}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{407}
 }
 
 func (x *GetSecurityScanConfigRequest) GetNamespace() string {
@@ -34096,7 +34316,7 @@ type CreateSecurityScanRequest struct {
 
 func (x *CreateSecurityScanRequest) Reset() {
 	*x = CreateSecurityScanRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[405]
+	mi := &file_rpc_platform_service_proto_msgTypes[408]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34108,7 +34328,7 @@ func (x *CreateSecurityScanRequest) String() string {
 func (*CreateSecurityScanRequest) ProtoMessage() {}
 
 func (x *CreateSecurityScanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[405]
+	mi := &file_rpc_platform_service_proto_msgTypes[408]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34121,7 +34341,7 @@ func (x *CreateSecurityScanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSecurityScanRequest.ProtoReflect.Descriptor instead.
 func (*CreateSecurityScanRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{405}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{408}
 }
 
 func (x *CreateSecurityScanRequest) GetNamespace() string {
@@ -34174,7 +34394,7 @@ type UpdateSecurityScanRequest struct {
 
 func (x *UpdateSecurityScanRequest) Reset() {
 	*x = UpdateSecurityScanRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[406]
+	mi := &file_rpc_platform_service_proto_msgTypes[409]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34186,7 +34406,7 @@ func (x *UpdateSecurityScanRequest) String() string {
 func (*UpdateSecurityScanRequest) ProtoMessage() {}
 
 func (x *UpdateSecurityScanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[406]
+	mi := &file_rpc_platform_service_proto_msgTypes[409]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34199,7 +34419,7 @@ func (x *UpdateSecurityScanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSecurityScanRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSecurityScanRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{406}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{409}
 }
 
 func (x *UpdateSecurityScanRequest) GetNamespace() string {
@@ -34247,7 +34467,7 @@ type DeleteSecurityScanRequest struct {
 
 func (x *DeleteSecurityScanRequest) Reset() {
 	*x = DeleteSecurityScanRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[407]
+	mi := &file_rpc_platform_service_proto_msgTypes[410]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34259,7 +34479,7 @@ func (x *DeleteSecurityScanRequest) String() string {
 func (*DeleteSecurityScanRequest) ProtoMessage() {}
 
 func (x *DeleteSecurityScanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[407]
+	mi := &file_rpc_platform_service_proto_msgTypes[410]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34272,7 +34492,7 @@ func (x *DeleteSecurityScanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecurityScanRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSecurityScanRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{407}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{410}
 }
 
 func (x *DeleteSecurityScanRequest) GetNamespace() string {
@@ -34305,7 +34525,7 @@ type RunSecurityScanNowRequest struct {
 
 func (x *RunSecurityScanNowRequest) Reset() {
 	*x = RunSecurityScanNowRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[408]
+	mi := &file_rpc_platform_service_proto_msgTypes[411]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34317,7 +34537,7 @@ func (x *RunSecurityScanNowRequest) String() string {
 func (*RunSecurityScanNowRequest) ProtoMessage() {}
 
 func (x *RunSecurityScanNowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[408]
+	mi := &file_rpc_platform_service_proto_msgTypes[411]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34330,7 +34550,7 @@ func (x *RunSecurityScanNowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunSecurityScanNowRequest.ProtoReflect.Descriptor instead.
 func (*RunSecurityScanNowRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{408}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{411}
 }
 
 func (x *RunSecurityScanNowRequest) GetNamespace() string {
@@ -34364,7 +34584,7 @@ type ResumeSecurityScanRequest struct {
 
 func (x *ResumeSecurityScanRequest) Reset() {
 	*x = ResumeSecurityScanRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[409]
+	mi := &file_rpc_platform_service_proto_msgTypes[412]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34376,7 +34596,7 @@ func (x *ResumeSecurityScanRequest) String() string {
 func (*ResumeSecurityScanRequest) ProtoMessage() {}
 
 func (x *ResumeSecurityScanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[409]
+	mi := &file_rpc_platform_service_proto_msgTypes[412]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34389,7 +34609,7 @@ func (x *ResumeSecurityScanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResumeSecurityScanRequest.ProtoReflect.Descriptor instead.
 func (*ResumeSecurityScanRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{409}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{412}
 }
 
 func (x *ResumeSecurityScanRequest) GetNamespace() string {
@@ -34416,7 +34636,7 @@ type CancelSecurityScanRunRequest struct {
 
 func (x *CancelSecurityScanRunRequest) Reset() {
 	*x = CancelSecurityScanRunRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[410]
+	mi := &file_rpc_platform_service_proto_msgTypes[413]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34428,7 +34648,7 @@ func (x *CancelSecurityScanRunRequest) String() string {
 func (*CancelSecurityScanRunRequest) ProtoMessage() {}
 
 func (x *CancelSecurityScanRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[410]
+	mi := &file_rpc_platform_service_proto_msgTypes[413]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34441,7 +34661,7 @@ func (x *CancelSecurityScanRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelSecurityScanRunRequest.ProtoReflect.Descriptor instead.
 func (*CancelSecurityScanRunRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{410}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{413}
 }
 
 func (x *CancelSecurityScanRunRequest) GetNamespace() string {
@@ -34487,7 +34707,7 @@ type SecurityWorkflowResource struct {
 
 func (x *SecurityWorkflowResource) Reset() {
 	*x = SecurityWorkflowResource{}
-	mi := &file_rpc_platform_service_proto_msgTypes[411]
+	mi := &file_rpc_platform_service_proto_msgTypes[414]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34499,7 +34719,7 @@ func (x *SecurityWorkflowResource) String() string {
 func (*SecurityWorkflowResource) ProtoMessage() {}
 
 func (x *SecurityWorkflowResource) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[411]
+	mi := &file_rpc_platform_service_proto_msgTypes[414]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34512,7 +34732,7 @@ func (x *SecurityWorkflowResource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityWorkflowResource.ProtoReflect.Descriptor instead.
 func (*SecurityWorkflowResource) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{411}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{414}
 }
 
 func (x *SecurityWorkflowResource) GetNamespace() string {
@@ -34599,7 +34819,7 @@ type SecurityWorkflowParameter struct {
 
 func (x *SecurityWorkflowParameter) Reset() {
 	*x = SecurityWorkflowParameter{}
-	mi := &file_rpc_platform_service_proto_msgTypes[412]
+	mi := &file_rpc_platform_service_proto_msgTypes[415]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34611,7 +34831,7 @@ func (x *SecurityWorkflowParameter) String() string {
 func (*SecurityWorkflowParameter) ProtoMessage() {}
 
 func (x *SecurityWorkflowParameter) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[412]
+	mi := &file_rpc_platform_service_proto_msgTypes[415]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34624,7 +34844,7 @@ func (x *SecurityWorkflowParameter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityWorkflowParameter.ProtoReflect.Descriptor instead.
 func (*SecurityWorkflowParameter) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{412}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{415}
 }
 
 func (x *SecurityWorkflowParameter) GetName() string {
@@ -34664,7 +34884,7 @@ type ListSecurityWorkflowsRequest struct {
 
 func (x *ListSecurityWorkflowsRequest) Reset() {
 	*x = ListSecurityWorkflowsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[413]
+	mi := &file_rpc_platform_service_proto_msgTypes[416]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34676,7 +34896,7 @@ func (x *ListSecurityWorkflowsRequest) String() string {
 func (*ListSecurityWorkflowsRequest) ProtoMessage() {}
 
 func (x *ListSecurityWorkflowsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[413]
+	mi := &file_rpc_platform_service_proto_msgTypes[416]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34689,7 +34909,7 @@ func (x *ListSecurityWorkflowsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityWorkflowsRequest.ProtoReflect.Descriptor instead.
 func (*ListSecurityWorkflowsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{413}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{416}
 }
 
 func (x *ListSecurityWorkflowsRequest) GetNamespace() string {
@@ -34708,7 +34928,7 @@ type ListSecurityWorkflowsResponse struct {
 
 func (x *ListSecurityWorkflowsResponse) Reset() {
 	*x = ListSecurityWorkflowsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[414]
+	mi := &file_rpc_platform_service_proto_msgTypes[417]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34720,7 +34940,7 @@ func (x *ListSecurityWorkflowsResponse) String() string {
 func (*ListSecurityWorkflowsResponse) ProtoMessage() {}
 
 func (x *ListSecurityWorkflowsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[414]
+	mi := &file_rpc_platform_service_proto_msgTypes[417]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34733,7 +34953,7 @@ func (x *ListSecurityWorkflowsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityWorkflowsResponse.ProtoReflect.Descriptor instead.
 func (*ListSecurityWorkflowsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{414}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{417}
 }
 
 func (x *ListSecurityWorkflowsResponse) GetWorkflows() []*SecurityWorkflowResource {
@@ -34753,7 +34973,7 @@ type GetSecurityWorkflowRequest struct {
 
 func (x *GetSecurityWorkflowRequest) Reset() {
 	*x = GetSecurityWorkflowRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[415]
+	mi := &file_rpc_platform_service_proto_msgTypes[418]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34765,7 +34985,7 @@ func (x *GetSecurityWorkflowRequest) String() string {
 func (*GetSecurityWorkflowRequest) ProtoMessage() {}
 
 func (x *GetSecurityWorkflowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[415]
+	mi := &file_rpc_platform_service_proto_msgTypes[418]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34778,7 +34998,7 @@ func (x *GetSecurityWorkflowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityWorkflowRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityWorkflowRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{415}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{418}
 }
 
 func (x *GetSecurityWorkflowRequest) GetNamespace() string {
@@ -34804,7 +35024,7 @@ type CreateSecurityWorkflowRequest struct {
 
 func (x *CreateSecurityWorkflowRequest) Reset() {
 	*x = CreateSecurityWorkflowRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[416]
+	mi := &file_rpc_platform_service_proto_msgTypes[419]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34816,7 +35036,7 @@ func (x *CreateSecurityWorkflowRequest) String() string {
 func (*CreateSecurityWorkflowRequest) ProtoMessage() {}
 
 func (x *CreateSecurityWorkflowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[416]
+	mi := &file_rpc_platform_service_proto_msgTypes[419]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34829,7 +35049,7 @@ func (x *CreateSecurityWorkflowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSecurityWorkflowRequest.ProtoReflect.Descriptor instead.
 func (*CreateSecurityWorkflowRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{416}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{419}
 }
 
 func (x *CreateSecurityWorkflowRequest) GetWorkflow() *SecurityWorkflowResource {
@@ -34848,7 +35068,7 @@ type UpdateSecurityWorkflowRequest struct {
 
 func (x *UpdateSecurityWorkflowRequest) Reset() {
 	*x = UpdateSecurityWorkflowRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[417]
+	mi := &file_rpc_platform_service_proto_msgTypes[420]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34860,7 +35080,7 @@ func (x *UpdateSecurityWorkflowRequest) String() string {
 func (*UpdateSecurityWorkflowRequest) ProtoMessage() {}
 
 func (x *UpdateSecurityWorkflowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[417]
+	mi := &file_rpc_platform_service_proto_msgTypes[420]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34873,7 +35093,7 @@ func (x *UpdateSecurityWorkflowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSecurityWorkflowRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSecurityWorkflowRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{417}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{420}
 }
 
 func (x *UpdateSecurityWorkflowRequest) GetWorkflow() *SecurityWorkflowResource {
@@ -34893,7 +35113,7 @@ type DeleteSecurityWorkflowRequest struct {
 
 func (x *DeleteSecurityWorkflowRequest) Reset() {
 	*x = DeleteSecurityWorkflowRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[418]
+	mi := &file_rpc_platform_service_proto_msgTypes[421]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34905,7 +35125,7 @@ func (x *DeleteSecurityWorkflowRequest) String() string {
 func (*DeleteSecurityWorkflowRequest) ProtoMessage() {}
 
 func (x *DeleteSecurityWorkflowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[418]
+	mi := &file_rpc_platform_service_proto_msgTypes[421]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34918,7 +35138,7 @@ func (x *DeleteSecurityWorkflowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecurityWorkflowRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSecurityWorkflowRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{418}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{421}
 }
 
 func (x *DeleteSecurityWorkflowRequest) GetNamespace() string {
@@ -34948,7 +35168,7 @@ type SecurityWorkflowValidationError struct {
 
 func (x *SecurityWorkflowValidationError) Reset() {
 	*x = SecurityWorkflowValidationError{}
-	mi := &file_rpc_platform_service_proto_msgTypes[419]
+	mi := &file_rpc_platform_service_proto_msgTypes[422]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -34960,7 +35180,7 @@ func (x *SecurityWorkflowValidationError) String() string {
 func (*SecurityWorkflowValidationError) ProtoMessage() {}
 
 func (x *SecurityWorkflowValidationError) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[419]
+	mi := &file_rpc_platform_service_proto_msgTypes[422]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -34973,7 +35193,7 @@ func (x *SecurityWorkflowValidationError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityWorkflowValidationError.ProtoReflect.Descriptor instead.
 func (*SecurityWorkflowValidationError) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{419}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{422}
 }
 
 func (x *SecurityWorkflowValidationError) GetField() string {
@@ -35003,7 +35223,7 @@ type ValidateSecurityWorkflowRequest struct {
 
 func (x *ValidateSecurityWorkflowRequest) Reset() {
 	*x = ValidateSecurityWorkflowRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[420]
+	mi := &file_rpc_platform_service_proto_msgTypes[423]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35015,7 +35235,7 @@ func (x *ValidateSecurityWorkflowRequest) String() string {
 func (*ValidateSecurityWorkflowRequest) ProtoMessage() {}
 
 func (x *ValidateSecurityWorkflowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[420]
+	mi := &file_rpc_platform_service_proto_msgTypes[423]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35028,7 +35248,7 @@ func (x *ValidateSecurityWorkflowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateSecurityWorkflowRequest.ProtoReflect.Descriptor instead.
 func (*ValidateSecurityWorkflowRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{420}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{423}
 }
 
 func (x *ValidateSecurityWorkflowRequest) GetTasks() []*SecurityScanTaskConfig {
@@ -35062,7 +35282,7 @@ type ValidateSecurityWorkflowResponse struct {
 
 func (x *ValidateSecurityWorkflowResponse) Reset() {
 	*x = ValidateSecurityWorkflowResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[421]
+	mi := &file_rpc_platform_service_proto_msgTypes[424]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35074,7 +35294,7 @@ func (x *ValidateSecurityWorkflowResponse) String() string {
 func (*ValidateSecurityWorkflowResponse) ProtoMessage() {}
 
 func (x *ValidateSecurityWorkflowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[421]
+	mi := &file_rpc_platform_service_proto_msgTypes[424]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35087,7 +35307,7 @@ func (x *ValidateSecurityWorkflowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateSecurityWorkflowResponse.ProtoReflect.Descriptor instead.
 func (*ValidateSecurityWorkflowResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{421}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{424}
 }
 
 func (x *ValidateSecurityWorkflowResponse) GetValid() bool {
@@ -35122,7 +35342,7 @@ type SecurityRankerResource struct {
 
 func (x *SecurityRankerResource) Reset() {
 	*x = SecurityRankerResource{}
-	mi := &file_rpc_platform_service_proto_msgTypes[422]
+	mi := &file_rpc_platform_service_proto_msgTypes[425]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35134,7 +35354,7 @@ func (x *SecurityRankerResource) String() string {
 func (*SecurityRankerResource) ProtoMessage() {}
 
 func (x *SecurityRankerResource) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[422]
+	mi := &file_rpc_platform_service_proto_msgTypes[425]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35147,7 +35367,7 @@ func (x *SecurityRankerResource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityRankerResource.ProtoReflect.Descriptor instead.
 func (*SecurityRankerResource) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{422}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{425}
 }
 
 func (x *SecurityRankerResource) GetNamespace() string {
@@ -35215,7 +35435,7 @@ type ListSecurityRankersRequest struct {
 
 func (x *ListSecurityRankersRequest) Reset() {
 	*x = ListSecurityRankersRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[423]
+	mi := &file_rpc_platform_service_proto_msgTypes[426]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35227,7 +35447,7 @@ func (x *ListSecurityRankersRequest) String() string {
 func (*ListSecurityRankersRequest) ProtoMessage() {}
 
 func (x *ListSecurityRankersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[423]
+	mi := &file_rpc_platform_service_proto_msgTypes[426]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35240,7 +35460,7 @@ func (x *ListSecurityRankersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityRankersRequest.ProtoReflect.Descriptor instead.
 func (*ListSecurityRankersRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{423}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{426}
 }
 
 func (x *ListSecurityRankersRequest) GetNamespace() string {
@@ -35259,7 +35479,7 @@ type ListSecurityRankersResponse struct {
 
 func (x *ListSecurityRankersResponse) Reset() {
 	*x = ListSecurityRankersResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[424]
+	mi := &file_rpc_platform_service_proto_msgTypes[427]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35271,7 +35491,7 @@ func (x *ListSecurityRankersResponse) String() string {
 func (*ListSecurityRankersResponse) ProtoMessage() {}
 
 func (x *ListSecurityRankersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[424]
+	mi := &file_rpc_platform_service_proto_msgTypes[427]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35284,7 +35504,7 @@ func (x *ListSecurityRankersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityRankersResponse.ProtoReflect.Descriptor instead.
 func (*ListSecurityRankersResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{424}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{427}
 }
 
 func (x *ListSecurityRankersResponse) GetRankers() []*SecurityRankerResource {
@@ -35304,7 +35524,7 @@ type GetSecurityRankerRequest struct {
 
 func (x *GetSecurityRankerRequest) Reset() {
 	*x = GetSecurityRankerRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[425]
+	mi := &file_rpc_platform_service_proto_msgTypes[428]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35316,7 +35536,7 @@ func (x *GetSecurityRankerRequest) String() string {
 func (*GetSecurityRankerRequest) ProtoMessage() {}
 
 func (x *GetSecurityRankerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[425]
+	mi := &file_rpc_platform_service_proto_msgTypes[428]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35329,7 +35549,7 @@ func (x *GetSecurityRankerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityRankerRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityRankerRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{425}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{428}
 }
 
 func (x *GetSecurityRankerRequest) GetNamespace() string {
@@ -35355,7 +35575,7 @@ type CreateSecurityRankerRequest struct {
 
 func (x *CreateSecurityRankerRequest) Reset() {
 	*x = CreateSecurityRankerRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[426]
+	mi := &file_rpc_platform_service_proto_msgTypes[429]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35367,7 +35587,7 @@ func (x *CreateSecurityRankerRequest) String() string {
 func (*CreateSecurityRankerRequest) ProtoMessage() {}
 
 func (x *CreateSecurityRankerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[426]
+	mi := &file_rpc_platform_service_proto_msgTypes[429]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35380,7 +35600,7 @@ func (x *CreateSecurityRankerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSecurityRankerRequest.ProtoReflect.Descriptor instead.
 func (*CreateSecurityRankerRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{426}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{429}
 }
 
 func (x *CreateSecurityRankerRequest) GetRanker() *SecurityRankerResource {
@@ -35399,7 +35619,7 @@ type UpdateSecurityRankerRequest struct {
 
 func (x *UpdateSecurityRankerRequest) Reset() {
 	*x = UpdateSecurityRankerRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[427]
+	mi := &file_rpc_platform_service_proto_msgTypes[430]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35411,7 +35631,7 @@ func (x *UpdateSecurityRankerRequest) String() string {
 func (*UpdateSecurityRankerRequest) ProtoMessage() {}
 
 func (x *UpdateSecurityRankerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[427]
+	mi := &file_rpc_platform_service_proto_msgTypes[430]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35424,7 +35644,7 @@ func (x *UpdateSecurityRankerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSecurityRankerRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSecurityRankerRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{427}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{430}
 }
 
 func (x *UpdateSecurityRankerRequest) GetRanker() *SecurityRankerResource {
@@ -35444,7 +35664,7 @@ type DeleteSecurityRankerRequest struct {
 
 func (x *DeleteSecurityRankerRequest) Reset() {
 	*x = DeleteSecurityRankerRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[428]
+	mi := &file_rpc_platform_service_proto_msgTypes[431]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35456,7 +35676,7 @@ func (x *DeleteSecurityRankerRequest) String() string {
 func (*DeleteSecurityRankerRequest) ProtoMessage() {}
 
 func (x *DeleteSecurityRankerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[428]
+	mi := &file_rpc_platform_service_proto_msgTypes[431]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35469,7 +35689,7 @@ func (x *DeleteSecurityRankerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecurityRankerRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSecurityRankerRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{428}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{431}
 }
 
 func (x *DeleteSecurityRankerRequest) GetNamespace() string {
@@ -35504,7 +35724,7 @@ type SecurityPostScriptResource struct {
 
 func (x *SecurityPostScriptResource) Reset() {
 	*x = SecurityPostScriptResource{}
-	mi := &file_rpc_platform_service_proto_msgTypes[429]
+	mi := &file_rpc_platform_service_proto_msgTypes[432]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35516,7 +35736,7 @@ func (x *SecurityPostScriptResource) String() string {
 func (*SecurityPostScriptResource) ProtoMessage() {}
 
 func (x *SecurityPostScriptResource) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[429]
+	mi := &file_rpc_platform_service_proto_msgTypes[432]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35529,7 +35749,7 @@ func (x *SecurityPostScriptResource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityPostScriptResource.ProtoReflect.Descriptor instead.
 func (*SecurityPostScriptResource) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{429}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{432}
 }
 
 func (x *SecurityPostScriptResource) GetNamespace() string {
@@ -35604,7 +35824,7 @@ type ListSecurityPostScriptsRequest struct {
 
 func (x *ListSecurityPostScriptsRequest) Reset() {
 	*x = ListSecurityPostScriptsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[430]
+	mi := &file_rpc_platform_service_proto_msgTypes[433]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35616,7 +35836,7 @@ func (x *ListSecurityPostScriptsRequest) String() string {
 func (*ListSecurityPostScriptsRequest) ProtoMessage() {}
 
 func (x *ListSecurityPostScriptsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[430]
+	mi := &file_rpc_platform_service_proto_msgTypes[433]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35629,7 +35849,7 @@ func (x *ListSecurityPostScriptsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityPostScriptsRequest.ProtoReflect.Descriptor instead.
 func (*ListSecurityPostScriptsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{430}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{433}
 }
 
 func (x *ListSecurityPostScriptsRequest) GetNamespace() string {
@@ -35648,7 +35868,7 @@ type ListSecurityPostScriptsResponse struct {
 
 func (x *ListSecurityPostScriptsResponse) Reset() {
 	*x = ListSecurityPostScriptsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[431]
+	mi := &file_rpc_platform_service_proto_msgTypes[434]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35660,7 +35880,7 @@ func (x *ListSecurityPostScriptsResponse) String() string {
 func (*ListSecurityPostScriptsResponse) ProtoMessage() {}
 
 func (x *ListSecurityPostScriptsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[431]
+	mi := &file_rpc_platform_service_proto_msgTypes[434]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35673,7 +35893,7 @@ func (x *ListSecurityPostScriptsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityPostScriptsResponse.ProtoReflect.Descriptor instead.
 func (*ListSecurityPostScriptsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{431}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{434}
 }
 
 func (x *ListSecurityPostScriptsResponse) GetPostScripts() []*SecurityPostScriptResource {
@@ -35693,7 +35913,7 @@ type GetSecurityPostScriptRequest struct {
 
 func (x *GetSecurityPostScriptRequest) Reset() {
 	*x = GetSecurityPostScriptRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[432]
+	mi := &file_rpc_platform_service_proto_msgTypes[435]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35705,7 +35925,7 @@ func (x *GetSecurityPostScriptRequest) String() string {
 func (*GetSecurityPostScriptRequest) ProtoMessage() {}
 
 func (x *GetSecurityPostScriptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[432]
+	mi := &file_rpc_platform_service_proto_msgTypes[435]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35718,7 +35938,7 @@ func (x *GetSecurityPostScriptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityPostScriptRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityPostScriptRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{432}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{435}
 }
 
 func (x *GetSecurityPostScriptRequest) GetNamespace() string {
@@ -35744,7 +35964,7 @@ type CreateSecurityPostScriptRequest struct {
 
 func (x *CreateSecurityPostScriptRequest) Reset() {
 	*x = CreateSecurityPostScriptRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[433]
+	mi := &file_rpc_platform_service_proto_msgTypes[436]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35756,7 +35976,7 @@ func (x *CreateSecurityPostScriptRequest) String() string {
 func (*CreateSecurityPostScriptRequest) ProtoMessage() {}
 
 func (x *CreateSecurityPostScriptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[433]
+	mi := &file_rpc_platform_service_proto_msgTypes[436]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35769,7 +35989,7 @@ func (x *CreateSecurityPostScriptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSecurityPostScriptRequest.ProtoReflect.Descriptor instead.
 func (*CreateSecurityPostScriptRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{433}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{436}
 }
 
 func (x *CreateSecurityPostScriptRequest) GetPostScript() *SecurityPostScriptResource {
@@ -35788,7 +36008,7 @@ type UpdateSecurityPostScriptRequest struct {
 
 func (x *UpdateSecurityPostScriptRequest) Reset() {
 	*x = UpdateSecurityPostScriptRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[434]
+	mi := &file_rpc_platform_service_proto_msgTypes[437]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35800,7 +36020,7 @@ func (x *UpdateSecurityPostScriptRequest) String() string {
 func (*UpdateSecurityPostScriptRequest) ProtoMessage() {}
 
 func (x *UpdateSecurityPostScriptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[434]
+	mi := &file_rpc_platform_service_proto_msgTypes[437]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35813,7 +36033,7 @@ func (x *UpdateSecurityPostScriptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSecurityPostScriptRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSecurityPostScriptRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{434}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{437}
 }
 
 func (x *UpdateSecurityPostScriptRequest) GetPostScript() *SecurityPostScriptResource {
@@ -35833,7 +36053,7 @@ type DeleteSecurityPostScriptRequest struct {
 
 func (x *DeleteSecurityPostScriptRequest) Reset() {
 	*x = DeleteSecurityPostScriptRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[435]
+	mi := &file_rpc_platform_service_proto_msgTypes[438]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35845,7 +36065,7 @@ func (x *DeleteSecurityPostScriptRequest) String() string {
 func (*DeleteSecurityPostScriptRequest) ProtoMessage() {}
 
 func (x *DeleteSecurityPostScriptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[435]
+	mi := &file_rpc_platform_service_proto_msgTypes[438]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35858,7 +36078,7 @@ func (x *DeleteSecurityPostScriptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecurityPostScriptRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSecurityPostScriptRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{435}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{438}
 }
 
 func (x *DeleteSecurityPostScriptRequest) GetNamespace() string {
@@ -35890,7 +36110,7 @@ type SecuritySuppressionMatcherConfig struct {
 
 func (x *SecuritySuppressionMatcherConfig) Reset() {
 	*x = SecuritySuppressionMatcherConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[436]
+	mi := &file_rpc_platform_service_proto_msgTypes[439]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35902,7 +36122,7 @@ func (x *SecuritySuppressionMatcherConfig) String() string {
 func (*SecuritySuppressionMatcherConfig) ProtoMessage() {}
 
 func (x *SecuritySuppressionMatcherConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[436]
+	mi := &file_rpc_platform_service_proto_msgTypes[439]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35915,7 +36135,7 @@ func (x *SecuritySuppressionMatcherConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecuritySuppressionMatcherConfig.ProtoReflect.Descriptor instead.
 func (*SecuritySuppressionMatcherConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{436}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{439}
 }
 
 func (x *SecuritySuppressionMatcherConfig) GetCategory() string {
@@ -35963,7 +36183,7 @@ type SecurityPolicySuppressionConfig struct {
 
 func (x *SecurityPolicySuppressionConfig) Reset() {
 	*x = SecurityPolicySuppressionConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[437]
+	mi := &file_rpc_platform_service_proto_msgTypes[440]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -35975,7 +36195,7 @@ func (x *SecurityPolicySuppressionConfig) String() string {
 func (*SecurityPolicySuppressionConfig) ProtoMessage() {}
 
 func (x *SecurityPolicySuppressionConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[437]
+	mi := &file_rpc_platform_service_proto_msgTypes[440]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -35988,7 +36208,7 @@ func (x *SecurityPolicySuppressionConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityPolicySuppressionConfig.ProtoReflect.Descriptor instead.
 func (*SecurityPolicySuppressionConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{437}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{440}
 }
 
 func (x *SecurityPolicySuppressionConfig) GetName() string {
@@ -36044,7 +36264,7 @@ type SecurityScanBudgetsConfig struct {
 
 func (x *SecurityScanBudgetsConfig) Reset() {
 	*x = SecurityScanBudgetsConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[438]
+	mi := &file_rpc_platform_service_proto_msgTypes[441]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36056,7 +36276,7 @@ func (x *SecurityScanBudgetsConfig) String() string {
 func (*SecurityScanBudgetsConfig) ProtoMessage() {}
 
 func (x *SecurityScanBudgetsConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[438]
+	mi := &file_rpc_platform_service_proto_msgTypes[441]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36069,7 +36289,7 @@ func (x *SecurityScanBudgetsConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanBudgetsConfig.ProtoReflect.Descriptor instead.
 func (*SecurityScanBudgetsConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{438}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{441}
 }
 
 func (x *SecurityScanBudgetsConfig) GetMaxModelJobs() int32 {
@@ -36125,7 +36345,7 @@ type SecurityPolicyPackRetentionConfig struct {
 
 func (x *SecurityPolicyPackRetentionConfig) Reset() {
 	*x = SecurityPolicyPackRetentionConfig{}
-	mi := &file_rpc_platform_service_proto_msgTypes[439]
+	mi := &file_rpc_platform_service_proto_msgTypes[442]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36137,7 +36357,7 @@ func (x *SecurityPolicyPackRetentionConfig) String() string {
 func (*SecurityPolicyPackRetentionConfig) ProtoMessage() {}
 
 func (x *SecurityPolicyPackRetentionConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[439]
+	mi := &file_rpc_platform_service_proto_msgTypes[442]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36150,7 +36370,7 @@ func (x *SecurityPolicyPackRetentionConfig) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use SecurityPolicyPackRetentionConfig.ProtoReflect.Descriptor instead.
 func (*SecurityPolicyPackRetentionConfig) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{439}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{442}
 }
 
 func (x *SecurityPolicyPackRetentionConfig) GetScanDays() int32 {
@@ -36233,7 +36453,7 @@ type SecurityPolicyPackResource struct {
 
 func (x *SecurityPolicyPackResource) Reset() {
 	*x = SecurityPolicyPackResource{}
-	mi := &file_rpc_platform_service_proto_msgTypes[440]
+	mi := &file_rpc_platform_service_proto_msgTypes[443]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36245,7 +36465,7 @@ func (x *SecurityPolicyPackResource) String() string {
 func (*SecurityPolicyPackResource) ProtoMessage() {}
 
 func (x *SecurityPolicyPackResource) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[440]
+	mi := &file_rpc_platform_service_proto_msgTypes[443]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36258,7 +36478,7 @@ func (x *SecurityPolicyPackResource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityPolicyPackResource.ProtoReflect.Descriptor instead.
 func (*SecurityPolicyPackResource) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{440}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{443}
 }
 
 func (x *SecurityPolicyPackResource) GetNamespace() string {
@@ -36396,7 +36616,7 @@ type ListSecurityPolicyPacksRequest struct {
 
 func (x *ListSecurityPolicyPacksRequest) Reset() {
 	*x = ListSecurityPolicyPacksRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[441]
+	mi := &file_rpc_platform_service_proto_msgTypes[444]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36408,7 +36628,7 @@ func (x *ListSecurityPolicyPacksRequest) String() string {
 func (*ListSecurityPolicyPacksRequest) ProtoMessage() {}
 
 func (x *ListSecurityPolicyPacksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[441]
+	mi := &file_rpc_platform_service_proto_msgTypes[444]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36421,7 +36641,7 @@ func (x *ListSecurityPolicyPacksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityPolicyPacksRequest.ProtoReflect.Descriptor instead.
 func (*ListSecurityPolicyPacksRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{441}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{444}
 }
 
 func (x *ListSecurityPolicyPacksRequest) GetNamespace() string {
@@ -36440,7 +36660,7 @@ type ListSecurityPolicyPacksResponse struct {
 
 func (x *ListSecurityPolicyPacksResponse) Reset() {
 	*x = ListSecurityPolicyPacksResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[442]
+	mi := &file_rpc_platform_service_proto_msgTypes[445]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36452,7 +36672,7 @@ func (x *ListSecurityPolicyPacksResponse) String() string {
 func (*ListSecurityPolicyPacksResponse) ProtoMessage() {}
 
 func (x *ListSecurityPolicyPacksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[442]
+	mi := &file_rpc_platform_service_proto_msgTypes[445]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36465,7 +36685,7 @@ func (x *ListSecurityPolicyPacksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityPolicyPacksResponse.ProtoReflect.Descriptor instead.
 func (*ListSecurityPolicyPacksResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{442}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{445}
 }
 
 func (x *ListSecurityPolicyPacksResponse) GetPolicyPacks() []*SecurityPolicyPackResource {
@@ -36485,7 +36705,7 @@ type GetSecurityPolicyPackRequest struct {
 
 func (x *GetSecurityPolicyPackRequest) Reset() {
 	*x = GetSecurityPolicyPackRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[443]
+	mi := &file_rpc_platform_service_proto_msgTypes[446]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36497,7 +36717,7 @@ func (x *GetSecurityPolicyPackRequest) String() string {
 func (*GetSecurityPolicyPackRequest) ProtoMessage() {}
 
 func (x *GetSecurityPolicyPackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[443]
+	mi := &file_rpc_platform_service_proto_msgTypes[446]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36510,7 +36730,7 @@ func (x *GetSecurityPolicyPackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityPolicyPackRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityPolicyPackRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{443}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{446}
 }
 
 func (x *GetSecurityPolicyPackRequest) GetNamespace() string {
@@ -36536,7 +36756,7 @@ type CreateSecurityPolicyPackRequest struct {
 
 func (x *CreateSecurityPolicyPackRequest) Reset() {
 	*x = CreateSecurityPolicyPackRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[444]
+	mi := &file_rpc_platform_service_proto_msgTypes[447]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36548,7 +36768,7 @@ func (x *CreateSecurityPolicyPackRequest) String() string {
 func (*CreateSecurityPolicyPackRequest) ProtoMessage() {}
 
 func (x *CreateSecurityPolicyPackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[444]
+	mi := &file_rpc_platform_service_proto_msgTypes[447]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36561,7 +36781,7 @@ func (x *CreateSecurityPolicyPackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSecurityPolicyPackRequest.ProtoReflect.Descriptor instead.
 func (*CreateSecurityPolicyPackRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{444}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{447}
 }
 
 func (x *CreateSecurityPolicyPackRequest) GetPolicyPack() *SecurityPolicyPackResource {
@@ -36580,7 +36800,7 @@ type UpdateSecurityPolicyPackRequest struct {
 
 func (x *UpdateSecurityPolicyPackRequest) Reset() {
 	*x = UpdateSecurityPolicyPackRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[445]
+	mi := &file_rpc_platform_service_proto_msgTypes[448]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36592,7 +36812,7 @@ func (x *UpdateSecurityPolicyPackRequest) String() string {
 func (*UpdateSecurityPolicyPackRequest) ProtoMessage() {}
 
 func (x *UpdateSecurityPolicyPackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[445]
+	mi := &file_rpc_platform_service_proto_msgTypes[448]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36605,7 +36825,7 @@ func (x *UpdateSecurityPolicyPackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSecurityPolicyPackRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSecurityPolicyPackRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{445}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{448}
 }
 
 func (x *UpdateSecurityPolicyPackRequest) GetPolicyPack() *SecurityPolicyPackResource {
@@ -36625,7 +36845,7 @@ type DeleteSecurityPolicyPackRequest struct {
 
 func (x *DeleteSecurityPolicyPackRequest) Reset() {
 	*x = DeleteSecurityPolicyPackRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[446]
+	mi := &file_rpc_platform_service_proto_msgTypes[449]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36637,7 +36857,7 @@ func (x *DeleteSecurityPolicyPackRequest) String() string {
 func (*DeleteSecurityPolicyPackRequest) ProtoMessage() {}
 
 func (x *DeleteSecurityPolicyPackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[446]
+	mi := &file_rpc_platform_service_proto_msgTypes[449]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36650,7 +36870,7 @@ func (x *DeleteSecurityPolicyPackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecurityPolicyPackRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSecurityPolicyPackRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{446}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{449}
 }
 
 func (x *DeleteSecurityPolicyPackRequest) GetNamespace() string {
@@ -36728,7 +36948,7 @@ type SecurityProgramResource struct {
 
 func (x *SecurityProgramResource) Reset() {
 	*x = SecurityProgramResource{}
-	mi := &file_rpc_platform_service_proto_msgTypes[447]
+	mi := &file_rpc_platform_service_proto_msgTypes[450]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36740,7 +36960,7 @@ func (x *SecurityProgramResource) String() string {
 func (*SecurityProgramResource) ProtoMessage() {}
 
 func (x *SecurityProgramResource) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[447]
+	mi := &file_rpc_platform_service_proto_msgTypes[450]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36753,7 +36973,7 @@ func (x *SecurityProgramResource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityProgramResource.ProtoReflect.Descriptor instead.
 func (*SecurityProgramResource) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{447}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{450}
 }
 
 func (x *SecurityProgramResource) GetNamespace() string {
@@ -36955,7 +37175,7 @@ type SecurityProgramImpact struct {
 
 func (x *SecurityProgramImpact) Reset() {
 	*x = SecurityProgramImpact{}
-	mi := &file_rpc_platform_service_proto_msgTypes[448]
+	mi := &file_rpc_platform_service_proto_msgTypes[451]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -36967,7 +37187,7 @@ func (x *SecurityProgramImpact) String() string {
 func (*SecurityProgramImpact) ProtoMessage() {}
 
 func (x *SecurityProgramImpact) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[448]
+	mi := &file_rpc_platform_service_proto_msgTypes[451]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -36980,7 +37200,7 @@ func (x *SecurityProgramImpact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityProgramImpact.ProtoReflect.Descriptor instead.
 func (*SecurityProgramImpact) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{448}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{451}
 }
 
 func (x *SecurityProgramImpact) GetImpact() string {
@@ -37018,7 +37238,7 @@ type SecurityProgramAsset struct {
 
 func (x *SecurityProgramAsset) Reset() {
 	*x = SecurityProgramAsset{}
-	mi := &file_rpc_platform_service_proto_msgTypes[449]
+	mi := &file_rpc_platform_service_proto_msgTypes[452]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37030,7 +37250,7 @@ func (x *SecurityProgramAsset) String() string {
 func (*SecurityProgramAsset) ProtoMessage() {}
 
 func (x *SecurityProgramAsset) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[449]
+	mi := &file_rpc_platform_service_proto_msgTypes[452]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37043,7 +37263,7 @@ func (x *SecurityProgramAsset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityProgramAsset.ProtoReflect.Descriptor instead.
 func (*SecurityProgramAsset) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{449}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{452}
 }
 
 func (x *SecurityProgramAsset) GetChainId() string {
@@ -37094,7 +37314,7 @@ type SecurityProgramKnownIssue struct {
 
 func (x *SecurityProgramKnownIssue) Reset() {
 	*x = SecurityProgramKnownIssue{}
-	mi := &file_rpc_platform_service_proto_msgTypes[450]
+	mi := &file_rpc_platform_service_proto_msgTypes[453]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37106,7 +37326,7 @@ func (x *SecurityProgramKnownIssue) String() string {
 func (*SecurityProgramKnownIssue) ProtoMessage() {}
 
 func (x *SecurityProgramKnownIssue) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[450]
+	mi := &file_rpc_platform_service_proto_msgTypes[453]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37119,7 +37339,7 @@ func (x *SecurityProgramKnownIssue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityProgramKnownIssue.ProtoReflect.Descriptor instead.
 func (*SecurityProgramKnownIssue) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{450}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{453}
 }
 
 func (x *SecurityProgramKnownIssue) GetSource() string {
@@ -37159,7 +37379,7 @@ type SecurityProgramSubmissionBudget struct {
 
 func (x *SecurityProgramSubmissionBudget) Reset() {
 	*x = SecurityProgramSubmissionBudget{}
-	mi := &file_rpc_platform_service_proto_msgTypes[451]
+	mi := &file_rpc_platform_service_proto_msgTypes[454]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37171,7 +37391,7 @@ func (x *SecurityProgramSubmissionBudget) String() string {
 func (*SecurityProgramSubmissionBudget) ProtoMessage() {}
 
 func (x *SecurityProgramSubmissionBudget) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[451]
+	mi := &file_rpc_platform_service_proto_msgTypes[454]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37184,7 +37404,7 @@ func (x *SecurityProgramSubmissionBudget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityProgramSubmissionBudget.ProtoReflect.Descriptor instead.
 func (*SecurityProgramSubmissionBudget) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{451}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{454}
 }
 
 func (x *SecurityProgramSubmissionBudget) GetMaxPerPeriod() int32 {
@@ -37217,7 +37437,7 @@ type ListSecurityProgramsRequest struct {
 
 func (x *ListSecurityProgramsRequest) Reset() {
 	*x = ListSecurityProgramsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[452]
+	mi := &file_rpc_platform_service_proto_msgTypes[455]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37229,7 +37449,7 @@ func (x *ListSecurityProgramsRequest) String() string {
 func (*ListSecurityProgramsRequest) ProtoMessage() {}
 
 func (x *ListSecurityProgramsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[452]
+	mi := &file_rpc_platform_service_proto_msgTypes[455]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37242,7 +37462,7 @@ func (x *ListSecurityProgramsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityProgramsRequest.ProtoReflect.Descriptor instead.
 func (*ListSecurityProgramsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{452}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{455}
 }
 
 func (x *ListSecurityProgramsRequest) GetNamespace() string {
@@ -37261,7 +37481,7 @@ type ListSecurityProgramsResponse struct {
 
 func (x *ListSecurityProgramsResponse) Reset() {
 	*x = ListSecurityProgramsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[453]
+	mi := &file_rpc_platform_service_proto_msgTypes[456]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37273,7 +37493,7 @@ func (x *ListSecurityProgramsResponse) String() string {
 func (*ListSecurityProgramsResponse) ProtoMessage() {}
 
 func (x *ListSecurityProgramsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[453]
+	mi := &file_rpc_platform_service_proto_msgTypes[456]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37286,7 +37506,7 @@ func (x *ListSecurityProgramsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSecurityProgramsResponse.ProtoReflect.Descriptor instead.
 func (*ListSecurityProgramsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{453}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{456}
 }
 
 func (x *ListSecurityProgramsResponse) GetPrograms() []*SecurityProgramResource {
@@ -37306,7 +37526,7 @@ type GetSecurityProgramRequest struct {
 
 func (x *GetSecurityProgramRequest) Reset() {
 	*x = GetSecurityProgramRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[454]
+	mi := &file_rpc_platform_service_proto_msgTypes[457]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37318,7 +37538,7 @@ func (x *GetSecurityProgramRequest) String() string {
 func (*GetSecurityProgramRequest) ProtoMessage() {}
 
 func (x *GetSecurityProgramRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[454]
+	mi := &file_rpc_platform_service_proto_msgTypes[457]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37331,7 +37551,7 @@ func (x *GetSecurityProgramRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityProgramRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityProgramRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{454}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{457}
 }
 
 func (x *GetSecurityProgramRequest) GetNamespace() string {
@@ -37357,7 +37577,7 @@ type CreateSecurityProgramRequest struct {
 
 func (x *CreateSecurityProgramRequest) Reset() {
 	*x = CreateSecurityProgramRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[455]
+	mi := &file_rpc_platform_service_proto_msgTypes[458]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37369,7 +37589,7 @@ func (x *CreateSecurityProgramRequest) String() string {
 func (*CreateSecurityProgramRequest) ProtoMessage() {}
 
 func (x *CreateSecurityProgramRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[455]
+	mi := &file_rpc_platform_service_proto_msgTypes[458]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37382,7 +37602,7 @@ func (x *CreateSecurityProgramRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSecurityProgramRequest.ProtoReflect.Descriptor instead.
 func (*CreateSecurityProgramRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{455}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{458}
 }
 
 func (x *CreateSecurityProgramRequest) GetProgram() *SecurityProgramResource {
@@ -37401,7 +37621,7 @@ type UpdateSecurityProgramRequest struct {
 
 func (x *UpdateSecurityProgramRequest) Reset() {
 	*x = UpdateSecurityProgramRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[456]
+	mi := &file_rpc_platform_service_proto_msgTypes[459]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37413,7 +37633,7 @@ func (x *UpdateSecurityProgramRequest) String() string {
 func (*UpdateSecurityProgramRequest) ProtoMessage() {}
 
 func (x *UpdateSecurityProgramRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[456]
+	mi := &file_rpc_platform_service_proto_msgTypes[459]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37426,7 +37646,7 @@ func (x *UpdateSecurityProgramRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSecurityProgramRequest.ProtoReflect.Descriptor instead.
 func (*UpdateSecurityProgramRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{456}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{459}
 }
 
 func (x *UpdateSecurityProgramRequest) GetProgram() *SecurityProgramResource {
@@ -37446,7 +37666,7 @@ type DeleteSecurityProgramRequest struct {
 
 func (x *DeleteSecurityProgramRequest) Reset() {
 	*x = DeleteSecurityProgramRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[457]
+	mi := &file_rpc_platform_service_proto_msgTypes[460]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37458,7 +37678,7 @@ func (x *DeleteSecurityProgramRequest) String() string {
 func (*DeleteSecurityProgramRequest) ProtoMessage() {}
 
 func (x *DeleteSecurityProgramRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[457]
+	mi := &file_rpc_platform_service_proto_msgTypes[460]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37471,7 +37691,7 @@ func (x *DeleteSecurityProgramRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSecurityProgramRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSecurityProgramRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{457}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{460}
 }
 
 func (x *DeleteSecurityProgramRequest) GetNamespace() string {
@@ -37506,7 +37726,7 @@ type GenerateSecurityDraftRequest struct {
 
 func (x *GenerateSecurityDraftRequest) Reset() {
 	*x = GenerateSecurityDraftRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[458]
+	mi := &file_rpc_platform_service_proto_msgTypes[461]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37518,7 +37738,7 @@ func (x *GenerateSecurityDraftRequest) String() string {
 func (*GenerateSecurityDraftRequest) ProtoMessage() {}
 
 func (x *GenerateSecurityDraftRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[458]
+	mi := &file_rpc_platform_service_proto_msgTypes[461]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37531,7 +37751,7 @@ func (x *GenerateSecurityDraftRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateSecurityDraftRequest.ProtoReflect.Descriptor instead.
 func (*GenerateSecurityDraftRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{458}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{461}
 }
 
 func (x *GenerateSecurityDraftRequest) GetNamespace() string {
@@ -37574,7 +37794,7 @@ type GenerateSecurityDraftResponse struct {
 
 func (x *GenerateSecurityDraftResponse) Reset() {
 	*x = GenerateSecurityDraftResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[459]
+	mi := &file_rpc_platform_service_proto_msgTypes[462]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37586,7 +37806,7 @@ func (x *GenerateSecurityDraftResponse) String() string {
 func (*GenerateSecurityDraftResponse) ProtoMessage() {}
 
 func (x *GenerateSecurityDraftResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[459]
+	mi := &file_rpc_platform_service_proto_msgTypes[462]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37599,7 +37819,7 @@ func (x *GenerateSecurityDraftResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenerateSecurityDraftResponse.ProtoReflect.Descriptor instead.
 func (*GenerateSecurityDraftResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{459}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{462}
 }
 
 func (x *GenerateSecurityDraftResponse) GetNamespace() string {
@@ -37626,7 +37846,7 @@ type GetSecurityDraftRequest struct {
 
 func (x *GetSecurityDraftRequest) Reset() {
 	*x = GetSecurityDraftRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[460]
+	mi := &file_rpc_platform_service_proto_msgTypes[463]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37638,7 +37858,7 @@ func (x *GetSecurityDraftRequest) String() string {
 func (*GetSecurityDraftRequest) ProtoMessage() {}
 
 func (x *GetSecurityDraftRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[460]
+	mi := &file_rpc_platform_service_proto_msgTypes[463]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37651,7 +37871,7 @@ func (x *GetSecurityDraftRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityDraftRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityDraftRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{460}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{463}
 }
 
 func (x *GetSecurityDraftRequest) GetNamespace() string {
@@ -37690,7 +37910,7 @@ type GetSecurityDraftResponse struct {
 
 func (x *GetSecurityDraftResponse) Reset() {
 	*x = GetSecurityDraftResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[461]
+	mi := &file_rpc_platform_service_proto_msgTypes[464]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37702,7 +37922,7 @@ func (x *GetSecurityDraftResponse) String() string {
 func (*GetSecurityDraftResponse) ProtoMessage() {}
 
 func (x *GetSecurityDraftResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[461]
+	mi := &file_rpc_platform_service_proto_msgTypes[464]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37715,7 +37935,7 @@ func (x *GetSecurityDraftResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityDraftResponse.ProtoReflect.Descriptor instead.
 func (*GetSecurityDraftResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{461}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{464}
 }
 
 func (x *GetSecurityDraftResponse) GetStatus() SecurityDraftStatus {
@@ -37776,7 +37996,7 @@ type ExportSecurityPackRequest struct {
 
 func (x *ExportSecurityPackRequest) Reset() {
 	*x = ExportSecurityPackRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[462]
+	mi := &file_rpc_platform_service_proto_msgTypes[465]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37788,7 +38008,7 @@ func (x *ExportSecurityPackRequest) String() string {
 func (*ExportSecurityPackRequest) ProtoMessage() {}
 
 func (x *ExportSecurityPackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[462]
+	mi := &file_rpc_platform_service_proto_msgTypes[465]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37801,7 +38021,7 @@ func (x *ExportSecurityPackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportSecurityPackRequest.ProtoReflect.Descriptor instead.
 func (*ExportSecurityPackRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{462}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{465}
 }
 
 func (x *ExportSecurityPackRequest) GetNamespace() string {
@@ -37859,7 +38079,7 @@ type ExportSecurityPackResponse struct {
 
 func (x *ExportSecurityPackResponse) Reset() {
 	*x = ExportSecurityPackResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[463]
+	mi := &file_rpc_platform_service_proto_msgTypes[466]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37871,7 +38091,7 @@ func (x *ExportSecurityPackResponse) String() string {
 func (*ExportSecurityPackResponse) ProtoMessage() {}
 
 func (x *ExportSecurityPackResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[463]
+	mi := &file_rpc_platform_service_proto_msgTypes[466]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37884,7 +38104,7 @@ func (x *ExportSecurityPackResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportSecurityPackResponse.ProtoReflect.Descriptor instead.
 func (*ExportSecurityPackResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{463}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{466}
 }
 
 func (x *ExportSecurityPackResponse) GetData() []byte {
@@ -37923,7 +38143,7 @@ type ImportSecurityPackRequest struct {
 
 func (x *ImportSecurityPackRequest) Reset() {
 	*x = ImportSecurityPackRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[464]
+	mi := &file_rpc_platform_service_proto_msgTypes[467]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -37935,7 +38155,7 @@ func (x *ImportSecurityPackRequest) String() string {
 func (*ImportSecurityPackRequest) ProtoMessage() {}
 
 func (x *ImportSecurityPackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[464]
+	mi := &file_rpc_platform_service_proto_msgTypes[467]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -37948,7 +38168,7 @@ func (x *ImportSecurityPackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportSecurityPackRequest.ProtoReflect.Descriptor instead.
 func (*ImportSecurityPackRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{464}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{467}
 }
 
 func (x *ImportSecurityPackRequest) GetNamespace() string {
@@ -37996,7 +38216,7 @@ type SecurityPackItemResult struct {
 
 func (x *SecurityPackItemResult) Reset() {
 	*x = SecurityPackItemResult{}
-	mi := &file_rpc_platform_service_proto_msgTypes[465]
+	mi := &file_rpc_platform_service_proto_msgTypes[468]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38008,7 +38228,7 @@ func (x *SecurityPackItemResult) String() string {
 func (*SecurityPackItemResult) ProtoMessage() {}
 
 func (x *SecurityPackItemResult) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[465]
+	mi := &file_rpc_platform_service_proto_msgTypes[468]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -38021,7 +38241,7 @@ func (x *SecurityPackItemResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityPackItemResult.ProtoReflect.Descriptor instead.
 func (*SecurityPackItemResult) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{465}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{468}
 }
 
 func (x *SecurityPackItemResult) GetKind() string {
@@ -38081,7 +38301,7 @@ type ImportSecurityPackResponse struct {
 
 func (x *ImportSecurityPackResponse) Reset() {
 	*x = ImportSecurityPackResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[466]
+	mi := &file_rpc_platform_service_proto_msgTypes[469]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38093,7 +38313,7 @@ func (x *ImportSecurityPackResponse) String() string {
 func (*ImportSecurityPackResponse) ProtoMessage() {}
 
 func (x *ImportSecurityPackResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[466]
+	mi := &file_rpc_platform_service_proto_msgTypes[469]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -38106,7 +38326,7 @@ func (x *ImportSecurityPackResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportSecurityPackResponse.ProtoReflect.Descriptor instead.
 func (*ImportSecurityPackResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{466}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{469}
 }
 
 func (x *ImportSecurityPackResponse) GetApplied() bool {
@@ -38162,7 +38382,7 @@ type GetSecurityOverviewRequest struct {
 
 func (x *GetSecurityOverviewRequest) Reset() {
 	*x = GetSecurityOverviewRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[467]
+	mi := &file_rpc_platform_service_proto_msgTypes[470]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38174,7 +38394,7 @@ func (x *GetSecurityOverviewRequest) String() string {
 func (*GetSecurityOverviewRequest) ProtoMessage() {}
 
 func (x *GetSecurityOverviewRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[467]
+	mi := &file_rpc_platform_service_proto_msgTypes[470]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -38187,7 +38407,7 @@ func (x *GetSecurityOverviewRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityOverviewRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityOverviewRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{467}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{470}
 }
 
 func (x *GetSecurityOverviewRequest) GetNamespace() string {
@@ -38223,7 +38443,7 @@ type SecurityScanConfigIssue struct {
 
 func (x *SecurityScanConfigIssue) Reset() {
 	*x = SecurityScanConfigIssue{}
-	mi := &file_rpc_platform_service_proto_msgTypes[468]
+	mi := &file_rpc_platform_service_proto_msgTypes[471]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38235,7 +38455,7 @@ func (x *SecurityScanConfigIssue) String() string {
 func (*SecurityScanConfigIssue) ProtoMessage() {}
 
 func (x *SecurityScanConfigIssue) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[468]
+	mi := &file_rpc_platform_service_proto_msgTypes[471]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -38248,7 +38468,7 @@ func (x *SecurityScanConfigIssue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityScanConfigIssue.ProtoReflect.Descriptor instead.
 func (*SecurityScanConfigIssue) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{468}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{471}
 }
 
 func (x *SecurityScanConfigIssue) GetNamespace() string {
@@ -38330,7 +38550,7 @@ type GetSecurityOverviewResponse struct {
 
 func (x *GetSecurityOverviewResponse) Reset() {
 	*x = GetSecurityOverviewResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[469]
+	mi := &file_rpc_platform_service_proto_msgTypes[472]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38342,7 +38562,7 @@ func (x *GetSecurityOverviewResponse) String() string {
 func (*GetSecurityOverviewResponse) ProtoMessage() {}
 
 func (x *GetSecurityOverviewResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[469]
+	mi := &file_rpc_platform_service_proto_msgTypes[472]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -38355,7 +38575,7 @@ func (x *GetSecurityOverviewResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityOverviewResponse.ProtoReflect.Descriptor instead.
 func (*GetSecurityOverviewResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{469}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{472}
 }
 
 func (x *GetSecurityOverviewResponse) GetStoreSupported() bool {
@@ -38468,7 +38688,7 @@ type GetSecurityConfigPosturesRequest struct {
 
 func (x *GetSecurityConfigPosturesRequest) Reset() {
 	*x = GetSecurityConfigPosturesRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[470]
+	mi := &file_rpc_platform_service_proto_msgTypes[473]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38480,7 +38700,7 @@ func (x *GetSecurityConfigPosturesRequest) String() string {
 func (*GetSecurityConfigPosturesRequest) ProtoMessage() {}
 
 func (x *GetSecurityConfigPosturesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[470]
+	mi := &file_rpc_platform_service_proto_msgTypes[473]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -38493,7 +38713,7 @@ func (x *GetSecurityConfigPosturesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityConfigPosturesRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityConfigPosturesRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{470}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{473}
 }
 
 func (x *GetSecurityConfigPosturesRequest) GetNamespace() string {
@@ -38527,7 +38747,7 @@ type SecurityRunActivityPoint struct {
 
 func (x *SecurityRunActivityPoint) Reset() {
 	*x = SecurityRunActivityPoint{}
-	mi := &file_rpc_platform_service_proto_msgTypes[471]
+	mi := &file_rpc_platform_service_proto_msgTypes[474]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38539,7 +38759,7 @@ func (x *SecurityRunActivityPoint) String() string {
 func (*SecurityRunActivityPoint) ProtoMessage() {}
 
 func (x *SecurityRunActivityPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[471]
+	mi := &file_rpc_platform_service_proto_msgTypes[474]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -38552,7 +38772,7 @@ func (x *SecurityRunActivityPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityRunActivityPoint.ProtoReflect.Descriptor instead.
 func (*SecurityRunActivityPoint) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{471}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{474}
 }
 
 func (x *SecurityRunActivityPoint) GetRunName() string {
@@ -38608,7 +38828,7 @@ type SecurityConfigPosture struct {
 
 func (x *SecurityConfigPosture) Reset() {
 	*x = SecurityConfigPosture{}
-	mi := &file_rpc_platform_service_proto_msgTypes[472]
+	mi := &file_rpc_platform_service_proto_msgTypes[475]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38620,7 +38840,7 @@ func (x *SecurityConfigPosture) String() string {
 func (*SecurityConfigPosture) ProtoMessage() {}
 
 func (x *SecurityConfigPosture) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[472]
+	mi := &file_rpc_platform_service_proto_msgTypes[475]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -38633,7 +38853,7 @@ func (x *SecurityConfigPosture) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityConfigPosture.ProtoReflect.Descriptor instead.
 func (*SecurityConfigPosture) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{472}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{475}
 }
 
 func (x *SecurityConfigPosture) GetScanName() string {
@@ -38709,7 +38929,7 @@ type GetSecurityConfigPosturesResponse struct {
 
 func (x *GetSecurityConfigPosturesResponse) Reset() {
 	*x = GetSecurityConfigPosturesResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[473]
+	mi := &file_rpc_platform_service_proto_msgTypes[476]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38721,7 +38941,7 @@ func (x *GetSecurityConfigPosturesResponse) String() string {
 func (*GetSecurityConfigPosturesResponse) ProtoMessage() {}
 
 func (x *GetSecurityConfigPosturesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[473]
+	mi := &file_rpc_platform_service_proto_msgTypes[476]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -38734,7 +38954,7 @@ func (x *GetSecurityConfigPosturesResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GetSecurityConfigPosturesResponse.ProtoReflect.Descriptor instead.
 func (*GetSecurityConfigPosturesResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{473}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{476}
 }
 
 func (x *GetSecurityConfigPosturesResponse) GetStoreSupported() bool {
@@ -38770,7 +38990,7 @@ type GetSecurityScanReportRequest struct {
 
 func (x *GetSecurityScanReportRequest) Reset() {
 	*x = GetSecurityScanReportRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[474]
+	mi := &file_rpc_platform_service_proto_msgTypes[477]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38782,7 +39002,7 @@ func (x *GetSecurityScanReportRequest) String() string {
 func (*GetSecurityScanReportRequest) ProtoMessage() {}
 
 func (x *GetSecurityScanReportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[474]
+	mi := &file_rpc_platform_service_proto_msgTypes[477]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -38795,7 +39015,7 @@ func (x *GetSecurityScanReportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityScanReportRequest.ProtoReflect.Descriptor instead.
 func (*GetSecurityScanReportRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{474}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{477}
 }
 
 func (x *GetSecurityScanReportRequest) GetNamespace() string {
@@ -38832,7 +39052,7 @@ type GetSecurityScanReportResponse struct {
 
 func (x *GetSecurityScanReportResponse) Reset() {
 	*x = GetSecurityScanReportResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[475]
+	mi := &file_rpc_platform_service_proto_msgTypes[478]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38844,7 +39064,7 @@ func (x *GetSecurityScanReportResponse) String() string {
 func (*GetSecurityScanReportResponse) ProtoMessage() {}
 
 func (x *GetSecurityScanReportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[475]
+	mi := &file_rpc_platform_service_proto_msgTypes[478]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -38857,7 +39077,7 @@ func (x *GetSecurityScanReportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSecurityScanReportResponse.ProtoReflect.Descriptor instead.
 func (*GetSecurityScanReportResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{475}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{478}
 }
 
 func (x *GetSecurityScanReportResponse) GetContent() string {
@@ -38905,7 +39125,7 @@ type SecuritySkillsStatus struct {
 
 func (x *SecuritySkillsStatus) Reset() {
 	*x = SecuritySkillsStatus{}
-	mi := &file_rpc_platform_service_proto_msgTypes[476]
+	mi := &file_rpc_platform_service_proto_msgTypes[479]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38917,7 +39137,7 @@ func (x *SecuritySkillsStatus) String() string {
 func (*SecuritySkillsStatus) ProtoMessage() {}
 
 func (x *SecuritySkillsStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[476]
+	mi := &file_rpc_platform_service_proto_msgTypes[479]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -38930,7 +39150,7 @@ func (x *SecuritySkillsStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecuritySkillsStatus.ProtoReflect.Descriptor instead.
 func (*SecuritySkillsStatus) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{476}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{479}
 }
 
 func (x *SecuritySkillsStatus) GetNamespace() string {
@@ -38978,7 +39198,7 @@ type SecurityCatalogRef struct {
 
 func (x *SecurityCatalogRef) Reset() {
 	*x = SecurityCatalogRef{}
-	mi := &file_rpc_platform_service_proto_msgTypes[477]
+	mi := &file_rpc_platform_service_proto_msgTypes[480]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -38990,7 +39210,7 @@ func (x *SecurityCatalogRef) String() string {
 func (*SecurityCatalogRef) ProtoMessage() {}
 
 func (x *SecurityCatalogRef) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[477]
+	mi := &file_rpc_platform_service_proto_msgTypes[480]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -39003,7 +39223,7 @@ func (x *SecurityCatalogRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityCatalogRef.ProtoReflect.Descriptor instead.
 func (*SecurityCatalogRef) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{477}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{480}
 }
 
 func (x *SecurityCatalogRef) GetKind() SecurityCatalogKind {
@@ -39030,7 +39250,7 @@ type SecurityCatalogDependency struct {
 
 func (x *SecurityCatalogDependency) Reset() {
 	*x = SecurityCatalogDependency{}
-	mi := &file_rpc_platform_service_proto_msgTypes[478]
+	mi := &file_rpc_platform_service_proto_msgTypes[481]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -39042,7 +39262,7 @@ func (x *SecurityCatalogDependency) String() string {
 func (*SecurityCatalogDependency) ProtoMessage() {}
 
 func (x *SecurityCatalogDependency) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[478]
+	mi := &file_rpc_platform_service_proto_msgTypes[481]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -39055,7 +39275,7 @@ func (x *SecurityCatalogDependency) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityCatalogDependency.ProtoReflect.Descriptor instead.
 func (*SecurityCatalogDependency) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{478}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{481}
 }
 
 func (x *SecurityCatalogDependency) GetResource() *SecurityCatalogRef {
@@ -39087,7 +39307,7 @@ type SecurityCatalogEntry struct {
 
 func (x *SecurityCatalogEntry) Reset() {
 	*x = SecurityCatalogEntry{}
-	mi := &file_rpc_platform_service_proto_msgTypes[479]
+	mi := &file_rpc_platform_service_proto_msgTypes[482]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -39099,7 +39319,7 @@ func (x *SecurityCatalogEntry) String() string {
 func (*SecurityCatalogEntry) ProtoMessage() {}
 
 func (x *SecurityCatalogEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[479]
+	mi := &file_rpc_platform_service_proto_msgTypes[482]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -39112,7 +39332,7 @@ func (x *SecurityCatalogEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityCatalogEntry.ProtoReflect.Descriptor instead.
 func (*SecurityCatalogEntry) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{479}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{482}
 }
 
 func (x *SecurityCatalogEntry) GetResource() *SecurityCatalogRef {
@@ -39176,7 +39396,7 @@ type SecurityCatalog struct {
 
 func (x *SecurityCatalog) Reset() {
 	*x = SecurityCatalog{}
-	mi := &file_rpc_platform_service_proto_msgTypes[480]
+	mi := &file_rpc_platform_service_proto_msgTypes[483]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -39188,7 +39408,7 @@ func (x *SecurityCatalog) String() string {
 func (*SecurityCatalog) ProtoMessage() {}
 
 func (x *SecurityCatalog) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[480]
+	mi := &file_rpc_platform_service_proto_msgTypes[483]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -39201,7 +39421,7 @@ func (x *SecurityCatalog) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityCatalog.ProtoReflect.Descriptor instead.
 func (*SecurityCatalog) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{480}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{483}
 }
 
 func (x *SecurityCatalog) GetRevision() string {
@@ -39244,7 +39464,7 @@ type SecurityCatalogInstallRequest struct {
 
 func (x *SecurityCatalogInstallRequest) Reset() {
 	*x = SecurityCatalogInstallRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[481]
+	mi := &file_rpc_platform_service_proto_msgTypes[484]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -39256,7 +39476,7 @@ func (x *SecurityCatalogInstallRequest) String() string {
 func (*SecurityCatalogInstallRequest) ProtoMessage() {}
 
 func (x *SecurityCatalogInstallRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[481]
+	mi := &file_rpc_platform_service_proto_msgTypes[484]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -39269,7 +39489,7 @@ func (x *SecurityCatalogInstallRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityCatalogInstallRequest.ProtoReflect.Descriptor instead.
 func (*SecurityCatalogInstallRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{481}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{484}
 }
 
 func (x *SecurityCatalogInstallRequest) GetCatalogRevision() string {
@@ -39306,7 +39526,7 @@ type SecurityCatalogInstallResult struct {
 
 func (x *SecurityCatalogInstallResult) Reset() {
 	*x = SecurityCatalogInstallResult{}
-	mi := &file_rpc_platform_service_proto_msgTypes[482]
+	mi := &file_rpc_platform_service_proto_msgTypes[485]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -39318,7 +39538,7 @@ func (x *SecurityCatalogInstallResult) String() string {
 func (*SecurityCatalogInstallResult) ProtoMessage() {}
 
 func (x *SecurityCatalogInstallResult) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[482]
+	mi := &file_rpc_platform_service_proto_msgTypes[485]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -39331,7 +39551,7 @@ func (x *SecurityCatalogInstallResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityCatalogInstallResult.ProtoReflect.Descriptor instead.
 func (*SecurityCatalogInstallResult) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{482}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{485}
 }
 
 func (x *SecurityCatalogInstallResult) GetEntry() *SecurityCatalogEntry {
@@ -39369,7 +39589,7 @@ type SecurityCatalogInstallResponse struct {
 
 func (x *SecurityCatalogInstallResponse) Reset() {
 	*x = SecurityCatalogInstallResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[483]
+	mi := &file_rpc_platform_service_proto_msgTypes[486]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -39381,7 +39601,7 @@ func (x *SecurityCatalogInstallResponse) String() string {
 func (*SecurityCatalogInstallResponse) ProtoMessage() {}
 
 func (x *SecurityCatalogInstallResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[483]
+	mi := &file_rpc_platform_service_proto_msgTypes[486]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -39394,7 +39614,7 @@ func (x *SecurityCatalogInstallResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityCatalogInstallResponse.ProtoReflect.Descriptor instead.
 func (*SecurityCatalogInstallResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{483}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{486}
 }
 
 func (x *SecurityCatalogInstallResponse) GetCatalogRevision() string {
@@ -39445,7 +39665,7 @@ type SecurityProgramScanTarget struct {
 
 func (x *SecurityProgramScanTarget) Reset() {
 	*x = SecurityProgramScanTarget{}
-	mi := &file_rpc_platform_service_proto_msgTypes[484]
+	mi := &file_rpc_platform_service_proto_msgTypes[487]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -39457,7 +39677,7 @@ func (x *SecurityProgramScanTarget) String() string {
 func (*SecurityProgramScanTarget) ProtoMessage() {}
 
 func (x *SecurityProgramScanTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[484]
+	mi := &file_rpc_platform_service_proto_msgTypes[487]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -39470,7 +39690,7 @@ func (x *SecurityProgramScanTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecurityProgramScanTarget.ProtoReflect.Descriptor instead.
 func (*SecurityProgramScanTarget) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{484}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{487}
 }
 
 func (x *SecurityProgramScanTarget) GetRepositoryUrl() string {
@@ -39577,7 +39797,7 @@ type BugReport struct {
 
 func (x *BugReport) Reset() {
 	*x = BugReport{}
-	mi := &file_rpc_platform_service_proto_msgTypes[485]
+	mi := &file_rpc_platform_service_proto_msgTypes[488]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -39589,7 +39809,7 @@ func (x *BugReport) String() string {
 func (*BugReport) ProtoMessage() {}
 
 func (x *BugReport) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[485]
+	mi := &file_rpc_platform_service_proto_msgTypes[488]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -39602,7 +39822,7 @@ func (x *BugReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BugReport.ProtoReflect.Descriptor instead.
 func (*BugReport) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{485}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{488}
 }
 
 func (x *BugReport) GetId() string {
@@ -39722,7 +39942,7 @@ type ListBugReportsRequest struct {
 
 func (x *ListBugReportsRequest) Reset() {
 	*x = ListBugReportsRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[486]
+	mi := &file_rpc_platform_service_proto_msgTypes[489]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -39734,7 +39954,7 @@ func (x *ListBugReportsRequest) String() string {
 func (*ListBugReportsRequest) ProtoMessage() {}
 
 func (x *ListBugReportsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[486]
+	mi := &file_rpc_platform_service_proto_msgTypes[489]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -39747,7 +39967,7 @@ func (x *ListBugReportsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBugReportsRequest.ProtoReflect.Descriptor instead.
 func (*ListBugReportsRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{486}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{489}
 }
 
 func (x *ListBugReportsRequest) GetNamespace() string {
@@ -39787,7 +40007,7 @@ type ListBugReportsResponse struct {
 
 func (x *ListBugReportsResponse) Reset() {
 	*x = ListBugReportsResponse{}
-	mi := &file_rpc_platform_service_proto_msgTypes[487]
+	mi := &file_rpc_platform_service_proto_msgTypes[490]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -39799,7 +40019,7 @@ func (x *ListBugReportsResponse) String() string {
 func (*ListBugReportsResponse) ProtoMessage() {}
 
 func (x *ListBugReportsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[487]
+	mi := &file_rpc_platform_service_proto_msgTypes[490]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -39812,7 +40032,7 @@ func (x *ListBugReportsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBugReportsResponse.ProtoReflect.Descriptor instead.
 func (*ListBugReportsResponse) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{487}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{490}
 }
 
 func (x *ListBugReportsResponse) GetReports() []*BugReport {
@@ -39834,7 +40054,7 @@ type UpdateBugReportStatusRequest struct {
 
 func (x *UpdateBugReportStatusRequest) Reset() {
 	*x = UpdateBugReportStatusRequest{}
-	mi := &file_rpc_platform_service_proto_msgTypes[488]
+	mi := &file_rpc_platform_service_proto_msgTypes[491]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -39846,7 +40066,7 @@ func (x *UpdateBugReportStatusRequest) String() string {
 func (*UpdateBugReportStatusRequest) ProtoMessage() {}
 
 func (x *UpdateBugReportStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpc_platform_service_proto_msgTypes[488]
+	mi := &file_rpc_platform_service_proto_msgTypes[491]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -39859,7 +40079,7 @@ func (x *UpdateBugReportStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateBugReportStatusRequest.ProtoReflect.Descriptor instead.
 func (*UpdateBugReportStatusRequest) Descriptor() ([]byte, []int) {
-	return file_rpc_platform_service_proto_rawDescGZIP(), []int{488}
+	return file_rpc_platform_service_proto_rawDescGZIP(), []int{491}
 }
 
 func (x *UpdateBugReportStatusRequest) GetNamespace() string {
@@ -40773,7 +40993,26 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x1aListRuntimeProfilesRequest\"t\n" +
 	"\x1bListRuntimeProfilesResponse\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x127\n" +
-	"\bprofiles\x18\x02 \x03(\v2\x1b.platform.v1.RuntimeProfileR\bprofiles\"T\n" +
+	"\bprofiles\x18\x02 \x03(\v2\x1b.platform.v1.RuntimeProfileR\bprofiles\"\xb5\x02\n" +
+	"\tSSHTunnel\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04host\x18\x03 \x01(\tR\x04host\x12\x12\n" +
+	"\x04port\x18\x04 \x01(\x05R\x04port\x12\x12\n" +
+	"\x04user\x18\x05 \x01(\tR\x04user\x12\x1f\n" +
+	"\vremote_host\x18\x06 \x01(\tR\n" +
+	"remoteHost\x12\x1f\n" +
+	"\vremote_port\x18\a \x01(\x05R\n" +
+	"remotePort\x12 \n" +
+	"\vdescription\x18\b \x01(\tR\vdescription\x12\x14\n" +
+	"\x05phase\x18\t \x01(\tR\x05phase\x12\x18\n" +
+	"\amessage\x18\n" +
+	" \x01(\tR\amessage\x12&\n" +
+	"\x0fcreated_at_unix\x18\v \x01(\x03R\rcreatedAtUnix\"\x17\n" +
+	"\x15ListSSHTunnelsRequest\"h\n" +
+	"\x16ListSSHTunnelsResponse\x12\x1c\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x120\n" +
+	"\atunnels\x18\x02 \x03(\v2\x16.platform.v1.SSHTunnelR\atunnels\"T\n" +
 	"\x1bCreateRuntimeProfileRequest\x125\n" +
 	"\aprofile\x18\x01 \x01(\v2\x1b.platform.v1.RuntimeProfileR\aprofile\"T\n" +
 	"\x1bUpdateRuntimeProfileRequest\x125\n" +
@@ -43504,7 +43743,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"(SECURITY_CATALOG_INSTALL_STATE_INSTALLED\x10\x02\x123\n" +
 	"/SECURITY_CATALOG_INSTALL_STATE_UPDATE_AVAILABLE\x10\x03\x12+\n" +
 	"'SECURITY_CATALOG_INSTALL_STATE_MODIFIED\x10\x04\x12+\n" +
-	"'SECURITY_CATALOG_INSTALL_STATE_CONFLICT\x10\x052\xab\xaa\x01\n" +
+	"'SECURITY_CATALOG_INSTALL_STATE_CONFLICT\x10\x052\x86\xab\x01\n" +
 	"\x0fPlatformService\x12V\n" +
 	"\rListAgentRuns\x12!.platform.v1.ListAgentRunsRequest\x1a\".platform.v1.ListAgentRunsResponse\x12E\n" +
 	"\vGetAgentRun\x12\x1f.platform.v1.GetAgentRunRequest\x1a\x15.platform.v1.AgentRun\x12R\n" +
@@ -43543,7 +43782,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x17InstallSkillFromCatalog\x12+.platform.v1.InstallSkillFromCatalogRequest\x1a\x16.platform.v1.SkillInfo\x12F\n" +
 	"\vUpsertSkill\x12\x1f.platform.v1.UpsertSkillRequest\x1a\x16.platform.v1.SkillInfo\x12F\n" +
 	"\vDeleteSkill\x12\x1f.platform.v1.DeleteSkillRequest\x1a\x16.google.protobuf.Empty\x12h\n" +
-	"\x13ListRuntimeProfiles\x12'.platform.v1.ListRuntimeProfilesRequest\x1a(.platform.v1.ListRuntimeProfilesResponse\x12]\n" +
+	"\x13ListRuntimeProfiles\x12'.platform.v1.ListRuntimeProfilesRequest\x1a(.platform.v1.ListRuntimeProfilesResponse\x12Y\n" +
+	"\x0eListSSHTunnels\x12\".platform.v1.ListSSHTunnelsRequest\x1a#.platform.v1.ListSSHTunnelsResponse\x12]\n" +
 	"\x14CreateRuntimeProfile\x12(.platform.v1.CreateRuntimeProfileRequest\x1a\x1b.platform.v1.RuntimeProfile\x12]\n" +
 	"\x14UpdateRuntimeProfile\x12(.platform.v1.UpdateRuntimeProfileRequest\x1a\x1b.platform.v1.RuntimeProfile\x12X\n" +
 	"\x14DeleteRuntimeProfile\x12(.platform.v1.DeleteRuntimeProfileRequest\x1a\x16.google.protobuf.Empty\x12\\\n" +
@@ -43752,7 +43992,7 @@ func file_rpc_platform_service_proto_rawDescGZIP() []byte {
 }
 
 var file_rpc_platform_service_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_rpc_platform_service_proto_msgTypes = make([]protoimpl.MessageInfo, 505)
+var file_rpc_platform_service_proto_msgTypes = make([]protoimpl.MessageInfo, 508)
 var file_rpc_platform_service_proto_goTypes = []any{
 	(AgentRunMessageMode)(0),                              // 0: platform.v1.AgentRunMessageMode
 	(SecurityDraftKind)(0),                                // 1: platform.v1.SecurityDraftKind
@@ -43849,424 +44089,427 @@ var file_rpc_platform_service_proto_goTypes = []any{
 	(*RuntimeProfile)(nil),                                // 92: platform.v1.RuntimeProfile
 	(*ListRuntimeProfilesRequest)(nil),                    // 93: platform.v1.ListRuntimeProfilesRequest
 	(*ListRuntimeProfilesResponse)(nil),                   // 94: platform.v1.ListRuntimeProfilesResponse
-	(*CreateRuntimeProfileRequest)(nil),                   // 95: platform.v1.CreateRuntimeProfileRequest
-	(*UpdateRuntimeProfileRequest)(nil),                   // 96: platform.v1.UpdateRuntimeProfileRequest
-	(*DeleteRuntimeProfileRequest)(nil),                   // 97: platform.v1.DeleteRuntimeProfileRequest
-	(*MCPAllowedServer)(nil),                              // 98: platform.v1.MCPAllowedServer
-	(*MCPBreakGlass)(nil),                                 // 99: platform.v1.MCPBreakGlass
-	(*MCPPolicy)(nil),                                     // 100: platform.v1.MCPPolicy
-	(*ListMCPPoliciesRequest)(nil),                        // 101: platform.v1.ListMCPPoliciesRequest
-	(*ListMCPPoliciesResponse)(nil),                       // 102: platform.v1.ListMCPPoliciesResponse
-	(*CreateMCPPolicyRequest)(nil),                        // 103: platform.v1.CreateMCPPolicyRequest
-	(*UpdateMCPPolicyRequest)(nil),                        // 104: platform.v1.UpdateMCPPolicyRequest
-	(*DeleteMCPPolicyRequest)(nil),                        // 105: platform.v1.DeleteMCPPolicyRequest
-	(*GuardrailRule)(nil),                                 // 106: platform.v1.GuardrailRule
-	(*GuardrailPolicy)(nil),                               // 107: platform.v1.GuardrailPolicy
-	(*ListGuardrailPoliciesRequest)(nil),                  // 108: platform.v1.ListGuardrailPoliciesRequest
-	(*ListGuardrailPoliciesResponse)(nil),                 // 109: platform.v1.ListGuardrailPoliciesResponse
-	(*CreateGuardrailPolicyRequest)(nil),                  // 110: platform.v1.CreateGuardrailPolicyRequest
-	(*UpdateGuardrailPolicyRequest)(nil),                  // 111: platform.v1.UpdateGuardrailPolicyRequest
-	(*DeleteGuardrailPolicyRequest)(nil),                  // 112: platform.v1.DeleteGuardrailPolicyRequest
-	(*ListModeTemplatesRequest)(nil),                      // 113: platform.v1.ListModeTemplatesRequest
-	(*ListModeTemplatesResponse)(nil),                     // 114: platform.v1.ListModeTemplatesResponse
-	(*CreateModeTemplateRequest)(nil),                     // 115: platform.v1.CreateModeTemplateRequest
-	(*UpdateModeTemplateRequest)(nil),                     // 116: platform.v1.UpdateModeTemplateRequest
-	(*DeleteModeTemplateRequest)(nil),                     // 117: platform.v1.DeleteModeTemplateRequest
-	(*RoleInstruction)(nil),                               // 118: platform.v1.RoleInstruction
-	(*ListRoleInstructionsRequest)(nil),                   // 119: platform.v1.ListRoleInstructionsRequest
-	(*ListRoleInstructionsResponse)(nil),                  // 120: platform.v1.ListRoleInstructionsResponse
-	(*CreateRoleInstructionRequest)(nil),                  // 121: platform.v1.CreateRoleInstructionRequest
-	(*UpdateRoleInstructionRequest)(nil),                  // 122: platform.v1.UpdateRoleInstructionRequest
-	(*DeleteRoleInstructionRequest)(nil),                  // 123: platform.v1.DeleteRoleInstructionRequest
-	(*RuntimeImageVersion)(nil),                           // 124: platform.v1.RuntimeImageVersion
-	(*RuntimeImageOption)(nil),                            // 125: platform.v1.RuntimeImageOption
-	(*ListRuntimeImagesRequest)(nil),                      // 126: platform.v1.ListRuntimeImagesRequest
-	(*ListRuntimeImagesResponse)(nil),                     // 127: platform.v1.ListRuntimeImagesResponse
-	(*ListSlackAgentsRequest)(nil),                        // 128: platform.v1.ListSlackAgentsRequest
-	(*ListSlackAgentsResponse)(nil),                       // 129: platform.v1.ListSlackAgentsResponse
-	(*UpdateSlackAgentRequest)(nil),                       // 130: platform.v1.UpdateSlackAgentRequest
-	(*SlackDraft)(nil),                                    // 131: platform.v1.SlackDraft
-	(*ListSlackDraftsRequest)(nil),                        // 132: platform.v1.ListSlackDraftsRequest
-	(*ListSlackDraftsResponse)(nil),                       // 133: platform.v1.ListSlackDraftsResponse
-	(*DeleteSlackAgentRequest)(nil),                       // 134: platform.v1.DeleteSlackAgentRequest
-	(*SlackWorkspace)(nil),                                // 135: platform.v1.SlackWorkspace
-	(*ListSlackWorkspacesRequest)(nil),                    // 136: platform.v1.ListSlackWorkspacesRequest
-	(*ListSlackWorkspacesResponse)(nil),                   // 137: platform.v1.ListSlackWorkspacesResponse
-	(*UpdateSlackWorkspaceRequest)(nil),                   // 138: platform.v1.UpdateSlackWorkspaceRequest
-	(*DeleteSlackWorkspaceRequest)(nil),                   // 139: platform.v1.DeleteSlackWorkspaceRequest
-	(*Soul)(nil),                                          // 140: platform.v1.Soul
-	(*GetMySoulRequest)(nil),                              // 141: platform.v1.GetMySoulRequest
-	(*UpdateMySoulRequest)(nil),                           // 142: platform.v1.UpdateMySoulRequest
-	(*RoleModelPreference)(nil),                           // 143: platform.v1.RoleModelPreference
-	(*RoleModelPreferences)(nil),                          // 144: platform.v1.RoleModelPreferences
-	(*GetMyRoleModelPreferencesRequest)(nil),              // 145: platform.v1.GetMyRoleModelPreferencesRequest
-	(*UpdateMyRoleModelPreferencesRequest)(nil),           // 146: platform.v1.UpdateMyRoleModelPreferencesRequest
-	(*ModelDefaults)(nil),                                 // 147: platform.v1.ModelDefaults
-	(*GetMyModelDefaultsRequest)(nil),                     // 148: platform.v1.GetMyModelDefaultsRequest
-	(*UpdateMyModelDefaultsRequest)(nil),                  // 149: platform.v1.UpdateMyModelDefaultsRequest
-	(*GitIdentity)(nil),                                   // 150: platform.v1.GitIdentity
-	(*GetMyGitIdentityRequest)(nil),                       // 151: platform.v1.GetMyGitIdentityRequest
-	(*UpdateMyGitIdentityRequest)(nil),                    // 152: platform.v1.UpdateMyGitIdentityRequest
-	(*TeamParentRef)(nil),                                 // 153: platform.v1.TeamParentRef
-	(*TeamChildRef)(nil),                                  // 154: platform.v1.TeamChildRef
-	(*TeamChildRunStatus)(nil),                            // 155: platform.v1.TeamChildRunStatus
-	(*CreateTeamChildRunRequest)(nil),                     // 156: platform.v1.CreateTeamChildRunRequest
-	(*ListTeamChildRunsRequest)(nil),                      // 157: platform.v1.ListTeamChildRunsRequest
-	(*ListTeamChildRunsResponse)(nil),                     // 158: platform.v1.ListTeamChildRunsResponse
-	(*GetTeamChildRunStatusRequest)(nil),                  // 159: platform.v1.GetTeamChildRunStatusRequest
-	(*GetTeamChildRunLogsRequest)(nil),                    // 160: platform.v1.GetTeamChildRunLogsRequest
-	(*TeamChildRunLogs)(nil),                              // 161: platform.v1.TeamChildRunLogs
-	(*GetTeamChildRunArtifactRequest)(nil),                // 162: platform.v1.GetTeamChildRunArtifactRequest
-	(*TeamChildRunArtifact)(nil),                          // 163: platform.v1.TeamChildRunArtifact
-	(*SendTeamChildMessageRequest)(nil),                   // 164: platform.v1.SendTeamChildMessageRequest
-	(*GetAgentRunTeamStatusRequest)(nil),                  // 165: platform.v1.GetAgentRunTeamStatusRequest
-	(*WaitForTeamRunChangeRequest)(nil),                   // 166: platform.v1.WaitForTeamRunChangeRequest
-	(*WaitForTeamRunChangeResponse)(nil),                  // 167: platform.v1.WaitForTeamRunChangeResponse
-	(*CancelTeamChildRunRequest)(nil),                     // 168: platform.v1.CancelTeamChildRunRequest
-	(*RetryTeamChildRunRequest)(nil),                      // 169: platform.v1.RetryTeamChildRunRequest
-	(*GetTeamApprovalStatusRequest)(nil),                  // 170: platform.v1.GetTeamApprovalStatusRequest
-	(*TeamApprovalStatus)(nil),                            // 171: platform.v1.TeamApprovalStatus
-	(*GetDiffRequest)(nil),                                // 172: platform.v1.GetDiffRequest
-	(*GetDiffResponse)(nil),                               // 173: platform.v1.GetDiffResponse
-	(*ListFilesRequest)(nil),                              // 174: platform.v1.ListFilesRequest
-	(*ListFilesResponse)(nil),                             // 175: platform.v1.ListFilesResponse
-	(*FileEntry)(nil),                                     // 176: platform.v1.FileEntry
-	(*ListWorkspaceFilesRequest)(nil),                     // 177: platform.v1.ListWorkspaceFilesRequest
-	(*ListWorkspaceFilesResponse)(nil),                    // 178: platform.v1.ListWorkspaceFilesResponse
-	(*RepositoryInfo)(nil),                                // 179: platform.v1.RepositoryInfo
-	(*CloneRepositoryRequest)(nil),                        // 180: platform.v1.CloneRepositoryRequest
-	(*CloneRepositoryResponse)(nil),                       // 181: platform.v1.CloneRepositoryResponse
-	(*ListRepositoriesRequest)(nil),                       // 182: platform.v1.ListRepositoriesRequest
-	(*ListRepositoriesResponse)(nil),                      // 183: platform.v1.ListRepositoriesResponse
-	(*ReadFileRequest)(nil),                               // 184: platform.v1.ReadFileRequest
-	(*ReadFileResponse)(nil),                              // 185: platform.v1.ReadFileResponse
-	(*UpdateLinearProjectInstructionsRequest)(nil),        // 186: platform.v1.UpdateLinearProjectInstructionsRequest
-	(*UpdateLinearProjectInstructionsResponse)(nil),       // 187: platform.v1.UpdateLinearProjectInstructionsResponse
-	(*GetTeamRuntimeRequest)(nil),                         // 188: platform.v1.GetTeamRuntimeRequest
-	(*WatchTeamRuntimeRequest)(nil),                       // 189: platform.v1.WatchTeamRuntimeRequest
-	(*TeamRuntime)(nil),                                   // 190: platform.v1.TeamRuntime
-	(*TeamRuntimeTask)(nil),                               // 191: platform.v1.TeamRuntimeTask
-	(*TeamRuntimeEventCheckpoint)(nil),                    // 192: platform.v1.TeamRuntimeEventCheckpoint
-	(*ModeTransitionEvent)(nil),                           // 193: platform.v1.ModeTransitionEvent
-	(*ModeConstraints)(nil),                               // 194: platform.v1.ModeConstraints
-	(*ModeTemplate)(nil),                                  // 195: platform.v1.ModeTemplate
-	(*ListAvailableModesRequest)(nil),                     // 196: platform.v1.ListAvailableModesRequest
-	(*ListAvailableModesResponse)(nil),                    // 197: platform.v1.ListAvailableModesResponse
-	(*GetModeTemplateRequest)(nil),                        // 198: platform.v1.GetModeTemplateRequest
-	(*SwitchAgentRunModeRequest)(nil),                     // 199: platform.v1.SwitchAgentRunModeRequest
-	(*SwitchAgentRunModeResponse)(nil),                    // 200: platform.v1.SwitchAgentRunModeResponse
-	(*EvidenceGateResult)(nil),                            // 201: platform.v1.EvidenceGateResult
-	(*ListProjectsRequest)(nil),                           // 202: platform.v1.ListProjectsRequest
-	(*ListProjectsResponse)(nil),                          // 203: platform.v1.ListProjectsResponse
-	(*GetProjectRequest)(nil),                             // 204: platform.v1.GetProjectRequest
-	(*WatchProjectsRequest)(nil),                          // 205: platform.v1.WatchProjectsRequest
-	(*ProjectEvent)(nil),                                  // 206: platform.v1.ProjectEvent
-	(*ProjectCredentialStatus)(nil),                       // 207: platform.v1.ProjectCredentialStatus
-	(*CreateProjectRequest)(nil),                          // 208: platform.v1.CreateProjectRequest
-	(*UpdateProjectRequest)(nil),                          // 209: platform.v1.UpdateProjectRequest
-	(*ProjectTriggerCondition)(nil),                       // 210: platform.v1.ProjectTriggerCondition
-	(*GitHubProjectTrigger)(nil),                          // 211: platform.v1.GitHubProjectTrigger
-	(*SlackProjectTrigger)(nil),                           // 212: platform.v1.SlackProjectTrigger
-	(*CronProjectTrigger)(nil),                            // 213: platform.v1.CronProjectTrigger
-	(*LinearProjectTrigger)(nil),                          // 214: platform.v1.LinearProjectTrigger
-	(*ProjectTrigger)(nil),                                // 215: platform.v1.ProjectTrigger
-	(*CreateProjectTriggerRequest)(nil),                   // 216: platform.v1.CreateProjectTriggerRequest
-	(*UpdateProjectTriggerRequest)(nil),                   // 217: platform.v1.UpdateProjectTriggerRequest
-	(*DeleteProjectTriggerRequest)(nil),                   // 218: platform.v1.DeleteProjectTriggerRequest
-	(*SetProjectTriggerEnabledRequest)(nil),               // 219: platform.v1.SetProjectTriggerEnabledRequest
-	(*DeleteProjectRequest)(nil),                          // 220: platform.v1.DeleteProjectRequest
-	(*GitHubConnection)(nil),                              // 221: platform.v1.GitHubConnection
-	(*SlackConnection)(nil),                               // 222: platform.v1.SlackConnection
-	(*LinearConnection)(nil),                              // 223: platform.v1.LinearConnection
-	(*Connection)(nil),                                    // 224: platform.v1.Connection
-	(*ListConnectionsRequest)(nil),                        // 225: platform.v1.ListConnectionsRequest
-	(*ListConnectionsResponse)(nil),                       // 226: platform.v1.ListConnectionsResponse
-	(*CreateConnectionRequest)(nil),                       // 227: platform.v1.CreateConnectionRequest
-	(*UpdateConnectionRequest)(nil),                       // 228: platform.v1.UpdateConnectionRequest
-	(*DeleteConnectionRequest)(nil),                       // 229: platform.v1.DeleteConnectionRequest
-	(*Project)(nil),                                       // 230: platform.v1.Project
-	(*ProjectMetrics)(nil),                                // 231: platform.v1.ProjectMetrics
-	(*ListGitHubRepositoriesRequest)(nil),                 // 232: platform.v1.ListGitHubRepositoriesRequest
-	(*ListGitHubRepositoriesResponse)(nil),                // 233: platform.v1.ListGitHubRepositoriesResponse
-	(*GetGitHubRepositoryRequest)(nil),                    // 234: platform.v1.GetGitHubRepositoryRequest
-	(*WatchGitHubRepositoriesRequest)(nil),                // 235: platform.v1.WatchGitHubRepositoriesRequest
-	(*GitHubRepositoryEvent)(nil),                         // 236: platform.v1.GitHubRepositoryEvent
-	(*GitHubRepositoryTriggerSettings)(nil),               // 237: platform.v1.GitHubRepositoryTriggerSettings
-	(*GitHubRepositoryMaintainerStatus)(nil),              // 238: platform.v1.GitHubRepositoryMaintainerStatus
-	(*ListMaintainerWorkItemsRequest)(nil),                // 239: platform.v1.ListMaintainerWorkItemsRequest
-	(*ListMaintainerWorkItemsResponse)(nil),               // 240: platform.v1.ListMaintainerWorkItemsResponse
-	(*MaintainerWorkItemAgentRun)(nil),                    // 241: platform.v1.MaintainerWorkItemAgentRun
-	(*MaintainerWorkItemPullRequest)(nil),                 // 242: platform.v1.MaintainerWorkItemPullRequest
-	(*MaintainerWorkItemDecision)(nil),                    // 243: platform.v1.MaintainerWorkItemDecision
-	(*MaintainerWorkItem)(nil),                            // 244: platform.v1.MaintainerWorkItem
-	(*MaintainerWorkItemLink)(nil),                        // 245: platform.v1.MaintainerWorkItemLink
-	(*MaintainerBoardCapacity)(nil),                       // 246: platform.v1.MaintainerBoardCapacity
-	(*MaintainerAcceptedScopeInput)(nil),                  // 247: platform.v1.MaintainerAcceptedScopeInput
-	(*MaintainerTriageInput)(nil),                         // 248: platform.v1.MaintainerTriageInput
-	(*MaintainerBreakdownInput)(nil),                      // 249: platform.v1.MaintainerBreakdownInput
-	(*MaintainerRequestDecisionInput)(nil),                // 250: platform.v1.MaintainerRequestDecisionInput
-	(*MaintainerResolveDecisionInput)(nil),                // 251: platform.v1.MaintainerResolveDecisionInput
-	(*MaintainerDispatchInput)(nil),                       // 252: platform.v1.MaintainerDispatchInput
-	(*MaintainerRequestMergeInput)(nil),                   // 253: platform.v1.MaintainerRequestMergeInput
-	(*MaintainerFinalizeInput)(nil),                       // 254: platform.v1.MaintainerFinalizeInput
-	(*IssueMaintainerCommandRequest)(nil),                 // 255: platform.v1.IssueMaintainerCommandRequest
-	(*IssueMaintainerCommandResponse)(nil),                // 256: platform.v1.IssueMaintainerCommandResponse
-	(*GitHubRepository)(nil),                              // 257: platform.v1.GitHubRepository
-	(*GitHubAppConfig)(nil),                               // 258: platform.v1.GitHubAppConfig
-	(*GitHubAppInstallation)(nil),                         // 259: platform.v1.GitHubAppInstallation
-	(*ListGitHubAppInstallationsResponse)(nil),            // 260: platform.v1.ListGitHubAppInstallationsResponse
-	(*ListGitHubAppInstallationRepositoriesRequest)(nil),  // 261: platform.v1.ListGitHubAppInstallationRepositoriesRequest
-	(*GitHubAppInstallationRepository)(nil),               // 262: platform.v1.GitHubAppInstallationRepository
-	(*ListGitHubAppInstallationRepositoriesResponse)(nil), // 263: platform.v1.ListGitHubAppInstallationRepositoriesResponse
-	(*CreateGitHubRepositoryFromInstallationRequest)(nil), // 264: platform.v1.CreateGitHubRepositoryFromInstallationRequest
-	(*CreateGitHubRepositoryFromTokenRequest)(nil),        // 265: platform.v1.CreateGitHubRepositoryFromTokenRequest
-	(*AgentRunDefaults)(nil),                              // 266: platform.v1.AgentRunDefaults
-	(*TriggerPolicies)(nil),                               // 267: platform.v1.TriggerPolicies
-	(*UpdateGitHubRepositoryRequest)(nil),                 // 268: platform.v1.UpdateGitHubRepositoryRequest
-	(*CreateLinearProjectRequest)(nil),                    // 269: platform.v1.CreateLinearProjectRequest
-	(*UpdateLinearProjectRequest)(nil),                    // 270: platform.v1.UpdateLinearProjectRequest
-	(*ListCronsRequest)(nil),                              // 271: platform.v1.ListCronsRequest
-	(*ListCronsResponse)(nil),                             // 272: platform.v1.ListCronsResponse
-	(*GetCronRequest)(nil),                                // 273: platform.v1.GetCronRequest
-	(*WatchCronsRequest)(nil),                             // 274: platform.v1.WatchCronsRequest
-	(*CronEvent)(nil),                                     // 275: platform.v1.CronEvent
-	(*CreateCronRequest)(nil),                             // 276: platform.v1.CreateCronRequest
-	(*UpdateCronRequest)(nil),                             // 277: platform.v1.UpdateCronRequest
-	(*DeleteCronRequest)(nil),                             // 278: platform.v1.DeleteCronRequest
-	(*Cron)(nil),                                          // 279: platform.v1.Cron
-	(*GetAgentTraceRequest)(nil),                          // 280: platform.v1.GetAgentTraceRequest
-	(*GetAgentTraceResponse)(nil),                         // 281: platform.v1.GetAgentTraceResponse
-	(*GetAgentRunErrorsRequest)(nil),                      // 282: platform.v1.GetAgentRunErrorsRequest
-	(*AgentRunError)(nil),                                 // 283: platform.v1.AgentRunError
-	(*GetAgentRunErrorsResponse)(nil),                     // 284: platform.v1.GetAgentRunErrorsResponse
-	(*GetAgentRunLogsRequest)(nil),                        // 285: platform.v1.GetAgentRunLogsRequest
-	(*GetAgentRunLogsResponse)(nil),                       // 286: platform.v1.GetAgentRunLogsResponse
-	(*TraceSpan)(nil),                                     // 287: platform.v1.TraceSpan
-	(*TraceSpanTag)(nil),                                  // 288: platform.v1.TraceSpanTag
-	(*ExportAgentRunArchiveRequest)(nil),                  // 289: platform.v1.ExportAgentRunArchiveRequest
-	(*ExportAgentRunArchiveResponse)(nil),                 // 290: platform.v1.ExportAgentRunArchiveResponse
-	(*ResourceOwner)(nil),                                 // 291: platform.v1.ResourceOwner
-	(*ShareResourceRequest)(nil),                          // 292: platform.v1.ShareResourceRequest
-	(*ShareResourceResponse)(nil),                         // 293: platform.v1.ShareResourceResponse
-	(*RevokeShareRequest)(nil),                            // 294: platform.v1.RevokeShareRequest
-	(*UpdateSharePermissionRequest)(nil),                  // 295: platform.v1.UpdateSharePermissionRequest
-	(*ListSharesRequest)(nil),                             // 296: platform.v1.ListSharesRequest
-	(*ListSharesResponse)(nil),                            // 297: platform.v1.ListSharesResponse
-	(*ListSharedWithMeRequest)(nil),                       // 298: platform.v1.ListSharedWithMeRequest
-	(*ListSharedWithMeResponse)(nil),                      // 299: platform.v1.ListSharedWithMeResponse
-	(*ResourceShareInfo)(nil),                             // 300: platform.v1.ResourceShareInfo
-	(*SharedResource)(nil),                                // 301: platform.v1.SharedResource
-	(*ListNotificationsRequest)(nil),                      // 302: platform.v1.ListNotificationsRequest
-	(*ListNotificationsResponse)(nil),                     // 303: platform.v1.ListNotificationsResponse
-	(*MarkNotificationReadRequest)(nil),                   // 304: platform.v1.MarkNotificationReadRequest
-	(*NotificationInfo)(nil),                              // 305: platform.v1.NotificationInfo
-	(*PresenceHeartbeatRequest)(nil),                      // 306: platform.v1.PresenceHeartbeatRequest
-	(*GetPresenceRequest)(nil),                            // 307: platform.v1.GetPresenceRequest
-	(*GetPresenceResponse)(nil),                           // 308: platform.v1.GetPresenceResponse
-	(*ExtendAgentRunRuntimeRequest)(nil),                  // 309: platform.v1.ExtendAgentRunRuntimeRequest
-	(*GetAgentRunPullRequestsRequest)(nil),                // 310: platform.v1.GetAgentRunPullRequestsRequest
-	(*GetAgentRunPullRequestsResponse)(nil),               // 311: platform.v1.GetAgentRunPullRequestsResponse
-	(*PullRequestDetails)(nil),                            // 312: platform.v1.PullRequestDetails
-	(*PullRequestCheck)(nil),                              // 313: platform.v1.PullRequestCheck
-	(*PullRequestReviewThread)(nil),                       // 314: platform.v1.PullRequestReviewThread
-	(*PullRequestReviewComment)(nil),                      // 315: platform.v1.PullRequestReviewComment
-	(*AgentRunOverseerConfig)(nil),                        // 316: platform.v1.AgentRunOverseerConfig
-	(*AgentRunOverseerSummary)(nil),                       // 317: platform.v1.AgentRunOverseerSummary
-	(*AttachAgentRunOverseerRequest)(nil),                 // 318: platform.v1.AttachAgentRunOverseerRequest
-	(*UpdateAgentRunOverseerRequest)(nil),                 // 319: platform.v1.UpdateAgentRunOverseerRequest
-	(*DetachAgentRunOverseerRequest)(nil),                 // 320: platform.v1.DetachAgentRunOverseerRequest
-	(*SkillCatalogEntry)(nil),                             // 321: platform.v1.SkillCatalogEntry
-	(*ListSkillCatalogRequest)(nil),                       // 322: platform.v1.ListSkillCatalogRequest
-	(*ListSkillCatalogResponse)(nil),                      // 323: platform.v1.ListSkillCatalogResponse
-	(*InstallSkillFromCatalogRequest)(nil),                // 324: platform.v1.InstallSkillFromCatalogRequest
-	(*UserSecretState)(nil),                               // 325: platform.v1.UserSecretState
-	(*ProjectContent)(nil),                                // 326: platform.v1.ProjectContent
-	(*ProjectContentVersion)(nil),                         // 327: platform.v1.ProjectContentVersion
-	(*ListProjectContentRequest)(nil),                     // 328: platform.v1.ListProjectContentRequest
-	(*ListProjectContentResponse)(nil),                    // 329: platform.v1.ListProjectContentResponse
-	(*GetProjectContentRequest)(nil),                      // 330: platform.v1.GetProjectContentRequest
-	(*GetProjectContentResponse)(nil),                     // 331: platform.v1.GetProjectContentResponse
-	(*CreateProjectContentRequest)(nil),                   // 332: platform.v1.CreateProjectContentRequest
-	(*UpdateProjectContentRequest)(nil),                   // 333: platform.v1.UpdateProjectContentRequest
-	(*DuplicateProjectContentRequest)(nil),                // 334: platform.v1.DuplicateProjectContentRequest
-	(*ListProjectContentVersionsRequest)(nil),             // 335: platform.v1.ListProjectContentVersionsRequest
-	(*ListProjectContentVersionsResponse)(nil),            // 336: platform.v1.ListProjectContentVersionsResponse
-	(*RestoreProjectContentVersionRequest)(nil),           // 337: platform.v1.RestoreProjectContentVersionRequest
-	(*DeleteProjectContentRequest)(nil),                   // 338: platform.v1.DeleteProjectContentRequest
-	(*StartProviderOAuthRequest)(nil),                     // 339: platform.v1.StartProviderOAuthRequest
-	(*ProviderOAuthStart)(nil),                            // 340: platform.v1.ProviderOAuthStart
-	(*CompleteProviderOAuthRequest)(nil),                  // 341: platform.v1.CompleteProviderOAuthRequest
-	(*PollProviderOAuthRequest)(nil),                      // 342: platform.v1.PollProviderOAuthRequest
-	(*ProviderOAuthResult)(nil),                           // 343: platform.v1.ProviderOAuthResult
-	(*ProviderOAuthSubscription)(nil),                     // 344: platform.v1.ProviderOAuthSubscription
-	(*GetMyOpenAIUsageRequest)(nil),                       // 345: platform.v1.GetMyOpenAIUsageRequest
-	(*MyOpenAIUsage)(nil),                                 // 346: platform.v1.MyOpenAIUsage
-	(*OpenAIUsageLimit)(nil),                              // 347: platform.v1.OpenAIUsageLimit
-	(*GetMyCopilotUsageRequest)(nil),                      // 348: platform.v1.GetMyCopilotUsageRequest
-	(*MyCopilotUsage)(nil),                                // 349: platform.v1.MyCopilotUsage
-	(*CopilotUsageQuota)(nil),                             // 350: platform.v1.CopilotUsageQuota
-	(*GetMyAnthropicUsageRequest)(nil),                    // 351: platform.v1.GetMyAnthropicUsageRequest
-	(*MyAnthropicUsage)(nil),                              // 352: platform.v1.MyAnthropicUsage
-	(*AnthropicUsageLimit)(nil),                           // 353: platform.v1.AnthropicUsageLimit
-	(*SecurityScan)(nil),                                  // 354: platform.v1.SecurityScan
-	(*ListSecurityScansRequest)(nil),                      // 355: platform.v1.ListSecurityScansRequest
-	(*ListSecurityScansResponse)(nil),                     // 356: platform.v1.ListSecurityScansResponse
-	(*GetSecurityScanRequest)(nil),                        // 357: platform.v1.GetSecurityScanRequest
-	(*SecurityFinding)(nil),                               // 358: platform.v1.SecurityFinding
-	(*ListSecurityFindingsRequest)(nil),                   // 359: platform.v1.ListSecurityFindingsRequest
-	(*ListSecurityFindingsResponse)(nil),                  // 360: platform.v1.ListSecurityFindingsResponse
-	(*GetSecurityFindingRequest)(nil),                     // 361: platform.v1.GetSecurityFindingRequest
-	(*SecurityFindingEvent)(nil),                          // 362: platform.v1.SecurityFindingEvent
-	(*GetSecurityFindingResponse)(nil),                    // 363: platform.v1.GetSecurityFindingResponse
-	(*GetSecurityFindingSubmissionBundleRequest)(nil),     // 364: platform.v1.GetSecurityFindingSubmissionBundleRequest
-	(*GetSecurityFindingSubmissionBundleResponse)(nil),    // 365: platform.v1.GetSecurityFindingSubmissionBundleResponse
-	(*UpdateSecurityFindingStatusRequest)(nil),            // 366: platform.v1.UpdateSecurityFindingStatusRequest
-	(*GetSecurityFindingSummaryRequest)(nil),              // 367: platform.v1.GetSecurityFindingSummaryRequest
-	(*GetSecurityFindingSummaryResponse)(nil),             // 368: platform.v1.GetSecurityFindingSummaryResponse
-	(*SecurityFindingTrends)(nil),                         // 369: platform.v1.SecurityFindingTrends
-	(*UpdateSecurityFindingAssigneeRequest)(nil),          // 370: platform.v1.UpdateSecurityFindingAssigneeRequest
-	(*UpdateSecurityFindingTicketRequest)(nil),            // 371: platform.v1.UpdateSecurityFindingTicketRequest
-	(*CreateSecurityFindingTicketRequest)(nil),            // 372: platform.v1.CreateSecurityFindingTicketRequest
-	(*BulkUpdateSecurityFindingStatusRequest)(nil),        // 373: platform.v1.BulkUpdateSecurityFindingStatusRequest
-	(*BulkUpdateSecurityFindingOutcome)(nil),              // 374: platform.v1.BulkUpdateSecurityFindingOutcome
-	(*BulkUpdateSecurityFindingStatusResponse)(nil),       // 375: platform.v1.BulkUpdateSecurityFindingStatusResponse
-	(*SecuritySavedFilter)(nil),                           // 376: platform.v1.SecuritySavedFilter
-	(*ListSecuritySavedFiltersRequest)(nil),               // 377: platform.v1.ListSecuritySavedFiltersRequest
-	(*ListSecuritySavedFiltersResponse)(nil),              // 378: platform.v1.ListSecuritySavedFiltersResponse
-	(*SaveSecuritySavedFilterRequest)(nil),                // 379: platform.v1.SaveSecuritySavedFilterRequest
-	(*DeleteSecuritySavedFilterRequest)(nil),              // 380: platform.v1.DeleteSecuritySavedFilterRequest
-	(*ExportSecurityFindingAuditLogRequest)(nil),          // 381: platform.v1.ExportSecurityFindingAuditLogRequest
-	(*ExportSecurityFindingAuditLogResponse)(nil),         // 382: platform.v1.ExportSecurityFindingAuditLogResponse
-	(*ListSecurityFindingEventsRequest)(nil),              // 383: platform.v1.ListSecurityFindingEventsRequest
-	(*ListSecurityFindingEventsResponse)(nil),             // 384: platform.v1.ListSecurityFindingEventsResponse
-	(*AddSecurityFindingCommentRequest)(nil),              // 385: platform.v1.AddSecurityFindingCommentRequest
-	(*SecurityScanScopeConfig)(nil),                       // 386: platform.v1.SecurityScanScopeConfig
-	(*SecurityScanTaskConfig)(nil),                        // 387: platform.v1.SecurityScanTaskConfig
-	(*SecurityScanTaskCondition)(nil),                     // 388: platform.v1.SecurityScanTaskCondition
-	(*SecurityScanTaskTools)(nil),                         // 389: platform.v1.SecurityScanTaskTools
-	(*SecurityRankerConfig)(nil),                          // 390: platform.v1.SecurityRankerConfig
-	(*SecurityPostScriptConfig)(nil),                      // 391: platform.v1.SecurityPostScriptConfig
-	(*SecurityScanDedupeConfig)(nil),                      // 392: platform.v1.SecurityScanDedupeConfig
-	(*SecurityScanTriggersConfig)(nil),                    // 393: platform.v1.SecurityScanTriggersConfig
-	(*SecurityScanChecksConfig)(nil),                      // 394: platform.v1.SecurityScanChecksConfig
-	(*SecurityScanNotificationRuleConfig)(nil),            // 395: platform.v1.SecurityScanNotificationRuleConfig
-	(*SecurityScanCheckState)(nil),                        // 396: platform.v1.SecurityScanCheckState
-	(*SecurityScanNotificationState)(nil),                 // 397: platform.v1.SecurityScanNotificationState
-	(*SecurityScanExecutionConfig)(nil),                   // 398: platform.v1.SecurityScanExecutionConfig
-	(*SecurityScanTaskAttemptState)(nil),                  // 399: platform.v1.SecurityScanTaskAttemptState
-	(*SecurityScanTaskExecutionState)(nil),                // 400: platform.v1.SecurityScanTaskExecutionState
-	(*SecurityScanExecutionState)(nil),                    // 401: platform.v1.SecurityScanExecutionState
-	(*SecurityScanFanOutState)(nil),                       // 402: platform.v1.SecurityScanFanOutState
-	(*SecurityScanExecutionPlanNode)(nil),                 // 403: platform.v1.SecurityScanExecutionPlanNode
-	(*SecurityScanPostScriptJobState)(nil),                // 404: platform.v1.SecurityScanPostScriptJobState
-	(*SecurityScanConfigSpec)(nil),                        // 405: platform.v1.SecurityScanConfigSpec
-	(*SecurityScanConfig)(nil),                            // 406: platform.v1.SecurityScanConfig
-	(*SecurityScanRetentionState)(nil),                    // 407: platform.v1.SecurityScanRetentionState
-	(*ListSecurityScanConfigsRequest)(nil),                // 408: platform.v1.ListSecurityScanConfigsRequest
-	(*ListSecurityScanConfigsResponse)(nil),               // 409: platform.v1.ListSecurityScanConfigsResponse
-	(*GetSecurityScanConfigRequest)(nil),                  // 410: platform.v1.GetSecurityScanConfigRequest
-	(*CreateSecurityScanRequest)(nil),                     // 411: platform.v1.CreateSecurityScanRequest
-	(*UpdateSecurityScanRequest)(nil),                     // 412: platform.v1.UpdateSecurityScanRequest
-	(*DeleteSecurityScanRequest)(nil),                     // 413: platform.v1.DeleteSecurityScanRequest
-	(*RunSecurityScanNowRequest)(nil),                     // 414: platform.v1.RunSecurityScanNowRequest
-	(*ResumeSecurityScanRequest)(nil),                     // 415: platform.v1.ResumeSecurityScanRequest
-	(*CancelSecurityScanRunRequest)(nil),                  // 416: platform.v1.CancelSecurityScanRunRequest
-	(*SecurityWorkflowResource)(nil),                      // 417: platform.v1.SecurityWorkflowResource
-	(*SecurityWorkflowParameter)(nil),                     // 418: platform.v1.SecurityWorkflowParameter
-	(*ListSecurityWorkflowsRequest)(nil),                  // 419: platform.v1.ListSecurityWorkflowsRequest
-	(*ListSecurityWorkflowsResponse)(nil),                 // 420: platform.v1.ListSecurityWorkflowsResponse
-	(*GetSecurityWorkflowRequest)(nil),                    // 421: platform.v1.GetSecurityWorkflowRequest
-	(*CreateSecurityWorkflowRequest)(nil),                 // 422: platform.v1.CreateSecurityWorkflowRequest
-	(*UpdateSecurityWorkflowRequest)(nil),                 // 423: platform.v1.UpdateSecurityWorkflowRequest
-	(*DeleteSecurityWorkflowRequest)(nil),                 // 424: platform.v1.DeleteSecurityWorkflowRequest
-	(*SecurityWorkflowValidationError)(nil),               // 425: platform.v1.SecurityWorkflowValidationError
-	(*ValidateSecurityWorkflowRequest)(nil),               // 426: platform.v1.ValidateSecurityWorkflowRequest
-	(*ValidateSecurityWorkflowResponse)(nil),              // 427: platform.v1.ValidateSecurityWorkflowResponse
-	(*SecurityRankerResource)(nil),                        // 428: platform.v1.SecurityRankerResource
-	(*ListSecurityRankersRequest)(nil),                    // 429: platform.v1.ListSecurityRankersRequest
-	(*ListSecurityRankersResponse)(nil),                   // 430: platform.v1.ListSecurityRankersResponse
-	(*GetSecurityRankerRequest)(nil),                      // 431: platform.v1.GetSecurityRankerRequest
-	(*CreateSecurityRankerRequest)(nil),                   // 432: platform.v1.CreateSecurityRankerRequest
-	(*UpdateSecurityRankerRequest)(nil),                   // 433: platform.v1.UpdateSecurityRankerRequest
-	(*DeleteSecurityRankerRequest)(nil),                   // 434: platform.v1.DeleteSecurityRankerRequest
-	(*SecurityPostScriptResource)(nil),                    // 435: platform.v1.SecurityPostScriptResource
-	(*ListSecurityPostScriptsRequest)(nil),                // 436: platform.v1.ListSecurityPostScriptsRequest
-	(*ListSecurityPostScriptsResponse)(nil),               // 437: platform.v1.ListSecurityPostScriptsResponse
-	(*GetSecurityPostScriptRequest)(nil),                  // 438: platform.v1.GetSecurityPostScriptRequest
-	(*CreateSecurityPostScriptRequest)(nil),               // 439: platform.v1.CreateSecurityPostScriptRequest
-	(*UpdateSecurityPostScriptRequest)(nil),               // 440: platform.v1.UpdateSecurityPostScriptRequest
-	(*DeleteSecurityPostScriptRequest)(nil),               // 441: platform.v1.DeleteSecurityPostScriptRequest
-	(*SecuritySuppressionMatcherConfig)(nil),              // 442: platform.v1.SecuritySuppressionMatcherConfig
-	(*SecurityPolicySuppressionConfig)(nil),               // 443: platform.v1.SecurityPolicySuppressionConfig
-	(*SecurityScanBudgetsConfig)(nil),                     // 444: platform.v1.SecurityScanBudgetsConfig
-	(*SecurityPolicyPackRetentionConfig)(nil),             // 445: platform.v1.SecurityPolicyPackRetentionConfig
-	(*SecurityPolicyPackResource)(nil),                    // 446: platform.v1.SecurityPolicyPackResource
-	(*ListSecurityPolicyPacksRequest)(nil),                // 447: platform.v1.ListSecurityPolicyPacksRequest
-	(*ListSecurityPolicyPacksResponse)(nil),               // 448: platform.v1.ListSecurityPolicyPacksResponse
-	(*GetSecurityPolicyPackRequest)(nil),                  // 449: platform.v1.GetSecurityPolicyPackRequest
-	(*CreateSecurityPolicyPackRequest)(nil),               // 450: platform.v1.CreateSecurityPolicyPackRequest
-	(*UpdateSecurityPolicyPackRequest)(nil),               // 451: platform.v1.UpdateSecurityPolicyPackRequest
-	(*DeleteSecurityPolicyPackRequest)(nil),               // 452: platform.v1.DeleteSecurityPolicyPackRequest
-	(*SecurityProgramResource)(nil),                       // 453: platform.v1.SecurityProgramResource
-	(*SecurityProgramImpact)(nil),                         // 454: platform.v1.SecurityProgramImpact
-	(*SecurityProgramAsset)(nil),                          // 455: platform.v1.SecurityProgramAsset
-	(*SecurityProgramKnownIssue)(nil),                     // 456: platform.v1.SecurityProgramKnownIssue
-	(*SecurityProgramSubmissionBudget)(nil),               // 457: platform.v1.SecurityProgramSubmissionBudget
-	(*ListSecurityProgramsRequest)(nil),                   // 458: platform.v1.ListSecurityProgramsRequest
-	(*ListSecurityProgramsResponse)(nil),                  // 459: platform.v1.ListSecurityProgramsResponse
-	(*GetSecurityProgramRequest)(nil),                     // 460: platform.v1.GetSecurityProgramRequest
-	(*CreateSecurityProgramRequest)(nil),                  // 461: platform.v1.CreateSecurityProgramRequest
-	(*UpdateSecurityProgramRequest)(nil),                  // 462: platform.v1.UpdateSecurityProgramRequest
-	(*DeleteSecurityProgramRequest)(nil),                  // 463: platform.v1.DeleteSecurityProgramRequest
-	(*GenerateSecurityDraftRequest)(nil),                  // 464: platform.v1.GenerateSecurityDraftRequest
-	(*GenerateSecurityDraftResponse)(nil),                 // 465: platform.v1.GenerateSecurityDraftResponse
-	(*GetSecurityDraftRequest)(nil),                       // 466: platform.v1.GetSecurityDraftRequest
-	(*GetSecurityDraftResponse)(nil),                      // 467: platform.v1.GetSecurityDraftResponse
-	(*ExportSecurityPackRequest)(nil),                     // 468: platform.v1.ExportSecurityPackRequest
-	(*ExportSecurityPackResponse)(nil),                    // 469: platform.v1.ExportSecurityPackResponse
-	(*ImportSecurityPackRequest)(nil),                     // 470: platform.v1.ImportSecurityPackRequest
-	(*SecurityPackItemResult)(nil),                        // 471: platform.v1.SecurityPackItemResult
-	(*ImportSecurityPackResponse)(nil),                    // 472: platform.v1.ImportSecurityPackResponse
-	(*GetSecurityOverviewRequest)(nil),                    // 473: platform.v1.GetSecurityOverviewRequest
-	(*SecurityScanConfigIssue)(nil),                       // 474: platform.v1.SecurityScanConfigIssue
-	(*GetSecurityOverviewResponse)(nil),                   // 475: platform.v1.GetSecurityOverviewResponse
-	(*GetSecurityConfigPosturesRequest)(nil),              // 476: platform.v1.GetSecurityConfigPosturesRequest
-	(*SecurityRunActivityPoint)(nil),                      // 477: platform.v1.SecurityRunActivityPoint
-	(*SecurityConfigPosture)(nil),                         // 478: platform.v1.SecurityConfigPosture
-	(*GetSecurityConfigPosturesResponse)(nil),             // 479: platform.v1.GetSecurityConfigPosturesResponse
-	(*GetSecurityScanReportRequest)(nil),                  // 480: platform.v1.GetSecurityScanReportRequest
-	(*GetSecurityScanReportResponse)(nil),                 // 481: platform.v1.GetSecurityScanReportResponse
-	(*SecuritySkillsStatus)(nil),                          // 482: platform.v1.SecuritySkillsStatus
-	(*SecurityCatalogRef)(nil),                            // 483: platform.v1.SecurityCatalogRef
-	(*SecurityCatalogDependency)(nil),                     // 484: platform.v1.SecurityCatalogDependency
-	(*SecurityCatalogEntry)(nil),                          // 485: platform.v1.SecurityCatalogEntry
-	(*SecurityCatalog)(nil),                               // 486: platform.v1.SecurityCatalog
-	(*SecurityCatalogInstallRequest)(nil),                 // 487: platform.v1.SecurityCatalogInstallRequest
-	(*SecurityCatalogInstallResult)(nil),                  // 488: platform.v1.SecurityCatalogInstallResult
-	(*SecurityCatalogInstallResponse)(nil),                // 489: platform.v1.SecurityCatalogInstallResponse
-	(*SecurityProgramScanTarget)(nil),                     // 490: platform.v1.SecurityProgramScanTarget
-	(*BugReport)(nil),                                     // 491: platform.v1.BugReport
-	(*ListBugReportsRequest)(nil),                         // 492: platform.v1.ListBugReportsRequest
-	(*ListBugReportsResponse)(nil),                        // 493: platform.v1.ListBugReportsResponse
-	(*UpdateBugReportStatusRequest)(nil),                  // 494: platform.v1.UpdateBugReportStatusRequest
-	nil,                                                   // 495: platform.v1.IntegrationCredentialUpdate.EntriesEntry
-	nil,                                                   // 496: platform.v1.MCPServerInfo.EnvEntry
-	nil,                                                   // 497: platform.v1.UpsertMCPServerRequest.EnvEntry
-	nil,                                                   // 498: platform.v1.RuntimeProfile.CommandEnvEntry
-	nil,                                                   // 499: platform.v1.RuntimeProfile.ResourceRequestsEntry
-	nil,                                                   // 500: platform.v1.RuntimeProfile.ResourceLimitsEntry
-	nil,                                                   // 501: platform.v1.RoleInstruction.ModelsByProviderEntry
-	nil,                                                   // 502: platform.v1.SecurityScan.CountsEntry
-	nil,                                                   // 503: platform.v1.GetSecurityFindingSummaryResponse.CountsEntry
-	nil,                                                   // 504: platform.v1.SecurityScanConfigSpec.ParameterValuesEntry
-	nil,                                                   // 505: platform.v1.SecurityScanConfig.FindingCountsEntry
-	nil,                                                   // 506: platform.v1.RunSecurityScanNowRequest.ParameterValuesEntry
-	nil,                                                   // 507: platform.v1.GetSecurityOverviewResponse.FindingCountsEntry
-	nil,                                                   // 508: platform.v1.SecurityRunActivityPoint.SeverityCountsEntry
-	nil,                                                   // 509: platform.v1.SecurityConfigPosture.FindingCountsEntry
-	nil,                                                   // 510: platform.v1.SecurityProgramScanTarget.ParameterValuesEntry
-	(*timestamppb.Timestamp)(nil),                         // 511: google.protobuf.Timestamp
-	(*emptypb.Empty)(nil),                                 // 512: google.protobuf.Empty
+	(*SSHTunnel)(nil),                                     // 95: platform.v1.SSHTunnel
+	(*ListSSHTunnelsRequest)(nil),                         // 96: platform.v1.ListSSHTunnelsRequest
+	(*ListSSHTunnelsResponse)(nil),                        // 97: platform.v1.ListSSHTunnelsResponse
+	(*CreateRuntimeProfileRequest)(nil),                   // 98: platform.v1.CreateRuntimeProfileRequest
+	(*UpdateRuntimeProfileRequest)(nil),                   // 99: platform.v1.UpdateRuntimeProfileRequest
+	(*DeleteRuntimeProfileRequest)(nil),                   // 100: platform.v1.DeleteRuntimeProfileRequest
+	(*MCPAllowedServer)(nil),                              // 101: platform.v1.MCPAllowedServer
+	(*MCPBreakGlass)(nil),                                 // 102: platform.v1.MCPBreakGlass
+	(*MCPPolicy)(nil),                                     // 103: platform.v1.MCPPolicy
+	(*ListMCPPoliciesRequest)(nil),                        // 104: platform.v1.ListMCPPoliciesRequest
+	(*ListMCPPoliciesResponse)(nil),                       // 105: platform.v1.ListMCPPoliciesResponse
+	(*CreateMCPPolicyRequest)(nil),                        // 106: platform.v1.CreateMCPPolicyRequest
+	(*UpdateMCPPolicyRequest)(nil),                        // 107: platform.v1.UpdateMCPPolicyRequest
+	(*DeleteMCPPolicyRequest)(nil),                        // 108: platform.v1.DeleteMCPPolicyRequest
+	(*GuardrailRule)(nil),                                 // 109: platform.v1.GuardrailRule
+	(*GuardrailPolicy)(nil),                               // 110: platform.v1.GuardrailPolicy
+	(*ListGuardrailPoliciesRequest)(nil),                  // 111: platform.v1.ListGuardrailPoliciesRequest
+	(*ListGuardrailPoliciesResponse)(nil),                 // 112: platform.v1.ListGuardrailPoliciesResponse
+	(*CreateGuardrailPolicyRequest)(nil),                  // 113: platform.v1.CreateGuardrailPolicyRequest
+	(*UpdateGuardrailPolicyRequest)(nil),                  // 114: platform.v1.UpdateGuardrailPolicyRequest
+	(*DeleteGuardrailPolicyRequest)(nil),                  // 115: platform.v1.DeleteGuardrailPolicyRequest
+	(*ListModeTemplatesRequest)(nil),                      // 116: platform.v1.ListModeTemplatesRequest
+	(*ListModeTemplatesResponse)(nil),                     // 117: platform.v1.ListModeTemplatesResponse
+	(*CreateModeTemplateRequest)(nil),                     // 118: platform.v1.CreateModeTemplateRequest
+	(*UpdateModeTemplateRequest)(nil),                     // 119: platform.v1.UpdateModeTemplateRequest
+	(*DeleteModeTemplateRequest)(nil),                     // 120: platform.v1.DeleteModeTemplateRequest
+	(*RoleInstruction)(nil),                               // 121: platform.v1.RoleInstruction
+	(*ListRoleInstructionsRequest)(nil),                   // 122: platform.v1.ListRoleInstructionsRequest
+	(*ListRoleInstructionsResponse)(nil),                  // 123: platform.v1.ListRoleInstructionsResponse
+	(*CreateRoleInstructionRequest)(nil),                  // 124: platform.v1.CreateRoleInstructionRequest
+	(*UpdateRoleInstructionRequest)(nil),                  // 125: platform.v1.UpdateRoleInstructionRequest
+	(*DeleteRoleInstructionRequest)(nil),                  // 126: platform.v1.DeleteRoleInstructionRequest
+	(*RuntimeImageVersion)(nil),                           // 127: platform.v1.RuntimeImageVersion
+	(*RuntimeImageOption)(nil),                            // 128: platform.v1.RuntimeImageOption
+	(*ListRuntimeImagesRequest)(nil),                      // 129: platform.v1.ListRuntimeImagesRequest
+	(*ListRuntimeImagesResponse)(nil),                     // 130: platform.v1.ListRuntimeImagesResponse
+	(*ListSlackAgentsRequest)(nil),                        // 131: platform.v1.ListSlackAgentsRequest
+	(*ListSlackAgentsResponse)(nil),                       // 132: platform.v1.ListSlackAgentsResponse
+	(*UpdateSlackAgentRequest)(nil),                       // 133: platform.v1.UpdateSlackAgentRequest
+	(*SlackDraft)(nil),                                    // 134: platform.v1.SlackDraft
+	(*ListSlackDraftsRequest)(nil),                        // 135: platform.v1.ListSlackDraftsRequest
+	(*ListSlackDraftsResponse)(nil),                       // 136: platform.v1.ListSlackDraftsResponse
+	(*DeleteSlackAgentRequest)(nil),                       // 137: platform.v1.DeleteSlackAgentRequest
+	(*SlackWorkspace)(nil),                                // 138: platform.v1.SlackWorkspace
+	(*ListSlackWorkspacesRequest)(nil),                    // 139: platform.v1.ListSlackWorkspacesRequest
+	(*ListSlackWorkspacesResponse)(nil),                   // 140: platform.v1.ListSlackWorkspacesResponse
+	(*UpdateSlackWorkspaceRequest)(nil),                   // 141: platform.v1.UpdateSlackWorkspaceRequest
+	(*DeleteSlackWorkspaceRequest)(nil),                   // 142: platform.v1.DeleteSlackWorkspaceRequest
+	(*Soul)(nil),                                          // 143: platform.v1.Soul
+	(*GetMySoulRequest)(nil),                              // 144: platform.v1.GetMySoulRequest
+	(*UpdateMySoulRequest)(nil),                           // 145: platform.v1.UpdateMySoulRequest
+	(*RoleModelPreference)(nil),                           // 146: platform.v1.RoleModelPreference
+	(*RoleModelPreferences)(nil),                          // 147: platform.v1.RoleModelPreferences
+	(*GetMyRoleModelPreferencesRequest)(nil),              // 148: platform.v1.GetMyRoleModelPreferencesRequest
+	(*UpdateMyRoleModelPreferencesRequest)(nil),           // 149: platform.v1.UpdateMyRoleModelPreferencesRequest
+	(*ModelDefaults)(nil),                                 // 150: platform.v1.ModelDefaults
+	(*GetMyModelDefaultsRequest)(nil),                     // 151: platform.v1.GetMyModelDefaultsRequest
+	(*UpdateMyModelDefaultsRequest)(nil),                  // 152: platform.v1.UpdateMyModelDefaultsRequest
+	(*GitIdentity)(nil),                                   // 153: platform.v1.GitIdentity
+	(*GetMyGitIdentityRequest)(nil),                       // 154: platform.v1.GetMyGitIdentityRequest
+	(*UpdateMyGitIdentityRequest)(nil),                    // 155: platform.v1.UpdateMyGitIdentityRequest
+	(*TeamParentRef)(nil),                                 // 156: platform.v1.TeamParentRef
+	(*TeamChildRef)(nil),                                  // 157: platform.v1.TeamChildRef
+	(*TeamChildRunStatus)(nil),                            // 158: platform.v1.TeamChildRunStatus
+	(*CreateTeamChildRunRequest)(nil),                     // 159: platform.v1.CreateTeamChildRunRequest
+	(*ListTeamChildRunsRequest)(nil),                      // 160: platform.v1.ListTeamChildRunsRequest
+	(*ListTeamChildRunsResponse)(nil),                     // 161: platform.v1.ListTeamChildRunsResponse
+	(*GetTeamChildRunStatusRequest)(nil),                  // 162: platform.v1.GetTeamChildRunStatusRequest
+	(*GetTeamChildRunLogsRequest)(nil),                    // 163: platform.v1.GetTeamChildRunLogsRequest
+	(*TeamChildRunLogs)(nil),                              // 164: platform.v1.TeamChildRunLogs
+	(*GetTeamChildRunArtifactRequest)(nil),                // 165: platform.v1.GetTeamChildRunArtifactRequest
+	(*TeamChildRunArtifact)(nil),                          // 166: platform.v1.TeamChildRunArtifact
+	(*SendTeamChildMessageRequest)(nil),                   // 167: platform.v1.SendTeamChildMessageRequest
+	(*GetAgentRunTeamStatusRequest)(nil),                  // 168: platform.v1.GetAgentRunTeamStatusRequest
+	(*WaitForTeamRunChangeRequest)(nil),                   // 169: platform.v1.WaitForTeamRunChangeRequest
+	(*WaitForTeamRunChangeResponse)(nil),                  // 170: platform.v1.WaitForTeamRunChangeResponse
+	(*CancelTeamChildRunRequest)(nil),                     // 171: platform.v1.CancelTeamChildRunRequest
+	(*RetryTeamChildRunRequest)(nil),                      // 172: platform.v1.RetryTeamChildRunRequest
+	(*GetTeamApprovalStatusRequest)(nil),                  // 173: platform.v1.GetTeamApprovalStatusRequest
+	(*TeamApprovalStatus)(nil),                            // 174: platform.v1.TeamApprovalStatus
+	(*GetDiffRequest)(nil),                                // 175: platform.v1.GetDiffRequest
+	(*GetDiffResponse)(nil),                               // 176: platform.v1.GetDiffResponse
+	(*ListFilesRequest)(nil),                              // 177: platform.v1.ListFilesRequest
+	(*ListFilesResponse)(nil),                             // 178: platform.v1.ListFilesResponse
+	(*FileEntry)(nil),                                     // 179: platform.v1.FileEntry
+	(*ListWorkspaceFilesRequest)(nil),                     // 180: platform.v1.ListWorkspaceFilesRequest
+	(*ListWorkspaceFilesResponse)(nil),                    // 181: platform.v1.ListWorkspaceFilesResponse
+	(*RepositoryInfo)(nil),                                // 182: platform.v1.RepositoryInfo
+	(*CloneRepositoryRequest)(nil),                        // 183: platform.v1.CloneRepositoryRequest
+	(*CloneRepositoryResponse)(nil),                       // 184: platform.v1.CloneRepositoryResponse
+	(*ListRepositoriesRequest)(nil),                       // 185: platform.v1.ListRepositoriesRequest
+	(*ListRepositoriesResponse)(nil),                      // 186: platform.v1.ListRepositoriesResponse
+	(*ReadFileRequest)(nil),                               // 187: platform.v1.ReadFileRequest
+	(*ReadFileResponse)(nil),                              // 188: platform.v1.ReadFileResponse
+	(*UpdateLinearProjectInstructionsRequest)(nil),        // 189: platform.v1.UpdateLinearProjectInstructionsRequest
+	(*UpdateLinearProjectInstructionsResponse)(nil),       // 190: platform.v1.UpdateLinearProjectInstructionsResponse
+	(*GetTeamRuntimeRequest)(nil),                         // 191: platform.v1.GetTeamRuntimeRequest
+	(*WatchTeamRuntimeRequest)(nil),                       // 192: platform.v1.WatchTeamRuntimeRequest
+	(*TeamRuntime)(nil),                                   // 193: platform.v1.TeamRuntime
+	(*TeamRuntimeTask)(nil),                               // 194: platform.v1.TeamRuntimeTask
+	(*TeamRuntimeEventCheckpoint)(nil),                    // 195: platform.v1.TeamRuntimeEventCheckpoint
+	(*ModeTransitionEvent)(nil),                           // 196: platform.v1.ModeTransitionEvent
+	(*ModeConstraints)(nil),                               // 197: platform.v1.ModeConstraints
+	(*ModeTemplate)(nil),                                  // 198: platform.v1.ModeTemplate
+	(*ListAvailableModesRequest)(nil),                     // 199: platform.v1.ListAvailableModesRequest
+	(*ListAvailableModesResponse)(nil),                    // 200: platform.v1.ListAvailableModesResponse
+	(*GetModeTemplateRequest)(nil),                        // 201: platform.v1.GetModeTemplateRequest
+	(*SwitchAgentRunModeRequest)(nil),                     // 202: platform.v1.SwitchAgentRunModeRequest
+	(*SwitchAgentRunModeResponse)(nil),                    // 203: platform.v1.SwitchAgentRunModeResponse
+	(*EvidenceGateResult)(nil),                            // 204: platform.v1.EvidenceGateResult
+	(*ListProjectsRequest)(nil),                           // 205: platform.v1.ListProjectsRequest
+	(*ListProjectsResponse)(nil),                          // 206: platform.v1.ListProjectsResponse
+	(*GetProjectRequest)(nil),                             // 207: platform.v1.GetProjectRequest
+	(*WatchProjectsRequest)(nil),                          // 208: platform.v1.WatchProjectsRequest
+	(*ProjectEvent)(nil),                                  // 209: platform.v1.ProjectEvent
+	(*ProjectCredentialStatus)(nil),                       // 210: platform.v1.ProjectCredentialStatus
+	(*CreateProjectRequest)(nil),                          // 211: platform.v1.CreateProjectRequest
+	(*UpdateProjectRequest)(nil),                          // 212: platform.v1.UpdateProjectRequest
+	(*ProjectTriggerCondition)(nil),                       // 213: platform.v1.ProjectTriggerCondition
+	(*GitHubProjectTrigger)(nil),                          // 214: platform.v1.GitHubProjectTrigger
+	(*SlackProjectTrigger)(nil),                           // 215: platform.v1.SlackProjectTrigger
+	(*CronProjectTrigger)(nil),                            // 216: platform.v1.CronProjectTrigger
+	(*LinearProjectTrigger)(nil),                          // 217: platform.v1.LinearProjectTrigger
+	(*ProjectTrigger)(nil),                                // 218: platform.v1.ProjectTrigger
+	(*CreateProjectTriggerRequest)(nil),                   // 219: platform.v1.CreateProjectTriggerRequest
+	(*UpdateProjectTriggerRequest)(nil),                   // 220: platform.v1.UpdateProjectTriggerRequest
+	(*DeleteProjectTriggerRequest)(nil),                   // 221: platform.v1.DeleteProjectTriggerRequest
+	(*SetProjectTriggerEnabledRequest)(nil),               // 222: platform.v1.SetProjectTriggerEnabledRequest
+	(*DeleteProjectRequest)(nil),                          // 223: platform.v1.DeleteProjectRequest
+	(*GitHubConnection)(nil),                              // 224: platform.v1.GitHubConnection
+	(*SlackConnection)(nil),                               // 225: platform.v1.SlackConnection
+	(*LinearConnection)(nil),                              // 226: platform.v1.LinearConnection
+	(*Connection)(nil),                                    // 227: platform.v1.Connection
+	(*ListConnectionsRequest)(nil),                        // 228: platform.v1.ListConnectionsRequest
+	(*ListConnectionsResponse)(nil),                       // 229: platform.v1.ListConnectionsResponse
+	(*CreateConnectionRequest)(nil),                       // 230: platform.v1.CreateConnectionRequest
+	(*UpdateConnectionRequest)(nil),                       // 231: platform.v1.UpdateConnectionRequest
+	(*DeleteConnectionRequest)(nil),                       // 232: platform.v1.DeleteConnectionRequest
+	(*Project)(nil),                                       // 233: platform.v1.Project
+	(*ProjectMetrics)(nil),                                // 234: platform.v1.ProjectMetrics
+	(*ListGitHubRepositoriesRequest)(nil),                 // 235: platform.v1.ListGitHubRepositoriesRequest
+	(*ListGitHubRepositoriesResponse)(nil),                // 236: platform.v1.ListGitHubRepositoriesResponse
+	(*GetGitHubRepositoryRequest)(nil),                    // 237: platform.v1.GetGitHubRepositoryRequest
+	(*WatchGitHubRepositoriesRequest)(nil),                // 238: platform.v1.WatchGitHubRepositoriesRequest
+	(*GitHubRepositoryEvent)(nil),                         // 239: platform.v1.GitHubRepositoryEvent
+	(*GitHubRepositoryTriggerSettings)(nil),               // 240: platform.v1.GitHubRepositoryTriggerSettings
+	(*GitHubRepositoryMaintainerStatus)(nil),              // 241: platform.v1.GitHubRepositoryMaintainerStatus
+	(*ListMaintainerWorkItemsRequest)(nil),                // 242: platform.v1.ListMaintainerWorkItemsRequest
+	(*ListMaintainerWorkItemsResponse)(nil),               // 243: platform.v1.ListMaintainerWorkItemsResponse
+	(*MaintainerWorkItemAgentRun)(nil),                    // 244: platform.v1.MaintainerWorkItemAgentRun
+	(*MaintainerWorkItemPullRequest)(nil),                 // 245: platform.v1.MaintainerWorkItemPullRequest
+	(*MaintainerWorkItemDecision)(nil),                    // 246: platform.v1.MaintainerWorkItemDecision
+	(*MaintainerWorkItem)(nil),                            // 247: platform.v1.MaintainerWorkItem
+	(*MaintainerWorkItemLink)(nil),                        // 248: platform.v1.MaintainerWorkItemLink
+	(*MaintainerBoardCapacity)(nil),                       // 249: platform.v1.MaintainerBoardCapacity
+	(*MaintainerAcceptedScopeInput)(nil),                  // 250: platform.v1.MaintainerAcceptedScopeInput
+	(*MaintainerTriageInput)(nil),                         // 251: platform.v1.MaintainerTriageInput
+	(*MaintainerBreakdownInput)(nil),                      // 252: platform.v1.MaintainerBreakdownInput
+	(*MaintainerRequestDecisionInput)(nil),                // 253: platform.v1.MaintainerRequestDecisionInput
+	(*MaintainerResolveDecisionInput)(nil),                // 254: platform.v1.MaintainerResolveDecisionInput
+	(*MaintainerDispatchInput)(nil),                       // 255: platform.v1.MaintainerDispatchInput
+	(*MaintainerRequestMergeInput)(nil),                   // 256: platform.v1.MaintainerRequestMergeInput
+	(*MaintainerFinalizeInput)(nil),                       // 257: platform.v1.MaintainerFinalizeInput
+	(*IssueMaintainerCommandRequest)(nil),                 // 258: platform.v1.IssueMaintainerCommandRequest
+	(*IssueMaintainerCommandResponse)(nil),                // 259: platform.v1.IssueMaintainerCommandResponse
+	(*GitHubRepository)(nil),                              // 260: platform.v1.GitHubRepository
+	(*GitHubAppConfig)(nil),                               // 261: platform.v1.GitHubAppConfig
+	(*GitHubAppInstallation)(nil),                         // 262: platform.v1.GitHubAppInstallation
+	(*ListGitHubAppInstallationsResponse)(nil),            // 263: platform.v1.ListGitHubAppInstallationsResponse
+	(*ListGitHubAppInstallationRepositoriesRequest)(nil),  // 264: platform.v1.ListGitHubAppInstallationRepositoriesRequest
+	(*GitHubAppInstallationRepository)(nil),               // 265: platform.v1.GitHubAppInstallationRepository
+	(*ListGitHubAppInstallationRepositoriesResponse)(nil), // 266: platform.v1.ListGitHubAppInstallationRepositoriesResponse
+	(*CreateGitHubRepositoryFromInstallationRequest)(nil), // 267: platform.v1.CreateGitHubRepositoryFromInstallationRequest
+	(*CreateGitHubRepositoryFromTokenRequest)(nil),        // 268: platform.v1.CreateGitHubRepositoryFromTokenRequest
+	(*AgentRunDefaults)(nil),                              // 269: platform.v1.AgentRunDefaults
+	(*TriggerPolicies)(nil),                               // 270: platform.v1.TriggerPolicies
+	(*UpdateGitHubRepositoryRequest)(nil),                 // 271: platform.v1.UpdateGitHubRepositoryRequest
+	(*CreateLinearProjectRequest)(nil),                    // 272: platform.v1.CreateLinearProjectRequest
+	(*UpdateLinearProjectRequest)(nil),                    // 273: platform.v1.UpdateLinearProjectRequest
+	(*ListCronsRequest)(nil),                              // 274: platform.v1.ListCronsRequest
+	(*ListCronsResponse)(nil),                             // 275: platform.v1.ListCronsResponse
+	(*GetCronRequest)(nil),                                // 276: platform.v1.GetCronRequest
+	(*WatchCronsRequest)(nil),                             // 277: platform.v1.WatchCronsRequest
+	(*CronEvent)(nil),                                     // 278: platform.v1.CronEvent
+	(*CreateCronRequest)(nil),                             // 279: platform.v1.CreateCronRequest
+	(*UpdateCronRequest)(nil),                             // 280: platform.v1.UpdateCronRequest
+	(*DeleteCronRequest)(nil),                             // 281: platform.v1.DeleteCronRequest
+	(*Cron)(nil),                                          // 282: platform.v1.Cron
+	(*GetAgentTraceRequest)(nil),                          // 283: platform.v1.GetAgentTraceRequest
+	(*GetAgentTraceResponse)(nil),                         // 284: platform.v1.GetAgentTraceResponse
+	(*GetAgentRunErrorsRequest)(nil),                      // 285: platform.v1.GetAgentRunErrorsRequest
+	(*AgentRunError)(nil),                                 // 286: platform.v1.AgentRunError
+	(*GetAgentRunErrorsResponse)(nil),                     // 287: platform.v1.GetAgentRunErrorsResponse
+	(*GetAgentRunLogsRequest)(nil),                        // 288: platform.v1.GetAgentRunLogsRequest
+	(*GetAgentRunLogsResponse)(nil),                       // 289: platform.v1.GetAgentRunLogsResponse
+	(*TraceSpan)(nil),                                     // 290: platform.v1.TraceSpan
+	(*TraceSpanTag)(nil),                                  // 291: platform.v1.TraceSpanTag
+	(*ExportAgentRunArchiveRequest)(nil),                  // 292: platform.v1.ExportAgentRunArchiveRequest
+	(*ExportAgentRunArchiveResponse)(nil),                 // 293: platform.v1.ExportAgentRunArchiveResponse
+	(*ResourceOwner)(nil),                                 // 294: platform.v1.ResourceOwner
+	(*ShareResourceRequest)(nil),                          // 295: platform.v1.ShareResourceRequest
+	(*ShareResourceResponse)(nil),                         // 296: platform.v1.ShareResourceResponse
+	(*RevokeShareRequest)(nil),                            // 297: platform.v1.RevokeShareRequest
+	(*UpdateSharePermissionRequest)(nil),                  // 298: platform.v1.UpdateSharePermissionRequest
+	(*ListSharesRequest)(nil),                             // 299: platform.v1.ListSharesRequest
+	(*ListSharesResponse)(nil),                            // 300: platform.v1.ListSharesResponse
+	(*ListSharedWithMeRequest)(nil),                       // 301: platform.v1.ListSharedWithMeRequest
+	(*ListSharedWithMeResponse)(nil),                      // 302: platform.v1.ListSharedWithMeResponse
+	(*ResourceShareInfo)(nil),                             // 303: platform.v1.ResourceShareInfo
+	(*SharedResource)(nil),                                // 304: platform.v1.SharedResource
+	(*ListNotificationsRequest)(nil),                      // 305: platform.v1.ListNotificationsRequest
+	(*ListNotificationsResponse)(nil),                     // 306: platform.v1.ListNotificationsResponse
+	(*MarkNotificationReadRequest)(nil),                   // 307: platform.v1.MarkNotificationReadRequest
+	(*NotificationInfo)(nil),                              // 308: platform.v1.NotificationInfo
+	(*PresenceHeartbeatRequest)(nil),                      // 309: platform.v1.PresenceHeartbeatRequest
+	(*GetPresenceRequest)(nil),                            // 310: platform.v1.GetPresenceRequest
+	(*GetPresenceResponse)(nil),                           // 311: platform.v1.GetPresenceResponse
+	(*ExtendAgentRunRuntimeRequest)(nil),                  // 312: platform.v1.ExtendAgentRunRuntimeRequest
+	(*GetAgentRunPullRequestsRequest)(nil),                // 313: platform.v1.GetAgentRunPullRequestsRequest
+	(*GetAgentRunPullRequestsResponse)(nil),               // 314: platform.v1.GetAgentRunPullRequestsResponse
+	(*PullRequestDetails)(nil),                            // 315: platform.v1.PullRequestDetails
+	(*PullRequestCheck)(nil),                              // 316: platform.v1.PullRequestCheck
+	(*PullRequestReviewThread)(nil),                       // 317: platform.v1.PullRequestReviewThread
+	(*PullRequestReviewComment)(nil),                      // 318: platform.v1.PullRequestReviewComment
+	(*AgentRunOverseerConfig)(nil),                        // 319: platform.v1.AgentRunOverseerConfig
+	(*AgentRunOverseerSummary)(nil),                       // 320: platform.v1.AgentRunOverseerSummary
+	(*AttachAgentRunOverseerRequest)(nil),                 // 321: platform.v1.AttachAgentRunOverseerRequest
+	(*UpdateAgentRunOverseerRequest)(nil),                 // 322: platform.v1.UpdateAgentRunOverseerRequest
+	(*DetachAgentRunOverseerRequest)(nil),                 // 323: platform.v1.DetachAgentRunOverseerRequest
+	(*SkillCatalogEntry)(nil),                             // 324: platform.v1.SkillCatalogEntry
+	(*ListSkillCatalogRequest)(nil),                       // 325: platform.v1.ListSkillCatalogRequest
+	(*ListSkillCatalogResponse)(nil),                      // 326: platform.v1.ListSkillCatalogResponse
+	(*InstallSkillFromCatalogRequest)(nil),                // 327: platform.v1.InstallSkillFromCatalogRequest
+	(*UserSecretState)(nil),                               // 328: platform.v1.UserSecretState
+	(*ProjectContent)(nil),                                // 329: platform.v1.ProjectContent
+	(*ProjectContentVersion)(nil),                         // 330: platform.v1.ProjectContentVersion
+	(*ListProjectContentRequest)(nil),                     // 331: platform.v1.ListProjectContentRequest
+	(*ListProjectContentResponse)(nil),                    // 332: platform.v1.ListProjectContentResponse
+	(*GetProjectContentRequest)(nil),                      // 333: platform.v1.GetProjectContentRequest
+	(*GetProjectContentResponse)(nil),                     // 334: platform.v1.GetProjectContentResponse
+	(*CreateProjectContentRequest)(nil),                   // 335: platform.v1.CreateProjectContentRequest
+	(*UpdateProjectContentRequest)(nil),                   // 336: platform.v1.UpdateProjectContentRequest
+	(*DuplicateProjectContentRequest)(nil),                // 337: platform.v1.DuplicateProjectContentRequest
+	(*ListProjectContentVersionsRequest)(nil),             // 338: platform.v1.ListProjectContentVersionsRequest
+	(*ListProjectContentVersionsResponse)(nil),            // 339: platform.v1.ListProjectContentVersionsResponse
+	(*RestoreProjectContentVersionRequest)(nil),           // 340: platform.v1.RestoreProjectContentVersionRequest
+	(*DeleteProjectContentRequest)(nil),                   // 341: platform.v1.DeleteProjectContentRequest
+	(*StartProviderOAuthRequest)(nil),                     // 342: platform.v1.StartProviderOAuthRequest
+	(*ProviderOAuthStart)(nil),                            // 343: platform.v1.ProviderOAuthStart
+	(*CompleteProviderOAuthRequest)(nil),                  // 344: platform.v1.CompleteProviderOAuthRequest
+	(*PollProviderOAuthRequest)(nil),                      // 345: platform.v1.PollProviderOAuthRequest
+	(*ProviderOAuthResult)(nil),                           // 346: platform.v1.ProviderOAuthResult
+	(*ProviderOAuthSubscription)(nil),                     // 347: platform.v1.ProviderOAuthSubscription
+	(*GetMyOpenAIUsageRequest)(nil),                       // 348: platform.v1.GetMyOpenAIUsageRequest
+	(*MyOpenAIUsage)(nil),                                 // 349: platform.v1.MyOpenAIUsage
+	(*OpenAIUsageLimit)(nil),                              // 350: platform.v1.OpenAIUsageLimit
+	(*GetMyCopilotUsageRequest)(nil),                      // 351: platform.v1.GetMyCopilotUsageRequest
+	(*MyCopilotUsage)(nil),                                // 352: platform.v1.MyCopilotUsage
+	(*CopilotUsageQuota)(nil),                             // 353: platform.v1.CopilotUsageQuota
+	(*GetMyAnthropicUsageRequest)(nil),                    // 354: platform.v1.GetMyAnthropicUsageRequest
+	(*MyAnthropicUsage)(nil),                              // 355: platform.v1.MyAnthropicUsage
+	(*AnthropicUsageLimit)(nil),                           // 356: platform.v1.AnthropicUsageLimit
+	(*SecurityScan)(nil),                                  // 357: platform.v1.SecurityScan
+	(*ListSecurityScansRequest)(nil),                      // 358: platform.v1.ListSecurityScansRequest
+	(*ListSecurityScansResponse)(nil),                     // 359: platform.v1.ListSecurityScansResponse
+	(*GetSecurityScanRequest)(nil),                        // 360: platform.v1.GetSecurityScanRequest
+	(*SecurityFinding)(nil),                               // 361: platform.v1.SecurityFinding
+	(*ListSecurityFindingsRequest)(nil),                   // 362: platform.v1.ListSecurityFindingsRequest
+	(*ListSecurityFindingsResponse)(nil),                  // 363: platform.v1.ListSecurityFindingsResponse
+	(*GetSecurityFindingRequest)(nil),                     // 364: platform.v1.GetSecurityFindingRequest
+	(*SecurityFindingEvent)(nil),                          // 365: platform.v1.SecurityFindingEvent
+	(*GetSecurityFindingResponse)(nil),                    // 366: platform.v1.GetSecurityFindingResponse
+	(*GetSecurityFindingSubmissionBundleRequest)(nil),     // 367: platform.v1.GetSecurityFindingSubmissionBundleRequest
+	(*GetSecurityFindingSubmissionBundleResponse)(nil),    // 368: platform.v1.GetSecurityFindingSubmissionBundleResponse
+	(*UpdateSecurityFindingStatusRequest)(nil),            // 369: platform.v1.UpdateSecurityFindingStatusRequest
+	(*GetSecurityFindingSummaryRequest)(nil),              // 370: platform.v1.GetSecurityFindingSummaryRequest
+	(*GetSecurityFindingSummaryResponse)(nil),             // 371: platform.v1.GetSecurityFindingSummaryResponse
+	(*SecurityFindingTrends)(nil),                         // 372: platform.v1.SecurityFindingTrends
+	(*UpdateSecurityFindingAssigneeRequest)(nil),          // 373: platform.v1.UpdateSecurityFindingAssigneeRequest
+	(*UpdateSecurityFindingTicketRequest)(nil),            // 374: platform.v1.UpdateSecurityFindingTicketRequest
+	(*CreateSecurityFindingTicketRequest)(nil),            // 375: platform.v1.CreateSecurityFindingTicketRequest
+	(*BulkUpdateSecurityFindingStatusRequest)(nil),        // 376: platform.v1.BulkUpdateSecurityFindingStatusRequest
+	(*BulkUpdateSecurityFindingOutcome)(nil),              // 377: platform.v1.BulkUpdateSecurityFindingOutcome
+	(*BulkUpdateSecurityFindingStatusResponse)(nil),       // 378: platform.v1.BulkUpdateSecurityFindingStatusResponse
+	(*SecuritySavedFilter)(nil),                           // 379: platform.v1.SecuritySavedFilter
+	(*ListSecuritySavedFiltersRequest)(nil),               // 380: platform.v1.ListSecuritySavedFiltersRequest
+	(*ListSecuritySavedFiltersResponse)(nil),              // 381: platform.v1.ListSecuritySavedFiltersResponse
+	(*SaveSecuritySavedFilterRequest)(nil),                // 382: platform.v1.SaveSecuritySavedFilterRequest
+	(*DeleteSecuritySavedFilterRequest)(nil),              // 383: platform.v1.DeleteSecuritySavedFilterRequest
+	(*ExportSecurityFindingAuditLogRequest)(nil),          // 384: platform.v1.ExportSecurityFindingAuditLogRequest
+	(*ExportSecurityFindingAuditLogResponse)(nil),         // 385: platform.v1.ExportSecurityFindingAuditLogResponse
+	(*ListSecurityFindingEventsRequest)(nil),              // 386: platform.v1.ListSecurityFindingEventsRequest
+	(*ListSecurityFindingEventsResponse)(nil),             // 387: platform.v1.ListSecurityFindingEventsResponse
+	(*AddSecurityFindingCommentRequest)(nil),              // 388: platform.v1.AddSecurityFindingCommentRequest
+	(*SecurityScanScopeConfig)(nil),                       // 389: platform.v1.SecurityScanScopeConfig
+	(*SecurityScanTaskConfig)(nil),                        // 390: platform.v1.SecurityScanTaskConfig
+	(*SecurityScanTaskCondition)(nil),                     // 391: platform.v1.SecurityScanTaskCondition
+	(*SecurityScanTaskTools)(nil),                         // 392: platform.v1.SecurityScanTaskTools
+	(*SecurityRankerConfig)(nil),                          // 393: platform.v1.SecurityRankerConfig
+	(*SecurityPostScriptConfig)(nil),                      // 394: platform.v1.SecurityPostScriptConfig
+	(*SecurityScanDedupeConfig)(nil),                      // 395: platform.v1.SecurityScanDedupeConfig
+	(*SecurityScanTriggersConfig)(nil),                    // 396: platform.v1.SecurityScanTriggersConfig
+	(*SecurityScanChecksConfig)(nil),                      // 397: platform.v1.SecurityScanChecksConfig
+	(*SecurityScanNotificationRuleConfig)(nil),            // 398: platform.v1.SecurityScanNotificationRuleConfig
+	(*SecurityScanCheckState)(nil),                        // 399: platform.v1.SecurityScanCheckState
+	(*SecurityScanNotificationState)(nil),                 // 400: platform.v1.SecurityScanNotificationState
+	(*SecurityScanExecutionConfig)(nil),                   // 401: platform.v1.SecurityScanExecutionConfig
+	(*SecurityScanTaskAttemptState)(nil),                  // 402: platform.v1.SecurityScanTaskAttemptState
+	(*SecurityScanTaskExecutionState)(nil),                // 403: platform.v1.SecurityScanTaskExecutionState
+	(*SecurityScanExecutionState)(nil),                    // 404: platform.v1.SecurityScanExecutionState
+	(*SecurityScanFanOutState)(nil),                       // 405: platform.v1.SecurityScanFanOutState
+	(*SecurityScanExecutionPlanNode)(nil),                 // 406: platform.v1.SecurityScanExecutionPlanNode
+	(*SecurityScanPostScriptJobState)(nil),                // 407: platform.v1.SecurityScanPostScriptJobState
+	(*SecurityScanConfigSpec)(nil),                        // 408: platform.v1.SecurityScanConfigSpec
+	(*SecurityScanConfig)(nil),                            // 409: platform.v1.SecurityScanConfig
+	(*SecurityScanRetentionState)(nil),                    // 410: platform.v1.SecurityScanRetentionState
+	(*ListSecurityScanConfigsRequest)(nil),                // 411: platform.v1.ListSecurityScanConfigsRequest
+	(*ListSecurityScanConfigsResponse)(nil),               // 412: platform.v1.ListSecurityScanConfigsResponse
+	(*GetSecurityScanConfigRequest)(nil),                  // 413: platform.v1.GetSecurityScanConfigRequest
+	(*CreateSecurityScanRequest)(nil),                     // 414: platform.v1.CreateSecurityScanRequest
+	(*UpdateSecurityScanRequest)(nil),                     // 415: platform.v1.UpdateSecurityScanRequest
+	(*DeleteSecurityScanRequest)(nil),                     // 416: platform.v1.DeleteSecurityScanRequest
+	(*RunSecurityScanNowRequest)(nil),                     // 417: platform.v1.RunSecurityScanNowRequest
+	(*ResumeSecurityScanRequest)(nil),                     // 418: platform.v1.ResumeSecurityScanRequest
+	(*CancelSecurityScanRunRequest)(nil),                  // 419: platform.v1.CancelSecurityScanRunRequest
+	(*SecurityWorkflowResource)(nil),                      // 420: platform.v1.SecurityWorkflowResource
+	(*SecurityWorkflowParameter)(nil),                     // 421: platform.v1.SecurityWorkflowParameter
+	(*ListSecurityWorkflowsRequest)(nil),                  // 422: platform.v1.ListSecurityWorkflowsRequest
+	(*ListSecurityWorkflowsResponse)(nil),                 // 423: platform.v1.ListSecurityWorkflowsResponse
+	(*GetSecurityWorkflowRequest)(nil),                    // 424: platform.v1.GetSecurityWorkflowRequest
+	(*CreateSecurityWorkflowRequest)(nil),                 // 425: platform.v1.CreateSecurityWorkflowRequest
+	(*UpdateSecurityWorkflowRequest)(nil),                 // 426: platform.v1.UpdateSecurityWorkflowRequest
+	(*DeleteSecurityWorkflowRequest)(nil),                 // 427: platform.v1.DeleteSecurityWorkflowRequest
+	(*SecurityWorkflowValidationError)(nil),               // 428: platform.v1.SecurityWorkflowValidationError
+	(*ValidateSecurityWorkflowRequest)(nil),               // 429: platform.v1.ValidateSecurityWorkflowRequest
+	(*ValidateSecurityWorkflowResponse)(nil),              // 430: platform.v1.ValidateSecurityWorkflowResponse
+	(*SecurityRankerResource)(nil),                        // 431: platform.v1.SecurityRankerResource
+	(*ListSecurityRankersRequest)(nil),                    // 432: platform.v1.ListSecurityRankersRequest
+	(*ListSecurityRankersResponse)(nil),                   // 433: platform.v1.ListSecurityRankersResponse
+	(*GetSecurityRankerRequest)(nil),                      // 434: platform.v1.GetSecurityRankerRequest
+	(*CreateSecurityRankerRequest)(nil),                   // 435: platform.v1.CreateSecurityRankerRequest
+	(*UpdateSecurityRankerRequest)(nil),                   // 436: platform.v1.UpdateSecurityRankerRequest
+	(*DeleteSecurityRankerRequest)(nil),                   // 437: platform.v1.DeleteSecurityRankerRequest
+	(*SecurityPostScriptResource)(nil),                    // 438: platform.v1.SecurityPostScriptResource
+	(*ListSecurityPostScriptsRequest)(nil),                // 439: platform.v1.ListSecurityPostScriptsRequest
+	(*ListSecurityPostScriptsResponse)(nil),               // 440: platform.v1.ListSecurityPostScriptsResponse
+	(*GetSecurityPostScriptRequest)(nil),                  // 441: platform.v1.GetSecurityPostScriptRequest
+	(*CreateSecurityPostScriptRequest)(nil),               // 442: platform.v1.CreateSecurityPostScriptRequest
+	(*UpdateSecurityPostScriptRequest)(nil),               // 443: platform.v1.UpdateSecurityPostScriptRequest
+	(*DeleteSecurityPostScriptRequest)(nil),               // 444: platform.v1.DeleteSecurityPostScriptRequest
+	(*SecuritySuppressionMatcherConfig)(nil),              // 445: platform.v1.SecuritySuppressionMatcherConfig
+	(*SecurityPolicySuppressionConfig)(nil),               // 446: platform.v1.SecurityPolicySuppressionConfig
+	(*SecurityScanBudgetsConfig)(nil),                     // 447: platform.v1.SecurityScanBudgetsConfig
+	(*SecurityPolicyPackRetentionConfig)(nil),             // 448: platform.v1.SecurityPolicyPackRetentionConfig
+	(*SecurityPolicyPackResource)(nil),                    // 449: platform.v1.SecurityPolicyPackResource
+	(*ListSecurityPolicyPacksRequest)(nil),                // 450: platform.v1.ListSecurityPolicyPacksRequest
+	(*ListSecurityPolicyPacksResponse)(nil),               // 451: platform.v1.ListSecurityPolicyPacksResponse
+	(*GetSecurityPolicyPackRequest)(nil),                  // 452: platform.v1.GetSecurityPolicyPackRequest
+	(*CreateSecurityPolicyPackRequest)(nil),               // 453: platform.v1.CreateSecurityPolicyPackRequest
+	(*UpdateSecurityPolicyPackRequest)(nil),               // 454: platform.v1.UpdateSecurityPolicyPackRequest
+	(*DeleteSecurityPolicyPackRequest)(nil),               // 455: platform.v1.DeleteSecurityPolicyPackRequest
+	(*SecurityProgramResource)(nil),                       // 456: platform.v1.SecurityProgramResource
+	(*SecurityProgramImpact)(nil),                         // 457: platform.v1.SecurityProgramImpact
+	(*SecurityProgramAsset)(nil),                          // 458: platform.v1.SecurityProgramAsset
+	(*SecurityProgramKnownIssue)(nil),                     // 459: platform.v1.SecurityProgramKnownIssue
+	(*SecurityProgramSubmissionBudget)(nil),               // 460: platform.v1.SecurityProgramSubmissionBudget
+	(*ListSecurityProgramsRequest)(nil),                   // 461: platform.v1.ListSecurityProgramsRequest
+	(*ListSecurityProgramsResponse)(nil),                  // 462: platform.v1.ListSecurityProgramsResponse
+	(*GetSecurityProgramRequest)(nil),                     // 463: platform.v1.GetSecurityProgramRequest
+	(*CreateSecurityProgramRequest)(nil),                  // 464: platform.v1.CreateSecurityProgramRequest
+	(*UpdateSecurityProgramRequest)(nil),                  // 465: platform.v1.UpdateSecurityProgramRequest
+	(*DeleteSecurityProgramRequest)(nil),                  // 466: platform.v1.DeleteSecurityProgramRequest
+	(*GenerateSecurityDraftRequest)(nil),                  // 467: platform.v1.GenerateSecurityDraftRequest
+	(*GenerateSecurityDraftResponse)(nil),                 // 468: platform.v1.GenerateSecurityDraftResponse
+	(*GetSecurityDraftRequest)(nil),                       // 469: platform.v1.GetSecurityDraftRequest
+	(*GetSecurityDraftResponse)(nil),                      // 470: platform.v1.GetSecurityDraftResponse
+	(*ExportSecurityPackRequest)(nil),                     // 471: platform.v1.ExportSecurityPackRequest
+	(*ExportSecurityPackResponse)(nil),                    // 472: platform.v1.ExportSecurityPackResponse
+	(*ImportSecurityPackRequest)(nil),                     // 473: platform.v1.ImportSecurityPackRequest
+	(*SecurityPackItemResult)(nil),                        // 474: platform.v1.SecurityPackItemResult
+	(*ImportSecurityPackResponse)(nil),                    // 475: platform.v1.ImportSecurityPackResponse
+	(*GetSecurityOverviewRequest)(nil),                    // 476: platform.v1.GetSecurityOverviewRequest
+	(*SecurityScanConfigIssue)(nil),                       // 477: platform.v1.SecurityScanConfigIssue
+	(*GetSecurityOverviewResponse)(nil),                   // 478: platform.v1.GetSecurityOverviewResponse
+	(*GetSecurityConfigPosturesRequest)(nil),              // 479: platform.v1.GetSecurityConfigPosturesRequest
+	(*SecurityRunActivityPoint)(nil),                      // 480: platform.v1.SecurityRunActivityPoint
+	(*SecurityConfigPosture)(nil),                         // 481: platform.v1.SecurityConfigPosture
+	(*GetSecurityConfigPosturesResponse)(nil),             // 482: platform.v1.GetSecurityConfigPosturesResponse
+	(*GetSecurityScanReportRequest)(nil),                  // 483: platform.v1.GetSecurityScanReportRequest
+	(*GetSecurityScanReportResponse)(nil),                 // 484: platform.v1.GetSecurityScanReportResponse
+	(*SecuritySkillsStatus)(nil),                          // 485: platform.v1.SecuritySkillsStatus
+	(*SecurityCatalogRef)(nil),                            // 486: platform.v1.SecurityCatalogRef
+	(*SecurityCatalogDependency)(nil),                     // 487: platform.v1.SecurityCatalogDependency
+	(*SecurityCatalogEntry)(nil),                          // 488: platform.v1.SecurityCatalogEntry
+	(*SecurityCatalog)(nil),                               // 489: platform.v1.SecurityCatalog
+	(*SecurityCatalogInstallRequest)(nil),                 // 490: platform.v1.SecurityCatalogInstallRequest
+	(*SecurityCatalogInstallResult)(nil),                  // 491: platform.v1.SecurityCatalogInstallResult
+	(*SecurityCatalogInstallResponse)(nil),                // 492: platform.v1.SecurityCatalogInstallResponse
+	(*SecurityProgramScanTarget)(nil),                     // 493: platform.v1.SecurityProgramScanTarget
+	(*BugReport)(nil),                                     // 494: platform.v1.BugReport
+	(*ListBugReportsRequest)(nil),                         // 495: platform.v1.ListBugReportsRequest
+	(*ListBugReportsResponse)(nil),                        // 496: platform.v1.ListBugReportsResponse
+	(*UpdateBugReportStatusRequest)(nil),                  // 497: platform.v1.UpdateBugReportStatusRequest
+	nil,                                                   // 498: platform.v1.IntegrationCredentialUpdate.EntriesEntry
+	nil,                                                   // 499: platform.v1.MCPServerInfo.EnvEntry
+	nil,                                                   // 500: platform.v1.UpsertMCPServerRequest.EnvEntry
+	nil,                                                   // 501: platform.v1.RuntimeProfile.CommandEnvEntry
+	nil,                                                   // 502: platform.v1.RuntimeProfile.ResourceRequestsEntry
+	nil,                                                   // 503: platform.v1.RuntimeProfile.ResourceLimitsEntry
+	nil,                                                   // 504: platform.v1.RoleInstruction.ModelsByProviderEntry
+	nil,                                                   // 505: platform.v1.SecurityScan.CountsEntry
+	nil,                                                   // 506: platform.v1.GetSecurityFindingSummaryResponse.CountsEntry
+	nil,                                                   // 507: platform.v1.SecurityScanConfigSpec.ParameterValuesEntry
+	nil,                                                   // 508: platform.v1.SecurityScanConfig.FindingCountsEntry
+	nil,                                                   // 509: platform.v1.RunSecurityScanNowRequest.ParameterValuesEntry
+	nil,                                                   // 510: platform.v1.GetSecurityOverviewResponse.FindingCountsEntry
+	nil,                                                   // 511: platform.v1.SecurityRunActivityPoint.SeverityCountsEntry
+	nil,                                                   // 512: platform.v1.SecurityConfigPosture.FindingCountsEntry
+	nil,                                                   // 513: platform.v1.SecurityProgramScanTarget.ParameterValuesEntry
+	(*timestamppb.Timestamp)(nil),                         // 514: google.protobuf.Timestamp
+	(*emptypb.Empty)(nil),                                 // 515: google.protobuf.Empty
 }
 var file_rpc_platform_service_proto_depIdxs = []int32{
 	50,  // 0: platform.v1.ListAgentRunsResponse.runs:type_name -> platform.v1.AgentRun
@@ -44280,9 +44523,9 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	26,  // 8: platform.v1.AgentRunUsageResponse.top_level_tasks:type_name -> platform.v1.UsageTask
 	26,  // 9: platform.v1.AgentRunUsageResponse.subagent_tasks:type_name -> platform.v1.UsageTask
 	27,  // 10: platform.v1.AgentRunUsageResponse.phases:type_name -> platform.v1.UsagePhase
-	511, // 11: platform.v1.GetObservabilityOverviewRequest.start:type_name -> google.protobuf.Timestamp
-	511, // 12: platform.v1.GetObservabilityOverviewRequest.end:type_name -> google.protobuf.Timestamp
-	511, // 13: platform.v1.ObservabilityBucket.start:type_name -> google.protobuf.Timestamp
+	514, // 11: platform.v1.GetObservabilityOverviewRequest.start:type_name -> google.protobuf.Timestamp
+	514, // 12: platform.v1.GetObservabilityOverviewRequest.end:type_name -> google.protobuf.Timestamp
+	514, // 13: platform.v1.ObservabilityBucket.start:type_name -> google.protobuf.Timestamp
 	30,  // 14: platform.v1.ObservabilityBucket.totals:type_name -> platform.v1.ObservabilityTotals
 	30,  // 15: platform.v1.ObservabilityOverviewResponse.totals:type_name -> platform.v1.ObservabilityTotals
 	31,  // 16: platform.v1.ObservabilityOverviewResponse.buckets:type_name -> platform.v1.ObservabilityBucket
@@ -44305,789 +44548,792 @@ var file_rpc_platform_service_proto_depIdxs = []int32{
 	56,  // 33: platform.v1.AgentRun.recent_activity:type_name -> platform.v1.AgentActivity
 	48,  // 34: platform.v1.AgentRun.team_summary:type_name -> platform.v1.AgentRunTeamSummary
 	47,  // 35: platform.v1.AgentRun.children:type_name -> platform.v1.AgentRunChildStatus
-	193, // 36: platform.v1.AgentRun.mode_transition_history:type_name -> platform.v1.ModeTransitionEvent
-	201, // 37: platform.v1.AgentRun.gate_results:type_name -> platform.v1.EvidenceGateResult
-	291, // 38: platform.v1.AgentRun.owner:type_name -> platform.v1.ResourceOwner
+	196, // 36: platform.v1.AgentRun.mode_transition_history:type_name -> platform.v1.ModeTransitionEvent
+	204, // 37: platform.v1.AgentRun.gate_results:type_name -> platform.v1.EvidenceGateResult
+	294, // 38: platform.v1.AgentRun.owner:type_name -> platform.v1.ResourceOwner
 	49,  // 39: platform.v1.AgentRun.pr_loop:type_name -> platform.v1.PRLoopStatus
 	52,  // 40: platform.v1.AgentRun.pending_actions:type_name -> platform.v1.QuickAction
 	53,  // 41: platform.v1.AgentRun.user_input_request:type_name -> platform.v1.UserInputRequest
 	51,  // 42: platform.v1.AgentRun.provider_keys:type_name -> platform.v1.ProviderKeyRef
 	51,  // 43: platform.v1.AgentRun.provider_oauth_secrets:type_name -> platform.v1.ProviderKeyRef
-	316, // 44: platform.v1.AgentRun.overseer:type_name -> platform.v1.AgentRunOverseerConfig
-	317, // 45: platform.v1.AgentRun.overseer_summary:type_name -> platform.v1.AgentRunOverseerSummary
+	319, // 44: platform.v1.AgentRun.overseer:type_name -> platform.v1.AgentRunOverseerConfig
+	320, // 45: platform.v1.AgentRun.overseer_summary:type_name -> platform.v1.AgentRunOverseerSummary
 	52,  // 46: platform.v1.UserInputRequest.actions:type_name -> platform.v1.QuickAction
 	61,  // 47: platform.v1.ListLinearProjectsResponse.projects:type_name -> platform.v1.LinearProject
 	61,  // 48: platform.v1.LinearProjectEvent.project:type_name -> platform.v1.LinearProject
 	51,  // 49: platform.v1.LinearProject.provider_keys:type_name -> platform.v1.ProviderKeyRef
-	231, // 50: platform.v1.LinearProject.metrics:type_name -> platform.v1.ProjectMetrics
-	266, // 51: platform.v1.LinearProject.defaults:type_name -> platform.v1.AgentRunDefaults
-	291, // 52: platform.v1.LinearProject.owner:type_name -> platform.v1.ResourceOwner
+	234, // 50: platform.v1.LinearProject.metrics:type_name -> platform.v1.ProjectMetrics
+	269, // 51: platform.v1.LinearProject.defaults:type_name -> platform.v1.AgentRunDefaults
+	294, // 52: platform.v1.LinearProject.owner:type_name -> platform.v1.ResourceOwner
 	39,  // 53: platform.v1.ListAvailableModelsRequest.source:type_name -> platform.v1.SourceRef
 	51,  // 54: platform.v1.ListAvailableModelsRequest.provider_keys:type_name -> platform.v1.ProviderKeyRef
 	55,  // 55: platform.v1.ActivityEntry.model_usage:type_name -> platform.v1.ModelUsageEntry
 	0,   // 56: platform.v1.SendAgentRunMessageRequest.message_mode:type_name -> platform.v1.AgentRunMessageMode
 	39,  // 57: platform.v1.CreateAgentRunRequest.source:type_name -> platform.v1.SourceRef
 	51,  // 58: platform.v1.CreateAgentRunRequest.provider_keys:type_name -> platform.v1.ProviderKeyRef
-	316, // 59: platform.v1.CreateAgentRunRequest.overseer:type_name -> platform.v1.AgentRunOverseerConfig
+	319, // 59: platform.v1.CreateAgentRunRequest.overseer:type_name -> platform.v1.AgentRunOverseerConfig
 	73,  // 60: platform.v1.MyCredentials.integrations:type_name -> platform.v1.IntegrationCredentialState
-	325, // 61: platform.v1.MyCredentials.secrets:type_name -> platform.v1.UserSecretState
-	344, // 62: platform.v1.MyCredentials.oauth_subscriptions:type_name -> platform.v1.ProviderOAuthSubscription
-	495, // 63: platform.v1.IntegrationCredentialUpdate.entries:type_name -> platform.v1.IntegrationCredentialUpdate.EntriesEntry
+	328, // 61: platform.v1.MyCredentials.secrets:type_name -> platform.v1.UserSecretState
+	347, // 62: platform.v1.MyCredentials.oauth_subscriptions:type_name -> platform.v1.ProviderOAuthSubscription
+	498, // 63: platform.v1.IntegrationCredentialUpdate.entries:type_name -> platform.v1.IntegrationCredentialUpdate.EntriesEntry
 	74,  // 64: platform.v1.UpdateMyCredentialsRequest.integrations:type_name -> platform.v1.IntegrationCredentialUpdate
-	496, // 65: platform.v1.MCPServerInfo.env:type_name -> platform.v1.MCPServerInfo.EnvEntry
+	499, // 65: platform.v1.MCPServerInfo.env:type_name -> platform.v1.MCPServerInfo.EnvEntry
 	81,  // 66: platform.v1.MCPServerInfo.secret_env:type_name -> platform.v1.MCPServerSecretEnv
 	80,  // 67: platform.v1.ListMCPServersResponse.servers:type_name -> platform.v1.MCPServerInfo
-	497, // 68: platform.v1.UpsertMCPServerRequest.env:type_name -> platform.v1.UpsertMCPServerRequest.EnvEntry
+	500, // 68: platform.v1.UpsertMCPServerRequest.env:type_name -> platform.v1.UpsertMCPServerRequest.EnvEntry
 	81,  // 69: platform.v1.UpsertMCPServerRequest.secret_env:type_name -> platform.v1.MCPServerSecretEnv
 	86,  // 70: platform.v1.ListSkillsResponse.skills:type_name -> platform.v1.SkillInfo
-	498, // 71: platform.v1.RuntimeProfile.command_env:type_name -> platform.v1.RuntimeProfile.CommandEnvEntry
-	499, // 72: platform.v1.RuntimeProfile.resource_requests:type_name -> platform.v1.RuntimeProfile.ResourceRequestsEntry
-	500, // 73: platform.v1.RuntimeProfile.resource_limits:type_name -> platform.v1.RuntimeProfile.ResourceLimitsEntry
+	501, // 71: platform.v1.RuntimeProfile.command_env:type_name -> platform.v1.RuntimeProfile.CommandEnvEntry
+	502, // 72: platform.v1.RuntimeProfile.resource_requests:type_name -> platform.v1.RuntimeProfile.ResourceRequestsEntry
+	503, // 73: platform.v1.RuntimeProfile.resource_limits:type_name -> platform.v1.RuntimeProfile.ResourceLimitsEntry
 	91,  // 74: platform.v1.RuntimeProfile.resource_claims:type_name -> platform.v1.RuntimeResourceClaim
 	92,  // 75: platform.v1.ListRuntimeProfilesResponse.profiles:type_name -> platform.v1.RuntimeProfile
-	92,  // 76: platform.v1.CreateRuntimeProfileRequest.profile:type_name -> platform.v1.RuntimeProfile
-	92,  // 77: platform.v1.UpdateRuntimeProfileRequest.profile:type_name -> platform.v1.RuntimeProfile
-	98,  // 78: platform.v1.MCPPolicy.allowed_servers:type_name -> platform.v1.MCPAllowedServer
-	99,  // 79: platform.v1.MCPPolicy.break_glass:type_name -> platform.v1.MCPBreakGlass
-	100, // 80: platform.v1.ListMCPPoliciesResponse.policies:type_name -> platform.v1.MCPPolicy
-	100, // 81: platform.v1.CreateMCPPolicyRequest.policy:type_name -> platform.v1.MCPPolicy
-	100, // 82: platform.v1.UpdateMCPPolicyRequest.policy:type_name -> platform.v1.MCPPolicy
-	106, // 83: platform.v1.GuardrailPolicy.rules:type_name -> platform.v1.GuardrailRule
-	107, // 84: platform.v1.ListGuardrailPoliciesResponse.policies:type_name -> platform.v1.GuardrailPolicy
-	107, // 85: platform.v1.CreateGuardrailPolicyRequest.policy:type_name -> platform.v1.GuardrailPolicy
-	107, // 86: platform.v1.UpdateGuardrailPolicyRequest.policy:type_name -> platform.v1.GuardrailPolicy
-	195, // 87: platform.v1.ListModeTemplatesResponse.templates:type_name -> platform.v1.ModeTemplate
-	195, // 88: platform.v1.CreateModeTemplateRequest.template:type_name -> platform.v1.ModeTemplate
-	195, // 89: platform.v1.UpdateModeTemplateRequest.template:type_name -> platform.v1.ModeTemplate
-	501, // 90: platform.v1.RoleInstruction.models_by_provider:type_name -> platform.v1.RoleInstruction.ModelsByProviderEntry
-	118, // 91: platform.v1.ListRoleInstructionsResponse.instructions:type_name -> platform.v1.RoleInstruction
-	118, // 92: platform.v1.CreateRoleInstructionRequest.instruction:type_name -> platform.v1.RoleInstruction
-	118, // 93: platform.v1.UpdateRoleInstructionRequest.instruction:type_name -> platform.v1.RoleInstruction
-	124, // 94: platform.v1.RuntimeImageOption.versions:type_name -> platform.v1.RuntimeImageVersion
-	125, // 95: platform.v1.ListRuntimeImagesResponse.images:type_name -> platform.v1.RuntimeImageOption
-	79,  // 96: platform.v1.ListSlackAgentsResponse.agents:type_name -> platform.v1.SlackAgent
-	131, // 97: platform.v1.ListSlackDraftsResponse.drafts:type_name -> platform.v1.SlackDraft
-	135, // 98: platform.v1.ListSlackWorkspacesResponse.workspaces:type_name -> platform.v1.SlackWorkspace
-	511, // 99: platform.v1.Soul.updated_at:type_name -> google.protobuf.Timestamp
-	143, // 100: platform.v1.RoleModelPreferences.preferences:type_name -> platform.v1.RoleModelPreference
-	511, // 101: platform.v1.RoleModelPreferences.updated_at:type_name -> google.protobuf.Timestamp
-	143, // 102: platform.v1.UpdateMyRoleModelPreferencesRequest.preferences:type_name -> platform.v1.RoleModelPreference
-	511, // 103: platform.v1.ModelDefaults.updated_at:type_name -> google.protobuf.Timestamp
-	511, // 104: platform.v1.GitIdentity.updated_at:type_name -> google.protobuf.Timestamp
-	153, // 105: platform.v1.CreateTeamChildRunRequest.parent:type_name -> platform.v1.TeamParentRef
-	153, // 106: platform.v1.ListTeamChildRunsRequest.parent:type_name -> platform.v1.TeamParentRef
-	155, // 107: platform.v1.ListTeamChildRunsResponse.children:type_name -> platform.v1.TeamChildRunStatus
-	153, // 108: platform.v1.GetTeamChildRunStatusRequest.parent:type_name -> platform.v1.TeamParentRef
-	154, // 109: platform.v1.GetTeamChildRunStatusRequest.child:type_name -> platform.v1.TeamChildRef
-	153, // 110: platform.v1.GetTeamChildRunLogsRequest.parent:type_name -> platform.v1.TeamParentRef
-	154, // 111: platform.v1.GetTeamChildRunLogsRequest.child:type_name -> platform.v1.TeamChildRef
-	155, // 112: platform.v1.TeamChildRunLogs.status:type_name -> platform.v1.TeamChildRunStatus
-	56,  // 113: platform.v1.TeamChildRunLogs.recent_activity:type_name -> platform.v1.AgentActivity
-	66,  // 114: platform.v1.TeamChildRunLogs.conversation_tail:type_name -> platform.v1.ChatMessage
-	153, // 115: platform.v1.GetTeamChildRunArtifactRequest.parent:type_name -> platform.v1.TeamParentRef
-	154, // 116: platform.v1.GetTeamChildRunArtifactRequest.child:type_name -> platform.v1.TeamChildRef
-	153, // 117: platform.v1.SendTeamChildMessageRequest.parent:type_name -> platform.v1.TeamParentRef
-	154, // 118: platform.v1.SendTeamChildMessageRequest.child:type_name -> platform.v1.TeamChildRef
-	153, // 119: platform.v1.GetAgentRunTeamStatusRequest.parent:type_name -> platform.v1.TeamParentRef
-	153, // 120: platform.v1.WaitForTeamRunChangeRequest.parent:type_name -> platform.v1.TeamParentRef
-	153, // 121: platform.v1.CancelTeamChildRunRequest.parent:type_name -> platform.v1.TeamParentRef
-	154, // 122: platform.v1.CancelTeamChildRunRequest.child:type_name -> platform.v1.TeamChildRef
-	153, // 123: platform.v1.RetryTeamChildRunRequest.parent:type_name -> platform.v1.TeamParentRef
-	154, // 124: platform.v1.RetryTeamChildRunRequest.child:type_name -> platform.v1.TeamChildRef
-	153, // 125: platform.v1.GetTeamApprovalStatusRequest.parent:type_name -> platform.v1.TeamParentRef
-	176, // 126: platform.v1.ListFilesResponse.files:type_name -> platform.v1.FileEntry
-	179, // 127: platform.v1.CloneRepositoryResponse.repository:type_name -> platform.v1.RepositoryInfo
-	179, // 128: platform.v1.ListRepositoriesResponse.repositories:type_name -> platform.v1.RepositoryInfo
-	191, // 129: platform.v1.TeamRuntime.tasks:type_name -> platform.v1.TeamRuntimeTask
-	42,  // 130: platform.v1.TeamRuntime.delegation_policy:type_name -> platform.v1.AgentRunDelegationPolicy
-	192, // 131: platform.v1.TeamRuntime.event_checkpoint:type_name -> platform.v1.TeamRuntimeEventCheckpoint
-	194, // 132: platform.v1.ModeTemplate.constraints:type_name -> platform.v1.ModeConstraints
-	195, // 133: platform.v1.ListAvailableModesResponse.modes:type_name -> platform.v1.ModeTemplate
-	230, // 134: platform.v1.ListProjectsResponse.projects:type_name -> platform.v1.Project
-	230, // 135: platform.v1.ProjectEvent.project:type_name -> platform.v1.Project
-	51,  // 136: platform.v1.UpdateProjectRequest.provider_keys:type_name -> platform.v1.ProviderKeyRef
-	511, // 137: platform.v1.ProjectTriggerCondition.last_transition_time:type_name -> google.protobuf.Timestamp
-	211, // 138: platform.v1.ProjectTrigger.github:type_name -> platform.v1.GitHubProjectTrigger
-	212, // 139: platform.v1.ProjectTrigger.slack:type_name -> platform.v1.SlackProjectTrigger
-	213, // 140: platform.v1.ProjectTrigger.cron:type_name -> platform.v1.CronProjectTrigger
-	214, // 141: platform.v1.ProjectTrigger.linear:type_name -> platform.v1.LinearProjectTrigger
-	210, // 142: platform.v1.ProjectTrigger.conditions:type_name -> platform.v1.ProjectTriggerCondition
-	511, // 143: platform.v1.ProjectTrigger.last_activity_time:type_name -> google.protobuf.Timestamp
-	511, // 144: platform.v1.ProjectTrigger.next_activity_time:type_name -> google.protobuf.Timestamp
-	238, // 145: platform.v1.ProjectTrigger.maintainer_status:type_name -> platform.v1.GitHubRepositoryMaintainerStatus
-	215, // 146: platform.v1.CreateProjectTriggerRequest.trigger:type_name -> platform.v1.ProjectTrigger
-	215, // 147: platform.v1.UpdateProjectTriggerRequest.trigger:type_name -> platform.v1.ProjectTrigger
-	221, // 148: platform.v1.Connection.github:type_name -> platform.v1.GitHubConnection
-	222, // 149: platform.v1.Connection.slack:type_name -> platform.v1.SlackConnection
-	223, // 150: platform.v1.Connection.linear:type_name -> platform.v1.LinearConnection
-	224, // 151: platform.v1.ListConnectionsResponse.connections:type_name -> platform.v1.Connection
-	224, // 152: platform.v1.CreateConnectionRequest.connection:type_name -> platform.v1.Connection
-	224, // 153: platform.v1.UpdateConnectionRequest.connection:type_name -> platform.v1.Connection
-	207, // 154: platform.v1.Project.credential_status:type_name -> platform.v1.ProjectCredentialStatus
-	51,  // 155: platform.v1.Project.provider_keys:type_name -> platform.v1.ProviderKeyRef
-	231, // 156: platform.v1.Project.metrics:type_name -> platform.v1.ProjectMetrics
-	291, // 157: platform.v1.Project.owner:type_name -> platform.v1.ResourceOwner
-	215, // 158: platform.v1.Project.triggers:type_name -> platform.v1.ProjectTrigger
-	257, // 159: platform.v1.ListGitHubRepositoriesResponse.repositories:type_name -> platform.v1.GitHubRepository
-	257, // 160: platform.v1.GitHubRepositoryEvent.repository:type_name -> platform.v1.GitHubRepository
-	244, // 161: platform.v1.ListMaintainerWorkItemsResponse.items:type_name -> platform.v1.MaintainerWorkItem
-	246, // 162: platform.v1.ListMaintainerWorkItemsResponse.capacity:type_name -> platform.v1.MaintainerBoardCapacity
-	243, // 163: platform.v1.MaintainerWorkItem.pending_decision:type_name -> platform.v1.MaintainerWorkItemDecision
-	241, // 164: platform.v1.MaintainerWorkItem.agent_runs:type_name -> platform.v1.MaintainerWorkItemAgentRun
-	242, // 165: platform.v1.MaintainerWorkItem.pull_requests:type_name -> platform.v1.MaintainerWorkItemPullRequest
-	245, // 166: platform.v1.MaintainerWorkItem.children:type_name -> platform.v1.MaintainerWorkItemLink
-	245, // 167: platform.v1.MaintainerWorkItem.dependencies:type_name -> platform.v1.MaintainerWorkItemLink
-	247, // 168: platform.v1.MaintainerTriageInput.accepted_scope:type_name -> platform.v1.MaintainerAcceptedScopeInput
-	248, // 169: platform.v1.IssueMaintainerCommandRequest.triage:type_name -> platform.v1.MaintainerTriageInput
-	249, // 170: platform.v1.IssueMaintainerCommandRequest.breakdown:type_name -> platform.v1.MaintainerBreakdownInput
-	250, // 171: platform.v1.IssueMaintainerCommandRequest.request_decision:type_name -> platform.v1.MaintainerRequestDecisionInput
-	251, // 172: platform.v1.IssueMaintainerCommandRequest.resolve_decision:type_name -> platform.v1.MaintainerResolveDecisionInput
-	252, // 173: platform.v1.IssueMaintainerCommandRequest.dispatch:type_name -> platform.v1.MaintainerDispatchInput
-	253, // 174: platform.v1.IssueMaintainerCommandRequest.request_merge:type_name -> platform.v1.MaintainerRequestMergeInput
-	254, // 175: platform.v1.IssueMaintainerCommandRequest.finalize:type_name -> platform.v1.MaintainerFinalizeInput
-	244, // 176: platform.v1.IssueMaintainerCommandResponse.item:type_name -> platform.v1.MaintainerWorkItem
-	231, // 177: platform.v1.GitHubRepository.metrics:type_name -> platform.v1.ProjectMetrics
-	266, // 178: platform.v1.GitHubRepository.defaults:type_name -> platform.v1.AgentRunDefaults
-	291, // 179: platform.v1.GitHubRepository.resource_owner:type_name -> platform.v1.ResourceOwner
-	237, // 180: platform.v1.GitHubRepository.trigger_settings:type_name -> platform.v1.GitHubRepositoryTriggerSettings
-	266, // 181: platform.v1.GitHubRepository.reviewer_defaults:type_name -> platform.v1.AgentRunDefaults
-	238, // 182: platform.v1.GitHubRepository.maintainer_status:type_name -> platform.v1.GitHubRepositoryMaintainerStatus
-	259, // 183: platform.v1.ListGitHubAppInstallationsResponse.installations:type_name -> platform.v1.GitHubAppInstallation
-	262, // 184: platform.v1.ListGitHubAppInstallationRepositoriesResponse.repositories:type_name -> platform.v1.GitHubAppInstallationRepository
-	51,  // 185: platform.v1.CreateGitHubRepositoryFromInstallationRequest.provider_keys:type_name -> platform.v1.ProviderKeyRef
-	266, // 186: platform.v1.CreateGitHubRepositoryFromInstallationRequest.defaults:type_name -> platform.v1.AgentRunDefaults
-	267, // 187: platform.v1.CreateGitHubRepositoryFromInstallationRequest.policies:type_name -> platform.v1.TriggerPolicies
-	51,  // 188: platform.v1.CreateGitHubRepositoryFromTokenRequest.provider_keys:type_name -> platform.v1.ProviderKeyRef
-	266, // 189: platform.v1.CreateGitHubRepositoryFromTokenRequest.defaults:type_name -> platform.v1.AgentRunDefaults
-	267, // 190: platform.v1.CreateGitHubRepositoryFromTokenRequest.policies:type_name -> platform.v1.TriggerPolicies
-	51,  // 191: platform.v1.AgentRunDefaults.provider_keys:type_name -> platform.v1.ProviderKeyRef
-	266, // 192: platform.v1.UpdateGitHubRepositoryRequest.defaults:type_name -> platform.v1.AgentRunDefaults
-	267, // 193: platform.v1.UpdateGitHubRepositoryRequest.policies:type_name -> platform.v1.TriggerPolicies
-	237, // 194: platform.v1.UpdateGitHubRepositoryRequest.trigger_settings:type_name -> platform.v1.GitHubRepositoryTriggerSettings
-	266, // 195: platform.v1.UpdateGitHubRepositoryRequest.reviewer_defaults:type_name -> platform.v1.AgentRunDefaults
-	267, // 196: platform.v1.UpdateGitHubRepositoryRequest.reviewer_policies:type_name -> platform.v1.TriggerPolicies
-	266, // 197: platform.v1.CreateLinearProjectRequest.defaults:type_name -> platform.v1.AgentRunDefaults
-	267, // 198: platform.v1.CreateLinearProjectRequest.policies:type_name -> platform.v1.TriggerPolicies
-	266, // 199: platform.v1.UpdateLinearProjectRequest.defaults:type_name -> platform.v1.AgentRunDefaults
-	267, // 200: platform.v1.UpdateLinearProjectRequest.policies:type_name -> platform.v1.TriggerPolicies
-	279, // 201: platform.v1.ListCronsResponse.crons:type_name -> platform.v1.Cron
-	279, // 202: platform.v1.CronEvent.cron:type_name -> platform.v1.Cron
-	266, // 203: platform.v1.CreateCronRequest.defaults:type_name -> platform.v1.AgentRunDefaults
-	267, // 204: platform.v1.CreateCronRequest.policies:type_name -> platform.v1.TriggerPolicies
-	266, // 205: platform.v1.UpdateCronRequest.defaults:type_name -> platform.v1.AgentRunDefaults
-	267, // 206: platform.v1.UpdateCronRequest.policies:type_name -> platform.v1.TriggerPolicies
-	51,  // 207: platform.v1.Cron.provider_keys:type_name -> platform.v1.ProviderKeyRef
-	231, // 208: platform.v1.Cron.metrics:type_name -> platform.v1.ProjectMetrics
-	266, // 209: platform.v1.Cron.defaults:type_name -> platform.v1.AgentRunDefaults
-	291, // 210: platform.v1.Cron.owner:type_name -> platform.v1.ResourceOwner
-	287, // 211: platform.v1.GetAgentTraceResponse.spans:type_name -> platform.v1.TraceSpan
-	283, // 212: platform.v1.GetAgentRunErrorsResponse.errors:type_name -> platform.v1.AgentRunError
-	288, // 213: platform.v1.TraceSpan.tags:type_name -> platform.v1.TraceSpanTag
-	300, // 214: platform.v1.ShareResourceResponse.share:type_name -> platform.v1.ResourceShareInfo
-	300, // 215: platform.v1.ListSharesResponse.shares:type_name -> platform.v1.ResourceShareInfo
-	301, // 216: platform.v1.ListSharedWithMeResponse.resources:type_name -> platform.v1.SharedResource
-	291, // 217: platform.v1.ResourceShareInfo.shared_with:type_name -> platform.v1.ResourceOwner
-	291, // 218: platform.v1.ResourceShareInfo.shared_by:type_name -> platform.v1.ResourceOwner
-	511, // 219: platform.v1.ResourceShareInfo.created_at:type_name -> google.protobuf.Timestamp
-	300, // 220: platform.v1.SharedResource.share:type_name -> platform.v1.ResourceShareInfo
-	305, // 221: platform.v1.ListNotificationsResponse.notifications:type_name -> platform.v1.NotificationInfo
-	291, // 222: platform.v1.NotificationInfo.actor:type_name -> platform.v1.ResourceOwner
-	511, // 223: platform.v1.NotificationInfo.created_at:type_name -> google.protobuf.Timestamp
-	291, // 224: platform.v1.GetPresenceResponse.viewers:type_name -> platform.v1.ResourceOwner
-	312, // 225: platform.v1.GetAgentRunPullRequestsResponse.pull_requests:type_name -> platform.v1.PullRequestDetails
-	313, // 226: platform.v1.PullRequestDetails.checks:type_name -> platform.v1.PullRequestCheck
-	314, // 227: platform.v1.PullRequestDetails.review_threads:type_name -> platform.v1.PullRequestReviewThread
-	315, // 228: platform.v1.PullRequestReviewThread.comments:type_name -> platform.v1.PullRequestReviewComment
-	316, // 229: platform.v1.AttachAgentRunOverseerRequest.overseer:type_name -> platform.v1.AgentRunOverseerConfig
-	321, // 230: platform.v1.ListSkillCatalogResponse.skills:type_name -> platform.v1.SkillCatalogEntry
-	326, // 231: platform.v1.ListProjectContentResponse.items:type_name -> platform.v1.ProjectContent
-	326, // 232: platform.v1.GetProjectContentResponse.item:type_name -> platform.v1.ProjectContent
-	327, // 233: platform.v1.ListProjectContentVersionsResponse.versions:type_name -> platform.v1.ProjectContentVersion
-	72,  // 234: platform.v1.ProviderOAuthResult.credentials:type_name -> platform.v1.MyCredentials
-	347, // 235: platform.v1.MyOpenAIUsage.limits:type_name -> platform.v1.OpenAIUsageLimit
-	350, // 236: platform.v1.MyCopilotUsage.quotas:type_name -> platform.v1.CopilotUsageQuota
-	353, // 237: platform.v1.MyAnthropicUsage.limits:type_name -> platform.v1.AnthropicUsageLimit
-	511, // 238: platform.v1.SecurityScan.started_at:type_name -> google.protobuf.Timestamp
-	511, // 239: platform.v1.SecurityScan.completed_at:type_name -> google.protobuf.Timestamp
-	502, // 240: platform.v1.SecurityScan.counts:type_name -> platform.v1.SecurityScan.CountsEntry
-	354, // 241: platform.v1.ListSecurityScansResponse.scans:type_name -> platform.v1.SecurityScan
-	511, // 242: platform.v1.SecurityFinding.first_seen_at:type_name -> google.protobuf.Timestamp
-	511, // 243: platform.v1.SecurityFinding.last_seen_at:type_name -> google.protobuf.Timestamp
-	511, // 244: platform.v1.SecurityFinding.accepted_risk_expires_at:type_name -> google.protobuf.Timestamp
-	511, // 245: platform.v1.SecurityFinding.resolved_at:type_name -> google.protobuf.Timestamp
-	511, // 246: platform.v1.SecurityFinding.triaged_at:type_name -> google.protobuf.Timestamp
-	511, // 247: platform.v1.SecurityFinding.suppression_expires_at:type_name -> google.protobuf.Timestamp
-	511, // 248: platform.v1.SecurityFinding.suppressed_at:type_name -> google.protobuf.Timestamp
-	358, // 249: platform.v1.ListSecurityFindingsResponse.findings:type_name -> platform.v1.SecurityFinding
-	511, // 250: platform.v1.SecurityFindingEvent.created_at:type_name -> google.protobuf.Timestamp
-	358, // 251: platform.v1.GetSecurityFindingResponse.finding:type_name -> platform.v1.SecurityFinding
-	362, // 252: platform.v1.GetSecurityFindingResponse.events:type_name -> platform.v1.SecurityFindingEvent
-	511, // 253: platform.v1.GetSecurityFindingSubmissionBundleResponse.created_at:type_name -> google.protobuf.Timestamp
-	511, // 254: platform.v1.UpdateSecurityFindingStatusRequest.accepted_risk_expires_at:type_name -> google.protobuf.Timestamp
-	503, // 255: platform.v1.GetSecurityFindingSummaryResponse.counts:type_name -> platform.v1.GetSecurityFindingSummaryResponse.CountsEntry
-	369, // 256: platform.v1.GetSecurityFindingSummaryResponse.trends:type_name -> platform.v1.SecurityFindingTrends
-	511, // 257: platform.v1.BulkUpdateSecurityFindingStatusRequest.accepted_risk_expires_at:type_name -> google.protobuf.Timestamp
-	374, // 258: platform.v1.BulkUpdateSecurityFindingStatusResponse.results:type_name -> platform.v1.BulkUpdateSecurityFindingOutcome
-	511, // 259: platform.v1.SecuritySavedFilter.created_at:type_name -> google.protobuf.Timestamp
-	511, // 260: platform.v1.SecuritySavedFilter.updated_at:type_name -> google.protobuf.Timestamp
-	376, // 261: platform.v1.ListSecuritySavedFiltersResponse.filters:type_name -> platform.v1.SecuritySavedFilter
-	362, // 262: platform.v1.ListSecurityFindingEventsResponse.events:type_name -> platform.v1.SecurityFindingEvent
-	389, // 263: platform.v1.SecurityScanTaskConfig.tools:type_name -> platform.v1.SecurityScanTaskTools
-	388, // 264: platform.v1.SecurityScanTaskConfig.when:type_name -> platform.v1.SecurityScanTaskCondition
-	399, // 265: platform.v1.SecurityScanTaskExecutionState.retries:type_name -> platform.v1.SecurityScanTaskAttemptState
-	400, // 266: platform.v1.SecurityScanExecutionState.tasks:type_name -> platform.v1.SecurityScanTaskExecutionState
-	404, // 267: platform.v1.SecurityScanExecutionState.post_script_jobs:type_name -> platform.v1.SecurityScanPostScriptJobState
-	403, // 268: platform.v1.SecurityScanExecutionState.plan:type_name -> platform.v1.SecurityScanExecutionPlanNode
-	402, // 269: platform.v1.SecurityScanExecutionState.fan_outs:type_name -> platform.v1.SecurityScanFanOutState
-	388, // 270: platform.v1.SecurityScanExecutionPlanNode.when:type_name -> platform.v1.SecurityScanTaskCondition
-	386, // 271: platform.v1.SecurityScanConfigSpec.scope:type_name -> platform.v1.SecurityScanScopeConfig
-	387, // 272: platform.v1.SecurityScanConfigSpec.workflow:type_name -> platform.v1.SecurityScanTaskConfig
-	390, // 273: platform.v1.SecurityScanConfigSpec.severity_rankers:type_name -> platform.v1.SecurityRankerConfig
-	391, // 274: platform.v1.SecurityScanConfigSpec.post_scripts:type_name -> platform.v1.SecurityPostScriptConfig
-	392, // 275: platform.v1.SecurityScanConfigSpec.dedupe:type_name -> platform.v1.SecurityScanDedupeConfig
-	266, // 276: platform.v1.SecurityScanConfigSpec.defaults:type_name -> platform.v1.AgentRunDefaults
-	393, // 277: platform.v1.SecurityScanConfigSpec.triggers:type_name -> platform.v1.SecurityScanTriggersConfig
-	394, // 278: platform.v1.SecurityScanConfigSpec.checks:type_name -> platform.v1.SecurityScanChecksConfig
-	395, // 279: platform.v1.SecurityScanConfigSpec.notifications:type_name -> platform.v1.SecurityScanNotificationRuleConfig
-	444, // 280: platform.v1.SecurityScanConfigSpec.budgets:type_name -> platform.v1.SecurityScanBudgetsConfig
-	398, // 281: platform.v1.SecurityScanConfigSpec.execution:type_name -> platform.v1.SecurityScanExecutionConfig
-	504, // 282: platform.v1.SecurityScanConfigSpec.parameter_values:type_name -> platform.v1.SecurityScanConfigSpec.ParameterValuesEntry
-	405, // 283: platform.v1.SecurityScanConfig.spec:type_name -> platform.v1.SecurityScanConfigSpec
-	505, // 284: platform.v1.SecurityScanConfig.finding_counts:type_name -> platform.v1.SecurityScanConfig.FindingCountsEntry
-	291, // 285: platform.v1.SecurityScanConfig.owner:type_name -> platform.v1.ResourceOwner
-	396, // 286: platform.v1.SecurityScanConfig.last_check:type_name -> platform.v1.SecurityScanCheckState
-	397, // 287: platform.v1.SecurityScanConfig.last_notifications:type_name -> platform.v1.SecurityScanNotificationState
-	444, // 288: platform.v1.SecurityScanConfig.effective_budgets:type_name -> platform.v1.SecurityScanBudgetsConfig
-	407, // 289: platform.v1.SecurityScanConfig.retention:type_name -> platform.v1.SecurityScanRetentionState
-	401, // 290: platform.v1.SecurityScanConfig.last_execution:type_name -> platform.v1.SecurityScanExecutionState
-	406, // 291: platform.v1.ListSecurityScanConfigsResponse.configs:type_name -> platform.v1.SecurityScanConfig
-	405, // 292: platform.v1.CreateSecurityScanRequest.spec:type_name -> platform.v1.SecurityScanConfigSpec
-	267, // 293: platform.v1.CreateSecurityScanRequest.policies:type_name -> platform.v1.TriggerPolicies
-	405, // 294: platform.v1.UpdateSecurityScanRequest.spec:type_name -> platform.v1.SecurityScanConfigSpec
-	267, // 295: platform.v1.UpdateSecurityScanRequest.policies:type_name -> platform.v1.TriggerPolicies
-	506, // 296: platform.v1.RunSecurityScanNowRequest.parameter_values:type_name -> platform.v1.RunSecurityScanNowRequest.ParameterValuesEntry
-	387, // 297: platform.v1.SecurityWorkflowResource.tasks:type_name -> platform.v1.SecurityScanTaskConfig
-	418, // 298: platform.v1.SecurityWorkflowResource.parameters:type_name -> platform.v1.SecurityWorkflowParameter
-	417, // 299: platform.v1.ListSecurityWorkflowsResponse.workflows:type_name -> platform.v1.SecurityWorkflowResource
-	417, // 300: platform.v1.CreateSecurityWorkflowRequest.workflow:type_name -> platform.v1.SecurityWorkflowResource
-	417, // 301: platform.v1.UpdateSecurityWorkflowRequest.workflow:type_name -> platform.v1.SecurityWorkflowResource
-	387, // 302: platform.v1.ValidateSecurityWorkflowRequest.tasks:type_name -> platform.v1.SecurityScanTaskConfig
-	418, // 303: platform.v1.ValidateSecurityWorkflowRequest.parameters:type_name -> platform.v1.SecurityWorkflowParameter
-	425, // 304: platform.v1.ValidateSecurityWorkflowResponse.errors:type_name -> platform.v1.SecurityWorkflowValidationError
-	428, // 305: platform.v1.ListSecurityRankersResponse.rankers:type_name -> platform.v1.SecurityRankerResource
-	428, // 306: platform.v1.CreateSecurityRankerRequest.ranker:type_name -> platform.v1.SecurityRankerResource
-	428, // 307: platform.v1.UpdateSecurityRankerRequest.ranker:type_name -> platform.v1.SecurityRankerResource
-	435, // 308: platform.v1.ListSecurityPostScriptsResponse.post_scripts:type_name -> platform.v1.SecurityPostScriptResource
-	435, // 309: platform.v1.CreateSecurityPostScriptRequest.post_script:type_name -> platform.v1.SecurityPostScriptResource
-	435, // 310: platform.v1.UpdateSecurityPostScriptRequest.post_script:type_name -> platform.v1.SecurityPostScriptResource
-	442, // 311: platform.v1.SecurityPolicySuppressionConfig.matcher:type_name -> platform.v1.SecuritySuppressionMatcherConfig
-	511, // 312: platform.v1.SecurityPolicySuppressionConfig.expires_at:type_name -> google.protobuf.Timestamp
-	392, // 313: platform.v1.SecurityPolicyPackResource.dedupe:type_name -> platform.v1.SecurityScanDedupeConfig
-	443, // 314: platform.v1.SecurityPolicyPackResource.suppressions:type_name -> platform.v1.SecurityPolicySuppressionConfig
-	445, // 315: platform.v1.SecurityPolicyPackResource.retention:type_name -> platform.v1.SecurityPolicyPackRetentionConfig
-	444, // 316: platform.v1.SecurityPolicyPackResource.budgets:type_name -> platform.v1.SecurityScanBudgetsConfig
-	446, // 317: platform.v1.ListSecurityPolicyPacksResponse.policy_packs:type_name -> platform.v1.SecurityPolicyPackResource
-	446, // 318: platform.v1.CreateSecurityPolicyPackRequest.policy_pack:type_name -> platform.v1.SecurityPolicyPackResource
-	446, // 319: platform.v1.UpdateSecurityPolicyPackRequest.policy_pack:type_name -> platform.v1.SecurityPolicyPackResource
-	511, // 320: platform.v1.SecurityProgramResource.verified_at:type_name -> google.protobuf.Timestamp
-	490, // 321: platform.v1.SecurityProgramResource.scan_target:type_name -> platform.v1.SecurityProgramScanTarget
-	490, // 322: platform.v1.SecurityProgramResource.scan_targets:type_name -> platform.v1.SecurityProgramScanTarget
-	454, // 323: platform.v1.SecurityProgramResource.in_scope_impacts:type_name -> platform.v1.SecurityProgramImpact
-	455, // 324: platform.v1.SecurityProgramResource.assets:type_name -> platform.v1.SecurityProgramAsset
-	456, // 325: platform.v1.SecurityProgramResource.known_issues:type_name -> platform.v1.SecurityProgramKnownIssue
-	457, // 326: platform.v1.SecurityProgramResource.submission_budget:type_name -> platform.v1.SecurityProgramSubmissionBudget
-	453, // 327: platform.v1.ListSecurityProgramsResponse.programs:type_name -> platform.v1.SecurityProgramResource
-	453, // 328: platform.v1.CreateSecurityProgramRequest.program:type_name -> platform.v1.SecurityProgramResource
-	453, // 329: platform.v1.UpdateSecurityProgramRequest.program:type_name -> platform.v1.SecurityProgramResource
-	1,   // 330: platform.v1.GenerateSecurityDraftRequest.kind:type_name -> platform.v1.SecurityDraftKind
-	2,   // 331: platform.v1.GetSecurityDraftResponse.status:type_name -> platform.v1.SecurityDraftStatus
-	417, // 332: platform.v1.GetSecurityDraftResponse.workflow:type_name -> platform.v1.SecurityWorkflowResource
-	435, // 333: platform.v1.GetSecurityDraftResponse.post_script:type_name -> platform.v1.SecurityPostScriptResource
-	425, // 334: platform.v1.GetSecurityDraftResponse.validation_errors:type_name -> platform.v1.SecurityWorkflowValidationError
-	3,   // 335: platform.v1.ImportSecurityPackRequest.collision_policy:type_name -> platform.v1.SecurityPackCollisionPolicy
-	425, // 336: platform.v1.SecurityPackItemResult.validation_errors:type_name -> platform.v1.SecurityWorkflowValidationError
-	471, // 337: platform.v1.ImportSecurityPackResponse.items:type_name -> platform.v1.SecurityPackItemResult
-	354, // 338: platform.v1.GetSecurityOverviewResponse.active_scans:type_name -> platform.v1.SecurityScan
-	354, // 339: platform.v1.GetSecurityOverviewResponse.recent_scans:type_name -> platform.v1.SecurityScan
-	507, // 340: platform.v1.GetSecurityOverviewResponse.finding_counts:type_name -> platform.v1.GetSecurityOverviewResponse.FindingCountsEntry
-	474, // 341: platform.v1.GetSecurityOverviewResponse.config_issues:type_name -> platform.v1.SecurityScanConfigIssue
-	369, // 342: platform.v1.GetSecurityOverviewResponse.trends:type_name -> platform.v1.SecurityFindingTrends
-	511, // 343: platform.v1.SecurityRunActivityPoint.completed_at:type_name -> google.protobuf.Timestamp
-	508, // 344: platform.v1.SecurityRunActivityPoint.severity_counts:type_name -> platform.v1.SecurityRunActivityPoint.SeverityCountsEntry
-	509, // 345: platform.v1.SecurityConfigPosture.finding_counts:type_name -> platform.v1.SecurityConfigPosture.FindingCountsEntry
-	511, // 346: platform.v1.SecurityConfigPosture.last_started_at:type_name -> google.protobuf.Timestamp
-	511, // 347: platform.v1.SecurityConfigPosture.last_completed_at:type_name -> google.protobuf.Timestamp
-	477, // 348: platform.v1.SecurityConfigPosture.activity:type_name -> platform.v1.SecurityRunActivityPoint
-	478, // 349: platform.v1.GetSecurityConfigPosturesResponse.postures:type_name -> platform.v1.SecurityConfigPosture
-	511, // 350: platform.v1.GetSecurityScanReportResponse.updated_at:type_name -> google.protobuf.Timestamp
-	4,   // 351: platform.v1.SecurityCatalogRef.kind:type_name -> platform.v1.SecurityCatalogKind
-	483, // 352: platform.v1.SecurityCatalogDependency.resource:type_name -> platform.v1.SecurityCatalogRef
-	483, // 353: platform.v1.SecurityCatalogEntry.resource:type_name -> platform.v1.SecurityCatalogRef
-	484, // 354: platform.v1.SecurityCatalogEntry.dependencies:type_name -> platform.v1.SecurityCatalogDependency
-	5,   // 355: platform.v1.SecurityCatalogEntry.install_state:type_name -> platform.v1.SecurityCatalogInstallState
-	485, // 356: platform.v1.SecurityCatalog.entries:type_name -> platform.v1.SecurityCatalogEntry
-	483, // 357: platform.v1.SecurityCatalogInstallRequest.resources:type_name -> platform.v1.SecurityCatalogRef
-	485, // 358: platform.v1.SecurityCatalogInstallResult.entry:type_name -> platform.v1.SecurityCatalogEntry
-	488, // 359: platform.v1.SecurityCatalogInstallResponse.results:type_name -> platform.v1.SecurityCatalogInstallResult
-	510, // 360: platform.v1.SecurityProgramScanTarget.parameter_values:type_name -> platform.v1.SecurityProgramScanTarget.ParameterValuesEntry
-	511, // 361: platform.v1.BugReport.first_seen_at:type_name -> google.protobuf.Timestamp
-	511, // 362: platform.v1.BugReport.last_seen_at:type_name -> google.protobuf.Timestamp
-	491, // 363: platform.v1.ListBugReportsResponse.reports:type_name -> platform.v1.BugReport
-	6,   // 364: platform.v1.PlatformService.ListAgentRuns:input_type -> platform.v1.ListAgentRunsRequest
-	8,   // 365: platform.v1.PlatformService.GetAgentRun:input_type -> platform.v1.GetAgentRunRequest
-	17,  // 366: platform.v1.PlatformService.WatchAgentRuns:input_type -> platform.v1.WatchAgentRunsRequest
-	18,  // 367: platform.v1.PlatformService.WatchAgentRun:input_type -> platform.v1.WatchAgentRunRequest
-	20,  // 368: platform.v1.PlatformService.GetActivityLog:input_type -> platform.v1.GetActivityLogRequest
-	21,  // 369: platform.v1.PlatformService.GetActivityEntryDetail:input_type -> platform.v1.GetActivityEntryDetailRequest
-	20,  // 370: platform.v1.PlatformService.WatchActivityLog:input_type -> platform.v1.GetActivityLogRequest
-	23,  // 371: platform.v1.PlatformService.GetAgentRunUsage:input_type -> platform.v1.GetAgentRunUsageRequest
-	29,  // 372: platform.v1.PlatformService.GetObservabilityOverview:input_type -> platform.v1.GetObservabilityOverviewRequest
-	310, // 373: platform.v1.PlatformService.GetAgentRunPullRequests:input_type -> platform.v1.GetAgentRunPullRequestsRequest
-	57,  // 374: platform.v1.PlatformService.ListLinearProjects:input_type -> platform.v1.ListLinearProjectsRequest
-	59,  // 375: platform.v1.PlatformService.WatchLinearProjects:input_type -> platform.v1.WatchLinearProjectsRequest
-	67,  // 376: platform.v1.PlatformService.SendAgentRunMessage:input_type -> platform.v1.SendAgentRunMessageRequest
-	69,  // 377: platform.v1.PlatformService.CancelAgentRunMessage:input_type -> platform.v1.CancelAgentRunMessageRequest
-	71,  // 378: platform.v1.PlatformService.CreateAgentRun:input_type -> platform.v1.CreateAgentRunRequest
-	75,  // 379: platform.v1.PlatformService.ListMyCredentials:input_type -> platform.v1.ListMyCredentialsRequest
-	76,  // 380: platform.v1.PlatformService.UpdateMyCredentials:input_type -> platform.v1.UpdateMyCredentialsRequest
-	339, // 381: platform.v1.PlatformService.StartProviderOAuth:input_type -> platform.v1.StartProviderOAuthRequest
-	341, // 382: platform.v1.PlatformService.CompleteProviderOAuth:input_type -> platform.v1.CompleteProviderOAuthRequest
-	342, // 383: platform.v1.PlatformService.PollProviderOAuth:input_type -> platform.v1.PollProviderOAuthRequest
-	77,  // 384: platform.v1.PlatformService.ShareMyCredentials:input_type -> platform.v1.ShareMyCredentialsRequest
-	128, // 385: platform.v1.PlatformService.ListSlackAgents:input_type -> platform.v1.ListSlackAgentsRequest
-	130, // 386: platform.v1.PlatformService.UpdateSlackAgent:input_type -> platform.v1.UpdateSlackAgentRequest
-	134, // 387: platform.v1.PlatformService.DeleteSlackAgent:input_type -> platform.v1.DeleteSlackAgentRequest
-	136, // 388: platform.v1.PlatformService.ListSlackWorkspaces:input_type -> platform.v1.ListSlackWorkspacesRequest
-	138, // 389: platform.v1.PlatformService.UpdateSlackWorkspace:input_type -> platform.v1.UpdateSlackWorkspaceRequest
-	139, // 390: platform.v1.PlatformService.DeleteSlackWorkspace:input_type -> platform.v1.DeleteSlackWorkspaceRequest
-	132, // 391: platform.v1.PlatformService.ListSlackDrafts:input_type -> platform.v1.ListSlackDraftsRequest
-	82,  // 392: platform.v1.PlatformService.ListMCPServers:input_type -> platform.v1.ListMCPServersRequest
-	84,  // 393: platform.v1.PlatformService.UpsertMCPServer:input_type -> platform.v1.UpsertMCPServerRequest
-	85,  // 394: platform.v1.PlatformService.DeleteMCPServer:input_type -> platform.v1.DeleteMCPServerRequest
-	87,  // 395: platform.v1.PlatformService.ListSkills:input_type -> platform.v1.ListSkillsRequest
-	322, // 396: platform.v1.PlatformService.ListSkillCatalog:input_type -> platform.v1.ListSkillCatalogRequest
-	324, // 397: platform.v1.PlatformService.InstallSkillFromCatalog:input_type -> platform.v1.InstallSkillFromCatalogRequest
-	89,  // 398: platform.v1.PlatformService.UpsertSkill:input_type -> platform.v1.UpsertSkillRequest
-	90,  // 399: platform.v1.PlatformService.DeleteSkill:input_type -> platform.v1.DeleteSkillRequest
-	93,  // 400: platform.v1.PlatformService.ListRuntimeProfiles:input_type -> platform.v1.ListRuntimeProfilesRequest
-	95,  // 401: platform.v1.PlatformService.CreateRuntimeProfile:input_type -> platform.v1.CreateRuntimeProfileRequest
-	96,  // 402: platform.v1.PlatformService.UpdateRuntimeProfile:input_type -> platform.v1.UpdateRuntimeProfileRequest
-	97,  // 403: platform.v1.PlatformService.DeleteRuntimeProfile:input_type -> platform.v1.DeleteRuntimeProfileRequest
-	101, // 404: platform.v1.PlatformService.ListMCPPolicies:input_type -> platform.v1.ListMCPPoliciesRequest
-	103, // 405: platform.v1.PlatformService.CreateMCPPolicy:input_type -> platform.v1.CreateMCPPolicyRequest
-	104, // 406: platform.v1.PlatformService.UpdateMCPPolicy:input_type -> platform.v1.UpdateMCPPolicyRequest
-	105, // 407: platform.v1.PlatformService.DeleteMCPPolicy:input_type -> platform.v1.DeleteMCPPolicyRequest
-	108, // 408: platform.v1.PlatformService.ListGuardrailPolicies:input_type -> platform.v1.ListGuardrailPoliciesRequest
-	110, // 409: platform.v1.PlatformService.CreateGuardrailPolicy:input_type -> platform.v1.CreateGuardrailPolicyRequest
-	111, // 410: platform.v1.PlatformService.UpdateGuardrailPolicy:input_type -> platform.v1.UpdateGuardrailPolicyRequest
-	112, // 411: platform.v1.PlatformService.DeleteGuardrailPolicy:input_type -> platform.v1.DeleteGuardrailPolicyRequest
-	113, // 412: platform.v1.PlatformService.ListModeTemplates:input_type -> platform.v1.ListModeTemplatesRequest
-	115, // 413: platform.v1.PlatformService.CreateModeTemplate:input_type -> platform.v1.CreateModeTemplateRequest
-	116, // 414: platform.v1.PlatformService.UpdateModeTemplate:input_type -> platform.v1.UpdateModeTemplateRequest
-	117, // 415: platform.v1.PlatformService.DeleteModeTemplate:input_type -> platform.v1.DeleteModeTemplateRequest
-	119, // 416: platform.v1.PlatformService.ListRoleInstructions:input_type -> platform.v1.ListRoleInstructionsRequest
-	121, // 417: platform.v1.PlatformService.CreateRoleInstruction:input_type -> platform.v1.CreateRoleInstructionRequest
-	122, // 418: platform.v1.PlatformService.UpdateRoleInstruction:input_type -> platform.v1.UpdateRoleInstructionRequest
-	123, // 419: platform.v1.PlatformService.DeleteRoleInstruction:input_type -> platform.v1.DeleteRoleInstructionRequest
-	126, // 420: platform.v1.PlatformService.ListRuntimeImages:input_type -> platform.v1.ListRuntimeImagesRequest
-	141, // 421: platform.v1.PlatformService.GetMySoul:input_type -> platform.v1.GetMySoulRequest
-	142, // 422: platform.v1.PlatformService.UpdateMySoul:input_type -> platform.v1.UpdateMySoulRequest
-	145, // 423: platform.v1.PlatformService.GetMyRoleModelPreferences:input_type -> platform.v1.GetMyRoleModelPreferencesRequest
-	146, // 424: platform.v1.PlatformService.UpdateMyRoleModelPreferences:input_type -> platform.v1.UpdateMyRoleModelPreferencesRequest
-	148, // 425: platform.v1.PlatformService.GetMyModelDefaults:input_type -> platform.v1.GetMyModelDefaultsRequest
-	149, // 426: platform.v1.PlatformService.UpdateMyModelDefaults:input_type -> platform.v1.UpdateMyModelDefaultsRequest
-	151, // 427: platform.v1.PlatformService.GetMyGitIdentity:input_type -> platform.v1.GetMyGitIdentityRequest
-	152, // 428: platform.v1.PlatformService.UpdateMyGitIdentity:input_type -> platform.v1.UpdateMyGitIdentityRequest
-	9,   // 429: platform.v1.PlatformService.DeleteAgentRun:input_type -> platform.v1.DeleteAgentRunRequest
-	10,  // 430: platform.v1.PlatformService.CancelAgentRun:input_type -> platform.v1.CancelAgentRunRequest
-	11,  // 431: platform.v1.PlatformService.PromoteAgentRun:input_type -> platform.v1.PromoteAgentRunRequest
-	12,  // 432: platform.v1.PlatformService.InterruptAgentRun:input_type -> platform.v1.InterruptAgentRunRequest
-	14,  // 433: platform.v1.PlatformService.RetryAgentRun:input_type -> platform.v1.RetryAgentRunRequest
-	15,  // 434: platform.v1.PlatformService.RenameAgentRun:input_type -> platform.v1.RenameAgentRunRequest
-	16,  // 435: platform.v1.PlatformService.UpdateAgentRunRuntimeConfig:input_type -> platform.v1.UpdateAgentRunRuntimeConfigRequest
-	318, // 436: platform.v1.PlatformService.AttachAgentRunOverseer:input_type -> platform.v1.AttachAgentRunOverseerRequest
-	319, // 437: platform.v1.PlatformService.UpdateAgentRunOverseer:input_type -> platform.v1.UpdateAgentRunOverseerRequest
-	320, // 438: platform.v1.PlatformService.DetachAgentRunOverseer:input_type -> platform.v1.DetachAgentRunOverseerRequest
-	309, // 439: platform.v1.PlatformService.ExtendAgentRunRuntime:input_type -> platform.v1.ExtendAgentRunRuntimeRequest
-	156, // 440: platform.v1.PlatformService.CreateTeamChildRun:input_type -> platform.v1.CreateTeamChildRunRequest
-	157, // 441: platform.v1.PlatformService.ListTeamChildRuns:input_type -> platform.v1.ListTeamChildRunsRequest
-	159, // 442: platform.v1.PlatformService.GetTeamChildRunStatus:input_type -> platform.v1.GetTeamChildRunStatusRequest
-	160, // 443: platform.v1.PlatformService.GetTeamChildRunLogs:input_type -> platform.v1.GetTeamChildRunLogsRequest
-	162, // 444: platform.v1.PlatformService.GetTeamChildRunArtifact:input_type -> platform.v1.GetTeamChildRunArtifactRequest
-	164, // 445: platform.v1.PlatformService.SendTeamChildMessage:input_type -> platform.v1.SendTeamChildMessageRequest
-	165, // 446: platform.v1.PlatformService.GetAgentRunTeamStatus:input_type -> platform.v1.GetAgentRunTeamStatusRequest
-	166, // 447: platform.v1.PlatformService.WaitForTeamRunChange:input_type -> platform.v1.WaitForTeamRunChangeRequest
-	168, // 448: platform.v1.PlatformService.CancelTeamChildRun:input_type -> platform.v1.CancelTeamChildRunRequest
-	169, // 449: platform.v1.PlatformService.RetryTeamChildRun:input_type -> platform.v1.RetryTeamChildRunRequest
-	170, // 450: platform.v1.PlatformService.GetTeamApprovalStatus:input_type -> platform.v1.GetTeamApprovalStatusRequest
-	62,  // 451: platform.v1.PlatformService.GetLinearProject:input_type -> platform.v1.GetLinearProjectRequest
-	188, // 452: platform.v1.PlatformService.GetTeamRuntime:input_type -> platform.v1.GetTeamRuntimeRequest
-	189, // 453: platform.v1.PlatformService.WatchTeamRuntime:input_type -> platform.v1.WatchTeamRuntimeRequest
-	63,  // 454: platform.v1.PlatformService.ListAvailableModels:input_type -> platform.v1.ListAvailableModelsRequest
-	172, // 455: platform.v1.PlatformService.GetDiff:input_type -> platform.v1.GetDiffRequest
-	172, // 456: platform.v1.PlatformService.WatchDiff:input_type -> platform.v1.GetDiffRequest
-	174, // 457: platform.v1.PlatformService.ListFiles:input_type -> platform.v1.ListFilesRequest
-	177, // 458: platform.v1.PlatformService.ListWorkspaceFiles:input_type -> platform.v1.ListWorkspaceFilesRequest
-	180, // 459: platform.v1.PlatformService.CloneRepository:input_type -> platform.v1.CloneRepositoryRequest
-	182, // 460: platform.v1.PlatformService.ListRepositories:input_type -> platform.v1.ListRepositoriesRequest
-	184, // 461: platform.v1.PlatformService.ReadFile:input_type -> platform.v1.ReadFileRequest
-	186, // 462: platform.v1.PlatformService.UpdateLinearProjectInstructions:input_type -> platform.v1.UpdateLinearProjectInstructionsRequest
-	269, // 463: platform.v1.PlatformService.CreateLinearProject:input_type -> platform.v1.CreateLinearProjectRequest
-	270, // 464: platform.v1.PlatformService.UpdateLinearProject:input_type -> platform.v1.UpdateLinearProjectRequest
-	202, // 465: platform.v1.PlatformService.ListProjects:input_type -> platform.v1.ListProjectsRequest
-	204, // 466: platform.v1.PlatformService.GetProject:input_type -> platform.v1.GetProjectRequest
-	205, // 467: platform.v1.PlatformService.WatchProjects:input_type -> platform.v1.WatchProjectsRequest
-	208, // 468: platform.v1.PlatformService.CreateProject:input_type -> platform.v1.CreateProjectRequest
-	209, // 469: platform.v1.PlatformService.UpdateProject:input_type -> platform.v1.UpdateProjectRequest
-	216, // 470: platform.v1.PlatformService.CreateProjectTrigger:input_type -> platform.v1.CreateProjectTriggerRequest
-	217, // 471: platform.v1.PlatformService.UpdateProjectTrigger:input_type -> platform.v1.UpdateProjectTriggerRequest
-	218, // 472: platform.v1.PlatformService.DeleteProjectTrigger:input_type -> platform.v1.DeleteProjectTriggerRequest
-	219, // 473: platform.v1.PlatformService.SetProjectTriggerEnabled:input_type -> platform.v1.SetProjectTriggerEnabledRequest
-	220, // 474: platform.v1.PlatformService.DeleteProject:input_type -> platform.v1.DeleteProjectRequest
-	225, // 475: platform.v1.PlatformService.ListConnections:input_type -> platform.v1.ListConnectionsRequest
-	227, // 476: platform.v1.PlatformService.CreateConnection:input_type -> platform.v1.CreateConnectionRequest
-	228, // 477: platform.v1.PlatformService.UpdateConnection:input_type -> platform.v1.UpdateConnectionRequest
-	229, // 478: platform.v1.PlatformService.DeleteConnection:input_type -> platform.v1.DeleteConnectionRequest
-	328, // 479: platform.v1.PlatformService.ListProjectContent:input_type -> platform.v1.ListProjectContentRequest
-	330, // 480: platform.v1.PlatformService.GetProjectContent:input_type -> platform.v1.GetProjectContentRequest
-	332, // 481: platform.v1.PlatformService.CreateProjectContent:input_type -> platform.v1.CreateProjectContentRequest
-	333, // 482: platform.v1.PlatformService.UpdateProjectContent:input_type -> platform.v1.UpdateProjectContentRequest
-	334, // 483: platform.v1.PlatformService.DuplicateProjectContent:input_type -> platform.v1.DuplicateProjectContentRequest
-	335, // 484: platform.v1.PlatformService.ListProjectContentVersions:input_type -> platform.v1.ListProjectContentVersionsRequest
-	337, // 485: platform.v1.PlatformService.RestoreProjectContentVersion:input_type -> platform.v1.RestoreProjectContentVersionRequest
-	338, // 486: platform.v1.PlatformService.DeleteProjectContent:input_type -> platform.v1.DeleteProjectContentRequest
-	232, // 487: platform.v1.PlatformService.ListGitHubRepositories:input_type -> platform.v1.ListGitHubRepositoriesRequest
-	234, // 488: platform.v1.PlatformService.GetGitHubRepository:input_type -> platform.v1.GetGitHubRepositoryRequest
-	239, // 489: platform.v1.PlatformService.ListMaintainerWorkItems:input_type -> platform.v1.ListMaintainerWorkItemsRequest
-	255, // 490: platform.v1.PlatformService.IssueMaintainerCommand:input_type -> platform.v1.IssueMaintainerCommandRequest
-	235, // 491: platform.v1.PlatformService.WatchGitHubRepositories:input_type -> platform.v1.WatchGitHubRepositoriesRequest
-	512, // 492: platform.v1.PlatformService.GetGitHubAppConfig:input_type -> google.protobuf.Empty
-	512, // 493: platform.v1.PlatformService.ListGitHubAppInstallations:input_type -> google.protobuf.Empty
-	261, // 494: platform.v1.PlatformService.ListGitHubAppInstallationRepositories:input_type -> platform.v1.ListGitHubAppInstallationRepositoriesRequest
-	264, // 495: platform.v1.PlatformService.CreateGitHubRepositoryFromInstallation:input_type -> platform.v1.CreateGitHubRepositoryFromInstallationRequest
-	265, // 496: platform.v1.PlatformService.CreateGitHubRepositoryFromToken:input_type -> platform.v1.CreateGitHubRepositoryFromTokenRequest
-	268, // 497: platform.v1.PlatformService.UpdateGitHubRepository:input_type -> platform.v1.UpdateGitHubRepositoryRequest
-	271, // 498: platform.v1.PlatformService.ListCrons:input_type -> platform.v1.ListCronsRequest
-	273, // 499: platform.v1.PlatformService.GetCron:input_type -> platform.v1.GetCronRequest
-	274, // 500: platform.v1.PlatformService.WatchCrons:input_type -> platform.v1.WatchCronsRequest
-	276, // 501: platform.v1.PlatformService.CreateCron:input_type -> platform.v1.CreateCronRequest
-	277, // 502: platform.v1.PlatformService.UpdateCron:input_type -> platform.v1.UpdateCronRequest
-	278, // 503: platform.v1.PlatformService.DeleteCron:input_type -> platform.v1.DeleteCronRequest
-	196, // 504: platform.v1.PlatformService.ListAvailableModes:input_type -> platform.v1.ListAvailableModesRequest
-	198, // 505: platform.v1.PlatformService.GetModeTemplate:input_type -> platform.v1.GetModeTemplateRequest
-	199, // 506: platform.v1.PlatformService.SwitchAgentRunMode:input_type -> platform.v1.SwitchAgentRunModeRequest
-	280, // 507: platform.v1.PlatformService.GetAgentTrace:input_type -> platform.v1.GetAgentTraceRequest
-	280, // 508: platform.v1.PlatformService.WatchAgentTrace:input_type -> platform.v1.GetAgentTraceRequest
-	282, // 509: platform.v1.PlatformService.GetAgentRunErrors:input_type -> platform.v1.GetAgentRunErrorsRequest
-	285, // 510: platform.v1.PlatformService.GetAgentRunLogs:input_type -> platform.v1.GetAgentRunLogsRequest
-	289, // 511: platform.v1.PlatformService.ExportAgentRunArchive:input_type -> platform.v1.ExportAgentRunArchiveRequest
-	292, // 512: platform.v1.PlatformService.ShareResource:input_type -> platform.v1.ShareResourceRequest
-	294, // 513: platform.v1.PlatformService.RevokeShare:input_type -> platform.v1.RevokeShareRequest
-	295, // 514: platform.v1.PlatformService.UpdateSharePermission:input_type -> platform.v1.UpdateSharePermissionRequest
-	296, // 515: platform.v1.PlatformService.ListShares:input_type -> platform.v1.ListSharesRequest
-	298, // 516: platform.v1.PlatformService.ListSharedWithMe:input_type -> platform.v1.ListSharedWithMeRequest
-	302, // 517: platform.v1.PlatformService.ListNotifications:input_type -> platform.v1.ListNotificationsRequest
-	304, // 518: platform.v1.PlatformService.MarkNotificationRead:input_type -> platform.v1.MarkNotificationReadRequest
-	306, // 519: platform.v1.PlatformService.SendPresenceHeartbeat:input_type -> platform.v1.PresenceHeartbeatRequest
-	307, // 520: platform.v1.PlatformService.GetPresence:input_type -> platform.v1.GetPresenceRequest
-	345, // 521: platform.v1.PlatformService.GetMyOpenAIUsage:input_type -> platform.v1.GetMyOpenAIUsageRequest
-	348, // 522: platform.v1.PlatformService.GetMyCopilotUsage:input_type -> platform.v1.GetMyCopilotUsageRequest
-	351, // 523: platform.v1.PlatformService.GetMyAnthropicUsage:input_type -> platform.v1.GetMyAnthropicUsageRequest
-	355, // 524: platform.v1.PlatformService.ListSecurityScans:input_type -> platform.v1.ListSecurityScansRequest
-	357, // 525: platform.v1.PlatformService.GetSecurityScan:input_type -> platform.v1.GetSecurityScanRequest
-	359, // 526: platform.v1.PlatformService.ListSecurityFindings:input_type -> platform.v1.ListSecurityFindingsRequest
-	361, // 527: platform.v1.PlatformService.GetSecurityFinding:input_type -> platform.v1.GetSecurityFindingRequest
-	364, // 528: platform.v1.PlatformService.GetSecurityFindingSubmissionBundle:input_type -> platform.v1.GetSecurityFindingSubmissionBundleRequest
-	366, // 529: platform.v1.PlatformService.UpdateSecurityFindingStatus:input_type -> platform.v1.UpdateSecurityFindingStatusRequest
-	367, // 530: platform.v1.PlatformService.GetSecurityFindingSummary:input_type -> platform.v1.GetSecurityFindingSummaryRequest
-	383, // 531: platform.v1.PlatformService.ListSecurityFindingEvents:input_type -> platform.v1.ListSecurityFindingEventsRequest
-	385, // 532: platform.v1.PlatformService.AddSecurityFindingComment:input_type -> platform.v1.AddSecurityFindingCommentRequest
-	370, // 533: platform.v1.PlatformService.UpdateSecurityFindingAssignee:input_type -> platform.v1.UpdateSecurityFindingAssigneeRequest
-	371, // 534: platform.v1.PlatformService.UpdateSecurityFindingTicket:input_type -> platform.v1.UpdateSecurityFindingTicketRequest
-	372, // 535: platform.v1.PlatformService.CreateSecurityFindingTicket:input_type -> platform.v1.CreateSecurityFindingTicketRequest
-	373, // 536: platform.v1.PlatformService.BulkUpdateSecurityFindingStatus:input_type -> platform.v1.BulkUpdateSecurityFindingStatusRequest
-	377, // 537: platform.v1.PlatformService.ListSecuritySavedFilters:input_type -> platform.v1.ListSecuritySavedFiltersRequest
-	379, // 538: platform.v1.PlatformService.SaveSecuritySavedFilter:input_type -> platform.v1.SaveSecuritySavedFilterRequest
-	380, // 539: platform.v1.PlatformService.DeleteSecuritySavedFilter:input_type -> platform.v1.DeleteSecuritySavedFilterRequest
-	381, // 540: platform.v1.PlatformService.ExportSecurityFindingAuditLog:input_type -> platform.v1.ExportSecurityFindingAuditLogRequest
-	408, // 541: platform.v1.PlatformService.ListSecurityScanConfigs:input_type -> platform.v1.ListSecurityScanConfigsRequest
-	410, // 542: platform.v1.PlatformService.GetSecurityScanConfig:input_type -> platform.v1.GetSecurityScanConfigRequest
-	411, // 543: platform.v1.PlatformService.CreateSecurityScan:input_type -> platform.v1.CreateSecurityScanRequest
-	412, // 544: platform.v1.PlatformService.UpdateSecurityScan:input_type -> platform.v1.UpdateSecurityScanRequest
-	413, // 545: platform.v1.PlatformService.DeleteSecurityScan:input_type -> platform.v1.DeleteSecurityScanRequest
-	414, // 546: platform.v1.PlatformService.RunSecurityScanNow:input_type -> platform.v1.RunSecurityScanNowRequest
-	415, // 547: platform.v1.PlatformService.ResumeSecurityScan:input_type -> platform.v1.ResumeSecurityScanRequest
-	416, // 548: platform.v1.PlatformService.CancelSecurityScanRun:input_type -> platform.v1.CancelSecurityScanRunRequest
-	419, // 549: platform.v1.PlatformService.ListSecurityWorkflows:input_type -> platform.v1.ListSecurityWorkflowsRequest
-	421, // 550: platform.v1.PlatformService.GetSecurityWorkflow:input_type -> platform.v1.GetSecurityWorkflowRequest
-	422, // 551: platform.v1.PlatformService.CreateSecurityWorkflow:input_type -> platform.v1.CreateSecurityWorkflowRequest
-	423, // 552: platform.v1.PlatformService.UpdateSecurityWorkflow:input_type -> platform.v1.UpdateSecurityWorkflowRequest
-	424, // 553: platform.v1.PlatformService.DeleteSecurityWorkflow:input_type -> platform.v1.DeleteSecurityWorkflowRequest
-	426, // 554: platform.v1.PlatformService.ValidateSecurityWorkflow:input_type -> platform.v1.ValidateSecurityWorkflowRequest
-	429, // 555: platform.v1.PlatformService.ListSecurityRankers:input_type -> platform.v1.ListSecurityRankersRequest
-	431, // 556: platform.v1.PlatformService.GetSecurityRanker:input_type -> platform.v1.GetSecurityRankerRequest
-	432, // 557: platform.v1.PlatformService.CreateSecurityRanker:input_type -> platform.v1.CreateSecurityRankerRequest
-	433, // 558: platform.v1.PlatformService.UpdateSecurityRanker:input_type -> platform.v1.UpdateSecurityRankerRequest
-	434, // 559: platform.v1.PlatformService.DeleteSecurityRanker:input_type -> platform.v1.DeleteSecurityRankerRequest
-	436, // 560: platform.v1.PlatformService.ListSecurityPostScripts:input_type -> platform.v1.ListSecurityPostScriptsRequest
-	438, // 561: platform.v1.PlatformService.GetSecurityPostScript:input_type -> platform.v1.GetSecurityPostScriptRequest
-	439, // 562: platform.v1.PlatformService.CreateSecurityPostScript:input_type -> platform.v1.CreateSecurityPostScriptRequest
-	440, // 563: platform.v1.PlatformService.UpdateSecurityPostScript:input_type -> platform.v1.UpdateSecurityPostScriptRequest
-	441, // 564: platform.v1.PlatformService.DeleteSecurityPostScript:input_type -> platform.v1.DeleteSecurityPostScriptRequest
-	447, // 565: platform.v1.PlatformService.ListSecurityPolicyPacks:input_type -> platform.v1.ListSecurityPolicyPacksRequest
-	449, // 566: platform.v1.PlatformService.GetSecurityPolicyPack:input_type -> platform.v1.GetSecurityPolicyPackRequest
-	450, // 567: platform.v1.PlatformService.CreateSecurityPolicyPack:input_type -> platform.v1.CreateSecurityPolicyPackRequest
-	451, // 568: platform.v1.PlatformService.UpdateSecurityPolicyPack:input_type -> platform.v1.UpdateSecurityPolicyPackRequest
-	452, // 569: platform.v1.PlatformService.DeleteSecurityPolicyPack:input_type -> platform.v1.DeleteSecurityPolicyPackRequest
-	458, // 570: platform.v1.PlatformService.ListSecurityPrograms:input_type -> platform.v1.ListSecurityProgramsRequest
-	460, // 571: platform.v1.PlatformService.GetSecurityProgram:input_type -> platform.v1.GetSecurityProgramRequest
-	461, // 572: platform.v1.PlatformService.CreateSecurityProgram:input_type -> platform.v1.CreateSecurityProgramRequest
-	462, // 573: platform.v1.PlatformService.UpdateSecurityProgram:input_type -> platform.v1.UpdateSecurityProgramRequest
-	463, // 574: platform.v1.PlatformService.DeleteSecurityProgram:input_type -> platform.v1.DeleteSecurityProgramRequest
-	464, // 575: platform.v1.PlatformService.GenerateSecurityDraft:input_type -> platform.v1.GenerateSecurityDraftRequest
-	466, // 576: platform.v1.PlatformService.GetSecurityDraft:input_type -> platform.v1.GetSecurityDraftRequest
-	468, // 577: platform.v1.PlatformService.ExportSecurityPack:input_type -> platform.v1.ExportSecurityPackRequest
-	470, // 578: platform.v1.PlatformService.ImportSecurityPack:input_type -> platform.v1.ImportSecurityPackRequest
-	473, // 579: platform.v1.PlatformService.GetSecurityOverview:input_type -> platform.v1.GetSecurityOverviewRequest
-	476, // 580: platform.v1.PlatformService.GetSecurityConfigPostures:input_type -> platform.v1.GetSecurityConfigPosturesRequest
-	480, // 581: platform.v1.PlatformService.GetSecurityScanReport:input_type -> platform.v1.GetSecurityScanReportRequest
-	512, // 582: platform.v1.PlatformService.GetSecuritySkillsStatus:input_type -> google.protobuf.Empty
-	512, // 583: platform.v1.PlatformService.InstallSecuritySkills:input_type -> google.protobuf.Empty
-	512, // 584: platform.v1.PlatformService.ListSecurityCatalog:input_type -> google.protobuf.Empty
-	487, // 585: platform.v1.PlatformService.DryRunSecurityCatalogInstall:input_type -> platform.v1.SecurityCatalogInstallRequest
-	487, // 586: platform.v1.PlatformService.ApplySecurityCatalogInstall:input_type -> platform.v1.SecurityCatalogInstallRequest
-	492, // 587: platform.v1.PlatformService.ListBugReports:input_type -> platform.v1.ListBugReportsRequest
-	494, // 588: platform.v1.PlatformService.UpdateBugReportStatus:input_type -> platform.v1.UpdateBugReportStatusRequest
-	7,   // 589: platform.v1.PlatformService.ListAgentRuns:output_type -> platform.v1.ListAgentRunsResponse
-	50,  // 590: platform.v1.PlatformService.GetAgentRun:output_type -> platform.v1.AgentRun
-	19,  // 591: platform.v1.PlatformService.WatchAgentRuns:output_type -> platform.v1.AgentRunEvent
-	50,  // 592: platform.v1.PlatformService.WatchAgentRun:output_type -> platform.v1.AgentRun
-	35,  // 593: platform.v1.PlatformService.GetActivityLog:output_type -> platform.v1.GetActivityLogResponse
-	22,  // 594: platform.v1.PlatformService.GetActivityEntryDetail:output_type -> platform.v1.GetActivityEntryDetailResponse
-	35,  // 595: platform.v1.PlatformService.WatchActivityLog:output_type -> platform.v1.GetActivityLogResponse
-	28,  // 596: platform.v1.PlatformService.GetAgentRunUsage:output_type -> platform.v1.AgentRunUsageResponse
-	34,  // 597: platform.v1.PlatformService.GetObservabilityOverview:output_type -> platform.v1.ObservabilityOverviewResponse
-	311, // 598: platform.v1.PlatformService.GetAgentRunPullRequests:output_type -> platform.v1.GetAgentRunPullRequestsResponse
-	58,  // 599: platform.v1.PlatformService.ListLinearProjects:output_type -> platform.v1.ListLinearProjectsResponse
-	60,  // 600: platform.v1.PlatformService.WatchLinearProjects:output_type -> platform.v1.LinearProjectEvent
-	68,  // 601: platform.v1.PlatformService.SendAgentRunMessage:output_type -> platform.v1.SendAgentRunMessageResponse
-	70,  // 602: platform.v1.PlatformService.CancelAgentRunMessage:output_type -> platform.v1.CancelAgentRunMessageResponse
-	50,  // 603: platform.v1.PlatformService.CreateAgentRun:output_type -> platform.v1.AgentRun
-	72,  // 604: platform.v1.PlatformService.ListMyCredentials:output_type -> platform.v1.MyCredentials
-	72,  // 605: platform.v1.PlatformService.UpdateMyCredentials:output_type -> platform.v1.MyCredentials
-	340, // 606: platform.v1.PlatformService.StartProviderOAuth:output_type -> platform.v1.ProviderOAuthStart
-	343, // 607: platform.v1.PlatformService.CompleteProviderOAuth:output_type -> platform.v1.ProviderOAuthResult
-	343, // 608: platform.v1.PlatformService.PollProviderOAuth:output_type -> platform.v1.ProviderOAuthResult
-	78,  // 609: platform.v1.PlatformService.ShareMyCredentials:output_type -> platform.v1.ShareMyCredentialsResponse
-	129, // 610: platform.v1.PlatformService.ListSlackAgents:output_type -> platform.v1.ListSlackAgentsResponse
-	79,  // 611: platform.v1.PlatformService.UpdateSlackAgent:output_type -> platform.v1.SlackAgent
-	512, // 612: platform.v1.PlatformService.DeleteSlackAgent:output_type -> google.protobuf.Empty
-	137, // 613: platform.v1.PlatformService.ListSlackWorkspaces:output_type -> platform.v1.ListSlackWorkspacesResponse
-	135, // 614: platform.v1.PlatformService.UpdateSlackWorkspace:output_type -> platform.v1.SlackWorkspace
-	512, // 615: platform.v1.PlatformService.DeleteSlackWorkspace:output_type -> google.protobuf.Empty
-	133, // 616: platform.v1.PlatformService.ListSlackDrafts:output_type -> platform.v1.ListSlackDraftsResponse
-	83,  // 617: platform.v1.PlatformService.ListMCPServers:output_type -> platform.v1.ListMCPServersResponse
-	80,  // 618: platform.v1.PlatformService.UpsertMCPServer:output_type -> platform.v1.MCPServerInfo
-	512, // 619: platform.v1.PlatformService.DeleteMCPServer:output_type -> google.protobuf.Empty
-	88,  // 620: platform.v1.PlatformService.ListSkills:output_type -> platform.v1.ListSkillsResponse
-	323, // 621: platform.v1.PlatformService.ListSkillCatalog:output_type -> platform.v1.ListSkillCatalogResponse
-	86,  // 622: platform.v1.PlatformService.InstallSkillFromCatalog:output_type -> platform.v1.SkillInfo
-	86,  // 623: platform.v1.PlatformService.UpsertSkill:output_type -> platform.v1.SkillInfo
-	512, // 624: platform.v1.PlatformService.DeleteSkill:output_type -> google.protobuf.Empty
-	94,  // 625: platform.v1.PlatformService.ListRuntimeProfiles:output_type -> platform.v1.ListRuntimeProfilesResponse
-	92,  // 626: platform.v1.PlatformService.CreateRuntimeProfile:output_type -> platform.v1.RuntimeProfile
-	92,  // 627: platform.v1.PlatformService.UpdateRuntimeProfile:output_type -> platform.v1.RuntimeProfile
-	512, // 628: platform.v1.PlatformService.DeleteRuntimeProfile:output_type -> google.protobuf.Empty
-	102, // 629: platform.v1.PlatformService.ListMCPPolicies:output_type -> platform.v1.ListMCPPoliciesResponse
-	100, // 630: platform.v1.PlatformService.CreateMCPPolicy:output_type -> platform.v1.MCPPolicy
-	100, // 631: platform.v1.PlatformService.UpdateMCPPolicy:output_type -> platform.v1.MCPPolicy
-	512, // 632: platform.v1.PlatformService.DeleteMCPPolicy:output_type -> google.protobuf.Empty
-	109, // 633: platform.v1.PlatformService.ListGuardrailPolicies:output_type -> platform.v1.ListGuardrailPoliciesResponse
-	107, // 634: platform.v1.PlatformService.CreateGuardrailPolicy:output_type -> platform.v1.GuardrailPolicy
-	107, // 635: platform.v1.PlatformService.UpdateGuardrailPolicy:output_type -> platform.v1.GuardrailPolicy
-	512, // 636: platform.v1.PlatformService.DeleteGuardrailPolicy:output_type -> google.protobuf.Empty
-	114, // 637: platform.v1.PlatformService.ListModeTemplates:output_type -> platform.v1.ListModeTemplatesResponse
-	195, // 638: platform.v1.PlatformService.CreateModeTemplate:output_type -> platform.v1.ModeTemplate
-	195, // 639: platform.v1.PlatformService.UpdateModeTemplate:output_type -> platform.v1.ModeTemplate
-	512, // 640: platform.v1.PlatformService.DeleteModeTemplate:output_type -> google.protobuf.Empty
-	120, // 641: platform.v1.PlatformService.ListRoleInstructions:output_type -> platform.v1.ListRoleInstructionsResponse
-	118, // 642: platform.v1.PlatformService.CreateRoleInstruction:output_type -> platform.v1.RoleInstruction
-	118, // 643: platform.v1.PlatformService.UpdateRoleInstruction:output_type -> platform.v1.RoleInstruction
-	512, // 644: platform.v1.PlatformService.DeleteRoleInstruction:output_type -> google.protobuf.Empty
-	127, // 645: platform.v1.PlatformService.ListRuntimeImages:output_type -> platform.v1.ListRuntimeImagesResponse
-	140, // 646: platform.v1.PlatformService.GetMySoul:output_type -> platform.v1.Soul
-	140, // 647: platform.v1.PlatformService.UpdateMySoul:output_type -> platform.v1.Soul
-	144, // 648: platform.v1.PlatformService.GetMyRoleModelPreferences:output_type -> platform.v1.RoleModelPreferences
-	144, // 649: platform.v1.PlatformService.UpdateMyRoleModelPreferences:output_type -> platform.v1.RoleModelPreferences
-	147, // 650: platform.v1.PlatformService.GetMyModelDefaults:output_type -> platform.v1.ModelDefaults
-	147, // 651: platform.v1.PlatformService.UpdateMyModelDefaults:output_type -> platform.v1.ModelDefaults
-	150, // 652: platform.v1.PlatformService.GetMyGitIdentity:output_type -> platform.v1.GitIdentity
-	150, // 653: platform.v1.PlatformService.UpdateMyGitIdentity:output_type -> platform.v1.GitIdentity
-	512, // 654: platform.v1.PlatformService.DeleteAgentRun:output_type -> google.protobuf.Empty
-	50,  // 655: platform.v1.PlatformService.CancelAgentRun:output_type -> platform.v1.AgentRun
-	50,  // 656: platform.v1.PlatformService.PromoteAgentRun:output_type -> platform.v1.AgentRun
-	13,  // 657: platform.v1.PlatformService.InterruptAgentRun:output_type -> platform.v1.InterruptAgentRunResponse
-	50,  // 658: platform.v1.PlatformService.RetryAgentRun:output_type -> platform.v1.AgentRun
-	50,  // 659: platform.v1.PlatformService.RenameAgentRun:output_type -> platform.v1.AgentRun
-	50,  // 660: platform.v1.PlatformService.UpdateAgentRunRuntimeConfig:output_type -> platform.v1.AgentRun
-	50,  // 661: platform.v1.PlatformService.AttachAgentRunOverseer:output_type -> platform.v1.AgentRun
-	50,  // 662: platform.v1.PlatformService.UpdateAgentRunOverseer:output_type -> platform.v1.AgentRun
-	50,  // 663: platform.v1.PlatformService.DetachAgentRunOverseer:output_type -> platform.v1.AgentRun
-	50,  // 664: platform.v1.PlatformService.ExtendAgentRunRuntime:output_type -> platform.v1.AgentRun
-	155, // 665: platform.v1.PlatformService.CreateTeamChildRun:output_type -> platform.v1.TeamChildRunStatus
-	158, // 666: platform.v1.PlatformService.ListTeamChildRuns:output_type -> platform.v1.ListTeamChildRunsResponse
-	155, // 667: platform.v1.PlatformService.GetTeamChildRunStatus:output_type -> platform.v1.TeamChildRunStatus
-	161, // 668: platform.v1.PlatformService.GetTeamChildRunLogs:output_type -> platform.v1.TeamChildRunLogs
-	163, // 669: platform.v1.PlatformService.GetTeamChildRunArtifact:output_type -> platform.v1.TeamChildRunArtifact
-	155, // 670: platform.v1.PlatformService.SendTeamChildMessage:output_type -> platform.v1.TeamChildRunStatus
-	48,  // 671: platform.v1.PlatformService.GetAgentRunTeamStatus:output_type -> platform.v1.AgentRunTeamSummary
-	167, // 672: platform.v1.PlatformService.WaitForTeamRunChange:output_type -> platform.v1.WaitForTeamRunChangeResponse
-	155, // 673: platform.v1.PlatformService.CancelTeamChildRun:output_type -> platform.v1.TeamChildRunStatus
-	155, // 674: platform.v1.PlatformService.RetryTeamChildRun:output_type -> platform.v1.TeamChildRunStatus
-	171, // 675: platform.v1.PlatformService.GetTeamApprovalStatus:output_type -> platform.v1.TeamApprovalStatus
-	61,  // 676: platform.v1.PlatformService.GetLinearProject:output_type -> platform.v1.LinearProject
-	190, // 677: platform.v1.PlatformService.GetTeamRuntime:output_type -> platform.v1.TeamRuntime
-	190, // 678: platform.v1.PlatformService.WatchTeamRuntime:output_type -> platform.v1.TeamRuntime
-	64,  // 679: platform.v1.PlatformService.ListAvailableModels:output_type -> platform.v1.ListAvailableModelsResponse
-	173, // 680: platform.v1.PlatformService.GetDiff:output_type -> platform.v1.GetDiffResponse
-	173, // 681: platform.v1.PlatformService.WatchDiff:output_type -> platform.v1.GetDiffResponse
-	175, // 682: platform.v1.PlatformService.ListFiles:output_type -> platform.v1.ListFilesResponse
-	178, // 683: platform.v1.PlatformService.ListWorkspaceFiles:output_type -> platform.v1.ListWorkspaceFilesResponse
-	181, // 684: platform.v1.PlatformService.CloneRepository:output_type -> platform.v1.CloneRepositoryResponse
-	183, // 685: platform.v1.PlatformService.ListRepositories:output_type -> platform.v1.ListRepositoriesResponse
-	185, // 686: platform.v1.PlatformService.ReadFile:output_type -> platform.v1.ReadFileResponse
-	187, // 687: platform.v1.PlatformService.UpdateLinearProjectInstructions:output_type -> platform.v1.UpdateLinearProjectInstructionsResponse
-	61,  // 688: platform.v1.PlatformService.CreateLinearProject:output_type -> platform.v1.LinearProject
-	61,  // 689: platform.v1.PlatformService.UpdateLinearProject:output_type -> platform.v1.LinearProject
-	203, // 690: platform.v1.PlatformService.ListProjects:output_type -> platform.v1.ListProjectsResponse
-	230, // 691: platform.v1.PlatformService.GetProject:output_type -> platform.v1.Project
-	206, // 692: platform.v1.PlatformService.WatchProjects:output_type -> platform.v1.ProjectEvent
-	230, // 693: platform.v1.PlatformService.CreateProject:output_type -> platform.v1.Project
-	230, // 694: platform.v1.PlatformService.UpdateProject:output_type -> platform.v1.Project
-	230, // 695: platform.v1.PlatformService.CreateProjectTrigger:output_type -> platform.v1.Project
-	230, // 696: platform.v1.PlatformService.UpdateProjectTrigger:output_type -> platform.v1.Project
-	512, // 697: platform.v1.PlatformService.DeleteProjectTrigger:output_type -> google.protobuf.Empty
-	230, // 698: platform.v1.PlatformService.SetProjectTriggerEnabled:output_type -> platform.v1.Project
-	512, // 699: platform.v1.PlatformService.DeleteProject:output_type -> google.protobuf.Empty
-	226, // 700: platform.v1.PlatformService.ListConnections:output_type -> platform.v1.ListConnectionsResponse
-	224, // 701: platform.v1.PlatformService.CreateConnection:output_type -> platform.v1.Connection
-	224, // 702: platform.v1.PlatformService.UpdateConnection:output_type -> platform.v1.Connection
-	512, // 703: platform.v1.PlatformService.DeleteConnection:output_type -> google.protobuf.Empty
-	329, // 704: platform.v1.PlatformService.ListProjectContent:output_type -> platform.v1.ListProjectContentResponse
-	331, // 705: platform.v1.PlatformService.GetProjectContent:output_type -> platform.v1.GetProjectContentResponse
-	326, // 706: platform.v1.PlatformService.CreateProjectContent:output_type -> platform.v1.ProjectContent
-	326, // 707: platform.v1.PlatformService.UpdateProjectContent:output_type -> platform.v1.ProjectContent
-	326, // 708: platform.v1.PlatformService.DuplicateProjectContent:output_type -> platform.v1.ProjectContent
-	336, // 709: platform.v1.PlatformService.ListProjectContentVersions:output_type -> platform.v1.ListProjectContentVersionsResponse
-	326, // 710: platform.v1.PlatformService.RestoreProjectContentVersion:output_type -> platform.v1.ProjectContent
-	512, // 711: platform.v1.PlatformService.DeleteProjectContent:output_type -> google.protobuf.Empty
-	233, // 712: platform.v1.PlatformService.ListGitHubRepositories:output_type -> platform.v1.ListGitHubRepositoriesResponse
-	257, // 713: platform.v1.PlatformService.GetGitHubRepository:output_type -> platform.v1.GitHubRepository
-	240, // 714: platform.v1.PlatformService.ListMaintainerWorkItems:output_type -> platform.v1.ListMaintainerWorkItemsResponse
-	256, // 715: platform.v1.PlatformService.IssueMaintainerCommand:output_type -> platform.v1.IssueMaintainerCommandResponse
-	236, // 716: platform.v1.PlatformService.WatchGitHubRepositories:output_type -> platform.v1.GitHubRepositoryEvent
-	258, // 717: platform.v1.PlatformService.GetGitHubAppConfig:output_type -> platform.v1.GitHubAppConfig
-	260, // 718: platform.v1.PlatformService.ListGitHubAppInstallations:output_type -> platform.v1.ListGitHubAppInstallationsResponse
-	263, // 719: platform.v1.PlatformService.ListGitHubAppInstallationRepositories:output_type -> platform.v1.ListGitHubAppInstallationRepositoriesResponse
-	257, // 720: platform.v1.PlatformService.CreateGitHubRepositoryFromInstallation:output_type -> platform.v1.GitHubRepository
-	257, // 721: platform.v1.PlatformService.CreateGitHubRepositoryFromToken:output_type -> platform.v1.GitHubRepository
-	257, // 722: platform.v1.PlatformService.UpdateGitHubRepository:output_type -> platform.v1.GitHubRepository
-	272, // 723: platform.v1.PlatformService.ListCrons:output_type -> platform.v1.ListCronsResponse
-	279, // 724: platform.v1.PlatformService.GetCron:output_type -> platform.v1.Cron
-	275, // 725: platform.v1.PlatformService.WatchCrons:output_type -> platform.v1.CronEvent
-	279, // 726: platform.v1.PlatformService.CreateCron:output_type -> platform.v1.Cron
-	279, // 727: platform.v1.PlatformService.UpdateCron:output_type -> platform.v1.Cron
-	512, // 728: platform.v1.PlatformService.DeleteCron:output_type -> google.protobuf.Empty
-	197, // 729: platform.v1.PlatformService.ListAvailableModes:output_type -> platform.v1.ListAvailableModesResponse
-	195, // 730: platform.v1.PlatformService.GetModeTemplate:output_type -> platform.v1.ModeTemplate
-	200, // 731: platform.v1.PlatformService.SwitchAgentRunMode:output_type -> platform.v1.SwitchAgentRunModeResponse
-	281, // 732: platform.v1.PlatformService.GetAgentTrace:output_type -> platform.v1.GetAgentTraceResponse
-	281, // 733: platform.v1.PlatformService.WatchAgentTrace:output_type -> platform.v1.GetAgentTraceResponse
-	284, // 734: platform.v1.PlatformService.GetAgentRunErrors:output_type -> platform.v1.GetAgentRunErrorsResponse
-	286, // 735: platform.v1.PlatformService.GetAgentRunLogs:output_type -> platform.v1.GetAgentRunLogsResponse
-	290, // 736: platform.v1.PlatformService.ExportAgentRunArchive:output_type -> platform.v1.ExportAgentRunArchiveResponse
-	293, // 737: platform.v1.PlatformService.ShareResource:output_type -> platform.v1.ShareResourceResponse
-	512, // 738: platform.v1.PlatformService.RevokeShare:output_type -> google.protobuf.Empty
-	300, // 739: platform.v1.PlatformService.UpdateSharePermission:output_type -> platform.v1.ResourceShareInfo
-	297, // 740: platform.v1.PlatformService.ListShares:output_type -> platform.v1.ListSharesResponse
-	299, // 741: platform.v1.PlatformService.ListSharedWithMe:output_type -> platform.v1.ListSharedWithMeResponse
-	303, // 742: platform.v1.PlatformService.ListNotifications:output_type -> platform.v1.ListNotificationsResponse
-	512, // 743: platform.v1.PlatformService.MarkNotificationRead:output_type -> google.protobuf.Empty
-	512, // 744: platform.v1.PlatformService.SendPresenceHeartbeat:output_type -> google.protobuf.Empty
-	308, // 745: platform.v1.PlatformService.GetPresence:output_type -> platform.v1.GetPresenceResponse
-	346, // 746: platform.v1.PlatformService.GetMyOpenAIUsage:output_type -> platform.v1.MyOpenAIUsage
-	349, // 747: platform.v1.PlatformService.GetMyCopilotUsage:output_type -> platform.v1.MyCopilotUsage
-	352, // 748: platform.v1.PlatformService.GetMyAnthropicUsage:output_type -> platform.v1.MyAnthropicUsage
-	356, // 749: platform.v1.PlatformService.ListSecurityScans:output_type -> platform.v1.ListSecurityScansResponse
-	354, // 750: platform.v1.PlatformService.GetSecurityScan:output_type -> platform.v1.SecurityScan
-	360, // 751: platform.v1.PlatformService.ListSecurityFindings:output_type -> platform.v1.ListSecurityFindingsResponse
-	363, // 752: platform.v1.PlatformService.GetSecurityFinding:output_type -> platform.v1.GetSecurityFindingResponse
-	365, // 753: platform.v1.PlatformService.GetSecurityFindingSubmissionBundle:output_type -> platform.v1.GetSecurityFindingSubmissionBundleResponse
-	358, // 754: platform.v1.PlatformService.UpdateSecurityFindingStatus:output_type -> platform.v1.SecurityFinding
-	368, // 755: platform.v1.PlatformService.GetSecurityFindingSummary:output_type -> platform.v1.GetSecurityFindingSummaryResponse
-	384, // 756: platform.v1.PlatformService.ListSecurityFindingEvents:output_type -> platform.v1.ListSecurityFindingEventsResponse
-	362, // 757: platform.v1.PlatformService.AddSecurityFindingComment:output_type -> platform.v1.SecurityFindingEvent
-	358, // 758: platform.v1.PlatformService.UpdateSecurityFindingAssignee:output_type -> platform.v1.SecurityFinding
-	358, // 759: platform.v1.PlatformService.UpdateSecurityFindingTicket:output_type -> platform.v1.SecurityFinding
-	358, // 760: platform.v1.PlatformService.CreateSecurityFindingTicket:output_type -> platform.v1.SecurityFinding
-	375, // 761: platform.v1.PlatformService.BulkUpdateSecurityFindingStatus:output_type -> platform.v1.BulkUpdateSecurityFindingStatusResponse
-	378, // 762: platform.v1.PlatformService.ListSecuritySavedFilters:output_type -> platform.v1.ListSecuritySavedFiltersResponse
-	376, // 763: platform.v1.PlatformService.SaveSecuritySavedFilter:output_type -> platform.v1.SecuritySavedFilter
-	512, // 764: platform.v1.PlatformService.DeleteSecuritySavedFilter:output_type -> google.protobuf.Empty
-	382, // 765: platform.v1.PlatformService.ExportSecurityFindingAuditLog:output_type -> platform.v1.ExportSecurityFindingAuditLogResponse
-	409, // 766: platform.v1.PlatformService.ListSecurityScanConfigs:output_type -> platform.v1.ListSecurityScanConfigsResponse
-	406, // 767: platform.v1.PlatformService.GetSecurityScanConfig:output_type -> platform.v1.SecurityScanConfig
-	406, // 768: platform.v1.PlatformService.CreateSecurityScan:output_type -> platform.v1.SecurityScanConfig
-	406, // 769: platform.v1.PlatformService.UpdateSecurityScan:output_type -> platform.v1.SecurityScanConfig
-	512, // 770: platform.v1.PlatformService.DeleteSecurityScan:output_type -> google.protobuf.Empty
-	406, // 771: platform.v1.PlatformService.RunSecurityScanNow:output_type -> platform.v1.SecurityScanConfig
-	406, // 772: platform.v1.PlatformService.ResumeSecurityScan:output_type -> platform.v1.SecurityScanConfig
-	406, // 773: platform.v1.PlatformService.CancelSecurityScanRun:output_type -> platform.v1.SecurityScanConfig
-	420, // 774: platform.v1.PlatformService.ListSecurityWorkflows:output_type -> platform.v1.ListSecurityWorkflowsResponse
-	417, // 775: platform.v1.PlatformService.GetSecurityWorkflow:output_type -> platform.v1.SecurityWorkflowResource
-	417, // 776: platform.v1.PlatformService.CreateSecurityWorkflow:output_type -> platform.v1.SecurityWorkflowResource
-	417, // 777: platform.v1.PlatformService.UpdateSecurityWorkflow:output_type -> platform.v1.SecurityWorkflowResource
-	512, // 778: platform.v1.PlatformService.DeleteSecurityWorkflow:output_type -> google.protobuf.Empty
-	427, // 779: platform.v1.PlatformService.ValidateSecurityWorkflow:output_type -> platform.v1.ValidateSecurityWorkflowResponse
-	430, // 780: platform.v1.PlatformService.ListSecurityRankers:output_type -> platform.v1.ListSecurityRankersResponse
-	428, // 781: platform.v1.PlatformService.GetSecurityRanker:output_type -> platform.v1.SecurityRankerResource
-	428, // 782: platform.v1.PlatformService.CreateSecurityRanker:output_type -> platform.v1.SecurityRankerResource
-	428, // 783: platform.v1.PlatformService.UpdateSecurityRanker:output_type -> platform.v1.SecurityRankerResource
-	512, // 784: platform.v1.PlatformService.DeleteSecurityRanker:output_type -> google.protobuf.Empty
-	437, // 785: platform.v1.PlatformService.ListSecurityPostScripts:output_type -> platform.v1.ListSecurityPostScriptsResponse
-	435, // 786: platform.v1.PlatformService.GetSecurityPostScript:output_type -> platform.v1.SecurityPostScriptResource
-	435, // 787: platform.v1.PlatformService.CreateSecurityPostScript:output_type -> platform.v1.SecurityPostScriptResource
-	435, // 788: platform.v1.PlatformService.UpdateSecurityPostScript:output_type -> platform.v1.SecurityPostScriptResource
-	512, // 789: platform.v1.PlatformService.DeleteSecurityPostScript:output_type -> google.protobuf.Empty
-	448, // 790: platform.v1.PlatformService.ListSecurityPolicyPacks:output_type -> platform.v1.ListSecurityPolicyPacksResponse
-	446, // 791: platform.v1.PlatformService.GetSecurityPolicyPack:output_type -> platform.v1.SecurityPolicyPackResource
-	446, // 792: platform.v1.PlatformService.CreateSecurityPolicyPack:output_type -> platform.v1.SecurityPolicyPackResource
-	446, // 793: platform.v1.PlatformService.UpdateSecurityPolicyPack:output_type -> platform.v1.SecurityPolicyPackResource
-	512, // 794: platform.v1.PlatformService.DeleteSecurityPolicyPack:output_type -> google.protobuf.Empty
-	459, // 795: platform.v1.PlatformService.ListSecurityPrograms:output_type -> platform.v1.ListSecurityProgramsResponse
-	453, // 796: platform.v1.PlatformService.GetSecurityProgram:output_type -> platform.v1.SecurityProgramResource
-	453, // 797: platform.v1.PlatformService.CreateSecurityProgram:output_type -> platform.v1.SecurityProgramResource
-	453, // 798: platform.v1.PlatformService.UpdateSecurityProgram:output_type -> platform.v1.SecurityProgramResource
-	512, // 799: platform.v1.PlatformService.DeleteSecurityProgram:output_type -> google.protobuf.Empty
-	465, // 800: platform.v1.PlatformService.GenerateSecurityDraft:output_type -> platform.v1.GenerateSecurityDraftResponse
-	467, // 801: platform.v1.PlatformService.GetSecurityDraft:output_type -> platform.v1.GetSecurityDraftResponse
-	469, // 802: platform.v1.PlatformService.ExportSecurityPack:output_type -> platform.v1.ExportSecurityPackResponse
-	472, // 803: platform.v1.PlatformService.ImportSecurityPack:output_type -> platform.v1.ImportSecurityPackResponse
-	475, // 804: platform.v1.PlatformService.GetSecurityOverview:output_type -> platform.v1.GetSecurityOverviewResponse
-	479, // 805: platform.v1.PlatformService.GetSecurityConfigPostures:output_type -> platform.v1.GetSecurityConfigPosturesResponse
-	481, // 806: platform.v1.PlatformService.GetSecurityScanReport:output_type -> platform.v1.GetSecurityScanReportResponse
-	482, // 807: platform.v1.PlatformService.GetSecuritySkillsStatus:output_type -> platform.v1.SecuritySkillsStatus
-	482, // 808: platform.v1.PlatformService.InstallSecuritySkills:output_type -> platform.v1.SecuritySkillsStatus
-	486, // 809: platform.v1.PlatformService.ListSecurityCatalog:output_type -> platform.v1.SecurityCatalog
-	489, // 810: platform.v1.PlatformService.DryRunSecurityCatalogInstall:output_type -> platform.v1.SecurityCatalogInstallResponse
-	489, // 811: platform.v1.PlatformService.ApplySecurityCatalogInstall:output_type -> platform.v1.SecurityCatalogInstallResponse
-	493, // 812: platform.v1.PlatformService.ListBugReports:output_type -> platform.v1.ListBugReportsResponse
-	491, // 813: platform.v1.PlatformService.UpdateBugReportStatus:output_type -> platform.v1.BugReport
-	589, // [589:814] is the sub-list for method output_type
-	364, // [364:589] is the sub-list for method input_type
-	364, // [364:364] is the sub-list for extension type_name
-	364, // [364:364] is the sub-list for extension extendee
-	0,   // [0:364] is the sub-list for field type_name
+	95,  // 76: platform.v1.ListSSHTunnelsResponse.tunnels:type_name -> platform.v1.SSHTunnel
+	92,  // 77: platform.v1.CreateRuntimeProfileRequest.profile:type_name -> platform.v1.RuntimeProfile
+	92,  // 78: platform.v1.UpdateRuntimeProfileRequest.profile:type_name -> platform.v1.RuntimeProfile
+	101, // 79: platform.v1.MCPPolicy.allowed_servers:type_name -> platform.v1.MCPAllowedServer
+	102, // 80: platform.v1.MCPPolicy.break_glass:type_name -> platform.v1.MCPBreakGlass
+	103, // 81: platform.v1.ListMCPPoliciesResponse.policies:type_name -> platform.v1.MCPPolicy
+	103, // 82: platform.v1.CreateMCPPolicyRequest.policy:type_name -> platform.v1.MCPPolicy
+	103, // 83: platform.v1.UpdateMCPPolicyRequest.policy:type_name -> platform.v1.MCPPolicy
+	109, // 84: platform.v1.GuardrailPolicy.rules:type_name -> platform.v1.GuardrailRule
+	110, // 85: platform.v1.ListGuardrailPoliciesResponse.policies:type_name -> platform.v1.GuardrailPolicy
+	110, // 86: platform.v1.CreateGuardrailPolicyRequest.policy:type_name -> platform.v1.GuardrailPolicy
+	110, // 87: platform.v1.UpdateGuardrailPolicyRequest.policy:type_name -> platform.v1.GuardrailPolicy
+	198, // 88: platform.v1.ListModeTemplatesResponse.templates:type_name -> platform.v1.ModeTemplate
+	198, // 89: platform.v1.CreateModeTemplateRequest.template:type_name -> platform.v1.ModeTemplate
+	198, // 90: platform.v1.UpdateModeTemplateRequest.template:type_name -> platform.v1.ModeTemplate
+	504, // 91: platform.v1.RoleInstruction.models_by_provider:type_name -> platform.v1.RoleInstruction.ModelsByProviderEntry
+	121, // 92: platform.v1.ListRoleInstructionsResponse.instructions:type_name -> platform.v1.RoleInstruction
+	121, // 93: platform.v1.CreateRoleInstructionRequest.instruction:type_name -> platform.v1.RoleInstruction
+	121, // 94: platform.v1.UpdateRoleInstructionRequest.instruction:type_name -> platform.v1.RoleInstruction
+	127, // 95: platform.v1.RuntimeImageOption.versions:type_name -> platform.v1.RuntimeImageVersion
+	128, // 96: platform.v1.ListRuntimeImagesResponse.images:type_name -> platform.v1.RuntimeImageOption
+	79,  // 97: platform.v1.ListSlackAgentsResponse.agents:type_name -> platform.v1.SlackAgent
+	134, // 98: platform.v1.ListSlackDraftsResponse.drafts:type_name -> platform.v1.SlackDraft
+	138, // 99: platform.v1.ListSlackWorkspacesResponse.workspaces:type_name -> platform.v1.SlackWorkspace
+	514, // 100: platform.v1.Soul.updated_at:type_name -> google.protobuf.Timestamp
+	146, // 101: platform.v1.RoleModelPreferences.preferences:type_name -> platform.v1.RoleModelPreference
+	514, // 102: platform.v1.RoleModelPreferences.updated_at:type_name -> google.protobuf.Timestamp
+	146, // 103: platform.v1.UpdateMyRoleModelPreferencesRequest.preferences:type_name -> platform.v1.RoleModelPreference
+	514, // 104: platform.v1.ModelDefaults.updated_at:type_name -> google.protobuf.Timestamp
+	514, // 105: platform.v1.GitIdentity.updated_at:type_name -> google.protobuf.Timestamp
+	156, // 106: platform.v1.CreateTeamChildRunRequest.parent:type_name -> platform.v1.TeamParentRef
+	156, // 107: platform.v1.ListTeamChildRunsRequest.parent:type_name -> platform.v1.TeamParentRef
+	158, // 108: platform.v1.ListTeamChildRunsResponse.children:type_name -> platform.v1.TeamChildRunStatus
+	156, // 109: platform.v1.GetTeamChildRunStatusRequest.parent:type_name -> platform.v1.TeamParentRef
+	157, // 110: platform.v1.GetTeamChildRunStatusRequest.child:type_name -> platform.v1.TeamChildRef
+	156, // 111: platform.v1.GetTeamChildRunLogsRequest.parent:type_name -> platform.v1.TeamParentRef
+	157, // 112: platform.v1.GetTeamChildRunLogsRequest.child:type_name -> platform.v1.TeamChildRef
+	158, // 113: platform.v1.TeamChildRunLogs.status:type_name -> platform.v1.TeamChildRunStatus
+	56,  // 114: platform.v1.TeamChildRunLogs.recent_activity:type_name -> platform.v1.AgentActivity
+	66,  // 115: platform.v1.TeamChildRunLogs.conversation_tail:type_name -> platform.v1.ChatMessage
+	156, // 116: platform.v1.GetTeamChildRunArtifactRequest.parent:type_name -> platform.v1.TeamParentRef
+	157, // 117: platform.v1.GetTeamChildRunArtifactRequest.child:type_name -> platform.v1.TeamChildRef
+	156, // 118: platform.v1.SendTeamChildMessageRequest.parent:type_name -> platform.v1.TeamParentRef
+	157, // 119: platform.v1.SendTeamChildMessageRequest.child:type_name -> platform.v1.TeamChildRef
+	156, // 120: platform.v1.GetAgentRunTeamStatusRequest.parent:type_name -> platform.v1.TeamParentRef
+	156, // 121: platform.v1.WaitForTeamRunChangeRequest.parent:type_name -> platform.v1.TeamParentRef
+	156, // 122: platform.v1.CancelTeamChildRunRequest.parent:type_name -> platform.v1.TeamParentRef
+	157, // 123: platform.v1.CancelTeamChildRunRequest.child:type_name -> platform.v1.TeamChildRef
+	156, // 124: platform.v1.RetryTeamChildRunRequest.parent:type_name -> platform.v1.TeamParentRef
+	157, // 125: platform.v1.RetryTeamChildRunRequest.child:type_name -> platform.v1.TeamChildRef
+	156, // 126: platform.v1.GetTeamApprovalStatusRequest.parent:type_name -> platform.v1.TeamParentRef
+	179, // 127: platform.v1.ListFilesResponse.files:type_name -> platform.v1.FileEntry
+	182, // 128: platform.v1.CloneRepositoryResponse.repository:type_name -> platform.v1.RepositoryInfo
+	182, // 129: platform.v1.ListRepositoriesResponse.repositories:type_name -> platform.v1.RepositoryInfo
+	194, // 130: platform.v1.TeamRuntime.tasks:type_name -> platform.v1.TeamRuntimeTask
+	42,  // 131: platform.v1.TeamRuntime.delegation_policy:type_name -> platform.v1.AgentRunDelegationPolicy
+	195, // 132: platform.v1.TeamRuntime.event_checkpoint:type_name -> platform.v1.TeamRuntimeEventCheckpoint
+	197, // 133: platform.v1.ModeTemplate.constraints:type_name -> platform.v1.ModeConstraints
+	198, // 134: platform.v1.ListAvailableModesResponse.modes:type_name -> platform.v1.ModeTemplate
+	233, // 135: platform.v1.ListProjectsResponse.projects:type_name -> platform.v1.Project
+	233, // 136: platform.v1.ProjectEvent.project:type_name -> platform.v1.Project
+	51,  // 137: platform.v1.UpdateProjectRequest.provider_keys:type_name -> platform.v1.ProviderKeyRef
+	514, // 138: platform.v1.ProjectTriggerCondition.last_transition_time:type_name -> google.protobuf.Timestamp
+	214, // 139: platform.v1.ProjectTrigger.github:type_name -> platform.v1.GitHubProjectTrigger
+	215, // 140: platform.v1.ProjectTrigger.slack:type_name -> platform.v1.SlackProjectTrigger
+	216, // 141: platform.v1.ProjectTrigger.cron:type_name -> platform.v1.CronProjectTrigger
+	217, // 142: platform.v1.ProjectTrigger.linear:type_name -> platform.v1.LinearProjectTrigger
+	213, // 143: platform.v1.ProjectTrigger.conditions:type_name -> platform.v1.ProjectTriggerCondition
+	514, // 144: platform.v1.ProjectTrigger.last_activity_time:type_name -> google.protobuf.Timestamp
+	514, // 145: platform.v1.ProjectTrigger.next_activity_time:type_name -> google.protobuf.Timestamp
+	241, // 146: platform.v1.ProjectTrigger.maintainer_status:type_name -> platform.v1.GitHubRepositoryMaintainerStatus
+	218, // 147: platform.v1.CreateProjectTriggerRequest.trigger:type_name -> platform.v1.ProjectTrigger
+	218, // 148: platform.v1.UpdateProjectTriggerRequest.trigger:type_name -> platform.v1.ProjectTrigger
+	224, // 149: platform.v1.Connection.github:type_name -> platform.v1.GitHubConnection
+	225, // 150: platform.v1.Connection.slack:type_name -> platform.v1.SlackConnection
+	226, // 151: platform.v1.Connection.linear:type_name -> platform.v1.LinearConnection
+	227, // 152: platform.v1.ListConnectionsResponse.connections:type_name -> platform.v1.Connection
+	227, // 153: platform.v1.CreateConnectionRequest.connection:type_name -> platform.v1.Connection
+	227, // 154: platform.v1.UpdateConnectionRequest.connection:type_name -> platform.v1.Connection
+	210, // 155: platform.v1.Project.credential_status:type_name -> platform.v1.ProjectCredentialStatus
+	51,  // 156: platform.v1.Project.provider_keys:type_name -> platform.v1.ProviderKeyRef
+	234, // 157: platform.v1.Project.metrics:type_name -> platform.v1.ProjectMetrics
+	294, // 158: platform.v1.Project.owner:type_name -> platform.v1.ResourceOwner
+	218, // 159: platform.v1.Project.triggers:type_name -> platform.v1.ProjectTrigger
+	260, // 160: platform.v1.ListGitHubRepositoriesResponse.repositories:type_name -> platform.v1.GitHubRepository
+	260, // 161: platform.v1.GitHubRepositoryEvent.repository:type_name -> platform.v1.GitHubRepository
+	247, // 162: platform.v1.ListMaintainerWorkItemsResponse.items:type_name -> platform.v1.MaintainerWorkItem
+	249, // 163: platform.v1.ListMaintainerWorkItemsResponse.capacity:type_name -> platform.v1.MaintainerBoardCapacity
+	246, // 164: platform.v1.MaintainerWorkItem.pending_decision:type_name -> platform.v1.MaintainerWorkItemDecision
+	244, // 165: platform.v1.MaintainerWorkItem.agent_runs:type_name -> platform.v1.MaintainerWorkItemAgentRun
+	245, // 166: platform.v1.MaintainerWorkItem.pull_requests:type_name -> platform.v1.MaintainerWorkItemPullRequest
+	248, // 167: platform.v1.MaintainerWorkItem.children:type_name -> platform.v1.MaintainerWorkItemLink
+	248, // 168: platform.v1.MaintainerWorkItem.dependencies:type_name -> platform.v1.MaintainerWorkItemLink
+	250, // 169: platform.v1.MaintainerTriageInput.accepted_scope:type_name -> platform.v1.MaintainerAcceptedScopeInput
+	251, // 170: platform.v1.IssueMaintainerCommandRequest.triage:type_name -> platform.v1.MaintainerTriageInput
+	252, // 171: platform.v1.IssueMaintainerCommandRequest.breakdown:type_name -> platform.v1.MaintainerBreakdownInput
+	253, // 172: platform.v1.IssueMaintainerCommandRequest.request_decision:type_name -> platform.v1.MaintainerRequestDecisionInput
+	254, // 173: platform.v1.IssueMaintainerCommandRequest.resolve_decision:type_name -> platform.v1.MaintainerResolveDecisionInput
+	255, // 174: platform.v1.IssueMaintainerCommandRequest.dispatch:type_name -> platform.v1.MaintainerDispatchInput
+	256, // 175: platform.v1.IssueMaintainerCommandRequest.request_merge:type_name -> platform.v1.MaintainerRequestMergeInput
+	257, // 176: platform.v1.IssueMaintainerCommandRequest.finalize:type_name -> platform.v1.MaintainerFinalizeInput
+	247, // 177: platform.v1.IssueMaintainerCommandResponse.item:type_name -> platform.v1.MaintainerWorkItem
+	234, // 178: platform.v1.GitHubRepository.metrics:type_name -> platform.v1.ProjectMetrics
+	269, // 179: platform.v1.GitHubRepository.defaults:type_name -> platform.v1.AgentRunDefaults
+	294, // 180: platform.v1.GitHubRepository.resource_owner:type_name -> platform.v1.ResourceOwner
+	240, // 181: platform.v1.GitHubRepository.trigger_settings:type_name -> platform.v1.GitHubRepositoryTriggerSettings
+	269, // 182: platform.v1.GitHubRepository.reviewer_defaults:type_name -> platform.v1.AgentRunDefaults
+	241, // 183: platform.v1.GitHubRepository.maintainer_status:type_name -> platform.v1.GitHubRepositoryMaintainerStatus
+	262, // 184: platform.v1.ListGitHubAppInstallationsResponse.installations:type_name -> platform.v1.GitHubAppInstallation
+	265, // 185: platform.v1.ListGitHubAppInstallationRepositoriesResponse.repositories:type_name -> platform.v1.GitHubAppInstallationRepository
+	51,  // 186: platform.v1.CreateGitHubRepositoryFromInstallationRequest.provider_keys:type_name -> platform.v1.ProviderKeyRef
+	269, // 187: platform.v1.CreateGitHubRepositoryFromInstallationRequest.defaults:type_name -> platform.v1.AgentRunDefaults
+	270, // 188: platform.v1.CreateGitHubRepositoryFromInstallationRequest.policies:type_name -> platform.v1.TriggerPolicies
+	51,  // 189: platform.v1.CreateGitHubRepositoryFromTokenRequest.provider_keys:type_name -> platform.v1.ProviderKeyRef
+	269, // 190: platform.v1.CreateGitHubRepositoryFromTokenRequest.defaults:type_name -> platform.v1.AgentRunDefaults
+	270, // 191: platform.v1.CreateGitHubRepositoryFromTokenRequest.policies:type_name -> platform.v1.TriggerPolicies
+	51,  // 192: platform.v1.AgentRunDefaults.provider_keys:type_name -> platform.v1.ProviderKeyRef
+	269, // 193: platform.v1.UpdateGitHubRepositoryRequest.defaults:type_name -> platform.v1.AgentRunDefaults
+	270, // 194: platform.v1.UpdateGitHubRepositoryRequest.policies:type_name -> platform.v1.TriggerPolicies
+	240, // 195: platform.v1.UpdateGitHubRepositoryRequest.trigger_settings:type_name -> platform.v1.GitHubRepositoryTriggerSettings
+	269, // 196: platform.v1.UpdateGitHubRepositoryRequest.reviewer_defaults:type_name -> platform.v1.AgentRunDefaults
+	270, // 197: platform.v1.UpdateGitHubRepositoryRequest.reviewer_policies:type_name -> platform.v1.TriggerPolicies
+	269, // 198: platform.v1.CreateLinearProjectRequest.defaults:type_name -> platform.v1.AgentRunDefaults
+	270, // 199: platform.v1.CreateLinearProjectRequest.policies:type_name -> platform.v1.TriggerPolicies
+	269, // 200: platform.v1.UpdateLinearProjectRequest.defaults:type_name -> platform.v1.AgentRunDefaults
+	270, // 201: platform.v1.UpdateLinearProjectRequest.policies:type_name -> platform.v1.TriggerPolicies
+	282, // 202: platform.v1.ListCronsResponse.crons:type_name -> platform.v1.Cron
+	282, // 203: platform.v1.CronEvent.cron:type_name -> platform.v1.Cron
+	269, // 204: platform.v1.CreateCronRequest.defaults:type_name -> platform.v1.AgentRunDefaults
+	270, // 205: platform.v1.CreateCronRequest.policies:type_name -> platform.v1.TriggerPolicies
+	269, // 206: platform.v1.UpdateCronRequest.defaults:type_name -> platform.v1.AgentRunDefaults
+	270, // 207: platform.v1.UpdateCronRequest.policies:type_name -> platform.v1.TriggerPolicies
+	51,  // 208: platform.v1.Cron.provider_keys:type_name -> platform.v1.ProviderKeyRef
+	234, // 209: platform.v1.Cron.metrics:type_name -> platform.v1.ProjectMetrics
+	269, // 210: platform.v1.Cron.defaults:type_name -> platform.v1.AgentRunDefaults
+	294, // 211: platform.v1.Cron.owner:type_name -> platform.v1.ResourceOwner
+	290, // 212: platform.v1.GetAgentTraceResponse.spans:type_name -> platform.v1.TraceSpan
+	286, // 213: platform.v1.GetAgentRunErrorsResponse.errors:type_name -> platform.v1.AgentRunError
+	291, // 214: platform.v1.TraceSpan.tags:type_name -> platform.v1.TraceSpanTag
+	303, // 215: platform.v1.ShareResourceResponse.share:type_name -> platform.v1.ResourceShareInfo
+	303, // 216: platform.v1.ListSharesResponse.shares:type_name -> platform.v1.ResourceShareInfo
+	304, // 217: platform.v1.ListSharedWithMeResponse.resources:type_name -> platform.v1.SharedResource
+	294, // 218: platform.v1.ResourceShareInfo.shared_with:type_name -> platform.v1.ResourceOwner
+	294, // 219: platform.v1.ResourceShareInfo.shared_by:type_name -> platform.v1.ResourceOwner
+	514, // 220: platform.v1.ResourceShareInfo.created_at:type_name -> google.protobuf.Timestamp
+	303, // 221: platform.v1.SharedResource.share:type_name -> platform.v1.ResourceShareInfo
+	308, // 222: platform.v1.ListNotificationsResponse.notifications:type_name -> platform.v1.NotificationInfo
+	294, // 223: platform.v1.NotificationInfo.actor:type_name -> platform.v1.ResourceOwner
+	514, // 224: platform.v1.NotificationInfo.created_at:type_name -> google.protobuf.Timestamp
+	294, // 225: platform.v1.GetPresenceResponse.viewers:type_name -> platform.v1.ResourceOwner
+	315, // 226: platform.v1.GetAgentRunPullRequestsResponse.pull_requests:type_name -> platform.v1.PullRequestDetails
+	316, // 227: platform.v1.PullRequestDetails.checks:type_name -> platform.v1.PullRequestCheck
+	317, // 228: platform.v1.PullRequestDetails.review_threads:type_name -> platform.v1.PullRequestReviewThread
+	318, // 229: platform.v1.PullRequestReviewThread.comments:type_name -> platform.v1.PullRequestReviewComment
+	319, // 230: platform.v1.AttachAgentRunOverseerRequest.overseer:type_name -> platform.v1.AgentRunOverseerConfig
+	324, // 231: platform.v1.ListSkillCatalogResponse.skills:type_name -> platform.v1.SkillCatalogEntry
+	329, // 232: platform.v1.ListProjectContentResponse.items:type_name -> platform.v1.ProjectContent
+	329, // 233: platform.v1.GetProjectContentResponse.item:type_name -> platform.v1.ProjectContent
+	330, // 234: platform.v1.ListProjectContentVersionsResponse.versions:type_name -> platform.v1.ProjectContentVersion
+	72,  // 235: platform.v1.ProviderOAuthResult.credentials:type_name -> platform.v1.MyCredentials
+	350, // 236: platform.v1.MyOpenAIUsage.limits:type_name -> platform.v1.OpenAIUsageLimit
+	353, // 237: platform.v1.MyCopilotUsage.quotas:type_name -> platform.v1.CopilotUsageQuota
+	356, // 238: platform.v1.MyAnthropicUsage.limits:type_name -> platform.v1.AnthropicUsageLimit
+	514, // 239: platform.v1.SecurityScan.started_at:type_name -> google.protobuf.Timestamp
+	514, // 240: platform.v1.SecurityScan.completed_at:type_name -> google.protobuf.Timestamp
+	505, // 241: platform.v1.SecurityScan.counts:type_name -> platform.v1.SecurityScan.CountsEntry
+	357, // 242: platform.v1.ListSecurityScansResponse.scans:type_name -> platform.v1.SecurityScan
+	514, // 243: platform.v1.SecurityFinding.first_seen_at:type_name -> google.protobuf.Timestamp
+	514, // 244: platform.v1.SecurityFinding.last_seen_at:type_name -> google.protobuf.Timestamp
+	514, // 245: platform.v1.SecurityFinding.accepted_risk_expires_at:type_name -> google.protobuf.Timestamp
+	514, // 246: platform.v1.SecurityFinding.resolved_at:type_name -> google.protobuf.Timestamp
+	514, // 247: platform.v1.SecurityFinding.triaged_at:type_name -> google.protobuf.Timestamp
+	514, // 248: platform.v1.SecurityFinding.suppression_expires_at:type_name -> google.protobuf.Timestamp
+	514, // 249: platform.v1.SecurityFinding.suppressed_at:type_name -> google.protobuf.Timestamp
+	361, // 250: platform.v1.ListSecurityFindingsResponse.findings:type_name -> platform.v1.SecurityFinding
+	514, // 251: platform.v1.SecurityFindingEvent.created_at:type_name -> google.protobuf.Timestamp
+	361, // 252: platform.v1.GetSecurityFindingResponse.finding:type_name -> platform.v1.SecurityFinding
+	365, // 253: platform.v1.GetSecurityFindingResponse.events:type_name -> platform.v1.SecurityFindingEvent
+	514, // 254: platform.v1.GetSecurityFindingSubmissionBundleResponse.created_at:type_name -> google.protobuf.Timestamp
+	514, // 255: platform.v1.UpdateSecurityFindingStatusRequest.accepted_risk_expires_at:type_name -> google.protobuf.Timestamp
+	506, // 256: platform.v1.GetSecurityFindingSummaryResponse.counts:type_name -> platform.v1.GetSecurityFindingSummaryResponse.CountsEntry
+	372, // 257: platform.v1.GetSecurityFindingSummaryResponse.trends:type_name -> platform.v1.SecurityFindingTrends
+	514, // 258: platform.v1.BulkUpdateSecurityFindingStatusRequest.accepted_risk_expires_at:type_name -> google.protobuf.Timestamp
+	377, // 259: platform.v1.BulkUpdateSecurityFindingStatusResponse.results:type_name -> platform.v1.BulkUpdateSecurityFindingOutcome
+	514, // 260: platform.v1.SecuritySavedFilter.created_at:type_name -> google.protobuf.Timestamp
+	514, // 261: platform.v1.SecuritySavedFilter.updated_at:type_name -> google.protobuf.Timestamp
+	379, // 262: platform.v1.ListSecuritySavedFiltersResponse.filters:type_name -> platform.v1.SecuritySavedFilter
+	365, // 263: platform.v1.ListSecurityFindingEventsResponse.events:type_name -> platform.v1.SecurityFindingEvent
+	392, // 264: platform.v1.SecurityScanTaskConfig.tools:type_name -> platform.v1.SecurityScanTaskTools
+	391, // 265: platform.v1.SecurityScanTaskConfig.when:type_name -> platform.v1.SecurityScanTaskCondition
+	402, // 266: platform.v1.SecurityScanTaskExecutionState.retries:type_name -> platform.v1.SecurityScanTaskAttemptState
+	403, // 267: platform.v1.SecurityScanExecutionState.tasks:type_name -> platform.v1.SecurityScanTaskExecutionState
+	407, // 268: platform.v1.SecurityScanExecutionState.post_script_jobs:type_name -> platform.v1.SecurityScanPostScriptJobState
+	406, // 269: platform.v1.SecurityScanExecutionState.plan:type_name -> platform.v1.SecurityScanExecutionPlanNode
+	405, // 270: platform.v1.SecurityScanExecutionState.fan_outs:type_name -> platform.v1.SecurityScanFanOutState
+	391, // 271: platform.v1.SecurityScanExecutionPlanNode.when:type_name -> platform.v1.SecurityScanTaskCondition
+	389, // 272: platform.v1.SecurityScanConfigSpec.scope:type_name -> platform.v1.SecurityScanScopeConfig
+	390, // 273: platform.v1.SecurityScanConfigSpec.workflow:type_name -> platform.v1.SecurityScanTaskConfig
+	393, // 274: platform.v1.SecurityScanConfigSpec.severity_rankers:type_name -> platform.v1.SecurityRankerConfig
+	394, // 275: platform.v1.SecurityScanConfigSpec.post_scripts:type_name -> platform.v1.SecurityPostScriptConfig
+	395, // 276: platform.v1.SecurityScanConfigSpec.dedupe:type_name -> platform.v1.SecurityScanDedupeConfig
+	269, // 277: platform.v1.SecurityScanConfigSpec.defaults:type_name -> platform.v1.AgentRunDefaults
+	396, // 278: platform.v1.SecurityScanConfigSpec.triggers:type_name -> platform.v1.SecurityScanTriggersConfig
+	397, // 279: platform.v1.SecurityScanConfigSpec.checks:type_name -> platform.v1.SecurityScanChecksConfig
+	398, // 280: platform.v1.SecurityScanConfigSpec.notifications:type_name -> platform.v1.SecurityScanNotificationRuleConfig
+	447, // 281: platform.v1.SecurityScanConfigSpec.budgets:type_name -> platform.v1.SecurityScanBudgetsConfig
+	401, // 282: platform.v1.SecurityScanConfigSpec.execution:type_name -> platform.v1.SecurityScanExecutionConfig
+	507, // 283: platform.v1.SecurityScanConfigSpec.parameter_values:type_name -> platform.v1.SecurityScanConfigSpec.ParameterValuesEntry
+	408, // 284: platform.v1.SecurityScanConfig.spec:type_name -> platform.v1.SecurityScanConfigSpec
+	508, // 285: platform.v1.SecurityScanConfig.finding_counts:type_name -> platform.v1.SecurityScanConfig.FindingCountsEntry
+	294, // 286: platform.v1.SecurityScanConfig.owner:type_name -> platform.v1.ResourceOwner
+	399, // 287: platform.v1.SecurityScanConfig.last_check:type_name -> platform.v1.SecurityScanCheckState
+	400, // 288: platform.v1.SecurityScanConfig.last_notifications:type_name -> platform.v1.SecurityScanNotificationState
+	447, // 289: platform.v1.SecurityScanConfig.effective_budgets:type_name -> platform.v1.SecurityScanBudgetsConfig
+	410, // 290: platform.v1.SecurityScanConfig.retention:type_name -> platform.v1.SecurityScanRetentionState
+	404, // 291: platform.v1.SecurityScanConfig.last_execution:type_name -> platform.v1.SecurityScanExecutionState
+	409, // 292: platform.v1.ListSecurityScanConfigsResponse.configs:type_name -> platform.v1.SecurityScanConfig
+	408, // 293: platform.v1.CreateSecurityScanRequest.spec:type_name -> platform.v1.SecurityScanConfigSpec
+	270, // 294: platform.v1.CreateSecurityScanRequest.policies:type_name -> platform.v1.TriggerPolicies
+	408, // 295: platform.v1.UpdateSecurityScanRequest.spec:type_name -> platform.v1.SecurityScanConfigSpec
+	270, // 296: platform.v1.UpdateSecurityScanRequest.policies:type_name -> platform.v1.TriggerPolicies
+	509, // 297: platform.v1.RunSecurityScanNowRequest.parameter_values:type_name -> platform.v1.RunSecurityScanNowRequest.ParameterValuesEntry
+	390, // 298: platform.v1.SecurityWorkflowResource.tasks:type_name -> platform.v1.SecurityScanTaskConfig
+	421, // 299: platform.v1.SecurityWorkflowResource.parameters:type_name -> platform.v1.SecurityWorkflowParameter
+	420, // 300: platform.v1.ListSecurityWorkflowsResponse.workflows:type_name -> platform.v1.SecurityWorkflowResource
+	420, // 301: platform.v1.CreateSecurityWorkflowRequest.workflow:type_name -> platform.v1.SecurityWorkflowResource
+	420, // 302: platform.v1.UpdateSecurityWorkflowRequest.workflow:type_name -> platform.v1.SecurityWorkflowResource
+	390, // 303: platform.v1.ValidateSecurityWorkflowRequest.tasks:type_name -> platform.v1.SecurityScanTaskConfig
+	421, // 304: platform.v1.ValidateSecurityWorkflowRequest.parameters:type_name -> platform.v1.SecurityWorkflowParameter
+	428, // 305: platform.v1.ValidateSecurityWorkflowResponse.errors:type_name -> platform.v1.SecurityWorkflowValidationError
+	431, // 306: platform.v1.ListSecurityRankersResponse.rankers:type_name -> platform.v1.SecurityRankerResource
+	431, // 307: platform.v1.CreateSecurityRankerRequest.ranker:type_name -> platform.v1.SecurityRankerResource
+	431, // 308: platform.v1.UpdateSecurityRankerRequest.ranker:type_name -> platform.v1.SecurityRankerResource
+	438, // 309: platform.v1.ListSecurityPostScriptsResponse.post_scripts:type_name -> platform.v1.SecurityPostScriptResource
+	438, // 310: platform.v1.CreateSecurityPostScriptRequest.post_script:type_name -> platform.v1.SecurityPostScriptResource
+	438, // 311: platform.v1.UpdateSecurityPostScriptRequest.post_script:type_name -> platform.v1.SecurityPostScriptResource
+	445, // 312: platform.v1.SecurityPolicySuppressionConfig.matcher:type_name -> platform.v1.SecuritySuppressionMatcherConfig
+	514, // 313: platform.v1.SecurityPolicySuppressionConfig.expires_at:type_name -> google.protobuf.Timestamp
+	395, // 314: platform.v1.SecurityPolicyPackResource.dedupe:type_name -> platform.v1.SecurityScanDedupeConfig
+	446, // 315: platform.v1.SecurityPolicyPackResource.suppressions:type_name -> platform.v1.SecurityPolicySuppressionConfig
+	448, // 316: platform.v1.SecurityPolicyPackResource.retention:type_name -> platform.v1.SecurityPolicyPackRetentionConfig
+	447, // 317: platform.v1.SecurityPolicyPackResource.budgets:type_name -> platform.v1.SecurityScanBudgetsConfig
+	449, // 318: platform.v1.ListSecurityPolicyPacksResponse.policy_packs:type_name -> platform.v1.SecurityPolicyPackResource
+	449, // 319: platform.v1.CreateSecurityPolicyPackRequest.policy_pack:type_name -> platform.v1.SecurityPolicyPackResource
+	449, // 320: platform.v1.UpdateSecurityPolicyPackRequest.policy_pack:type_name -> platform.v1.SecurityPolicyPackResource
+	514, // 321: platform.v1.SecurityProgramResource.verified_at:type_name -> google.protobuf.Timestamp
+	493, // 322: platform.v1.SecurityProgramResource.scan_target:type_name -> platform.v1.SecurityProgramScanTarget
+	493, // 323: platform.v1.SecurityProgramResource.scan_targets:type_name -> platform.v1.SecurityProgramScanTarget
+	457, // 324: platform.v1.SecurityProgramResource.in_scope_impacts:type_name -> platform.v1.SecurityProgramImpact
+	458, // 325: platform.v1.SecurityProgramResource.assets:type_name -> platform.v1.SecurityProgramAsset
+	459, // 326: platform.v1.SecurityProgramResource.known_issues:type_name -> platform.v1.SecurityProgramKnownIssue
+	460, // 327: platform.v1.SecurityProgramResource.submission_budget:type_name -> platform.v1.SecurityProgramSubmissionBudget
+	456, // 328: platform.v1.ListSecurityProgramsResponse.programs:type_name -> platform.v1.SecurityProgramResource
+	456, // 329: platform.v1.CreateSecurityProgramRequest.program:type_name -> platform.v1.SecurityProgramResource
+	456, // 330: platform.v1.UpdateSecurityProgramRequest.program:type_name -> platform.v1.SecurityProgramResource
+	1,   // 331: platform.v1.GenerateSecurityDraftRequest.kind:type_name -> platform.v1.SecurityDraftKind
+	2,   // 332: platform.v1.GetSecurityDraftResponse.status:type_name -> platform.v1.SecurityDraftStatus
+	420, // 333: platform.v1.GetSecurityDraftResponse.workflow:type_name -> platform.v1.SecurityWorkflowResource
+	438, // 334: platform.v1.GetSecurityDraftResponse.post_script:type_name -> platform.v1.SecurityPostScriptResource
+	428, // 335: platform.v1.GetSecurityDraftResponse.validation_errors:type_name -> platform.v1.SecurityWorkflowValidationError
+	3,   // 336: platform.v1.ImportSecurityPackRequest.collision_policy:type_name -> platform.v1.SecurityPackCollisionPolicy
+	428, // 337: platform.v1.SecurityPackItemResult.validation_errors:type_name -> platform.v1.SecurityWorkflowValidationError
+	474, // 338: platform.v1.ImportSecurityPackResponse.items:type_name -> platform.v1.SecurityPackItemResult
+	357, // 339: platform.v1.GetSecurityOverviewResponse.active_scans:type_name -> platform.v1.SecurityScan
+	357, // 340: platform.v1.GetSecurityOverviewResponse.recent_scans:type_name -> platform.v1.SecurityScan
+	510, // 341: platform.v1.GetSecurityOverviewResponse.finding_counts:type_name -> platform.v1.GetSecurityOverviewResponse.FindingCountsEntry
+	477, // 342: platform.v1.GetSecurityOverviewResponse.config_issues:type_name -> platform.v1.SecurityScanConfigIssue
+	372, // 343: platform.v1.GetSecurityOverviewResponse.trends:type_name -> platform.v1.SecurityFindingTrends
+	514, // 344: platform.v1.SecurityRunActivityPoint.completed_at:type_name -> google.protobuf.Timestamp
+	511, // 345: platform.v1.SecurityRunActivityPoint.severity_counts:type_name -> platform.v1.SecurityRunActivityPoint.SeverityCountsEntry
+	512, // 346: platform.v1.SecurityConfigPosture.finding_counts:type_name -> platform.v1.SecurityConfigPosture.FindingCountsEntry
+	514, // 347: platform.v1.SecurityConfigPosture.last_started_at:type_name -> google.protobuf.Timestamp
+	514, // 348: platform.v1.SecurityConfigPosture.last_completed_at:type_name -> google.protobuf.Timestamp
+	480, // 349: platform.v1.SecurityConfigPosture.activity:type_name -> platform.v1.SecurityRunActivityPoint
+	481, // 350: platform.v1.GetSecurityConfigPosturesResponse.postures:type_name -> platform.v1.SecurityConfigPosture
+	514, // 351: platform.v1.GetSecurityScanReportResponse.updated_at:type_name -> google.protobuf.Timestamp
+	4,   // 352: platform.v1.SecurityCatalogRef.kind:type_name -> platform.v1.SecurityCatalogKind
+	486, // 353: platform.v1.SecurityCatalogDependency.resource:type_name -> platform.v1.SecurityCatalogRef
+	486, // 354: platform.v1.SecurityCatalogEntry.resource:type_name -> platform.v1.SecurityCatalogRef
+	487, // 355: platform.v1.SecurityCatalogEntry.dependencies:type_name -> platform.v1.SecurityCatalogDependency
+	5,   // 356: platform.v1.SecurityCatalogEntry.install_state:type_name -> platform.v1.SecurityCatalogInstallState
+	488, // 357: platform.v1.SecurityCatalog.entries:type_name -> platform.v1.SecurityCatalogEntry
+	486, // 358: platform.v1.SecurityCatalogInstallRequest.resources:type_name -> platform.v1.SecurityCatalogRef
+	488, // 359: platform.v1.SecurityCatalogInstallResult.entry:type_name -> platform.v1.SecurityCatalogEntry
+	491, // 360: platform.v1.SecurityCatalogInstallResponse.results:type_name -> platform.v1.SecurityCatalogInstallResult
+	513, // 361: platform.v1.SecurityProgramScanTarget.parameter_values:type_name -> platform.v1.SecurityProgramScanTarget.ParameterValuesEntry
+	514, // 362: platform.v1.BugReport.first_seen_at:type_name -> google.protobuf.Timestamp
+	514, // 363: platform.v1.BugReport.last_seen_at:type_name -> google.protobuf.Timestamp
+	494, // 364: platform.v1.ListBugReportsResponse.reports:type_name -> platform.v1.BugReport
+	6,   // 365: platform.v1.PlatformService.ListAgentRuns:input_type -> platform.v1.ListAgentRunsRequest
+	8,   // 366: platform.v1.PlatformService.GetAgentRun:input_type -> platform.v1.GetAgentRunRequest
+	17,  // 367: platform.v1.PlatformService.WatchAgentRuns:input_type -> platform.v1.WatchAgentRunsRequest
+	18,  // 368: platform.v1.PlatformService.WatchAgentRun:input_type -> platform.v1.WatchAgentRunRequest
+	20,  // 369: platform.v1.PlatformService.GetActivityLog:input_type -> platform.v1.GetActivityLogRequest
+	21,  // 370: platform.v1.PlatformService.GetActivityEntryDetail:input_type -> platform.v1.GetActivityEntryDetailRequest
+	20,  // 371: platform.v1.PlatformService.WatchActivityLog:input_type -> platform.v1.GetActivityLogRequest
+	23,  // 372: platform.v1.PlatformService.GetAgentRunUsage:input_type -> platform.v1.GetAgentRunUsageRequest
+	29,  // 373: platform.v1.PlatformService.GetObservabilityOverview:input_type -> platform.v1.GetObservabilityOverviewRequest
+	313, // 374: platform.v1.PlatformService.GetAgentRunPullRequests:input_type -> platform.v1.GetAgentRunPullRequestsRequest
+	57,  // 375: platform.v1.PlatformService.ListLinearProjects:input_type -> platform.v1.ListLinearProjectsRequest
+	59,  // 376: platform.v1.PlatformService.WatchLinearProjects:input_type -> platform.v1.WatchLinearProjectsRequest
+	67,  // 377: platform.v1.PlatformService.SendAgentRunMessage:input_type -> platform.v1.SendAgentRunMessageRequest
+	69,  // 378: platform.v1.PlatformService.CancelAgentRunMessage:input_type -> platform.v1.CancelAgentRunMessageRequest
+	71,  // 379: platform.v1.PlatformService.CreateAgentRun:input_type -> platform.v1.CreateAgentRunRequest
+	75,  // 380: platform.v1.PlatformService.ListMyCredentials:input_type -> platform.v1.ListMyCredentialsRequest
+	76,  // 381: platform.v1.PlatformService.UpdateMyCredentials:input_type -> platform.v1.UpdateMyCredentialsRequest
+	342, // 382: platform.v1.PlatformService.StartProviderOAuth:input_type -> platform.v1.StartProviderOAuthRequest
+	344, // 383: platform.v1.PlatformService.CompleteProviderOAuth:input_type -> platform.v1.CompleteProviderOAuthRequest
+	345, // 384: platform.v1.PlatformService.PollProviderOAuth:input_type -> platform.v1.PollProviderOAuthRequest
+	77,  // 385: platform.v1.PlatformService.ShareMyCredentials:input_type -> platform.v1.ShareMyCredentialsRequest
+	131, // 386: platform.v1.PlatformService.ListSlackAgents:input_type -> platform.v1.ListSlackAgentsRequest
+	133, // 387: platform.v1.PlatformService.UpdateSlackAgent:input_type -> platform.v1.UpdateSlackAgentRequest
+	137, // 388: platform.v1.PlatformService.DeleteSlackAgent:input_type -> platform.v1.DeleteSlackAgentRequest
+	139, // 389: platform.v1.PlatformService.ListSlackWorkspaces:input_type -> platform.v1.ListSlackWorkspacesRequest
+	141, // 390: platform.v1.PlatformService.UpdateSlackWorkspace:input_type -> platform.v1.UpdateSlackWorkspaceRequest
+	142, // 391: platform.v1.PlatformService.DeleteSlackWorkspace:input_type -> platform.v1.DeleteSlackWorkspaceRequest
+	135, // 392: platform.v1.PlatformService.ListSlackDrafts:input_type -> platform.v1.ListSlackDraftsRequest
+	82,  // 393: platform.v1.PlatformService.ListMCPServers:input_type -> platform.v1.ListMCPServersRequest
+	84,  // 394: platform.v1.PlatformService.UpsertMCPServer:input_type -> platform.v1.UpsertMCPServerRequest
+	85,  // 395: platform.v1.PlatformService.DeleteMCPServer:input_type -> platform.v1.DeleteMCPServerRequest
+	87,  // 396: platform.v1.PlatformService.ListSkills:input_type -> platform.v1.ListSkillsRequest
+	325, // 397: platform.v1.PlatformService.ListSkillCatalog:input_type -> platform.v1.ListSkillCatalogRequest
+	327, // 398: platform.v1.PlatformService.InstallSkillFromCatalog:input_type -> platform.v1.InstallSkillFromCatalogRequest
+	89,  // 399: platform.v1.PlatformService.UpsertSkill:input_type -> platform.v1.UpsertSkillRequest
+	90,  // 400: platform.v1.PlatformService.DeleteSkill:input_type -> platform.v1.DeleteSkillRequest
+	93,  // 401: platform.v1.PlatformService.ListRuntimeProfiles:input_type -> platform.v1.ListRuntimeProfilesRequest
+	96,  // 402: platform.v1.PlatformService.ListSSHTunnels:input_type -> platform.v1.ListSSHTunnelsRequest
+	98,  // 403: platform.v1.PlatformService.CreateRuntimeProfile:input_type -> platform.v1.CreateRuntimeProfileRequest
+	99,  // 404: platform.v1.PlatformService.UpdateRuntimeProfile:input_type -> platform.v1.UpdateRuntimeProfileRequest
+	100, // 405: platform.v1.PlatformService.DeleteRuntimeProfile:input_type -> platform.v1.DeleteRuntimeProfileRequest
+	104, // 406: platform.v1.PlatformService.ListMCPPolicies:input_type -> platform.v1.ListMCPPoliciesRequest
+	106, // 407: platform.v1.PlatformService.CreateMCPPolicy:input_type -> platform.v1.CreateMCPPolicyRequest
+	107, // 408: platform.v1.PlatformService.UpdateMCPPolicy:input_type -> platform.v1.UpdateMCPPolicyRequest
+	108, // 409: platform.v1.PlatformService.DeleteMCPPolicy:input_type -> platform.v1.DeleteMCPPolicyRequest
+	111, // 410: platform.v1.PlatformService.ListGuardrailPolicies:input_type -> platform.v1.ListGuardrailPoliciesRequest
+	113, // 411: platform.v1.PlatformService.CreateGuardrailPolicy:input_type -> platform.v1.CreateGuardrailPolicyRequest
+	114, // 412: platform.v1.PlatformService.UpdateGuardrailPolicy:input_type -> platform.v1.UpdateGuardrailPolicyRequest
+	115, // 413: platform.v1.PlatformService.DeleteGuardrailPolicy:input_type -> platform.v1.DeleteGuardrailPolicyRequest
+	116, // 414: platform.v1.PlatformService.ListModeTemplates:input_type -> platform.v1.ListModeTemplatesRequest
+	118, // 415: platform.v1.PlatformService.CreateModeTemplate:input_type -> platform.v1.CreateModeTemplateRequest
+	119, // 416: platform.v1.PlatformService.UpdateModeTemplate:input_type -> platform.v1.UpdateModeTemplateRequest
+	120, // 417: platform.v1.PlatformService.DeleteModeTemplate:input_type -> platform.v1.DeleteModeTemplateRequest
+	122, // 418: platform.v1.PlatformService.ListRoleInstructions:input_type -> platform.v1.ListRoleInstructionsRequest
+	124, // 419: platform.v1.PlatformService.CreateRoleInstruction:input_type -> platform.v1.CreateRoleInstructionRequest
+	125, // 420: platform.v1.PlatformService.UpdateRoleInstruction:input_type -> platform.v1.UpdateRoleInstructionRequest
+	126, // 421: platform.v1.PlatformService.DeleteRoleInstruction:input_type -> platform.v1.DeleteRoleInstructionRequest
+	129, // 422: platform.v1.PlatformService.ListRuntimeImages:input_type -> platform.v1.ListRuntimeImagesRequest
+	144, // 423: platform.v1.PlatformService.GetMySoul:input_type -> platform.v1.GetMySoulRequest
+	145, // 424: platform.v1.PlatformService.UpdateMySoul:input_type -> platform.v1.UpdateMySoulRequest
+	148, // 425: platform.v1.PlatformService.GetMyRoleModelPreferences:input_type -> platform.v1.GetMyRoleModelPreferencesRequest
+	149, // 426: platform.v1.PlatformService.UpdateMyRoleModelPreferences:input_type -> platform.v1.UpdateMyRoleModelPreferencesRequest
+	151, // 427: platform.v1.PlatformService.GetMyModelDefaults:input_type -> platform.v1.GetMyModelDefaultsRequest
+	152, // 428: platform.v1.PlatformService.UpdateMyModelDefaults:input_type -> platform.v1.UpdateMyModelDefaultsRequest
+	154, // 429: platform.v1.PlatformService.GetMyGitIdentity:input_type -> platform.v1.GetMyGitIdentityRequest
+	155, // 430: platform.v1.PlatformService.UpdateMyGitIdentity:input_type -> platform.v1.UpdateMyGitIdentityRequest
+	9,   // 431: platform.v1.PlatformService.DeleteAgentRun:input_type -> platform.v1.DeleteAgentRunRequest
+	10,  // 432: platform.v1.PlatformService.CancelAgentRun:input_type -> platform.v1.CancelAgentRunRequest
+	11,  // 433: platform.v1.PlatformService.PromoteAgentRun:input_type -> platform.v1.PromoteAgentRunRequest
+	12,  // 434: platform.v1.PlatformService.InterruptAgentRun:input_type -> platform.v1.InterruptAgentRunRequest
+	14,  // 435: platform.v1.PlatformService.RetryAgentRun:input_type -> platform.v1.RetryAgentRunRequest
+	15,  // 436: platform.v1.PlatformService.RenameAgentRun:input_type -> platform.v1.RenameAgentRunRequest
+	16,  // 437: platform.v1.PlatformService.UpdateAgentRunRuntimeConfig:input_type -> platform.v1.UpdateAgentRunRuntimeConfigRequest
+	321, // 438: platform.v1.PlatformService.AttachAgentRunOverseer:input_type -> platform.v1.AttachAgentRunOverseerRequest
+	322, // 439: platform.v1.PlatformService.UpdateAgentRunOverseer:input_type -> platform.v1.UpdateAgentRunOverseerRequest
+	323, // 440: platform.v1.PlatformService.DetachAgentRunOverseer:input_type -> platform.v1.DetachAgentRunOverseerRequest
+	312, // 441: platform.v1.PlatformService.ExtendAgentRunRuntime:input_type -> platform.v1.ExtendAgentRunRuntimeRequest
+	159, // 442: platform.v1.PlatformService.CreateTeamChildRun:input_type -> platform.v1.CreateTeamChildRunRequest
+	160, // 443: platform.v1.PlatformService.ListTeamChildRuns:input_type -> platform.v1.ListTeamChildRunsRequest
+	162, // 444: platform.v1.PlatformService.GetTeamChildRunStatus:input_type -> platform.v1.GetTeamChildRunStatusRequest
+	163, // 445: platform.v1.PlatformService.GetTeamChildRunLogs:input_type -> platform.v1.GetTeamChildRunLogsRequest
+	165, // 446: platform.v1.PlatformService.GetTeamChildRunArtifact:input_type -> platform.v1.GetTeamChildRunArtifactRequest
+	167, // 447: platform.v1.PlatformService.SendTeamChildMessage:input_type -> platform.v1.SendTeamChildMessageRequest
+	168, // 448: platform.v1.PlatformService.GetAgentRunTeamStatus:input_type -> platform.v1.GetAgentRunTeamStatusRequest
+	169, // 449: platform.v1.PlatformService.WaitForTeamRunChange:input_type -> platform.v1.WaitForTeamRunChangeRequest
+	171, // 450: platform.v1.PlatformService.CancelTeamChildRun:input_type -> platform.v1.CancelTeamChildRunRequest
+	172, // 451: platform.v1.PlatformService.RetryTeamChildRun:input_type -> platform.v1.RetryTeamChildRunRequest
+	173, // 452: platform.v1.PlatformService.GetTeamApprovalStatus:input_type -> platform.v1.GetTeamApprovalStatusRequest
+	62,  // 453: platform.v1.PlatformService.GetLinearProject:input_type -> platform.v1.GetLinearProjectRequest
+	191, // 454: platform.v1.PlatformService.GetTeamRuntime:input_type -> platform.v1.GetTeamRuntimeRequest
+	192, // 455: platform.v1.PlatformService.WatchTeamRuntime:input_type -> platform.v1.WatchTeamRuntimeRequest
+	63,  // 456: platform.v1.PlatformService.ListAvailableModels:input_type -> platform.v1.ListAvailableModelsRequest
+	175, // 457: platform.v1.PlatformService.GetDiff:input_type -> platform.v1.GetDiffRequest
+	175, // 458: platform.v1.PlatformService.WatchDiff:input_type -> platform.v1.GetDiffRequest
+	177, // 459: platform.v1.PlatformService.ListFiles:input_type -> platform.v1.ListFilesRequest
+	180, // 460: platform.v1.PlatformService.ListWorkspaceFiles:input_type -> platform.v1.ListWorkspaceFilesRequest
+	183, // 461: platform.v1.PlatformService.CloneRepository:input_type -> platform.v1.CloneRepositoryRequest
+	185, // 462: platform.v1.PlatformService.ListRepositories:input_type -> platform.v1.ListRepositoriesRequest
+	187, // 463: platform.v1.PlatformService.ReadFile:input_type -> platform.v1.ReadFileRequest
+	189, // 464: platform.v1.PlatformService.UpdateLinearProjectInstructions:input_type -> platform.v1.UpdateLinearProjectInstructionsRequest
+	272, // 465: platform.v1.PlatformService.CreateLinearProject:input_type -> platform.v1.CreateLinearProjectRequest
+	273, // 466: platform.v1.PlatformService.UpdateLinearProject:input_type -> platform.v1.UpdateLinearProjectRequest
+	205, // 467: platform.v1.PlatformService.ListProjects:input_type -> platform.v1.ListProjectsRequest
+	207, // 468: platform.v1.PlatformService.GetProject:input_type -> platform.v1.GetProjectRequest
+	208, // 469: platform.v1.PlatformService.WatchProjects:input_type -> platform.v1.WatchProjectsRequest
+	211, // 470: platform.v1.PlatformService.CreateProject:input_type -> platform.v1.CreateProjectRequest
+	212, // 471: platform.v1.PlatformService.UpdateProject:input_type -> platform.v1.UpdateProjectRequest
+	219, // 472: platform.v1.PlatformService.CreateProjectTrigger:input_type -> platform.v1.CreateProjectTriggerRequest
+	220, // 473: platform.v1.PlatformService.UpdateProjectTrigger:input_type -> platform.v1.UpdateProjectTriggerRequest
+	221, // 474: platform.v1.PlatformService.DeleteProjectTrigger:input_type -> platform.v1.DeleteProjectTriggerRequest
+	222, // 475: platform.v1.PlatformService.SetProjectTriggerEnabled:input_type -> platform.v1.SetProjectTriggerEnabledRequest
+	223, // 476: platform.v1.PlatformService.DeleteProject:input_type -> platform.v1.DeleteProjectRequest
+	228, // 477: platform.v1.PlatformService.ListConnections:input_type -> platform.v1.ListConnectionsRequest
+	230, // 478: platform.v1.PlatformService.CreateConnection:input_type -> platform.v1.CreateConnectionRequest
+	231, // 479: platform.v1.PlatformService.UpdateConnection:input_type -> platform.v1.UpdateConnectionRequest
+	232, // 480: platform.v1.PlatformService.DeleteConnection:input_type -> platform.v1.DeleteConnectionRequest
+	331, // 481: platform.v1.PlatformService.ListProjectContent:input_type -> platform.v1.ListProjectContentRequest
+	333, // 482: platform.v1.PlatformService.GetProjectContent:input_type -> platform.v1.GetProjectContentRequest
+	335, // 483: platform.v1.PlatformService.CreateProjectContent:input_type -> platform.v1.CreateProjectContentRequest
+	336, // 484: platform.v1.PlatformService.UpdateProjectContent:input_type -> platform.v1.UpdateProjectContentRequest
+	337, // 485: platform.v1.PlatformService.DuplicateProjectContent:input_type -> platform.v1.DuplicateProjectContentRequest
+	338, // 486: platform.v1.PlatformService.ListProjectContentVersions:input_type -> platform.v1.ListProjectContentVersionsRequest
+	340, // 487: platform.v1.PlatformService.RestoreProjectContentVersion:input_type -> platform.v1.RestoreProjectContentVersionRequest
+	341, // 488: platform.v1.PlatformService.DeleteProjectContent:input_type -> platform.v1.DeleteProjectContentRequest
+	235, // 489: platform.v1.PlatformService.ListGitHubRepositories:input_type -> platform.v1.ListGitHubRepositoriesRequest
+	237, // 490: platform.v1.PlatformService.GetGitHubRepository:input_type -> platform.v1.GetGitHubRepositoryRequest
+	242, // 491: platform.v1.PlatformService.ListMaintainerWorkItems:input_type -> platform.v1.ListMaintainerWorkItemsRequest
+	258, // 492: platform.v1.PlatformService.IssueMaintainerCommand:input_type -> platform.v1.IssueMaintainerCommandRequest
+	238, // 493: platform.v1.PlatformService.WatchGitHubRepositories:input_type -> platform.v1.WatchGitHubRepositoriesRequest
+	515, // 494: platform.v1.PlatformService.GetGitHubAppConfig:input_type -> google.protobuf.Empty
+	515, // 495: platform.v1.PlatformService.ListGitHubAppInstallations:input_type -> google.protobuf.Empty
+	264, // 496: platform.v1.PlatformService.ListGitHubAppInstallationRepositories:input_type -> platform.v1.ListGitHubAppInstallationRepositoriesRequest
+	267, // 497: platform.v1.PlatformService.CreateGitHubRepositoryFromInstallation:input_type -> platform.v1.CreateGitHubRepositoryFromInstallationRequest
+	268, // 498: platform.v1.PlatformService.CreateGitHubRepositoryFromToken:input_type -> platform.v1.CreateGitHubRepositoryFromTokenRequest
+	271, // 499: platform.v1.PlatformService.UpdateGitHubRepository:input_type -> platform.v1.UpdateGitHubRepositoryRequest
+	274, // 500: platform.v1.PlatformService.ListCrons:input_type -> platform.v1.ListCronsRequest
+	276, // 501: platform.v1.PlatformService.GetCron:input_type -> platform.v1.GetCronRequest
+	277, // 502: platform.v1.PlatformService.WatchCrons:input_type -> platform.v1.WatchCronsRequest
+	279, // 503: platform.v1.PlatformService.CreateCron:input_type -> platform.v1.CreateCronRequest
+	280, // 504: platform.v1.PlatformService.UpdateCron:input_type -> platform.v1.UpdateCronRequest
+	281, // 505: platform.v1.PlatformService.DeleteCron:input_type -> platform.v1.DeleteCronRequest
+	199, // 506: platform.v1.PlatformService.ListAvailableModes:input_type -> platform.v1.ListAvailableModesRequest
+	201, // 507: platform.v1.PlatformService.GetModeTemplate:input_type -> platform.v1.GetModeTemplateRequest
+	202, // 508: platform.v1.PlatformService.SwitchAgentRunMode:input_type -> platform.v1.SwitchAgentRunModeRequest
+	283, // 509: platform.v1.PlatformService.GetAgentTrace:input_type -> platform.v1.GetAgentTraceRequest
+	283, // 510: platform.v1.PlatformService.WatchAgentTrace:input_type -> platform.v1.GetAgentTraceRequest
+	285, // 511: platform.v1.PlatformService.GetAgentRunErrors:input_type -> platform.v1.GetAgentRunErrorsRequest
+	288, // 512: platform.v1.PlatformService.GetAgentRunLogs:input_type -> platform.v1.GetAgentRunLogsRequest
+	292, // 513: platform.v1.PlatformService.ExportAgentRunArchive:input_type -> platform.v1.ExportAgentRunArchiveRequest
+	295, // 514: platform.v1.PlatformService.ShareResource:input_type -> platform.v1.ShareResourceRequest
+	297, // 515: platform.v1.PlatformService.RevokeShare:input_type -> platform.v1.RevokeShareRequest
+	298, // 516: platform.v1.PlatformService.UpdateSharePermission:input_type -> platform.v1.UpdateSharePermissionRequest
+	299, // 517: platform.v1.PlatformService.ListShares:input_type -> platform.v1.ListSharesRequest
+	301, // 518: platform.v1.PlatformService.ListSharedWithMe:input_type -> platform.v1.ListSharedWithMeRequest
+	305, // 519: platform.v1.PlatformService.ListNotifications:input_type -> platform.v1.ListNotificationsRequest
+	307, // 520: platform.v1.PlatformService.MarkNotificationRead:input_type -> platform.v1.MarkNotificationReadRequest
+	309, // 521: platform.v1.PlatformService.SendPresenceHeartbeat:input_type -> platform.v1.PresenceHeartbeatRequest
+	310, // 522: platform.v1.PlatformService.GetPresence:input_type -> platform.v1.GetPresenceRequest
+	348, // 523: platform.v1.PlatformService.GetMyOpenAIUsage:input_type -> platform.v1.GetMyOpenAIUsageRequest
+	351, // 524: platform.v1.PlatformService.GetMyCopilotUsage:input_type -> platform.v1.GetMyCopilotUsageRequest
+	354, // 525: platform.v1.PlatformService.GetMyAnthropicUsage:input_type -> platform.v1.GetMyAnthropicUsageRequest
+	358, // 526: platform.v1.PlatformService.ListSecurityScans:input_type -> platform.v1.ListSecurityScansRequest
+	360, // 527: platform.v1.PlatformService.GetSecurityScan:input_type -> platform.v1.GetSecurityScanRequest
+	362, // 528: platform.v1.PlatformService.ListSecurityFindings:input_type -> platform.v1.ListSecurityFindingsRequest
+	364, // 529: platform.v1.PlatformService.GetSecurityFinding:input_type -> platform.v1.GetSecurityFindingRequest
+	367, // 530: platform.v1.PlatformService.GetSecurityFindingSubmissionBundle:input_type -> platform.v1.GetSecurityFindingSubmissionBundleRequest
+	369, // 531: platform.v1.PlatformService.UpdateSecurityFindingStatus:input_type -> platform.v1.UpdateSecurityFindingStatusRequest
+	370, // 532: platform.v1.PlatformService.GetSecurityFindingSummary:input_type -> platform.v1.GetSecurityFindingSummaryRequest
+	386, // 533: platform.v1.PlatformService.ListSecurityFindingEvents:input_type -> platform.v1.ListSecurityFindingEventsRequest
+	388, // 534: platform.v1.PlatformService.AddSecurityFindingComment:input_type -> platform.v1.AddSecurityFindingCommentRequest
+	373, // 535: platform.v1.PlatformService.UpdateSecurityFindingAssignee:input_type -> platform.v1.UpdateSecurityFindingAssigneeRequest
+	374, // 536: platform.v1.PlatformService.UpdateSecurityFindingTicket:input_type -> platform.v1.UpdateSecurityFindingTicketRequest
+	375, // 537: platform.v1.PlatformService.CreateSecurityFindingTicket:input_type -> platform.v1.CreateSecurityFindingTicketRequest
+	376, // 538: platform.v1.PlatformService.BulkUpdateSecurityFindingStatus:input_type -> platform.v1.BulkUpdateSecurityFindingStatusRequest
+	380, // 539: platform.v1.PlatformService.ListSecuritySavedFilters:input_type -> platform.v1.ListSecuritySavedFiltersRequest
+	382, // 540: platform.v1.PlatformService.SaveSecuritySavedFilter:input_type -> platform.v1.SaveSecuritySavedFilterRequest
+	383, // 541: platform.v1.PlatformService.DeleteSecuritySavedFilter:input_type -> platform.v1.DeleteSecuritySavedFilterRequest
+	384, // 542: platform.v1.PlatformService.ExportSecurityFindingAuditLog:input_type -> platform.v1.ExportSecurityFindingAuditLogRequest
+	411, // 543: platform.v1.PlatformService.ListSecurityScanConfigs:input_type -> platform.v1.ListSecurityScanConfigsRequest
+	413, // 544: platform.v1.PlatformService.GetSecurityScanConfig:input_type -> platform.v1.GetSecurityScanConfigRequest
+	414, // 545: platform.v1.PlatformService.CreateSecurityScan:input_type -> platform.v1.CreateSecurityScanRequest
+	415, // 546: platform.v1.PlatformService.UpdateSecurityScan:input_type -> platform.v1.UpdateSecurityScanRequest
+	416, // 547: platform.v1.PlatformService.DeleteSecurityScan:input_type -> platform.v1.DeleteSecurityScanRequest
+	417, // 548: platform.v1.PlatformService.RunSecurityScanNow:input_type -> platform.v1.RunSecurityScanNowRequest
+	418, // 549: platform.v1.PlatformService.ResumeSecurityScan:input_type -> platform.v1.ResumeSecurityScanRequest
+	419, // 550: platform.v1.PlatformService.CancelSecurityScanRun:input_type -> platform.v1.CancelSecurityScanRunRequest
+	422, // 551: platform.v1.PlatformService.ListSecurityWorkflows:input_type -> platform.v1.ListSecurityWorkflowsRequest
+	424, // 552: platform.v1.PlatformService.GetSecurityWorkflow:input_type -> platform.v1.GetSecurityWorkflowRequest
+	425, // 553: platform.v1.PlatformService.CreateSecurityWorkflow:input_type -> platform.v1.CreateSecurityWorkflowRequest
+	426, // 554: platform.v1.PlatformService.UpdateSecurityWorkflow:input_type -> platform.v1.UpdateSecurityWorkflowRequest
+	427, // 555: platform.v1.PlatformService.DeleteSecurityWorkflow:input_type -> platform.v1.DeleteSecurityWorkflowRequest
+	429, // 556: platform.v1.PlatformService.ValidateSecurityWorkflow:input_type -> platform.v1.ValidateSecurityWorkflowRequest
+	432, // 557: platform.v1.PlatformService.ListSecurityRankers:input_type -> platform.v1.ListSecurityRankersRequest
+	434, // 558: platform.v1.PlatformService.GetSecurityRanker:input_type -> platform.v1.GetSecurityRankerRequest
+	435, // 559: platform.v1.PlatformService.CreateSecurityRanker:input_type -> platform.v1.CreateSecurityRankerRequest
+	436, // 560: platform.v1.PlatformService.UpdateSecurityRanker:input_type -> platform.v1.UpdateSecurityRankerRequest
+	437, // 561: platform.v1.PlatformService.DeleteSecurityRanker:input_type -> platform.v1.DeleteSecurityRankerRequest
+	439, // 562: platform.v1.PlatformService.ListSecurityPostScripts:input_type -> platform.v1.ListSecurityPostScriptsRequest
+	441, // 563: platform.v1.PlatformService.GetSecurityPostScript:input_type -> platform.v1.GetSecurityPostScriptRequest
+	442, // 564: platform.v1.PlatformService.CreateSecurityPostScript:input_type -> platform.v1.CreateSecurityPostScriptRequest
+	443, // 565: platform.v1.PlatformService.UpdateSecurityPostScript:input_type -> platform.v1.UpdateSecurityPostScriptRequest
+	444, // 566: platform.v1.PlatformService.DeleteSecurityPostScript:input_type -> platform.v1.DeleteSecurityPostScriptRequest
+	450, // 567: platform.v1.PlatformService.ListSecurityPolicyPacks:input_type -> platform.v1.ListSecurityPolicyPacksRequest
+	452, // 568: platform.v1.PlatformService.GetSecurityPolicyPack:input_type -> platform.v1.GetSecurityPolicyPackRequest
+	453, // 569: platform.v1.PlatformService.CreateSecurityPolicyPack:input_type -> platform.v1.CreateSecurityPolicyPackRequest
+	454, // 570: platform.v1.PlatformService.UpdateSecurityPolicyPack:input_type -> platform.v1.UpdateSecurityPolicyPackRequest
+	455, // 571: platform.v1.PlatformService.DeleteSecurityPolicyPack:input_type -> platform.v1.DeleteSecurityPolicyPackRequest
+	461, // 572: platform.v1.PlatformService.ListSecurityPrograms:input_type -> platform.v1.ListSecurityProgramsRequest
+	463, // 573: platform.v1.PlatformService.GetSecurityProgram:input_type -> platform.v1.GetSecurityProgramRequest
+	464, // 574: platform.v1.PlatformService.CreateSecurityProgram:input_type -> platform.v1.CreateSecurityProgramRequest
+	465, // 575: platform.v1.PlatformService.UpdateSecurityProgram:input_type -> platform.v1.UpdateSecurityProgramRequest
+	466, // 576: platform.v1.PlatformService.DeleteSecurityProgram:input_type -> platform.v1.DeleteSecurityProgramRequest
+	467, // 577: platform.v1.PlatformService.GenerateSecurityDraft:input_type -> platform.v1.GenerateSecurityDraftRequest
+	469, // 578: platform.v1.PlatformService.GetSecurityDraft:input_type -> platform.v1.GetSecurityDraftRequest
+	471, // 579: platform.v1.PlatformService.ExportSecurityPack:input_type -> platform.v1.ExportSecurityPackRequest
+	473, // 580: platform.v1.PlatformService.ImportSecurityPack:input_type -> platform.v1.ImportSecurityPackRequest
+	476, // 581: platform.v1.PlatformService.GetSecurityOverview:input_type -> platform.v1.GetSecurityOverviewRequest
+	479, // 582: platform.v1.PlatformService.GetSecurityConfigPostures:input_type -> platform.v1.GetSecurityConfigPosturesRequest
+	483, // 583: platform.v1.PlatformService.GetSecurityScanReport:input_type -> platform.v1.GetSecurityScanReportRequest
+	515, // 584: platform.v1.PlatformService.GetSecuritySkillsStatus:input_type -> google.protobuf.Empty
+	515, // 585: platform.v1.PlatformService.InstallSecuritySkills:input_type -> google.protobuf.Empty
+	515, // 586: platform.v1.PlatformService.ListSecurityCatalog:input_type -> google.protobuf.Empty
+	490, // 587: platform.v1.PlatformService.DryRunSecurityCatalogInstall:input_type -> platform.v1.SecurityCatalogInstallRequest
+	490, // 588: platform.v1.PlatformService.ApplySecurityCatalogInstall:input_type -> platform.v1.SecurityCatalogInstallRequest
+	495, // 589: platform.v1.PlatformService.ListBugReports:input_type -> platform.v1.ListBugReportsRequest
+	497, // 590: platform.v1.PlatformService.UpdateBugReportStatus:input_type -> platform.v1.UpdateBugReportStatusRequest
+	7,   // 591: platform.v1.PlatformService.ListAgentRuns:output_type -> platform.v1.ListAgentRunsResponse
+	50,  // 592: platform.v1.PlatformService.GetAgentRun:output_type -> platform.v1.AgentRun
+	19,  // 593: platform.v1.PlatformService.WatchAgentRuns:output_type -> platform.v1.AgentRunEvent
+	50,  // 594: platform.v1.PlatformService.WatchAgentRun:output_type -> platform.v1.AgentRun
+	35,  // 595: platform.v1.PlatformService.GetActivityLog:output_type -> platform.v1.GetActivityLogResponse
+	22,  // 596: platform.v1.PlatformService.GetActivityEntryDetail:output_type -> platform.v1.GetActivityEntryDetailResponse
+	35,  // 597: platform.v1.PlatformService.WatchActivityLog:output_type -> platform.v1.GetActivityLogResponse
+	28,  // 598: platform.v1.PlatformService.GetAgentRunUsage:output_type -> platform.v1.AgentRunUsageResponse
+	34,  // 599: platform.v1.PlatformService.GetObservabilityOverview:output_type -> platform.v1.ObservabilityOverviewResponse
+	314, // 600: platform.v1.PlatformService.GetAgentRunPullRequests:output_type -> platform.v1.GetAgentRunPullRequestsResponse
+	58,  // 601: platform.v1.PlatformService.ListLinearProjects:output_type -> platform.v1.ListLinearProjectsResponse
+	60,  // 602: platform.v1.PlatformService.WatchLinearProjects:output_type -> platform.v1.LinearProjectEvent
+	68,  // 603: platform.v1.PlatformService.SendAgentRunMessage:output_type -> platform.v1.SendAgentRunMessageResponse
+	70,  // 604: platform.v1.PlatformService.CancelAgentRunMessage:output_type -> platform.v1.CancelAgentRunMessageResponse
+	50,  // 605: platform.v1.PlatformService.CreateAgentRun:output_type -> platform.v1.AgentRun
+	72,  // 606: platform.v1.PlatformService.ListMyCredentials:output_type -> platform.v1.MyCredentials
+	72,  // 607: platform.v1.PlatformService.UpdateMyCredentials:output_type -> platform.v1.MyCredentials
+	343, // 608: platform.v1.PlatformService.StartProviderOAuth:output_type -> platform.v1.ProviderOAuthStart
+	346, // 609: platform.v1.PlatformService.CompleteProviderOAuth:output_type -> platform.v1.ProviderOAuthResult
+	346, // 610: platform.v1.PlatformService.PollProviderOAuth:output_type -> platform.v1.ProviderOAuthResult
+	78,  // 611: platform.v1.PlatformService.ShareMyCredentials:output_type -> platform.v1.ShareMyCredentialsResponse
+	132, // 612: platform.v1.PlatformService.ListSlackAgents:output_type -> platform.v1.ListSlackAgentsResponse
+	79,  // 613: platform.v1.PlatformService.UpdateSlackAgent:output_type -> platform.v1.SlackAgent
+	515, // 614: platform.v1.PlatformService.DeleteSlackAgent:output_type -> google.protobuf.Empty
+	140, // 615: platform.v1.PlatformService.ListSlackWorkspaces:output_type -> platform.v1.ListSlackWorkspacesResponse
+	138, // 616: platform.v1.PlatformService.UpdateSlackWorkspace:output_type -> platform.v1.SlackWorkspace
+	515, // 617: platform.v1.PlatformService.DeleteSlackWorkspace:output_type -> google.protobuf.Empty
+	136, // 618: platform.v1.PlatformService.ListSlackDrafts:output_type -> platform.v1.ListSlackDraftsResponse
+	83,  // 619: platform.v1.PlatformService.ListMCPServers:output_type -> platform.v1.ListMCPServersResponse
+	80,  // 620: platform.v1.PlatformService.UpsertMCPServer:output_type -> platform.v1.MCPServerInfo
+	515, // 621: platform.v1.PlatformService.DeleteMCPServer:output_type -> google.protobuf.Empty
+	88,  // 622: platform.v1.PlatformService.ListSkills:output_type -> platform.v1.ListSkillsResponse
+	326, // 623: platform.v1.PlatformService.ListSkillCatalog:output_type -> platform.v1.ListSkillCatalogResponse
+	86,  // 624: platform.v1.PlatformService.InstallSkillFromCatalog:output_type -> platform.v1.SkillInfo
+	86,  // 625: platform.v1.PlatformService.UpsertSkill:output_type -> platform.v1.SkillInfo
+	515, // 626: platform.v1.PlatformService.DeleteSkill:output_type -> google.protobuf.Empty
+	94,  // 627: platform.v1.PlatformService.ListRuntimeProfiles:output_type -> platform.v1.ListRuntimeProfilesResponse
+	97,  // 628: platform.v1.PlatformService.ListSSHTunnels:output_type -> platform.v1.ListSSHTunnelsResponse
+	92,  // 629: platform.v1.PlatformService.CreateRuntimeProfile:output_type -> platform.v1.RuntimeProfile
+	92,  // 630: platform.v1.PlatformService.UpdateRuntimeProfile:output_type -> platform.v1.RuntimeProfile
+	515, // 631: platform.v1.PlatformService.DeleteRuntimeProfile:output_type -> google.protobuf.Empty
+	105, // 632: platform.v1.PlatformService.ListMCPPolicies:output_type -> platform.v1.ListMCPPoliciesResponse
+	103, // 633: platform.v1.PlatformService.CreateMCPPolicy:output_type -> platform.v1.MCPPolicy
+	103, // 634: platform.v1.PlatformService.UpdateMCPPolicy:output_type -> platform.v1.MCPPolicy
+	515, // 635: platform.v1.PlatformService.DeleteMCPPolicy:output_type -> google.protobuf.Empty
+	112, // 636: platform.v1.PlatformService.ListGuardrailPolicies:output_type -> platform.v1.ListGuardrailPoliciesResponse
+	110, // 637: platform.v1.PlatformService.CreateGuardrailPolicy:output_type -> platform.v1.GuardrailPolicy
+	110, // 638: platform.v1.PlatformService.UpdateGuardrailPolicy:output_type -> platform.v1.GuardrailPolicy
+	515, // 639: platform.v1.PlatformService.DeleteGuardrailPolicy:output_type -> google.protobuf.Empty
+	117, // 640: platform.v1.PlatformService.ListModeTemplates:output_type -> platform.v1.ListModeTemplatesResponse
+	198, // 641: platform.v1.PlatformService.CreateModeTemplate:output_type -> platform.v1.ModeTemplate
+	198, // 642: platform.v1.PlatformService.UpdateModeTemplate:output_type -> platform.v1.ModeTemplate
+	515, // 643: platform.v1.PlatformService.DeleteModeTemplate:output_type -> google.protobuf.Empty
+	123, // 644: platform.v1.PlatformService.ListRoleInstructions:output_type -> platform.v1.ListRoleInstructionsResponse
+	121, // 645: platform.v1.PlatformService.CreateRoleInstruction:output_type -> platform.v1.RoleInstruction
+	121, // 646: platform.v1.PlatformService.UpdateRoleInstruction:output_type -> platform.v1.RoleInstruction
+	515, // 647: platform.v1.PlatformService.DeleteRoleInstruction:output_type -> google.protobuf.Empty
+	130, // 648: platform.v1.PlatformService.ListRuntimeImages:output_type -> platform.v1.ListRuntimeImagesResponse
+	143, // 649: platform.v1.PlatformService.GetMySoul:output_type -> platform.v1.Soul
+	143, // 650: platform.v1.PlatformService.UpdateMySoul:output_type -> platform.v1.Soul
+	147, // 651: platform.v1.PlatformService.GetMyRoleModelPreferences:output_type -> platform.v1.RoleModelPreferences
+	147, // 652: platform.v1.PlatformService.UpdateMyRoleModelPreferences:output_type -> platform.v1.RoleModelPreferences
+	150, // 653: platform.v1.PlatformService.GetMyModelDefaults:output_type -> platform.v1.ModelDefaults
+	150, // 654: platform.v1.PlatformService.UpdateMyModelDefaults:output_type -> platform.v1.ModelDefaults
+	153, // 655: platform.v1.PlatformService.GetMyGitIdentity:output_type -> platform.v1.GitIdentity
+	153, // 656: platform.v1.PlatformService.UpdateMyGitIdentity:output_type -> platform.v1.GitIdentity
+	515, // 657: platform.v1.PlatformService.DeleteAgentRun:output_type -> google.protobuf.Empty
+	50,  // 658: platform.v1.PlatformService.CancelAgentRun:output_type -> platform.v1.AgentRun
+	50,  // 659: platform.v1.PlatformService.PromoteAgentRun:output_type -> platform.v1.AgentRun
+	13,  // 660: platform.v1.PlatformService.InterruptAgentRun:output_type -> platform.v1.InterruptAgentRunResponse
+	50,  // 661: platform.v1.PlatformService.RetryAgentRun:output_type -> platform.v1.AgentRun
+	50,  // 662: platform.v1.PlatformService.RenameAgentRun:output_type -> platform.v1.AgentRun
+	50,  // 663: platform.v1.PlatformService.UpdateAgentRunRuntimeConfig:output_type -> platform.v1.AgentRun
+	50,  // 664: platform.v1.PlatformService.AttachAgentRunOverseer:output_type -> platform.v1.AgentRun
+	50,  // 665: platform.v1.PlatformService.UpdateAgentRunOverseer:output_type -> platform.v1.AgentRun
+	50,  // 666: platform.v1.PlatformService.DetachAgentRunOverseer:output_type -> platform.v1.AgentRun
+	50,  // 667: platform.v1.PlatformService.ExtendAgentRunRuntime:output_type -> platform.v1.AgentRun
+	158, // 668: platform.v1.PlatformService.CreateTeamChildRun:output_type -> platform.v1.TeamChildRunStatus
+	161, // 669: platform.v1.PlatformService.ListTeamChildRuns:output_type -> platform.v1.ListTeamChildRunsResponse
+	158, // 670: platform.v1.PlatformService.GetTeamChildRunStatus:output_type -> platform.v1.TeamChildRunStatus
+	164, // 671: platform.v1.PlatformService.GetTeamChildRunLogs:output_type -> platform.v1.TeamChildRunLogs
+	166, // 672: platform.v1.PlatformService.GetTeamChildRunArtifact:output_type -> platform.v1.TeamChildRunArtifact
+	158, // 673: platform.v1.PlatformService.SendTeamChildMessage:output_type -> platform.v1.TeamChildRunStatus
+	48,  // 674: platform.v1.PlatformService.GetAgentRunTeamStatus:output_type -> platform.v1.AgentRunTeamSummary
+	170, // 675: platform.v1.PlatformService.WaitForTeamRunChange:output_type -> platform.v1.WaitForTeamRunChangeResponse
+	158, // 676: platform.v1.PlatformService.CancelTeamChildRun:output_type -> platform.v1.TeamChildRunStatus
+	158, // 677: platform.v1.PlatformService.RetryTeamChildRun:output_type -> platform.v1.TeamChildRunStatus
+	174, // 678: platform.v1.PlatformService.GetTeamApprovalStatus:output_type -> platform.v1.TeamApprovalStatus
+	61,  // 679: platform.v1.PlatformService.GetLinearProject:output_type -> platform.v1.LinearProject
+	193, // 680: platform.v1.PlatformService.GetTeamRuntime:output_type -> platform.v1.TeamRuntime
+	193, // 681: platform.v1.PlatformService.WatchTeamRuntime:output_type -> platform.v1.TeamRuntime
+	64,  // 682: platform.v1.PlatformService.ListAvailableModels:output_type -> platform.v1.ListAvailableModelsResponse
+	176, // 683: platform.v1.PlatformService.GetDiff:output_type -> platform.v1.GetDiffResponse
+	176, // 684: platform.v1.PlatformService.WatchDiff:output_type -> platform.v1.GetDiffResponse
+	178, // 685: platform.v1.PlatformService.ListFiles:output_type -> platform.v1.ListFilesResponse
+	181, // 686: platform.v1.PlatformService.ListWorkspaceFiles:output_type -> platform.v1.ListWorkspaceFilesResponse
+	184, // 687: platform.v1.PlatformService.CloneRepository:output_type -> platform.v1.CloneRepositoryResponse
+	186, // 688: platform.v1.PlatformService.ListRepositories:output_type -> platform.v1.ListRepositoriesResponse
+	188, // 689: platform.v1.PlatformService.ReadFile:output_type -> platform.v1.ReadFileResponse
+	190, // 690: platform.v1.PlatformService.UpdateLinearProjectInstructions:output_type -> platform.v1.UpdateLinearProjectInstructionsResponse
+	61,  // 691: platform.v1.PlatformService.CreateLinearProject:output_type -> platform.v1.LinearProject
+	61,  // 692: platform.v1.PlatformService.UpdateLinearProject:output_type -> platform.v1.LinearProject
+	206, // 693: platform.v1.PlatformService.ListProjects:output_type -> platform.v1.ListProjectsResponse
+	233, // 694: platform.v1.PlatformService.GetProject:output_type -> platform.v1.Project
+	209, // 695: platform.v1.PlatformService.WatchProjects:output_type -> platform.v1.ProjectEvent
+	233, // 696: platform.v1.PlatformService.CreateProject:output_type -> platform.v1.Project
+	233, // 697: platform.v1.PlatformService.UpdateProject:output_type -> platform.v1.Project
+	233, // 698: platform.v1.PlatformService.CreateProjectTrigger:output_type -> platform.v1.Project
+	233, // 699: platform.v1.PlatformService.UpdateProjectTrigger:output_type -> platform.v1.Project
+	515, // 700: platform.v1.PlatformService.DeleteProjectTrigger:output_type -> google.protobuf.Empty
+	233, // 701: platform.v1.PlatformService.SetProjectTriggerEnabled:output_type -> platform.v1.Project
+	515, // 702: platform.v1.PlatformService.DeleteProject:output_type -> google.protobuf.Empty
+	229, // 703: platform.v1.PlatformService.ListConnections:output_type -> platform.v1.ListConnectionsResponse
+	227, // 704: platform.v1.PlatformService.CreateConnection:output_type -> platform.v1.Connection
+	227, // 705: platform.v1.PlatformService.UpdateConnection:output_type -> platform.v1.Connection
+	515, // 706: platform.v1.PlatformService.DeleteConnection:output_type -> google.protobuf.Empty
+	332, // 707: platform.v1.PlatformService.ListProjectContent:output_type -> platform.v1.ListProjectContentResponse
+	334, // 708: platform.v1.PlatformService.GetProjectContent:output_type -> platform.v1.GetProjectContentResponse
+	329, // 709: platform.v1.PlatformService.CreateProjectContent:output_type -> platform.v1.ProjectContent
+	329, // 710: platform.v1.PlatformService.UpdateProjectContent:output_type -> platform.v1.ProjectContent
+	329, // 711: platform.v1.PlatformService.DuplicateProjectContent:output_type -> platform.v1.ProjectContent
+	339, // 712: platform.v1.PlatformService.ListProjectContentVersions:output_type -> platform.v1.ListProjectContentVersionsResponse
+	329, // 713: platform.v1.PlatformService.RestoreProjectContentVersion:output_type -> platform.v1.ProjectContent
+	515, // 714: platform.v1.PlatformService.DeleteProjectContent:output_type -> google.protobuf.Empty
+	236, // 715: platform.v1.PlatformService.ListGitHubRepositories:output_type -> platform.v1.ListGitHubRepositoriesResponse
+	260, // 716: platform.v1.PlatformService.GetGitHubRepository:output_type -> platform.v1.GitHubRepository
+	243, // 717: platform.v1.PlatformService.ListMaintainerWorkItems:output_type -> platform.v1.ListMaintainerWorkItemsResponse
+	259, // 718: platform.v1.PlatformService.IssueMaintainerCommand:output_type -> platform.v1.IssueMaintainerCommandResponse
+	239, // 719: platform.v1.PlatformService.WatchGitHubRepositories:output_type -> platform.v1.GitHubRepositoryEvent
+	261, // 720: platform.v1.PlatformService.GetGitHubAppConfig:output_type -> platform.v1.GitHubAppConfig
+	263, // 721: platform.v1.PlatformService.ListGitHubAppInstallations:output_type -> platform.v1.ListGitHubAppInstallationsResponse
+	266, // 722: platform.v1.PlatformService.ListGitHubAppInstallationRepositories:output_type -> platform.v1.ListGitHubAppInstallationRepositoriesResponse
+	260, // 723: platform.v1.PlatformService.CreateGitHubRepositoryFromInstallation:output_type -> platform.v1.GitHubRepository
+	260, // 724: platform.v1.PlatformService.CreateGitHubRepositoryFromToken:output_type -> platform.v1.GitHubRepository
+	260, // 725: platform.v1.PlatformService.UpdateGitHubRepository:output_type -> platform.v1.GitHubRepository
+	275, // 726: platform.v1.PlatformService.ListCrons:output_type -> platform.v1.ListCronsResponse
+	282, // 727: platform.v1.PlatformService.GetCron:output_type -> platform.v1.Cron
+	278, // 728: platform.v1.PlatformService.WatchCrons:output_type -> platform.v1.CronEvent
+	282, // 729: platform.v1.PlatformService.CreateCron:output_type -> platform.v1.Cron
+	282, // 730: platform.v1.PlatformService.UpdateCron:output_type -> platform.v1.Cron
+	515, // 731: platform.v1.PlatformService.DeleteCron:output_type -> google.protobuf.Empty
+	200, // 732: platform.v1.PlatformService.ListAvailableModes:output_type -> platform.v1.ListAvailableModesResponse
+	198, // 733: platform.v1.PlatformService.GetModeTemplate:output_type -> platform.v1.ModeTemplate
+	203, // 734: platform.v1.PlatformService.SwitchAgentRunMode:output_type -> platform.v1.SwitchAgentRunModeResponse
+	284, // 735: platform.v1.PlatformService.GetAgentTrace:output_type -> platform.v1.GetAgentTraceResponse
+	284, // 736: platform.v1.PlatformService.WatchAgentTrace:output_type -> platform.v1.GetAgentTraceResponse
+	287, // 737: platform.v1.PlatformService.GetAgentRunErrors:output_type -> platform.v1.GetAgentRunErrorsResponse
+	289, // 738: platform.v1.PlatformService.GetAgentRunLogs:output_type -> platform.v1.GetAgentRunLogsResponse
+	293, // 739: platform.v1.PlatformService.ExportAgentRunArchive:output_type -> platform.v1.ExportAgentRunArchiveResponse
+	296, // 740: platform.v1.PlatformService.ShareResource:output_type -> platform.v1.ShareResourceResponse
+	515, // 741: platform.v1.PlatformService.RevokeShare:output_type -> google.protobuf.Empty
+	303, // 742: platform.v1.PlatformService.UpdateSharePermission:output_type -> platform.v1.ResourceShareInfo
+	300, // 743: platform.v1.PlatformService.ListShares:output_type -> platform.v1.ListSharesResponse
+	302, // 744: platform.v1.PlatformService.ListSharedWithMe:output_type -> platform.v1.ListSharedWithMeResponse
+	306, // 745: platform.v1.PlatformService.ListNotifications:output_type -> platform.v1.ListNotificationsResponse
+	515, // 746: platform.v1.PlatformService.MarkNotificationRead:output_type -> google.protobuf.Empty
+	515, // 747: platform.v1.PlatformService.SendPresenceHeartbeat:output_type -> google.protobuf.Empty
+	311, // 748: platform.v1.PlatformService.GetPresence:output_type -> platform.v1.GetPresenceResponse
+	349, // 749: platform.v1.PlatformService.GetMyOpenAIUsage:output_type -> platform.v1.MyOpenAIUsage
+	352, // 750: platform.v1.PlatformService.GetMyCopilotUsage:output_type -> platform.v1.MyCopilotUsage
+	355, // 751: platform.v1.PlatformService.GetMyAnthropicUsage:output_type -> platform.v1.MyAnthropicUsage
+	359, // 752: platform.v1.PlatformService.ListSecurityScans:output_type -> platform.v1.ListSecurityScansResponse
+	357, // 753: platform.v1.PlatformService.GetSecurityScan:output_type -> platform.v1.SecurityScan
+	363, // 754: platform.v1.PlatformService.ListSecurityFindings:output_type -> platform.v1.ListSecurityFindingsResponse
+	366, // 755: platform.v1.PlatformService.GetSecurityFinding:output_type -> platform.v1.GetSecurityFindingResponse
+	368, // 756: platform.v1.PlatformService.GetSecurityFindingSubmissionBundle:output_type -> platform.v1.GetSecurityFindingSubmissionBundleResponse
+	361, // 757: platform.v1.PlatformService.UpdateSecurityFindingStatus:output_type -> platform.v1.SecurityFinding
+	371, // 758: platform.v1.PlatformService.GetSecurityFindingSummary:output_type -> platform.v1.GetSecurityFindingSummaryResponse
+	387, // 759: platform.v1.PlatformService.ListSecurityFindingEvents:output_type -> platform.v1.ListSecurityFindingEventsResponse
+	365, // 760: platform.v1.PlatformService.AddSecurityFindingComment:output_type -> platform.v1.SecurityFindingEvent
+	361, // 761: platform.v1.PlatformService.UpdateSecurityFindingAssignee:output_type -> platform.v1.SecurityFinding
+	361, // 762: platform.v1.PlatformService.UpdateSecurityFindingTicket:output_type -> platform.v1.SecurityFinding
+	361, // 763: platform.v1.PlatformService.CreateSecurityFindingTicket:output_type -> platform.v1.SecurityFinding
+	378, // 764: platform.v1.PlatformService.BulkUpdateSecurityFindingStatus:output_type -> platform.v1.BulkUpdateSecurityFindingStatusResponse
+	381, // 765: platform.v1.PlatformService.ListSecuritySavedFilters:output_type -> platform.v1.ListSecuritySavedFiltersResponse
+	379, // 766: platform.v1.PlatformService.SaveSecuritySavedFilter:output_type -> platform.v1.SecuritySavedFilter
+	515, // 767: platform.v1.PlatformService.DeleteSecuritySavedFilter:output_type -> google.protobuf.Empty
+	385, // 768: platform.v1.PlatformService.ExportSecurityFindingAuditLog:output_type -> platform.v1.ExportSecurityFindingAuditLogResponse
+	412, // 769: platform.v1.PlatformService.ListSecurityScanConfigs:output_type -> platform.v1.ListSecurityScanConfigsResponse
+	409, // 770: platform.v1.PlatformService.GetSecurityScanConfig:output_type -> platform.v1.SecurityScanConfig
+	409, // 771: platform.v1.PlatformService.CreateSecurityScan:output_type -> platform.v1.SecurityScanConfig
+	409, // 772: platform.v1.PlatformService.UpdateSecurityScan:output_type -> platform.v1.SecurityScanConfig
+	515, // 773: platform.v1.PlatformService.DeleteSecurityScan:output_type -> google.protobuf.Empty
+	409, // 774: platform.v1.PlatformService.RunSecurityScanNow:output_type -> platform.v1.SecurityScanConfig
+	409, // 775: platform.v1.PlatformService.ResumeSecurityScan:output_type -> platform.v1.SecurityScanConfig
+	409, // 776: platform.v1.PlatformService.CancelSecurityScanRun:output_type -> platform.v1.SecurityScanConfig
+	423, // 777: platform.v1.PlatformService.ListSecurityWorkflows:output_type -> platform.v1.ListSecurityWorkflowsResponse
+	420, // 778: platform.v1.PlatformService.GetSecurityWorkflow:output_type -> platform.v1.SecurityWorkflowResource
+	420, // 779: platform.v1.PlatformService.CreateSecurityWorkflow:output_type -> platform.v1.SecurityWorkflowResource
+	420, // 780: platform.v1.PlatformService.UpdateSecurityWorkflow:output_type -> platform.v1.SecurityWorkflowResource
+	515, // 781: platform.v1.PlatformService.DeleteSecurityWorkflow:output_type -> google.protobuf.Empty
+	430, // 782: platform.v1.PlatformService.ValidateSecurityWorkflow:output_type -> platform.v1.ValidateSecurityWorkflowResponse
+	433, // 783: platform.v1.PlatformService.ListSecurityRankers:output_type -> platform.v1.ListSecurityRankersResponse
+	431, // 784: platform.v1.PlatformService.GetSecurityRanker:output_type -> platform.v1.SecurityRankerResource
+	431, // 785: platform.v1.PlatformService.CreateSecurityRanker:output_type -> platform.v1.SecurityRankerResource
+	431, // 786: platform.v1.PlatformService.UpdateSecurityRanker:output_type -> platform.v1.SecurityRankerResource
+	515, // 787: platform.v1.PlatformService.DeleteSecurityRanker:output_type -> google.protobuf.Empty
+	440, // 788: platform.v1.PlatformService.ListSecurityPostScripts:output_type -> platform.v1.ListSecurityPostScriptsResponse
+	438, // 789: platform.v1.PlatformService.GetSecurityPostScript:output_type -> platform.v1.SecurityPostScriptResource
+	438, // 790: platform.v1.PlatformService.CreateSecurityPostScript:output_type -> platform.v1.SecurityPostScriptResource
+	438, // 791: platform.v1.PlatformService.UpdateSecurityPostScript:output_type -> platform.v1.SecurityPostScriptResource
+	515, // 792: platform.v1.PlatformService.DeleteSecurityPostScript:output_type -> google.protobuf.Empty
+	451, // 793: platform.v1.PlatformService.ListSecurityPolicyPacks:output_type -> platform.v1.ListSecurityPolicyPacksResponse
+	449, // 794: platform.v1.PlatformService.GetSecurityPolicyPack:output_type -> platform.v1.SecurityPolicyPackResource
+	449, // 795: platform.v1.PlatformService.CreateSecurityPolicyPack:output_type -> platform.v1.SecurityPolicyPackResource
+	449, // 796: platform.v1.PlatformService.UpdateSecurityPolicyPack:output_type -> platform.v1.SecurityPolicyPackResource
+	515, // 797: platform.v1.PlatformService.DeleteSecurityPolicyPack:output_type -> google.protobuf.Empty
+	462, // 798: platform.v1.PlatformService.ListSecurityPrograms:output_type -> platform.v1.ListSecurityProgramsResponse
+	456, // 799: platform.v1.PlatformService.GetSecurityProgram:output_type -> platform.v1.SecurityProgramResource
+	456, // 800: platform.v1.PlatformService.CreateSecurityProgram:output_type -> platform.v1.SecurityProgramResource
+	456, // 801: platform.v1.PlatformService.UpdateSecurityProgram:output_type -> platform.v1.SecurityProgramResource
+	515, // 802: platform.v1.PlatformService.DeleteSecurityProgram:output_type -> google.protobuf.Empty
+	468, // 803: platform.v1.PlatformService.GenerateSecurityDraft:output_type -> platform.v1.GenerateSecurityDraftResponse
+	470, // 804: platform.v1.PlatformService.GetSecurityDraft:output_type -> platform.v1.GetSecurityDraftResponse
+	472, // 805: platform.v1.PlatformService.ExportSecurityPack:output_type -> platform.v1.ExportSecurityPackResponse
+	475, // 806: platform.v1.PlatformService.ImportSecurityPack:output_type -> platform.v1.ImportSecurityPackResponse
+	478, // 807: platform.v1.PlatformService.GetSecurityOverview:output_type -> platform.v1.GetSecurityOverviewResponse
+	482, // 808: platform.v1.PlatformService.GetSecurityConfigPostures:output_type -> platform.v1.GetSecurityConfigPosturesResponse
+	484, // 809: platform.v1.PlatformService.GetSecurityScanReport:output_type -> platform.v1.GetSecurityScanReportResponse
+	485, // 810: platform.v1.PlatformService.GetSecuritySkillsStatus:output_type -> platform.v1.SecuritySkillsStatus
+	485, // 811: platform.v1.PlatformService.InstallSecuritySkills:output_type -> platform.v1.SecuritySkillsStatus
+	489, // 812: platform.v1.PlatformService.ListSecurityCatalog:output_type -> platform.v1.SecurityCatalog
+	492, // 813: platform.v1.PlatformService.DryRunSecurityCatalogInstall:output_type -> platform.v1.SecurityCatalogInstallResponse
+	492, // 814: platform.v1.PlatformService.ApplySecurityCatalogInstall:output_type -> platform.v1.SecurityCatalogInstallResponse
+	496, // 815: platform.v1.PlatformService.ListBugReports:output_type -> platform.v1.ListBugReportsResponse
+	494, // 816: platform.v1.PlatformService.UpdateBugReportStatus:output_type -> platform.v1.BugReport
+	591, // [591:817] is the sub-list for method output_type
+	365, // [365:591] is the sub-list for method input_type
+	365, // [365:365] is the sub-list for extension type_name
+	365, // [365:365] is the sub-list for extension extendee
+	0,   // [0:365] is the sub-list for field type_name
 }
 
 func init() { file_rpc_platform_service_proto_init() }
@@ -45096,29 +45342,29 @@ func file_rpc_platform_service_proto_init() {
 		return
 	}
 	file_rpc_platform_service_proto_msgTypes[86].OneofWrappers = []any{}
-	file_rpc_platform_service_proto_msgTypes[143].OneofWrappers = []any{}
-	file_rpc_platform_service_proto_msgTypes[202].OneofWrappers = []any{}
-	file_rpc_platform_service_proto_msgTypes[203].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[146].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[205].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[206].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[208].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[209].OneofWrappers = []any{}
-	file_rpc_platform_service_proto_msgTypes[231].OneofWrappers = []any{}
-	file_rpc_platform_service_proto_msgTypes[262].OneofWrappers = []any{}
-	file_rpc_platform_service_proto_msgTypes[310].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[212].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[234].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[265].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[313].OneofWrappers = []any{}
-	file_rpc_platform_service_proto_msgTypes[327].OneofWrappers = []any{}
-	file_rpc_platform_service_proto_msgTypes[340].OneofWrappers = []any{}
-	file_rpc_platform_service_proto_msgTypes[346].OneofWrappers = []any{}
-	file_rpc_platform_service_proto_msgTypes[381].OneofWrappers = []any{}
-	file_rpc_platform_service_proto_msgTypes[392].OneofWrappers = []any{}
-	file_rpc_platform_service_proto_msgTypes[400].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[316].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[330].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[343].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[349].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[384].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[395].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[403].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_rpc_platform_service_proto_rawDesc), len(file_rpc_platform_service_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   505,
+			NumMessages:   508,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
