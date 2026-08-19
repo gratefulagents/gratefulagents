@@ -18,7 +18,7 @@ const maxUserModelDefaultsLength = 512
 // validReasoningLevels mirrors REASONING_LEVELS in
 // platform-app/frontend/src/lib/reasoning.ts.
 var validReasoningLevels = map[string]bool{
-	"": true, "none": true, "low": true, "medium": true,
+	"": true, "none": true, "minimal": true, "low": true, "medium": true,
 	"high": true, "xhigh": true, "max": true,
 }
 
@@ -130,7 +130,7 @@ func validateModelDefaults(provider, authMode, model, reasoningLevel string) err
 		}
 	}
 	if !validReasoningLevels[reasoningLevel] {
-		return fmt.Errorf("unsupported reasoning level %q (expected none, low, medium, high, xhigh, or max)", reasoningLevel)
+		return fmt.Errorf("unsupported reasoning level %q (expected none, minimal, low, medium, high, xhigh, or max)", reasoningLevel)
 	}
 	return nil
 }

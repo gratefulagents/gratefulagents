@@ -235,6 +235,7 @@ spec:
                   to max; individual roles may override it in their RoleInstruction.
                 enum:
                 - none
+                - minimal
                 - low
                 - medium
                 - high

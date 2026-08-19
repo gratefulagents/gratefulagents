@@ -288,7 +288,7 @@ export type UpdateAgentRunRuntimeConfigRequest = Message<"platform.v1.UpdateAgen
   updateReasoningLevel: boolean;
 
   /**
-   * reasoning_level is one of: none, low, medium, high, xhigh, max. Empty uses
+   * reasoning_level is one of: none, minimal, low, medium, high, xhigh, max. Empty uses
    * the provider/model default when update_reasoning_level is true.
    *
    * @generated from field: string reasoning_level = 6;
@@ -3765,7 +3765,7 @@ export type CreateAgentRunRequest = Message<"platform.v1.CreateAgentRunRequest">
 
   /**
    * reasoning_level optionally sets the model reasoning effort for this run
-   * (one of: none, low, medium, high, xhigh, max). Empty uses the provider/model default.
+   * (one of: none, minimal, low, medium, high, xhigh, max). Empty uses the provider/model default.
    *
    * @generated from field: string reasoning_level = 18;
    */
@@ -4335,7 +4335,7 @@ export type SlackAgent = Message<"platform.v1.SlackAgent"> & {
 
   /**
    * reasoning_level is the default model reasoning effort for runs this agent
-   * creates (none|low|medium|high|xhigh|max; empty = provider/model default).
+   * creates (none|minimal|low|medium|high|xhigh|max; empty = provider/model default).
    *
    * @generated from field: string reasoning_level = 43;
    */
@@ -5528,7 +5528,7 @@ export type RoleInstruction = Message<"platform.v1.RoleInstruction"> & {
   modelsByProvider: { [key: string]: string };
 
   /**
-   * empty inherits parent; none | low | medium | high | xhigh | max
+   * empty inherits parent; none | minimal | low | medium | high | xhigh | max
    *
    * @generated from field: string reasoning_level = 7;
    */
@@ -6001,7 +6001,7 @@ export type UpdateSlackAgentRequest = Message<"platform.v1.UpdateSlackAgentReque
 
   /**
    * reasoning_level sets the default model reasoning effort for runs this
-   * agent creates (one of: none, low, medium, high, xhigh, max). Assigned as a
+   * agent creates (one of: none, minimal, low, medium, high, xhigh, max). Assigned as a
    * whole on every save; empty = provider/model default.
    *
    * @generated from field: string reasoning_level = 42;
@@ -6508,7 +6508,7 @@ export type ModelDefaults = Message<"platform.v1.ModelDefaults"> & {
   model: string;
 
   /**
-   * reasoning_level is one of "", "none", "low", "medium", "high", "xhigh",
+   * reasoning_level is one of "", "none", "minimal", "low", "medium", "high", "xhigh",
    * "max". Empty means the provider/model default.
    *
    * @generated from field: string reasoning_level = 3;
@@ -8622,7 +8622,7 @@ export type CreateProjectRequest = Message<"platform.v1.CreateProjectRequest"> &
 
   /**
    * reasoning_level optionally sets the default model reasoning effort for runs
-   * created from this project (one of: none, low, medium, high, xhigh, max).
+   * created from this project (one of: none, minimal, low, medium, high, xhigh, max).
    * Empty uses the provider/model default.
    *
    * @generated from field: string reasoning_level = 29;
@@ -8819,7 +8819,7 @@ export type UpdateProjectRequest = Message<"platform.v1.UpdateProjectRequest"> &
 
   /**
    * reasoning_level sets the default model reasoning effort for runs created
-   * from this project (one of: none, low, medium, high, xhigh, max). Empty
+   * from this project (one of: none, minimal, low, medium, high, xhigh, max). Empty
    * clears the default (provider/model default applies).
    *
    * @generated from field: string reasoning_level = 27;
@@ -9855,7 +9855,7 @@ export type Project = Message<"platform.v1.Project"> & {
 
   /**
    * reasoning_level is the default model reasoning effort for runs created from
-   * this project (one of: none, low, medium, high, xhigh, max). Empty means the
+   * this project (one of: none, minimal, low, medium, high, xhigh, max). Empty means the
    * provider/model default.
    *
    * @generated from field: string reasoning_level = 43;
@@ -11728,7 +11728,7 @@ export type AgentRunDefaults = Message<"platform.v1.AgentRunDefaults"> & {
   authMode: string;
 
   /**
-   * none|low|medium|high|xhigh|max; empty = provider default
+   * none|minimal|low|medium|high|xhigh|max; empty = provider default
    *
    * @generated from field: string reasoning_level = 9;
    */
