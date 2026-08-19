@@ -157,7 +157,7 @@ describe("SecurityCatalogDialog", () => {
     expect(plan.textContent).toContain("Web review workflow");
     expect(plan.textContent).toContain("an unrelated same-name resource already exists");
     expect(screen.getByText(/Blocked items will be skipped/)).toBeTruthy();
-    const apply = screen.getByRole("button", { name: "Apply plan" });
+    const apply = screen.getByRole("button", { name: "Apply 2 changes" });
     expect((apply as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(apply);
 
@@ -188,7 +188,7 @@ describe("SecurityCatalogDialog", () => {
     fireEvent.click(await screen.findByRole("checkbox", { name: "Select Workflows Web review workflow" }));
     expect(applySecurityCatalogInstall).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Review selection (1)" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Apply plan" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply 1 change" }));
 
     await waitFor(() => expect(applySecurityCatalogInstall).toHaveBeenCalledWith({
       catalogRevision: "revision-7",
@@ -227,7 +227,7 @@ describe("SecurityCatalogDialog", () => {
     fireEvent.click(await screen.findByRole("checkbox", { name: "Select Skills Web review skill" }));
     fireEvent.click(screen.getByRole("button", { name: "Review selection (1)" }));
 
-    const apply = await screen.findByRole("button", { name: "Apply plan" });
+    const apply = await screen.findByRole("button", { name: "Apply 0 changes" });
     expect((apply as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(apply);
 

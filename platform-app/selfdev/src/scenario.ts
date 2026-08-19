@@ -28,6 +28,7 @@ import type {
   ResourceOwner,
   ResourceShareInfo,
   RuntimeImageOption,
+  SecurityCatalog,
   SecurityFinding,
   SecurityPolicyPackResource,
   SecurityPostScriptResource,
@@ -121,6 +122,8 @@ export interface Scenario {
   securitySavedFilters: SecuritySavedFilter[];
   /** Whether the current user has explicitly installed the curated security bundle. */
   securitySkillsInstalled: boolean;
+  /** Shipped, opt-in security catalog exposed by the manager namespace. */
+  securityCatalog: SecurityCatalog;
 
   /** Agent-filed platform bug reports (listBugReports / updateBugReportStatus). */
   bugReports: BugReport[];

@@ -11,6 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { client } from "@/lib/client";
 import { connectCodeOf } from "@/lib/rpc-errors";
+import { cn } from "@/lib/utils";
 import {
   SecurityCatalogInstallState,
   SecurityCatalogKind,
@@ -50,6 +51,16 @@ function stateVariant(state: SecurityCatalogInstallState): "outline" | "secondar
     return "destructive";
   }
   return state === SecurityCatalogInstallState.NOT_INSTALLED ? "outline" : "secondary";
+}
+
+function actionLabel(action: string): string {
+  switch (action) {
+    case "create": return "Will create";
+    case "refresh": return "Will update";
+    case "unchanged": return "No change";
+    case "blocked": return "Blocked";
+    default: return action || "Unknown";
+  }
 }
 
 function messageOf(error: unknown, fallback: string): string {
@@ -213,6 +224,17 @@ export function SecurityCatalogDialog({
 
   const blocked = review?.results.some((result) => result.action === "blocked") ?? false;
   const hasChanges = review?.results.some((result) => result.action === "create" || result.action === "refresh") ?? false;
+  const planCreates = review?.results.filter((result) => result.action === "create").length ?? 0;
+  const planUpdates = review?.results.filter((result) => result.action === "refresh").length ?? 0;
+  const planUnchanged = review?.results.filter((result) => result.action === "unchanged").length ?? 0;
+  const planChanges = planCreates + planUpdates;
+  const displayedReviewResults = review
+    ? [...review.results].sort((left, right) => {
+        const leftSelected = left.entry ? selected.has(entryKey(left.entry)) : false;
+        const rightSelected = right.entry ? selected.has(entryKey(right.entry)) : false;
+        return Number(rightSelected) - Number(leftSelected);
+      })
+    : [];
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -223,16 +245,18 @@ export function SecurityCatalogDialog({
           </Button>
         }
       />
-      <DialogContent className="flex max-h-[90vh] w-full max-w-4xl flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl" showCloseButton>
-        <DialogHeader className="space-y-1 border-b px-6 py-5">
+      <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-full max-w-4xl flex-col gap-0 overflow-hidden rounded-none p-0 [&_[data-slot=dialog-close]]:size-11 sm:h-auto sm:max-h-[90vh] sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:rounded-lg" showCloseButton>
+        <DialogHeader className="space-y-1 border-b px-4 py-4 pr-12 sm:px-6 sm:py-5 sm:pr-12">
           <DialogTitle>Add from shipped security catalog</DialogTitle>
           <DialogDescription>
-            Choose reusable security resources, review their dependency-expanded plan, then apply it explicitly.
-            Skills are managed later in <Link to="/settings/skills">Settings</Link>. Install Programs here before importing their scan targets on <Link to="/security/configs">Configurations</Link>.
+            Choose what to add. Required dependencies are included in the review before anything changes.
           </DialogDescription>
+          <p className="text-xs text-muted-foreground">
+            Manage installed skills in <Link className="font-medium underline underline-offset-2" to="/settings/skills">Settings</Link>. After adding a program, import its targets from <Link className="font-medium underline underline-offset-2" to="/security/configs">Configurations</Link>.
+          </p>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-8 sm:px-6 sm:py-5 sm:pb-8">
           {loading && (
             <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground" role="status">
               <Loader2 className="size-4 animate-spin" /> Loading shipped catalog…
@@ -268,14 +292,14 @@ export function SecurityCatalogDialog({
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Search catalog…"
-                    className="pl-8"
+                    className="min-h-11 pl-8"
                   />
                 </div>
                 <select
                   aria-label="Catalog kind"
                   value={kind}
                   onChange={(event) => setKind(event.target.value)}
-                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  className="min-h-11 rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="all">All kinds</option>
                   {availableKinds.map((value) => <option key={value} value={value}>{kindLabel(value)}</option>)}
@@ -287,17 +311,21 @@ export function SecurityCatalogDialog({
               ) : visibleEntries.length === 0 ? (
                 <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No catalog items match this search and kind.</p>
               ) : (
-                <ul className="divide-y rounded-lg border" aria-label="Shipped security catalog">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {visibleEntries.length} of {catalog.entries.length} items
+                  </p>
+                <ul className="divide-y overflow-hidden rounded-lg border" aria-label="Shipped security catalog">
                   {visibleEntries.map((entry) => {
                     const resource = entry.resource;
                     if (!resource) return null;
                     const key = entryKey(entry);
                     return (
-                      <li key={key} className="p-3">
-                        <label className="flex cursor-pointer items-start gap-3">
+                      <li key={key} className={cn("transition-colors", selected.has(key) && "bg-primary/5")}>
+                        <label className="flex min-h-11 cursor-pointer items-start gap-3 p-3 sm:p-4">
                           <input
                             type="checkbox"
-                            className="mt-1 size-4"
+                            className="mt-0.5 size-5 shrink-0 accent-primary"
                             checked={selected.has(key)}
                             onChange={() => toggle(entry)}
                             aria-label={`Select ${kindLabel(resource.kind)} ${entry.title || resource.name}`}
@@ -307,15 +335,25 @@ export function SecurityCatalogDialog({
                               <span className="font-medium">{entry.title || resource.name}</span>
                               <Badge variant="outline">{kindLabel(resource.kind)}</Badge>
                               <Badge variant={stateVariant(entry.installState)}>{installStateLabels[entry.installState] ?? "State unavailable"}</Badge>
-                              <Badge variant={entry.ready ? "secondary" : "destructive"}>{entry.ready ? "Ready" : "Not ready"}</Badge>
+                              {!entry.ready && <Badge variant="destructive">Not ready</Badge>}
                             </span>
                             <span className="block text-sm text-muted-foreground">{entry.description}</span>
                             <span className="block font-mono text-[11px] text-muted-foreground">{resource.name}</span>
+                            {entry.installState === SecurityCatalogInstallState.INSTALLED && (
+                              <span className="block text-xs text-muted-foreground">
+                                Select again to verify its catalog dependencies.
+                              </span>
+                            )}
                             {!entry.ready && entry.readinessMessage && <span className="block text-xs text-destructive">{entry.readinessMessage}</span>}
                             {entry.dependencies.length > 0 && (
-                              <span className="block text-xs text-muted-foreground">
-                                Depends on {entry.dependencies.map((dependency) => `${dependency.resource ? `${kindLabel(dependency.resource.kind)} / ${dependency.resource.name}` : "unknown"}${dependency.required ? " (required)" : " (optional)"}`).join(", ")}
-                              </span>
+                              <details className="text-xs text-muted-foreground">
+                                <summary className="w-fit cursor-pointer font-medium text-foreground/70">
+                                  {entry.dependencies.length} {entry.dependencies.length === 1 ? "dependency" : "dependencies"}
+                                </summary>
+                                <span className="mt-1 block break-words">
+                                  Depends on {entry.dependencies.map((dependency) => `${dependency.resource ? `${kindLabel(dependency.resource.kind)} / ${dependency.resource.name}` : "unknown"}${dependency.required ? " (required)" : " (optional)"}`).join(", ")}
+                                </span>
+                              </details>
                             )}
                           </span>
                         </label>
@@ -323,6 +361,7 @@ export function SecurityCatalogDialog({
                     );
                   })}
                 </ul>
+                </div>
               )}
             </>
           )}
@@ -331,21 +370,26 @@ export function SecurityCatalogDialog({
             <div className="space-y-3">
               <div>
                 <h3 className="font-medium">Dependency-expanded installation plan</h3>
-                <p className="text-sm text-muted-foreground">Items are ordered so required dependencies are installed first.</p>
+                <p className="text-sm text-muted-foreground">Your selected items appear first; required dependencies are included automatically.</p>
               </div>
               <ul className="divide-y rounded-lg border" aria-label="Catalog installation plan">
-                {review.results.map((result, index) => {
+                {displayedReviewResults.map((result, index) => {
                   const entry = result.entry;
                   const resource = entry?.resource;
                   return (
                     <li key={`${resource?.kind ?? 0}:${resource?.name ?? index}`} className="flex items-start justify-between gap-4 p-3">
                       <div className="min-w-0">
-                        <p className="font-medium">{entry?.title || resource?.name || "Unknown item"}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium">{entry?.title || resource?.name || "Unknown item"}</p>
+                          <Badge variant={entry && selected.has(entryKey(entry)) ? "secondary" : "outline"}>
+                            {entry && selected.has(entryKey(entry)) ? "Selected item" : "Included dependency"}
+                          </Badge>
+                        </div>
                         <p className="font-mono text-[11px] text-muted-foreground">{resource ? `${kindLabel(resource.kind)} / ${resource.name}` : "Unknown catalog resource"}</p>
                         {result.message && <p className={`mt-1 text-xs ${result.action === "blocked" ? "text-destructive" : "text-muted-foreground"}`}>{result.message}</p>}
                       </div>
                       <Badge variant={result.action === "blocked" ? "destructive" : result.action === "unchanged" ? "secondary" : "outline"}>
-                        {result.action || "unknown"}
+                        {actionLabel(result.action)}
                       </Badge>
                     </li>
                   );
@@ -370,21 +414,28 @@ export function SecurityCatalogDialog({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t px-6 py-4">
-          {review ? (
-            <Button type="button" variant="ghost" onClick={() => { setReview(null); setOperationError(""); }}>Back</Button>
-          ) : (
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-          )}
-          {review ? (
-            <Button type="button" onClick={() => void applyInstall()} disabled={busy}>
-              {busy ? "Applying…" : "Apply plan"}
-            </Button>
-          ) : (
-            <Button type="button" onClick={() => void previewInstall()} disabled={busy || !catalog?.ready || selected.size === 0}>
-              {busy ? "Building plan…" : `Review selection${selected.size ? ` (${selected.size})` : ""}`}
-            </Button>
-          )}
+        <div className="flex min-h-16 items-center justify-between gap-3 border-t bg-background px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
+          <p className="text-xs font-medium text-muted-foreground">
+            {review
+              ? `${planCreates} create · ${planUpdates} update · ${planUnchanged} unchanged`
+              : `${selected.size} selected`}
+          </p>
+          <div className="flex items-center gap-2">
+            {review ? (
+              <Button className="min-h-11" type="button" variant="ghost" onClick={() => { setReview(null); setOperationError(""); }}>Edit selection</Button>
+            ) : (
+              <Button className="min-h-11" type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            )}
+            {review ? (
+              <Button className="min-h-11" type="button" onClick={() => void applyInstall()} disabled={busy}>
+                {busy ? "Applying…" : `Apply ${planChanges} ${planChanges === 1 ? "change" : "changes"}`}
+              </Button>
+            ) : (
+              <Button className="min-h-11 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100" type="button" onClick={() => void previewInstall()} disabled={busy || !catalog?.ready || selected.size === 0}>
+                {busy ? "Building plan…" : `Review selection (${selected.size})`}
+              </Button>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

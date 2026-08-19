@@ -67,6 +67,7 @@ import {
   metrics,
   modeCatalog,
   runtimeImageCatalog,
+  securityCatalogFixture,
 } from "./common";
 
 const REPO_URL = "https://github.com/acme/operator-app";
@@ -2629,6 +2630,7 @@ export const defaultScenario: Scenario = {
   securityPrograms,
   securitySavedFilters,
   securitySkillsInstalled: false,
+  securityCatalog: securityCatalogFixture(),
 
   bugReports,
 
