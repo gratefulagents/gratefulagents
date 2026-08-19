@@ -30,6 +30,9 @@ func (s *Server) CreateProject(ctx context.Context, req *platform.CreateProjectR
 	if req.GetKubernetesAdmin() && !actorIsAdmin(actor) {
 		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("kubernetes_admin requires an admin"))
 	}
+	if req.GetDockerInDocker() && !actorIsAdmin(actor) {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("docker_in_docker requires an admin"))
+	}
 	namespace, err := s.ensureUserNamespace(ctx, actor)
 	if err != nil {
 		return nil, err
@@ -211,6 +214,7 @@ func (s *Server) CreateProject(ctx context.Context, req *platform.CreateProjectR
 			DisplayName:     displayName,
 			ReviewLoop:      &triggersv1alpha1.ProjectReviewLoopSpec{Disabled: reviewLoopDisabled},
 			KubernetesAdmin: req.GetKubernetesAdmin(),
+			DockerInDocker:  req.GetDockerInDocker(),
 			Defaults: triggersv1alpha1.AgentRunDefaults{
 				RepoURL:            repoURL,
 				AdditionalRepos:    additionalRepos,

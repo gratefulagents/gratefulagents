@@ -3909,6 +3909,9 @@ type AgentRun struct {
 	// kubernetes_admin indicates the run has cluster-admin RBAC and platform
 	// introspection tools enabled.
 	KubernetesAdmin bool `protobuf:"varint,141,opt,name=kubernetes_admin,json=kubernetesAdmin,proto3" json:"kubernetes_admin,omitempty"`
+	// docker_in_docker indicates the run pod carries a privileged docker:dind
+	// sidecar and the worker's DOCKER_HOST points at it.
+	DockerInDocker bool `protobuf:"varint,146,opt,name=docker_in_docker,json=dockerInDocker,proto3" json:"docker_in_docker,omitempty"`
 	// Optional per-run trajectory supervision and its controller-owned status.
 	Overseer          *AgentRunOverseerConfig  `protobuf:"bytes,142,opt,name=overseer,proto3" json:"overseer,omitempty"`
 	OverseerSummary   *AgentRunOverseerSummary `protobuf:"bytes,143,opt,name=overseer_summary,json=overseerSummary,proto3" json:"overseer_summary,omitempty"`
@@ -4657,6 +4660,13 @@ func (x *AgentRun) GetProviderOauthSecrets() []*ProviderKeyRef {
 func (x *AgentRun) GetKubernetesAdmin() bool {
 	if x != nil {
 		return x.KubernetesAdmin
+	}
+	return false
+}
+
+func (x *AgentRun) GetDockerInDocker() bool {
+	if x != nil {
+		return x.DockerInDocker
 	}
 	return false
 }
@@ -16375,6 +16385,10 @@ type CreateProjectRequest struct {
 	// kubernetes_admin grants runs created from this project cluster-admin RBAC
 	// plus read-only platform introspection tools. Setting it requires admin.
 	KubernetesAdmin bool `protobuf:"varint,33,opt,name=kubernetes_admin,json=kubernetesAdmin,proto3" json:"kubernetes_admin,omitempty"`
+	// docker_in_docker gives runs created from this project a privileged
+	// docker:dind sidecar so agents can run docker build/run/compose. Setting it
+	// requires admin.
+	DockerInDocker bool `protobuf:"varint,36,opt,name=docker_in_docker,json=dockerInDocker,proto3" json:"docker_in_docker,omitempty"`
 	// review_loop_disabled prevents autonomous reviewer runs for pull requests
 	// opened by runs created from this project, including additional repositories.
 	// Omission defaults to true; set false explicitly to opt in.
@@ -16627,6 +16641,13 @@ func (x *CreateProjectRequest) GetKubernetesAdmin() bool {
 	return false
 }
 
+func (x *CreateProjectRequest) GetDockerInDocker() bool {
+	if x != nil {
+		return x.DockerInDocker
+	}
+	return false
+}
+
 func (x *CreateProjectRequest) GetReviewLoopDisabled() bool {
 	if x != nil && x.ReviewLoopDisabled != nil {
 		return *x.ReviewLoopDisabled
@@ -16685,6 +16706,9 @@ type UpdateProjectRequest struct {
 	// kubernetes_admin changes the project's admin-gated Kubernetes access when
 	// present. Omitted means preserve the current value.
 	KubernetesAdmin *bool `protobuf:"varint,31,opt,name=kubernetes_admin,json=kubernetesAdmin,proto3,oneof" json:"kubernetes_admin,omitempty"`
+	// docker_in_docker changes the project's admin-gated Docker-in-Docker option
+	// when present. Omitted means preserve the current value.
+	DockerInDocker *bool `protobuf:"varint,35,opt,name=docker_in_docker,json=dockerInDocker,proto3,oneof" json:"docker_in_docker,omitempty"`
 	// review_loop_disabled changes whether runs created from this project receive
 	// autonomous PR reviews. Omitted means preserve the current value.
 	ReviewLoopDisabled *bool `protobuf:"varint,32,opt,name=review_loop_disabled,json=reviewLoopDisabled,proto3,oneof" json:"review_loop_disabled,omitempty"`
@@ -16935,6 +16959,13 @@ func (x *UpdateProjectRequest) GetAdditionalRepoUrls() []string {
 func (x *UpdateProjectRequest) GetKubernetesAdmin() bool {
 	if x != nil && x.KubernetesAdmin != nil {
 		return *x.KubernetesAdmin
+	}
+	return false
+}
+
+func (x *UpdateProjectRequest) GetDockerInDocker() bool {
+	if x != nil && x.DockerInDocker != nil {
+		return *x.DockerInDocker
 	}
 	return false
 }
@@ -18571,6 +18602,9 @@ type Project struct {
 	// kubernetes_admin grants runs created from this project cluster-admin RBAC
 	// plus read-only platform introspection tools.
 	KubernetesAdmin bool `protobuf:"varint,47,opt,name=kubernetes_admin,json=kubernetesAdmin,proto3" json:"kubernetes_admin,omitempty"`
+	// docker_in_docker gives runs created from this project a privileged
+	// docker:dind sidecar so agents can run docker build/run/compose.
+	DockerInDocker bool `protobuf:"varint,52,opt,name=docker_in_docker,json=dockerInDocker,proto3" json:"docker_in_docker,omitempty"`
 	// review_loop_disabled prevents autonomous reviewer runs for pull requests
 	// opened by this project's runs.
 	ReviewLoopDisabled bool              `protobuf:"varint,48,opt,name=review_loop_disabled,json=reviewLoopDisabled,proto3" json:"review_loop_disabled,omitempty"`
@@ -18836,6 +18870,13 @@ func (x *Project) GetAdditionalRepoUrls() []string {
 func (x *Project) GetKubernetesAdmin() bool {
 	if x != nil {
 		return x.KubernetesAdmin
+	}
+	return false
+}
+
+func (x *Project) GetDockerInDocker() bool {
+	if x != nil {
+		return x.DockerInDocker
 	}
 	return false
 }
@@ -40148,7 +40189,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x04role\x18\x06 \x01(\tR\x04role\x120\n" +
 	"\x14implementer_run_name\x18\a \x01(\tR\x12implementerRunName\x12%\n" +
 	"\x0ereview_verdict\x18\b \x01(\tR\rreviewVerdict\x12%\n" +
-	"\x0ereview_summary\x18\t \x01(\tR\rreviewSummary\"\xef%\n" +
+	"\x0ereview_summary\x18\t \x01(\tR\rreviewSummary\"\x9a&\n" +
 	"\bAgentRun\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x129\n" +
@@ -40263,7 +40304,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x11pull_request_urls\x18\x89\x01 \x03(\tR\x0fpullRequestUrls\x12+\n" +
 	"\x11standing_run_role\x18\x91\x01 \x01(\tR\x0fstandingRunRole\x12R\n" +
 	"\x16provider_oauth_secrets\x18\x8a\x01 \x03(\v2\x1b.platform.v1.ProviderKeyRefR\x14providerOauthSecrets\x12*\n" +
-	"\x10kubernetes_admin\x18\x8d\x01 \x01(\bR\x0fkubernetesAdmin\x12@\n" +
+	"\x10kubernetes_admin\x18\x8d\x01 \x01(\bR\x0fkubernetesAdmin\x12)\n" +
+	"\x10docker_in_docker\x18\x92\x01 \x01(\bR\x0edockerInDocker\x12@\n" +
 	"\boverseer\x18\x8e\x01 \x01(\v2#.platform.v1.AgentRunOverseerConfigR\boverseer\x12P\n" +
 	"\x10overseer_summary\x18\x8f\x01 \x01(\v2$.platform.v1.AgentRunOverseerSummaryR\x0foverseerSummary\x12.\n" +
 	"\x12overseer_detaching\x18\x90\x01 \x01(\bR\x11overseerDetachingJ\x04\b\v\x10\fJ\x04\b\x16\x10\x17J\x04\b\x17\x10\x18J\x04\b\x18\x10\x19J\x04\b\x1e\x10\x1fJ\x04\b\x1f\x10 J\x04\b \x10!J\x04\b)\x10*J\x04\b*\x10+J\x04\bC\x10DJ\x04\bE\x10FJ\x04\bF\x10GJ\x04\bG\x10HJ\x04\bH\x10IJ\x04\bT\x10UJ\x04\bW\x10XJ\x04\bX\x10YJ\x04\b`\x10aJ\x04\bc\x10dJ\x04\be\x10fJ\x04\bf\x10gJ\x04\bg\x10hJ\x04\bp\x10qJ\x04\b{\x10|J\x04\b|\x10}J\x04\b}\x10~J\x04\b~\x10\x7fR\x12skill_package_refsR\rapproval_modeR\x12required_approversR\x13verification_result\"l\n" +
@@ -41265,7 +41307,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x17ProjectCredentialStatus\x120\n" +
 	"\x14github_token_present\x18\x01 \x01(\bR\x12githubTokenPresent\x129\n" +
 	"\x19anthropic_api_key_present\x18\x02 \x01(\bR\x16anthropicApiKeyPresent\x123\n" +
-	"\x16openai_api_key_present\x18\x03 \x01(\bR\x13openaiApiKeyPresent\"\xcd\n" +
+	"\x16openai_api_key_present\x18\x03 \x01(\bR\x13openaiApiKeyPresent\"\xf7\n" +
 	"\n" +
 	"\x14CreateProjectRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
@@ -41301,11 +41343,12 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"skill_refs\x18  \x03(\tR\tskillRefs\x12'\n" +
 	"\x0freasoning_level\x18\x1d \x01(\tR\x0ereasoningLevel\x120\n" +
 	"\x14additional_repo_urls\x18\x1e \x03(\tR\x12additionalRepoUrls\x12)\n" +
-	"\x10kubernetes_admin\x18! \x01(\bR\x0fkubernetesAdmin\x125\n" +
+	"\x10kubernetes_admin\x18! \x01(\bR\x0fkubernetesAdmin\x12(\n" +
+	"\x10docker_in_docker\x18$ \x01(\bR\x0edockerInDocker\x125\n" +
 	"\x14review_loop_disabled\x18\" \x01(\bH\x00R\x12reviewLoopDisabled\x88\x01\x01\x12\x1e\n" +
 	"\bmode_ref\x18# \x01(\tH\x01R\amodeRef\x88\x01\x01B\x17\n" +
 	"\x15_review_loop_disabledB\v\n" +
-	"\t_mode_refJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x1c\x10\x1dR\x12skill_package_refs\"\xc4\v\n" +
+	"\t_mode_refJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x1c\x10\x1dR\x12skill_package_refs\"\x88\f\n" +
 	"\x14UpdateProjectRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
@@ -41340,11 +41383,13 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"skill_refs\x18\x1e \x03(\tR\tskillRefs\x12'\n" +
 	"\x0freasoning_level\x18\x1b \x01(\tR\x0ereasoningLevel\x120\n" +
 	"\x14additional_repo_urls\x18\x1c \x03(\tR\x12additionalRepoUrls\x12.\n" +
-	"\x10kubernetes_admin\x18\x1f \x01(\bH\x00R\x0fkubernetesAdmin\x88\x01\x01\x125\n" +
-	"\x14review_loop_disabled\x18  \x01(\bH\x01R\x12reviewLoopDisabled\x88\x01\x01\x12\x1e\n" +
-	"\bmode_ref\x18! \x01(\tH\x02R\amodeRef\x88\x01\x01\x12&\n" +
-	"\fbug_squasher\x18\" \x01(\bH\x03R\vbugSquasher\x88\x01\x01B\x13\n" +
-	"\x11_kubernetes_adminB\x17\n" +
+	"\x10kubernetes_admin\x18\x1f \x01(\bH\x00R\x0fkubernetesAdmin\x88\x01\x01\x12-\n" +
+	"\x10docker_in_docker\x18# \x01(\bH\x01R\x0edockerInDocker\x88\x01\x01\x125\n" +
+	"\x14review_loop_disabled\x18  \x01(\bH\x02R\x12reviewLoopDisabled\x88\x01\x01\x12\x1e\n" +
+	"\bmode_ref\x18! \x01(\tH\x03R\amodeRef\x88\x01\x01\x12&\n" +
+	"\fbug_squasher\x18\" \x01(\bH\x04R\vbugSquasher\x88\x01\x01B\x13\n" +
+	"\x11_kubernetes_adminB\x13\n" +
+	"\x11_docker_in_dockerB\x17\n" +
 	"\x15_review_loop_disabledB\v\n" +
 	"\t_mode_refB\x0f\n" +
 	"\r_bug_squasherJ\x04\b\x1a\x10\x1bR\x12skill_package_refs\"\xc5\x01\n" +
@@ -41491,7 +41536,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"connection\"K\n" +
 	"\x17DeleteConnectionRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"\x95\f\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\xbf\f\n" +
 	"\aProject\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
@@ -41527,7 +41572,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\rmy_permission\x18* \x01(\tR\fmyPermission\x12'\n" +
 	"\x0freasoning_level\x18+ \x01(\tR\x0ereasoningLevel\x120\n" +
 	"\x14additional_repo_urls\x18, \x03(\tR\x12additionalRepoUrls\x12)\n" +
-	"\x10kubernetes_admin\x18/ \x01(\bR\x0fkubernetesAdmin\x120\n" +
+	"\x10kubernetes_admin\x18/ \x01(\bR\x0fkubernetesAdmin\x12(\n" +
+	"\x10docker_in_docker\x184 \x01(\bR\x0edockerInDocker\x120\n" +
 	"\x14review_loop_disabled\x180 \x01(\bR\x12reviewLoopDisabled\x127\n" +
 	"\btriggers\x181 \x03(\v2\x1b.platform.v1.ProjectTriggerR\btriggers\x12\x19\n" +
 	"\bmode_ref\x182 \x01(\tR\amodeRef\x12!\n" +

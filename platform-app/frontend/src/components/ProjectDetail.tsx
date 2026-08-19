@@ -131,6 +131,11 @@ export function ProjectDetail() {
                     Kubernetes admin
                   </Badge>
                 )}
+                {project.dockerInDocker && (
+                  <Badge variant="secondary" className="text-[11px]">
+                    Docker-in-Docker
+                  </Badge>
+                )}
                 {project.bugSquasher && (
                   <Badge variant="secondary" className="text-[11px]">
                     Bug squasher

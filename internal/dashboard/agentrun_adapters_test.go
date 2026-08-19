@@ -69,6 +69,7 @@ func TestK8sAgentRunToProto(t *testing.T) {
 			},
 			Model:           "openrouter/gpt-5.4",
 			KubernetesAdmin: true,
+			DockerInDocker:  true,
 			Overseer: &platformv1alpha1.AgentRunOverseerSpec{
 				ModeRef:          &platformv1alpha1.ModeRef{Name: "overseer", Version: "v2", Channel: "stable"},
 				Model:            "openai/gpt-5",
@@ -139,6 +140,9 @@ func TestK8sAgentRunToProto(t *testing.T) {
 	}
 	if !pb.KubernetesAdmin {
 		t.Fatalf("KubernetesAdmin = false, want true")
+	}
+	if !pb.DockerInDocker {
+		t.Fatalf("DockerInDocker = false, want true")
 	}
 	if pb.Model != "openrouter/gpt-5.4" || pb.OpenaiBaseUrl != "https://openrouter.ai/api/v1" {
 		t.Fatalf("model/baseURL = %q/%q", pb.Model, pb.OpenaiBaseUrl)

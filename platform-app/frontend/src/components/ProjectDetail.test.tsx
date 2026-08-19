@@ -412,3 +412,36 @@ describe("ProjectDetail recent activity", () => {
     expect(screen.getByText("Age")).toBeTruthy();
   });
 });
+
+describe("ProjectDetail privileged badges", () => {
+  it("shows the Kubernetes admin and Docker-in-Docker badges when the project grants them", () => {
+    useProjects.mockReturnValue({
+      projects: [{
+        namespace: "team",
+        name: "platform",
+        displayName: "Platform",
+        additionalRepoUrls: [],
+        allowedModels: [],
+        mcpPolicyAllowedServers: [],
+        metrics: {},
+        triggers: [],
+        kubernetesAdmin: true,
+        dockerInDocker: true,
+      }],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects/team/platform"]}>
+        <Routes>
+          <Route path="/projects/:namespace/:name" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Kubernetes admin")).toBeTruthy();
+    expect(screen.getByText("Docker-in-Docker")).toBeTruthy();
+  });
+});

@@ -73,6 +73,9 @@ export function ProjectList() {
                   {p.kubernetesAdmin && (
                     <Badge variant="secondary" className="text-xs">Kubernetes admin</Badge>
                   )}
+                  {p.dockerInDocker && (
+                    <Badge variant="secondary" className="text-xs">Docker-in-Docker</Badge>
+                  )}
                 </div>
               </TableCell>
               <TableCell><OwnerAvatar owner={p.owner} /></TableCell>
