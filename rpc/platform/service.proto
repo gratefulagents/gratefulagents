@@ -1010,6 +1010,10 @@ message AgentRun {
   // introspection tools enabled.
   bool kubernetes_admin = 141;
 
+  // docker_in_docker indicates the run pod carries a privileged docker:dind
+  // sidecar and the worker's DOCKER_HOST points at it.
+  bool docker_in_docker = 146;
+
   // Optional per-run trajectory supervision and its controller-owned status.
   AgentRunOverseerConfig overseer = 142;
   AgentRunOverseerSummary overseer_summary = 143;
@@ -2571,6 +2575,10 @@ message CreateProjectRequest {
   // kubernetes_admin grants runs created from this project cluster-admin RBAC
   // plus read-only platform introspection tools. Setting it requires admin.
   bool kubernetes_admin = 33;
+  // docker_in_docker gives runs created from this project a privileged
+  // docker:dind sidecar so agents can run docker build/run/compose. Setting it
+  // requires admin.
+  bool docker_in_docker = 36;
   // review_loop_disabled prevents autonomous reviewer runs for pull requests
   // opened by runs created from this project, including additional repositories.
   // Omission defaults to true; set false explicitly to opt in.
@@ -2626,6 +2634,9 @@ message UpdateProjectRequest {
   // kubernetes_admin changes the project's admin-gated Kubernetes access when
   // present. Omitted means preserve the current value.
   optional bool kubernetes_admin = 31;
+  // docker_in_docker changes the project's admin-gated Docker-in-Docker option
+  // when present. Omitted means preserve the current value.
+  optional bool docker_in_docker = 35;
   // review_loop_disabled changes whether runs created from this project receive
   // autonomous PR reviews. Omitted means preserve the current value.
   optional bool review_loop_disabled = 32;
@@ -2869,6 +2880,9 @@ message Project {
   // kubernetes_admin grants runs created from this project cluster-admin RBAC
   // plus read-only platform introspection tools.
   bool kubernetes_admin = 47;
+  // docker_in_docker gives runs created from this project a privileged
+  // docker:dind sidecar so agents can run docker build/run/compose.
+  bool docker_in_docker = 52;
   // review_loop_disabled prevents autonomous reviewer runs for pull requests
   // opened by this project's runs.
   bool review_loop_disabled = 48;

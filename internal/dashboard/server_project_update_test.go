@@ -124,6 +124,7 @@ func TestUpdateProjectKubernetesAdminPresenceAndAdminGate(t *testing.T) {
 			DisplayName:     "Payments",
 			ReviewLoop:      &triggersv1alpha1.ProjectReviewLoopSpec{Disabled: true},
 			KubernetesAdmin: true,
+			DockerInDocker:  true,
 			Defaults: triggersv1alpha1.AgentRunDefaults{
 				Provider: triggersv1alpha1.ProviderOpenAI,
 				AuthMode: platformv1alpha1.AgentRunAuthModeAPIKey,
@@ -148,6 +149,9 @@ func TestUpdateProjectKubernetesAdminPresenceAndAdminGate(t *testing.T) {
 	}
 	if !resp.KubernetesAdmin {
 		t.Fatalf("KubernetesAdmin after omitted update = false, want preserved true")
+	}
+	if !resp.DockerInDocker {
+		t.Fatalf("DockerInDocker after omitted update = false, want preserved true")
 	}
 	if !resp.ReviewLoopDisabled {
 		t.Fatalf("ReviewLoopDisabled after omitted update = false, want preserved true")
@@ -177,6 +181,19 @@ func TestUpdateProjectKubernetesAdminPresenceAndAdminGate(t *testing.T) {
 		t.Fatalf("UpdateProject() non-admin change error = %v, want PermissionDenied", err)
 	}
 
+	_, err = srv.UpdateProject(projectActorCtx(), &platform.UpdateProjectRequest{
+		Namespace:      ns,
+		Name:           "payments",
+		DisplayName:    "Payments",
+		Provider:       "openai",
+		AuthMode:       "api-key",
+		ProviderKeys:   []*platform.ProviderKeyRef{{Provider: "openai", SecretName: "openai-secret"}},
+		DockerInDocker: &clear,
+	})
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("UpdateProject() non-admin docker_in_docker change error = %v, want PermissionDenied", err)
+	}
+
 	clearMode := ""
 	resp, err = srv.UpdateProject(actorContext("admin-1", "admin", "", ""), &platform.UpdateProjectRequest{
 		Namespace:       ns,
@@ -186,6 +203,7 @@ func TestUpdateProjectKubernetesAdminPresenceAndAdminGate(t *testing.T) {
 		AuthMode:        "api-key",
 		ProviderKeys:    []*platform.ProviderKeyRef{{Provider: "openai", SecretName: "openai-secret"}},
 		KubernetesAdmin: &clear,
+		DockerInDocker:  &clear,
 		ModeRef:         &clearMode,
 	})
 	if err != nil {
@@ -193,6 +211,9 @@ func TestUpdateProjectKubernetesAdminPresenceAndAdminGate(t *testing.T) {
 	}
 	if resp.KubernetesAdmin {
 		t.Fatalf("KubernetesAdmin after admin clear = true, want false")
+	}
+	if resp.DockerInDocker {
+		t.Fatalf("DockerInDocker after admin clear = true, want false")
 	}
 	if resp.ModeRef != "" {
 		t.Fatalf("ModeRef after explicit clear = %q, want empty", resp.ModeRef)

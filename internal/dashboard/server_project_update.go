@@ -34,6 +34,9 @@ func (s *Server) UpdateProject(ctx context.Context, req *platform.UpdateProjectR
 	if req.KubernetesAdmin != nil && req.GetKubernetesAdmin() != existing.Spec.KubernetesAdmin && !actorIsAdmin(requestActorFromContext(ctx)) {
 		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("changing kubernetes_admin requires an admin"))
 	}
+	if req.DockerInDocker != nil && req.GetDockerInDocker() != existing.Spec.DockerInDocker && !actorIsAdmin(requestActorFromContext(ctx)) {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("changing docker_in_docker requires an admin"))
+	}
 
 	displayName := strings.TrimSpace(req.GetDisplayName())
 	if displayName == "" {
@@ -135,6 +138,9 @@ func (s *Server) UpdateProject(ctx context.Context, req *platform.UpdateProjectR
 		}
 		if req.KubernetesAdmin != nil {
 			fresh.Spec.KubernetesAdmin = req.GetKubernetesAdmin()
+		}
+		if req.DockerInDocker != nil {
+			fresh.Spec.DockerInDocker = req.GetDockerInDocker()
 		}
 		if req.BugSquasher != nil {
 			fresh.Spec.BugSquasher = req.GetBugSquasher()

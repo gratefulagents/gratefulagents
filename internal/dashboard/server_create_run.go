@@ -377,6 +377,15 @@ func (s *Server) createAgentRunFromRequest(ctx context.Context, req *platform.Cr
 	if p, ok := owner.(*triggersv1alpha1.Project); ok && p.Spec.KubernetesAdmin {
 		run.Spec.KubernetesAdmin = true
 	}
+	// Docker-in-Docker follows the same admin-controlled inheritance: the
+	// source's defaults-level flag or the admin-gated Project option, never
+	// the caller's request.
+	if defaults.DockerInDocker {
+		run.Spec.DockerInDocker = true
+	}
+	if p, ok := owner.(*triggersv1alpha1.Project); ok && p.Spec.DockerInDocker {
+		run.Spec.DockerInDocker = true
+	}
 	// Project runs are retained as immutable history after Project deletion.
 	// Standalone legacy sources keep their existing owner-reference lifecycle.
 	if _, isProject := owner.(*triggersv1alpha1.Project); !isProject {

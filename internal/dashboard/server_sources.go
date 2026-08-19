@@ -377,4 +377,5 @@ func preserveAdminOnlyTriggerDefaults(defaults *triggersv1alpha1.AgentRunDefault
 	}
 	defaults.DisableCommandSandbox = existing.DisableCommandSandbox
 	defaults.KubernetesAdmin = existing.KubernetesAdmin
+	defaults.DockerInDocker = existing.DockerInDocker
 }

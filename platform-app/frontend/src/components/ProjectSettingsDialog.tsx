@@ -96,6 +96,7 @@ type FormState = {
   mcpPolicyAllowedServers: string;
   mcpServerRefs: string[];
   kubernetesAdmin: boolean;
+  dockerInDocker: boolean;
   bugSquasher: boolean;
 };
 
@@ -147,6 +148,7 @@ function formFromProject(project: Project): FormState {
     mcpPolicyAllowedServers: (project.mcpPolicyAllowedServers ?? []).join(", "),
     mcpServerRefs: [...(project.mcpServerRefs ?? [])],
     kubernetesAdmin: project.kubernetesAdmin,
+    dockerInDocker: project.dockerInDocker,
     bugSquasher: project.bugSquasher,
   };
 }
@@ -393,7 +395,7 @@ export function ProjectSettingsDialog({
         mcpPolicyAllowedServers,
         mcpServerRefs: form.mcpServerRefs,
         skillRefs: [],
-        ...(isAdmin ? { kubernetesAdmin: form.kubernetesAdmin } : {}),
+        ...(isAdmin ? { kubernetesAdmin: form.kubernetesAdmin, dockerInDocker: form.dockerInDocker } : {}),
         // Only send the flag when it changed: enabling it clears the flag on
         // every other project in the namespace.
         ...(form.bugSquasher !== initial.bugSquasher ? { bugSquasher: form.bugSquasher } : {}),
@@ -938,9 +940,19 @@ export function ProjectSettingsDialog({
               {isAdmin ? (
                 <OptionRow
                   icon={ShieldCheck}
-                  title="Cluster access"
-                  summary={form.kubernetesAdmin ? "Kubernetes admin" : "Standard access"}
-                  modified={form.kubernetesAdmin !== initial.kubernetesAdmin}
+                  title="Privileged access"
+                  summary={
+                    [
+                      form.kubernetesAdmin ? "Kubernetes admin" : null,
+                      form.dockerInDocker ? "Docker-in-Docker" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(", ") || "Standard access"
+                  }
+                  modified={
+                    form.kubernetesAdmin !== initial.kubernetesAdmin ||
+                    form.dockerInDocker !== initial.dockerInDocker
+                  }
                 >
                   <FlowSwitchRow
                     id="project-settings-kubernetes-admin"
@@ -951,6 +963,18 @@ export function ProjectSettingsDialog({
                         id="project-settings-kubernetes-admin"
                         checked={form.kubernetesAdmin}
                         onCheckedChange={(checked) => update("kubernetesAdmin", checked)}
+                      />
+                    }
+                  />
+                  <FlowSwitchRow
+                    id="project-settings-docker-in-docker"
+                    label="Docker-in-Docker"
+                    hint="Run a privileged docker:dind sidecar in this project's run pods so agents can use docker build, run, and compose. Requires the cluster to allow privileged pods in the runs namespace."
+                    control={
+                      <Switch
+                        id="project-settings-docker-in-docker"
+                        checked={form.dockerInDocker}
+                        onCheckedChange={(checked) => update("dockerInDocker", checked)}
                       />
                     }
                   />

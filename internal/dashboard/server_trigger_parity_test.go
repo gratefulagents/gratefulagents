@@ -930,6 +930,7 @@ func TestUpdateTriggerPreservesAdminOnlyDefaults(t *testing.T) {
 				Provider:              triggersv1alpha1.ProviderOpenAI,
 				DisableCommandSandbox: true,
 				KubernetesAdmin:       true,
+				DockerInDocker:        true,
 				Secrets:               triggersv1alpha1.AgentRunSecrets{GithubToken: "trigger-token"},
 			},
 		},
@@ -944,6 +945,7 @@ func TestUpdateTriggerPreservesAdminOnlyDefaults(t *testing.T) {
 				Provider:              triggersv1alpha1.ProviderOpenAI,
 				DisableCommandSandbox: true,
 				KubernetesAdmin:       true,
+				DockerInDocker:        true,
 				Secrets:               triggersv1alpha1.AgentRunSecrets{GithubToken: "old-gh"},
 			},
 		},
@@ -965,7 +967,7 @@ func TestUpdateTriggerPreservesAdminOnlyDefaults(t *testing.T) {
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "acme-payments"}, updatedGH); err != nil {
 		t.Fatalf("Get(GitHubRepository) error = %v", err)
 	}
-	if !updatedGH.Spec.Defaults.DisableCommandSandbox || !updatedGH.Spec.Defaults.KubernetesAdmin {
+	if !updatedGH.Spec.Defaults.DisableCommandSandbox || !updatedGH.Spec.Defaults.KubernetesAdmin || !updatedGH.Spec.Defaults.DockerInDocker {
 		t.Fatalf("GitHubRepository admin-only defaults cleared: %+v", updatedGH.Spec.Defaults)
 	}
 
@@ -984,7 +986,7 @@ func TestUpdateTriggerPreservesAdminOnlyDefaults(t *testing.T) {
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "web"}, updatedLP); err != nil {
 		t.Fatalf("Get(LinearProject) error = %v", err)
 	}
-	if !updatedLP.Spec.Defaults.DisableCommandSandbox || !updatedLP.Spec.Defaults.KubernetesAdmin {
+	if !updatedLP.Spec.Defaults.DisableCommandSandbox || !updatedLP.Spec.Defaults.KubernetesAdmin || !updatedLP.Spec.Defaults.DockerInDocker {
 		t.Fatalf("LinearProject admin-only defaults cleared: %+v", updatedLP.Spec.Defaults)
 	}
 }

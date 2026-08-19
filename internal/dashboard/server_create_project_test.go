@@ -314,6 +314,21 @@ func TestCreateProjectKubernetesAdminRequiresAdmin(t *testing.T) {
 	}
 }
 
+func TestCreateProjectDockerInDockerRequiresAdmin(t *testing.T) {
+	scheme := testProjectScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	srv := &Server{k8sClient: c, scheme: scheme}
+
+	_, err := srv.CreateProject(projectActorCtx(), &platform.CreateProjectRequest{
+		Name:           "dind-project",
+		DisplayName:    "DinD Project",
+		DockerInDocker: true,
+	})
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("CreateProject() error = %v, want PermissionDenied", err)
+	}
+}
+
 func TestCreateProjectKubernetesAdminAdminAllowed(t *testing.T) {
 	scheme := testProjectScheme(t)
 	c := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -325,6 +340,7 @@ func TestCreateProjectKubernetesAdminAdminAllowed(t *testing.T) {
 		AuthMode:        "api-key",
 		OpenaiApiKey:    "sk-test",
 		KubernetesAdmin: true,
+		DockerInDocker:  true,
 	})
 	if err != nil {
 		t.Fatalf("CreateProject() error = %v", err)
@@ -332,12 +348,18 @@ func TestCreateProjectKubernetesAdminAdminAllowed(t *testing.T) {
 	if !resp.KubernetesAdmin {
 		t.Fatalf("response KubernetesAdmin = false, want true")
 	}
+	if !resp.DockerInDocker {
+		t.Fatalf("response DockerInDocker = false, want true")
+	}
 	project := &triggersv1alpha1.Project{}
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: resp.Namespace, Name: "admin-project"}, project); err != nil {
 		t.Fatalf("Get(Project) error = %v", err)
 	}
 	if !project.Spec.KubernetesAdmin {
 		t.Fatalf("Project.Spec.KubernetesAdmin = false, want true")
+	}
+	if !project.Spec.DockerInDocker {
+		t.Fatalf("Project.Spec.DockerInDocker = false, want true")
 	}
 }
 

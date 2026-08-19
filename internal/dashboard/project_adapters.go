@@ -15,6 +15,7 @@ func k8sProjectToProto(p *triggersv1alpha1.Project) *platform.Project {
 		RepoUrl:         p.Spec.Defaults.RepoURL,
 		CreatedAtUnix:   p.CreationTimestamp.Unix(),
 		KubernetesAdmin: p.Spec.KubernetesAdmin,
+		DockerInDocker:  p.Spec.DockerInDocker,
 		BugSquasher:     p.Spec.BugSquasher,
 	}
 	pb.ReviewLoopDisabled = p.Spec.ReviewLoop == nil || p.Spec.ReviewLoop.Disabled
