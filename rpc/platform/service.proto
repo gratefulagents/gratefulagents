@@ -873,6 +873,9 @@ message AgentRun {
   // additional_repo_urls are extra git repositories cloned into the run's
   // sandbox at startup (under repos/<name> next to the primary repository).
   repeated string additional_repo_urls = 35;
+  // ssh_tunnel_ref names the SSHTunnel resource fronting this run's
+  // OpenAI-compatible inference endpoint (empty when the run does not use one).
+  string ssh_tunnel_ref = 36;
 
   // status
   string phase = 40;
@@ -3290,6 +3293,11 @@ message AgentRunDefaults {
   string workflow_mode = 21;  // auto | chat
   string mode_ref = 22;       // ModeTemplate name
   string execution_mode = 23; // linear | team
+  // ssh_tunnel_ref names an SSHTunnel resource (same namespace) fronting a
+  // self-hosted OpenAI-compatible inference endpoint. Runs created from these
+  // defaults get a hardened per-run SSH port-forward sidecar and their
+  // OPENAI_BASE_URL points at the tunnel (overriding openai_base_url).
+  string ssh_tunnel_ref = 26;
 }
 
 // TriggerPolicies carries the dashboard-managed runtime/MCP policy

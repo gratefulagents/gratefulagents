@@ -4,7 +4,6 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.0
-    helm.sh/resource-policy: keep
   name: githubrepositories.triggers.gratefulagents.dev
 spec:
   group: triggers.gratefulagents.dev
@@ -358,6 +357,19 @@ spec:
                       type: object
                     type: array
                     x-kubernetes-list-type: atomic
+                  sshTunnelRef:
+                    description: |-
+                      sshTunnelRef names an SSHTunnel resource (same namespace as the created
+                      runs) that fronts a self-hosted OpenAI-compatible inference endpoint.
+                      Runs created from these defaults get a hardened per-run SSH port-forward
+                      sidecar, and their OPENAI_BASE_URL points at the tunnel's loopback
+                      listener (overriding openaiBaseURL).
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
                   team:
                     description: |-
                       team configures the predeclared team-mode orchestration contract for
@@ -892,6 +904,19 @@ spec:
                           type: object
                         type: array
                         x-kubernetes-list-type: atomic
+                      sshTunnelRef:
+                        description: |-
+                          sshTunnelRef names an SSHTunnel resource (same namespace as the created
+                          runs) that fronts a self-hosted OpenAI-compatible inference endpoint.
+                          Runs created from these defaults get a hardened per-run SSH port-forward
+                          sidecar, and their OPENAI_BASE_URL points at the tunnel's loopback
+                          listener (overriding openaiBaseURL).
+                        properties:
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
                       team:
                         description: |-
                           team configures the predeclared team-mode orchestration contract for

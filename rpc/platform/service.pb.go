@@ -3694,6 +3694,9 @@ type AgentRun struct {
 	// additional_repo_urls are extra git repositories cloned into the run's
 	// sandbox at startup (under repos/<name> next to the primary repository).
 	AdditionalRepoUrls []string `protobuf:"bytes,35,rep,name=additional_repo_urls,json=additionalRepoUrls,proto3" json:"additional_repo_urls,omitempty"`
+	// ssh_tunnel_ref names the SSHTunnel resource fronting this run's
+	// OpenAI-compatible inference endpoint (empty when the run does not use one).
+	SshTunnelRef string `protobuf:"bytes,36,opt,name=ssh_tunnel_ref,json=sshTunnelRef,proto3" json:"ssh_tunnel_ref,omitempty"`
 	// status
 	Phase                  string                 `protobuf:"bytes,40,opt,name=phase,proto3" json:"phase,omitempty"`
 	QueueState             string                 `protobuf:"bytes,43,opt,name=queue_state,json=queueState,proto3" json:"queue_state,omitempty"`
@@ -4033,6 +4036,13 @@ func (x *AgentRun) GetAdditionalRepoUrls() []string {
 		return x.AdditionalRepoUrls
 	}
 	return nil
+}
+
+func (x *AgentRun) GetSshTunnelRef() string {
+	if x != nil {
+		return x.SshTunnelRef
+	}
+	return ""
 }
 
 func (x *AgentRun) GetPhase() string {
@@ -21974,6 +21984,11 @@ type AgentRunDefaults struct {
 	WorkflowMode  string   `protobuf:"bytes,21,opt,name=workflow_mode,json=workflowMode,proto3" json:"workflow_mode,omitempty"`    // auto | chat
 	ModeRef       string   `protobuf:"bytes,22,opt,name=mode_ref,json=modeRef,proto3" json:"mode_ref,omitempty"`                   // ModeTemplate name
 	ExecutionMode string   `protobuf:"bytes,23,opt,name=execution_mode,json=executionMode,proto3" json:"execution_mode,omitempty"` // linear | team
+	// ssh_tunnel_ref names an SSHTunnel resource (same namespace) fronting a
+	// self-hosted OpenAI-compatible inference endpoint. Runs created from these
+	// defaults get a hardened per-run SSH port-forward sidecar and their
+	// OPENAI_BASE_URL points at the tunnel (overriding openai_base_url).
+	SshTunnelRef  string `protobuf:"bytes,26,opt,name=ssh_tunnel_ref,json=sshTunnelRef,proto3" json:"ssh_tunnel_ref,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -22172,6 +22187,13 @@ func (x *AgentRunDefaults) GetModeRef() string {
 func (x *AgentRunDefaults) GetExecutionMode() string {
 	if x != nil {
 		return x.ExecutionMode
+	}
+	return ""
+}
+
+func (x *AgentRunDefaults) GetSshTunnelRef() string {
+	if x != nil {
+		return x.SshTunnelRef
 	}
 	return ""
 }
@@ -39550,7 +39572,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x04role\x18\x06 \x01(\tR\x04role\x120\n" +
 	"\x14implementer_run_name\x18\a \x01(\tR\x12implementerRunName\x12%\n" +
 	"\x0ereview_verdict\x18\b \x01(\tR\rreviewVerdict\x12%\n" +
-	"\x0ereview_summary\x18\t \x01(\tR\rreviewSummary\"\xc9%\n" +
+	"\x0ereview_summary\x18\t \x01(\tR\rreviewSummary\"\xef%\n" +
 	"\bAgentRun\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x129\n" +
@@ -39587,7 +39609,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x13github_token_secret\x18\x1d \x01(\tR\x11githubTokenSecret\x12\x1b\n" +
 	"\tauth_mode\x18! \x01(\tR\bauthMode\x12.\n" +
 	"\x13openai_oauth_secret\x18\" \x01(\tR\x11openaiOauthSecret\x120\n" +
-	"\x14additional_repo_urls\x18# \x03(\tR\x12additionalRepoUrls\x12\x14\n" +
+	"\x14additional_repo_urls\x18# \x03(\tR\x12additionalRepoUrls\x12$\n" +
+	"\x0essh_tunnel_ref\x18$ \x01(\tR\fsshTunnelRef\x12\x14\n" +
 	"\x05phase\x18( \x01(\tR\x05phase\x12\x1f\n" +
 	"\vqueue_state\x18+ \x01(\tR\n" +
 	"queueState\x12%\n" +
@@ -41232,7 +41255,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x15use_saved_credentials\x18\x10 \x01(\bR\x13useSavedCredentials\x12!\n" +
 	"\fgithub_token\x18\x11 \x01(\tR\vgithubToken\x129\n" +
 	"\bdefaults\x18\x12 \x01(\v2\x1d.platform.v1.AgentRunDefaultsR\bdefaults\x128\n" +
-	"\bpolicies\x18\x13 \x01(\v2\x1c.platform.v1.TriggerPoliciesR\bpolicies\"\xba\a\n" +
+	"\bpolicies\x18\x13 \x01(\v2\x1c.platform.v1.TriggerPoliciesR\bpolicies\"\xe0\a\n" +
 	"\x10AgentRunDefaults\x12\x19\n" +
 	"\brepo_url\x18\x01 \x01(\tR\arepoUrl\x120\n" +
 	"\x14additional_repo_urls\x18\x02 \x03(\tR\x12additionalRepoUrls\x12\x1f\n" +
@@ -41261,7 +41284,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"skill_refs\x18\x19 \x03(\tR\tskillRefs\x12#\n" +
 	"\rworkflow_mode\x18\x15 \x01(\tR\fworkflowMode\x12\x19\n" +
 	"\bmode_ref\x18\x16 \x01(\tR\amodeRef\x12%\n" +
-	"\x0eexecution_mode\x18\x17 \x01(\tR\rexecutionModeJ\x04\b\x14\x10\x15R\x12skill_package_refs\"\xc1\x02\n" +
+	"\x0eexecution_mode\x18\x17 \x01(\tR\rexecutionMode\x12$\n" +
+	"\x0essh_tunnel_ref\x18\x1a \x01(\tR\fsshTunnelRefJ\x04\b\x14\x10\x15R\x12skill_package_refs\"\xc1\x02\n" +
 	"\x0fTriggerPolicies\x12:\n" +
 	"\x19configure_runtime_profile\x18\x01 \x01(\bR\x17configureRuntimeProfile\x12'\n" +
 	"\x0fpermission_mode\x18\x02 \x01(\tR\x0epermissionMode\x12\x1f\n" +

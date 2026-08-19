@@ -195,3 +195,23 @@ func TestApplyPolicyRefsKeepsExistingMaxRuntime(t *testing.T) {
 		t.Fatalf("MaxRuntime = %s, want existing 2h preserved", spec.Limits.MaxRuntime.Duration)
 	}
 }
+
+// TestBuildTriggerRunSSHTunnelRef pins that trigger defaults referencing an
+// SSHTunnel propagate to created runs, so their inference traffic goes
+// through the per-run SSH tunnel sidecar.
+func TestBuildTriggerRunSSHTunnelRef(t *testing.T) {
+	run := BuildTriggerRun(TriggerRunSpec{
+		RunName:     "run-1",
+		Namespace:   "default",
+		TriggerKind: "GitHubRepository",
+		TriggerName: "payments",
+		Defaults: triggersv1alpha1.AgentRunDefaults{
+			RepoURL:      "https://github.com/example/repo.git",
+			Model:        "gpt-5.4",
+			SSHTunnelRef: &platformv1alpha1.NamedRef{Name: "llm"},
+		},
+	})
+	if run.Spec.SSHTunnelRef == nil || run.Spec.SSHTunnelRef.Name != "llm" {
+		t.Fatalf("Spec.SSHTunnelRef = %+v, want llm (copied from trigger defaults)", run.Spec.SSHTunnelRef)
+	}
+}
