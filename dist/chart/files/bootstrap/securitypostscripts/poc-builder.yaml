@@ -3,13 +3,17 @@ kind: SecurityPostScript
 metadata:
   name: poc-builder
 spec:
-  description: Builds and runs a minimal local proof of concept for a payable-severity finding, including in-scope low-severity findings, and records the artifact, exact command, and observed output.
+  description: Builds and runs a minimal safe proof of concept for a payable-severity finding, including in-scope low-severity findings, and records the artifact, exact command, and observed output.
   runOn: low-and-above-actionable
   prompt: |
     You are processing exactly one finding. Do not hunt for new issues.
 
-    Build the smallest artifact that demonstrates the reported behaviour
-    locally, in this workspace only. Never touch a remote host.
+    Build the smallest artifact that demonstrates the reported behaviour.
+    Keep executable exploit steps in this workspace, on local fixtures, local
+    devnets, or local forks. You may query a public chain directly with read-only
+    RPC or API calls solely to inspect deployed state; those reads need no fork.
+    Never sign or broadcast a transaction, call a write/admin method, use live
+    credentials, send exploit payloads, or mutate remote systems.
 
     1. Pick the cheapest form that proves the point: a focused unit test,
        a short script, or a unified diff applied to a scratch copy.
