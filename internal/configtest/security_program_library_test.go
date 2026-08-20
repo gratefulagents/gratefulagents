@@ -5,12 +5,84 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"sigs.k8s.io/yaml"
 )
+
+var workflowParameterRefPattern = regexp.MustCompile(`\{\{\s*params\.([a-zA-Z_][a-zA-Z0-9_]*)`)
+
+func TestSecurityProgramTargetReferencesAndParameters(t *testing.T) {
+	t.Parallel()
+
+	workflowEntries, err := os.ReadDir(repoPath("configs", "securityworkflows"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflows := make(map[string]triggersv1alpha1.SecurityWorkflow, len(workflowEntries))
+	for _, entry := range workflowEntries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), ".yaml")
+		var workflow triggersv1alpha1.SecurityWorkflow
+		readBootstrapAsset(t, "securityworkflows", name, &workflow)
+		workflows[name] = workflow
+
+		declared := make(map[string]bool, len(workflow.Spec.Parameters))
+		for _, parameter := range workflow.Spec.Parameters {
+			declared[parameter.Name] = true
+		}
+		for _, task := range workflow.Spec.Tasks {
+			for _, match := range workflowParameterRefPattern.FindAllStringSubmatch(task.Objective, -1) {
+				if !declared[match[1]] {
+					t.Errorf("workflow %q task %q references undeclared parameter %q", name, task.Name, match[1])
+				}
+			}
+		}
+	}
+
+	programEntries, err := os.ReadDir(repoPath("configs", "securityprograms"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range programEntries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), ".yaml")
+		var program triggersv1alpha1.SecurityProgram
+		readBootstrapAsset(t, "securityprograms", name, &program)
+		for _, target := range program.Spec.EffectiveScanTargets() {
+			workflow, exists := workflows[target.WorkflowRef]
+			if !exists {
+				t.Errorf("program %q target %q references missing workflow %q", name, target.ScanName, target.WorkflowRef)
+				continue
+			}
+			if _, err := os.Stat(repoPath("configs", "securitypolicypacks", target.PolicyPackRef+".yaml")); err != nil {
+				t.Errorf("program %q target %q references missing policy pack %q: %v", name, target.ScanName, target.PolicyPackRef, err)
+			}
+			declared := make(map[string]triggersv1alpha1.SecurityWorkflowParameter, len(workflow.Spec.Parameters))
+			for _, parameter := range workflow.Spec.Parameters {
+				declared[parameter.Name] = parameter
+			}
+			for parameter := range target.ParameterValues {
+				if _, exists := declared[parameter]; !exists {
+					t.Errorf("program %q target %q supplies undeclared parameter %q to workflow %q", name, target.ScanName, parameter, target.WorkflowRef)
+				}
+			}
+			for parameterName, parameter := range declared {
+				_, supplied := target.ParameterValues[parameterName]
+				if parameter.Required && !supplied && parameter.Default == "" {
+					t.Errorf("program %q target %q omits required parameter %q for workflow %q", name, target.ScanName, parameterName, target.WorkflowRef)
+				}
+			}
+		}
+	}
+}
 
 func TestSecurityProgramLibrary(t *testing.T) {
 	t.Parallel()
@@ -165,6 +237,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"hackenproof-hyperbridge":         "substrate-xcm-security-review",
 		"hackenproof-kaia":                "blockchain-protocol-audit",
 		"hackenproof-layer3":              "evm-orderbook-settlement-review",
+		"hackenproof-linear":              "near-contract-review",
 		"hackenproof-myetherwallet":       "wallet-security-review",
 		"hackenproof-near-bridges":        "bridge-l2-zk-security-review",
 		"hackenproof-near-contracts":      "near-contract-review",
@@ -174,6 +247,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"hackenproof-sui-protocol":        "blockchain-protocol-audit",
 		"hackenproof-vechainthor":         "blockchain-protocol-audit",
 		"shiftcrypto-bitbox":              "wallet-security-review",
+		"hackerone-coinbase":              "mpc-cryptography-security-review",
 	}
 	// A program whose in-scope repositories span more than one execution
 	// environment cannot be reviewed by a single workflow: the Solana crates
@@ -426,7 +500,11 @@ func TestSecurityProgramLibrary(t *testing.T) {
 					if target.BaseBranch != want {
 						t.Errorf("scanTargets[%d].baseBranch = %q, want verified release %q", index, target.BaseBranch, want)
 					}
-					if got := target.ParameterValues["release_tag"]; got != want {
+					if program.Name == "firedancer" {
+						if _, supplied := target.ParameterValues["release_tag"]; supplied {
+							t.Errorf("scanTargets[%d] supplies release_tag to a workflow that does not declare it", index)
+						}
+					} else if got := target.ParameterValues["release_tag"]; got != want {
 						t.Errorf("scanTargets[%d].parameterValues[release_tag] = %q, want %q", index, got, want)
 					}
 				}

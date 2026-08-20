@@ -146,6 +146,41 @@ func TestValidateSecurityWorkflowOutputEnforcesConditionalEvidence(t *testing.T)
 	}
 }
 
+func TestValidateSecurityWorkflowTasksRejectsUnsupportedOutputSchemas(t *testing.T) {
+	tests := []struct {
+		name     string
+		schema   string
+		fragment string
+	}{
+		{name: "unknown type", schema: `{"type":"candidate"}`, fragment: `type "candidate" is unsupported`},
+		{name: "union type must use anyOf", schema: `{"type":["integer","null"]}`, fragment: "express unions with anyOf"},
+		{name: "unknown keyword", schema: `{"type":"object","require":["id"]}`, fragment: `unsupported keyword "require"`},
+		{name: "malformed required", schema: `{"type":"object","required":"id"}`, fragment: "required must be an array"},
+		{name: "malformed property", schema: `{"type":"object","properties":{"id":"string"}}`, fragment: "must be a schema object"},
+		{name: "malformed composition", schema: `{"allOf":[true]}`, fragment: "must be a schema object"},
+		{name: "unsupported pattern", schema: `{"type":"string","pattern":"^x$"}`, fragment: `unsupported keyword "pattern"`},
+		{name: "fractional cardinality", schema: `{"type":"array","minItems":1.5}`, fragment: "minItems must be a non-negative integer"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tasks := []SecurityScanTask{{Name: "validate", Objective: "validate", OutputSchema: test.schema}}
+			requireFieldError(t, ValidateSecurityWorkflowTasks(tasks), "tasks[0].outputSchema", test.fragment)
+			if err := ValidateSecurityWorkflowOutput(test.schema, `{}`); err == nil || !strings.Contains(err.Error(), test.fragment) {
+				t.Fatalf("ValidateSecurityWorkflowOutput error = %v, want fragment %q", err, test.fragment)
+			}
+		})
+	}
+}
+
+func TestValidateSecurityWorkflowOutputSchemaBoundsAndNull(t *testing.T) {
+	if err := ValidateSecurityWorkflowOutput(`{"type":"number","minimum":-5,"maximum":-1}`, `-2`); err != nil {
+		t.Fatalf("negative numeric bounds should be valid: %v", err)
+	}
+	if err := ValidateSecurityWorkflowOutput(`null`, `{}`); err == nil || !strings.Contains(err.Error(), "schema must be a JSON object") {
+		t.Fatalf("null schema error = %v, want object error", err)
+	}
+}
+
 func TestValidateSecurityWorkflowTasksExecutionFieldFailures(t *testing.T) {
 	base := func() []SecurityScanTask {
 		return []SecurityScanTask{

@@ -155,6 +155,8 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 			var object map[string]any
 			if err := json.Unmarshal([]byte(schema), &object); err != nil || object == nil {
 				add(field+".outputSchema", "task %q outputSchema must be a JSON object (a JSON Schema in object form)", name)
+			} else if err := validateSecurityWorkflowSchema(object, "$"); err != nil {
+				add(field+".outputSchema", "task %q outputSchema is outside the supported JSON Schema subset: %v", name, err)
 			}
 		}
 		if task.When != nil {
@@ -401,11 +403,159 @@ func ValidateSecurityWorkflowOutput(schemaJSON, valueJSON string) error {
 	if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil {
 		return fmt.Errorf("invalid schema: %w", err)
 	}
+	if schema == nil {
+		return fmt.Errorf("invalid schema: schema must be a JSON object")
+	}
+	if err := validateSecurityWorkflowSchema(schema, "$"); err != nil {
+		return fmt.Errorf("invalid schema: %w", err)
+	}
 	var value any
 	if err := json.Unmarshal([]byte(valueJSON), &value); err != nil {
 		return fmt.Errorf("invalid value: %w", err)
 	}
 	return validateSecurityWorkflowValue(schema, value, "$")
+}
+
+// validateSecurityWorkflowSchema rejects definitions that the local output
+// validator cannot enforce. Silently accepting an unknown type, misspelled
+// keyword, or malformed composition branch turns an evidence contract into
+// documentation and can let unsupported findings reach triage.
+func validateSecurityWorkflowSchema(schema map[string]any, path string) error {
+	allowed := map[string]bool{
+		"type": true, "description": true, "const": true, "enum": true,
+		"minimum": true, "maximum": true, "minLength": true, "maxLength": true,
+		"minItems": true, "maxItems": true, "required": true, "properties": true,
+		"additionalProperties": true, "items": true, "allOf": true, "anyOf": true,
+		"oneOf": true, "not": true, "if": true, "then": true, "else": true,
+	}
+	for keyword := range schema {
+		if !allowed[keyword] {
+			return fmt.Errorf("%s uses unsupported keyword %q", path, keyword)
+		}
+	}
+	if raw, exists := schema["type"]; exists {
+		typ, ok := raw.(string)
+		if !ok {
+			return fmt.Errorf("%s.type must be a string; express unions with anyOf", path)
+		}
+		switch typ {
+		case "object", "array", "string", "boolean", "number", "integer", "null":
+		default:
+			return fmt.Errorf("%s.type %q is unsupported", path, typ)
+		}
+	}
+	if description, exists := schema["description"]; exists {
+		if _, ok := description.(string); !ok {
+			return fmt.Errorf("%s.description must be a string", path)
+		}
+	}
+	if enum, exists := schema["enum"]; exists {
+		values, ok := enum.([]any)
+		if !ok || len(values) == 0 {
+			return fmt.Errorf("%s.enum must be a non-empty array", path)
+		}
+	}
+	for _, keyword := range []string{"minimum", "maximum"} {
+		if raw, exists := schema[keyword]; exists {
+			if _, ok := raw.(float64); !ok {
+				return fmt.Errorf("%s.%s must be a number", path, keyword)
+			}
+		}
+	}
+	for _, keyword := range []string{"minLength", "maxLength", "minItems", "maxItems"} {
+		if raw, exists := schema[keyword]; exists {
+			value, ok := raw.(float64)
+			if !ok || value < 0 || value != math.Trunc(value) {
+				return fmt.Errorf("%s.%s must be a non-negative integer", path, keyword)
+			}
+		}
+	}
+	for _, pair := range [][2]string{{"minimum", "maximum"}, {"minLength", "maxLength"}, {"minItems", "maxItems"}} {
+		min, hasMin := schema[pair[0]].(float64)
+		max, hasMax := schema[pair[1]].(float64)
+		if hasMin && hasMax && min > max {
+			return fmt.Errorf("%s.%s must not exceed %s", path, pair[0], pair[1])
+		}
+	}
+	if raw, exists := schema["required"]; exists {
+		values, ok := raw.([]any)
+		if !ok {
+			return fmt.Errorf("%s.required must be an array of property names", path)
+		}
+		seen := make(map[string]bool, len(values))
+		for index, rawName := range values {
+			name, ok := rawName.(string)
+			if !ok || name == "" {
+				return fmt.Errorf("%s.required[%d] must be a non-empty string", path, index)
+			}
+			if seen[name] {
+				return fmt.Errorf("%s.required contains duplicate property %q", path, name)
+			}
+			seen[name] = true
+		}
+	}
+	if raw, exists := schema["properties"]; exists {
+		properties, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s.properties must be an object", path)
+		}
+		for name, rawChild := range properties {
+			child, ok := rawChild.(map[string]any)
+			if !ok {
+				return fmt.Errorf("%s.properties.%s must be a schema object", path, name)
+			}
+			if err := validateSecurityWorkflowSchema(child, path+".properties."+name); err != nil {
+				return err
+			}
+		}
+	}
+	if raw, exists := schema["additionalProperties"]; exists {
+		if _, ok := raw.(bool); !ok {
+			return fmt.Errorf("%s.additionalProperties must be a boolean", path)
+		}
+	}
+	if raw, exists := schema["items"]; exists {
+		child, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s.items must be a schema object", path)
+		}
+		if err := validateSecurityWorkflowSchema(child, path+".items"); err != nil {
+			return err
+		}
+	}
+	for _, keyword := range []string{"allOf", "anyOf", "oneOf"} {
+		raw, exists := schema[keyword]
+		if !exists {
+			continue
+		}
+		branches, ok := raw.([]any)
+		if !ok || len(branches) == 0 {
+			return fmt.Errorf("%s.%s must be a non-empty array of schema objects", path, keyword)
+		}
+		for index, rawBranch := range branches {
+			branch, ok := rawBranch.(map[string]any)
+			if !ok {
+				return fmt.Errorf("%s.%s[%d] must be a schema object", path, keyword, index)
+			}
+			if err := validateSecurityWorkflowSchema(branch, fmt.Sprintf("%s.%s[%d]", path, keyword, index)); err != nil {
+				return err
+			}
+		}
+	}
+	for _, keyword := range []string{"not", "if", "then", "else"} {
+		raw, exists := schema[keyword]
+		if !exists {
+			continue
+		}
+		branch, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s.%s must be a schema object", path, keyword)
+		}
+		if err := validateSecurityWorkflowSchema(branch, path+"."+keyword); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateSecurityWorkflowValue(schema map[string]any, value any, path string) error {
@@ -435,7 +585,7 @@ func validateSecurityWorkflowValue(schema map[string]any, value any, path string
 		case "null":
 			valid = value == nil
 		default:
-			valid = true // unsupported schema types are handled by AgentRun tooling
+			return fmt.Errorf("%s has unsupported schema type %q", path, typ)
 		}
 		if !valid {
 			return fmt.Errorf("%s must be %s", path, typ)

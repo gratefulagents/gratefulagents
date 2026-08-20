@@ -198,7 +198,7 @@ describe("ProgramTargetImportDialog", () => {
       policyPackRef: "policy-first",
       securityProgramRef: "program-multi",
       manualOnly: true,
-      minSeverity: "high",
+      minSeverity: "",
       parallelism: 4,
     });
     expect(request.spec?.defaults).toMatchObject({ provider: "openai", model: "gpt-5" });

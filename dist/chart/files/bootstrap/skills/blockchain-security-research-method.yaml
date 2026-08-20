@@ -6,7 +6,7 @@ metadata:
     platform.gratefulagents.dev/security-skill: "true"
     platform.gratefulagents.dev/bootstrap-required-skill: "true"
 spec:
-  version: "1.0.0"
+  version: "1.1.0"
   description: >-
     Evidence-driven blockchain security research method benchmarked against Immunefi,
     the Ethereum Foundation bounty, official protocol specifications, primary papers,
@@ -107,6 +107,38 @@ spec:
         competing keeper/relayer, malicious block producer/sequencer/validator, and
         unavailable privileged actor. Quantify capital, liquidity, fees, gas/compute,
         time, quorum, nodes/validators affected, resource amplification, and recovery.
+
+        Use a two-pass hunt. Pass one is breadth: map every reachable transition to an
+        invariant and assign it examined, queued, blocked, or out of scope. Pass two is
+        depth: spend the validation budget on the highest-impact hypotheses and their
+        alternate paths. Do not repeatedly inspect a familiar class while leaving an
+        unreviewed custody, proof, upgrade, or recovery boundary.
+
+        Maintain one stable candidate ledger from discovery through reporting. Every
+        candidate has an id and moves through new, investigating, reproduced, refuted,
+        blocked, duplicate/known, or reportable; never silently drop it or rename it at
+        a handoff. For each candidate record an assumption ledger and prove this
+        exploitability ladder in order:
+
+        1. production-relevant entry point is reachable by the stated attacker;
+        2. attacker controls the exact bytes, accounts, state, ordering, or timing;
+        3. each expected guard is absent, bypassed, stale, or applied to another path;
+        4. the target state transition or acceptance decision occurs;
+        5. a named invariant breaks with an observable before/after delta;
+        6. the maximum claimed production impact follows under stated assumptions; and
+        7. the governing program admits the target, impact, attacker, and proof method.
+
+        A break at any rung downgrades the candidate to refuted or blocked, not
+        confirmed. Search variants only after the root cause is established: same sink,
+        same missing guard, sibling message/instruction, batch versus single path,
+        retry/refund/recovery path, prior version, and independent implementation.
+
+        Set a stopping rule before expensive fuzzing, symbolic execution, devnet work,
+        or schedule-sensitive testing: time/turn budget, seeds or corpus, sequence depth,
+        state/actor combinations, success threshold, and what observation will extend or
+        stop the run. Track semantic coverage by invariant, transition, actor, lifecycle
+        phase, and failure mode. Empty candidate output is acceptable only with this
+        coverage and the blocked/uncovered ledger; it is never a clean bill of health.
 
         ## 5. Validate safely and test the tests
 
