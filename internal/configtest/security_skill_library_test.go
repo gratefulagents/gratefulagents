@@ -315,6 +315,28 @@ func TestInlineSecuritySkillAssets(t *testing.T) {
 	}
 }
 
+func TestBlockchainResearchMethodKeepsOperationalEvidenceLoop(t *testing.T) {
+	t.Parallel()
+
+	var skill platformv1alpha1.Skill
+	readBootstrapAsset(t, "skills", "blockchain-security-research-method", &skill)
+	instructions := skill.Spec.Source.Inline.Instructions
+	for _, marker := range []string{
+		"two-pass hunt",
+		"stable candidate ledger",
+		"assumption ledger",
+		"exploitability ladder",
+		"stopping rule",
+		"semantic coverage",
+		"negative control",
+		"Re-check scope, rules, prior art",
+	} {
+		if !strings.Contains(instructions, marker) {
+			t.Errorf("blockchain research method is missing operational marker %q", marker)
+		}
+	}
+}
+
 func TestExploitPoCDisciplineAllowsOnlyReadOnlyPublicChainAccess(t *testing.T) {
 	t.Parallel()
 

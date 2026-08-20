@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: https://github.com/linear-protocol/LiNEAR
       baseBranch: main
-      workflowRef: default-deep-scan
+      workflowRef: near-contract-review
       policyPackRef: bug-bounty
       scanName: linear-protocol
       displayName: LiNEAR Protocol

@@ -50,9 +50,9 @@ describe("buildImportedScanCreateRequest", () => {
       parameterValues: { scope: "api" },
       manualOnly: true,
       concurrencyPolicy: "Forbid",
-      minSeverity: "high",
       parallelism: 4,
     });
+    expect(request.spec?.minSeverity).toBe("");
     expect(request.spec?.dedupe?.enabled).toBe(true);
   });
 

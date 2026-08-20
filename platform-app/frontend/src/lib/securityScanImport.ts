@@ -42,9 +42,9 @@ export function runDefaultsFromModelDefaults(
 /**
  * buildImportedScanCreateRequest produces the CreateSecurityScan request for a
  * security-program scan target imported without review: the same payload the
- * interactive form builds for a prefilled target — manual-only schedule, high
- * minimum severity, the caller's saved credentials, and workspace-write access
- * with unrestricted egress.
+ * interactive form builds for a prefilled target — manual-only schedule, the
+ * selected policy pack's severity floor, the caller's saved credentials, and
+ * workspace-write access with unrestricted egress.
  */
 export function buildImportedScanCreateRequest(
   target: ProgramScanTarget,
@@ -75,7 +75,6 @@ export function buildImportedScanCreateRequest(
     // The interactive form seeds a fresh scan with "Forbid"; spelling it out
     // keeps the payloads identical instead of relying on the server default.
     concurrencyPolicy: "Forbid",
-    minSeverity: "high",
     parallelism: 4,
     dedupe: { enabled: true },
     defaults,

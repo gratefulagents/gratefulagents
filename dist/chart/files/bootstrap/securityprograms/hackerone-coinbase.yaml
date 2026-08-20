@@ -6,7 +6,7 @@ spec:
   scanTargets:
     - repositoryURL: "https://github.com/coinbase/cb-mpc"
       baseBranch: master
-      workflowRef: default-deep-scan
+      workflowRef: mpc-cryptography-security-review
       policyPackRef: bug-bounty
       scanName: coinbase-cb-mpc
       displayName: "Coinbase — cb-mpc"
@@ -14,7 +14,7 @@ spec:
       featured: true
     - repositoryURL: "https://github.com/coinbase/cb-mpc-go"
       baseBranch: master
-      workflowRef: default-deep-scan
+      workflowRef: mpc-cryptography-security-review
       policyPackRef: bug-bounty
       scanName: coinbase-cb-mpc-go
       displayName: "Coinbase — cb-mpc-go (no bounty)"

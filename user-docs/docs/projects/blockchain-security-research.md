@@ -4,16 +4,18 @@ This document records the evidence baseline used to maintain the shipped blockch
 
 ## Scope and outcome
 
-The review covered all 16 blockchain-related workflows:
+The review covered all 24 blockchain-related workflows and the 56 shipped security-program snapshots that route repositories into them:
 
-- EVM smart contracts and general blockchain protocols/clients
-- bridges, L2s, rollups, and zero-knowledge systems
-- Algorand, Aptos Move, Bitcoin/Lightning, Cairo/Starknet, Cosmos/IBC and ABCI, Solana/Anchor, Substrate/XCM, Sui Move, and TON
+- EVM smart contracts, lending/CDP systems, order-book settlement, and general blockchain protocols/clients
+- bridges, cross-chain messaging, L2s, rollups, and zero-knowledge systems
+- Algorand, Aptos Move, Bitcoin/Lightning, Cairo/Starknet, Cosmos/IBC and ABCI, Flow/Cadence, NEAR, Solana/Anchor and Solana DeFi, Substrate/XCM, Sui Move, and TON
 - MPC/threshold cryptography, wallets, and blockchain off-chain services
 
 The benchmark found that the existing workflows already had strong architecture, invariant, specialist-review, safe-validation, coverage, remediation, and retest foundations. The principal cross-cutting gaps were inconsistent program-policy capture, insufficiently explicit researcher hypothesis and prior-art loops, incident-derived regression testing, differential/reference testing, quantitative impact evidence, harness-quality checks, and a uniform disclosure-quality gate.
 
-The shared `blockchain-security-research-method` skill now supplies those requirements to every task in every blockchain workflow. Chain-specific workflows retain their own technical checks; chain-specific benchmark deltas are applied in those workflow objectives as the ecosystems evolve.
+A second evidence-contract audit found a more operational gap: thirteen chain workflows described strong PoC rules in prose while their structured schemas could still accept an uncorrelated `confirmed` string. Those workflows now carry stable candidate records and conditionally require reachability, impact, an executed reproduction, a failing assertion, an observed delta, a passing negative control, and proof that the oracle can fail. Inconclusive candidates require a blocker and false positives require a disproof. Final reports may promote only machine-confirmed candidates; unvalidated candidates remain in a clearly non-finding appendix.
+
+The shared `blockchain-security-research-method` skill supplies the cross-cutting requirements to every task in every blockchain workflow. It now also requires a breadth-then-depth hunt, stable candidate and assumption ledgers, an explicit exploitability ladder, semantic coverage, and bounded stopping rules. Chain-specific workflows retain their own technical checks; chain-specific benchmark deltas are applied in those workflow objectives as the ecosystems evolve.
 
 ## Immunefi comparison
 
@@ -137,6 +139,35 @@ Selected official references:
 - [Algorand inner transactions](https://dev.algorand.co/concepts/smart-contracts/inner-txn/)
 - [Algorand box storage](https://dev.algorand.co/concepts/smart-contracts/storage/box/)
 
+## 2026 research refresh: incident weighting and complementary engines
+
+Primary sources were re-checked on 20 August 2026. The OWASP Smart Contract Top 10 methodology and incident dataset reinforce that access control and business/state-machine logic deserve more review budget than scanner-friendly patterns. Tooling should therefore share explicit invariants instead of running disconnected campaigns:
+
+- [OWASP Smart Contract Top 10 methodology](https://scs.owasp.org/sctop10/methodology/)
+- [OWASP Smart Contract Top 10 data sources](https://scs.owasp.org/sctop10/data-sources/)
+- [OWASP Smart Contract Security Verification Standard](https://scs.owasp.org/SCSVS/)
+- [Foundry invariant testing](https://getfoundry.sh/forge/invariant-testing)
+- [Echidna](https://github.com/crytic/echidna)
+- [Medusa coverage-guided smart-contract fuzzing](https://github.com/crytic/medusa)
+- [Halmos symbolic testing](https://github.com/a16z/halmos)
+- [Slither](https://github.com/crytic/slither)
+
+The intended pipeline is complementary: structural analysis maps candidates, stateful fuzzing explores adversarial sequences, symbolic execution settles bounded properties, differential tests compare independent representations, and local candidate-specific harnesses establish impact. Seeds, corpora, minimized counterexamples, semantic coverage, and mutations that prove an oracle can fail are durable review evidence. A tool pass without those bounds proves only that the tool found nothing in that run.
+
+## Workflow output-schema compatibility
+
+SecurityWorkflow output schemas are intentionally validated against the same dependency-free subset the controller uses for conditional evidence checks. This is a fail-closed security boundary: an unsupported keyword must not look enforced when the local validator actually ignores it.
+
+For existing custom workflows, migrate before applying this release:
+
+- replace union declarations such as `"type": ["integer", "null"]` with `anyOf` branches;
+- inline local `$ref` definitions;
+- replace `pattern` and `format` constraints with an explicit enum, structural field, or downstream candidate validation;
+- use boolean `additionalProperties` rather than a schema-valued form;
+- retain supported `type`, `description`, `const`, `enum`, numeric/string/array bounds, `required`, `properties`, `items`, `allOf`, `anyOf`, `oneOf`, `not`, and `if`/`then`/`else` constructs.
+
+The library reconciler reports the exact unsupported schema path. Do not remove a constraint merely to make reconciliation pass; translate it into an enforced supported construct or a candidate-specific validation step.
+
 ## Maintenance rule
 
 When a blockchain workflow changes, reviewers should confirm that it still:
@@ -147,4 +178,7 @@ When a blockchain workflow changes, reviewers should confirm that it still:
 - distinguishes examined, skipped, unsupported, inconclusive, and uncovered work;
 - never claims that a tool, test, deployment comparison, or PoC ran without an execution artifact;
 - preserves immutable revision, environment, seed/bounds, and replay evidence;
+- rejects unsupported or malformed output-schema constructs instead of treating them as annotations;
+- requires correlated reachability, impact, reproduction, negative-control, and oracle-calibration evidence before a candidate can be confirmed;
+- keeps unvalidated candidates out of the submitted finding list;
 - states limitations and does not call a bounded clean run proof of safety.

@@ -195,6 +195,66 @@ func TestBlockchainSecurityWorkflowsUseResearchMethod(t *testing.T) {
 	}
 }
 
+var evidenceContractBlockchainWorkflows = []string{
+	"algorand-security-review",
+	"aptos-move-security-review",
+	"bitcoin-lightning-security-review",
+	"bridge-l2-zk-security-review",
+	"cairo-starknet-security-review",
+	"cosmos-ibc-security-review",
+	"mpc-cryptography-security-review",
+	"off-chain-services-security-review",
+	"solana-anchor-security-review",
+	"substrate-xcm-security-review",
+	"sui-move-security-review",
+	"ton-security-review",
+	"wallet-security-review",
+}
+
+func TestBlockchainValidationEvidenceContracts(t *testing.T) {
+	t.Parallel()
+
+	validConfirmed := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"fingerprint":"finding-1","verdict":"confirmed","attempts":1,"reachability":"public entry point reaches the state transition","impact":"one unit leaves protocol custody","reproduction":{"command":"project-test candidate-1","tool_run":"run-1","failing_assertion":"conservation invariant","observed_delta":"protocol=-1 attacker=+1","negative_control_passed":true,"oracle_can_fail":true}}],"uncovered":[],"limitations":[]}`
+	invalidConfirmed := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"fingerprint":"finding-1","verdict":"confirmed","attempts":1}],"uncovered":[],"limitations":[]}`
+	validTriaged := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"fingerprint":"finding-2","verdict":"triaged","attempts":1,"blocker":"required local toolchain is unavailable"}],"uncovered":[],"limitations":[]}`
+	invalidTriaged := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"fingerprint":"finding-2","verdict":"triaged","attempts":1}],"uncovered":[],"limitations":[]}`
+	validFalsePositive := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"fingerprint":"finding-3","verdict":"false_positive","attempts":1,"disproof":"the production caller verifies the signer before dispatch"}],"uncovered":[],"limitations":[]}`
+	invalidFalsePositive := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"fingerprint":"finding-3","verdict":"false_positive","attempts":1}],"uncovered":[],"limitations":[]}`
+	invalidEmptyEvidence := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"fingerprint":"finding-1","verdict":"confirmed","attempts":1,"reachability":"","impact":"loss","reproduction":{"command":"test","tool_run":"run-1","failing_assertion":"invariant","observed_delta":"delta","negative_control_passed":true,"oracle_can_fail":true}}],"uncovered":[],"limitations":[]}`
+	invalidControls := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"fingerprint":"finding-1","verdict":"confirmed","attempts":1,"reachability":"reachable","impact":"loss","reproduction":{"command":"test","tool_run":"run-1","failing_assertion":"invariant","observed_delta":"delta","negative_control_passed":false,"oracle_can_fail":false}}],"uncovered":[],"limitations":[]}`
+
+	for _, name := range evidenceContractBlockchainWorkflows {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var workflow triggersv1alpha1.SecurityWorkflow
+			readBootstrapAsset(t, "securityworkflows", name, &workflow)
+			var validation *triggersv1alpha1.SecurityScanTask
+			for i := range workflow.Spec.Tasks {
+				if workflow.Spec.Tasks[i].Name == "validate-triage-and-coverage" {
+					validation = &workflow.Spec.Tasks[i]
+					break
+				}
+			}
+			if validation == nil {
+				t.Fatal("missing validate-triage-and-coverage task")
+			}
+			if !strings.Contains(validation.Objective, "never submit an unvalidated candidate") {
+				t.Error("validation objective must cover every candidate intended for the final findings list")
+			}
+			for _, output := range []string{validConfirmed, validTriaged, validFalsePositive} {
+				if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(validation.OutputSchema, output); err != nil {
+					t.Errorf("valid evidence output rejected: %v", err)
+				}
+			}
+			for _, output := range []string{invalidConfirmed, invalidTriaged, invalidFalsePositive, invalidEmptyEvidence, invalidControls} {
+				if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(validation.OutputSchema, output); err == nil {
+					t.Errorf("evidence-free verdict accepted: %s", output)
+				}
+			}
+		})
+	}
+}
+
 // TestSecurityWorkflowLibraryAssets holds every shipped workflow to the rules
 // the SecurityScan controller and the deterministic engine enforce at runtime:
 // a workflow that fails them is rejected after installation, when the operator
