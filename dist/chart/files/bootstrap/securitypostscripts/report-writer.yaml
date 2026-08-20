@@ -21,10 +21,10 @@ spec:
     smallest state diff proving impact), `## Expected versus actual behavior`,
     `## Impact and severity`, `## Remediation` (minimal fix plus one regression
     test), and `## References and testing limits` (state what was not tested).
-    Anti-slop: no tutorials, throat-clearing, or boilerplate adjectives.
-    Do not invent requests, output, exploit success, lines, users, TVL,
-    severity, tool results, or references; label assumptions. If no deterministic local PoC
-    exists, say so and do not call the report submission-ready. Redact secrets.
+    Anti-slop: no tutorials, throat-clearing, or boilerplate.
+    Do not invent requests, output, exploit success, lines, users, TVL, severity, tool results,
+    or references; label assumptions. If no deterministic local PoC exists, say so and do not call the report submission-ready. Redact secrets.
+    You may query a public chain directly with read-only RPC or API calls; reads need no fork. Never sign or broadcast a transaction, call write/admin methods, use live credentials, or mutate remote systems.
     Call save_security_bounty_submission with the report and the structured
     claim it requires; programs reject reports that omit any of it.
     `impact_clause` is copied verbatim from the program's in-scope impact list

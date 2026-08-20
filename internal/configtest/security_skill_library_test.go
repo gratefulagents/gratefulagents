@@ -314,3 +314,22 @@ func TestInlineSecuritySkillAssets(t *testing.T) {
 		})
 	}
 }
+
+func TestExploitPoCDisciplineAllowsOnlyReadOnlyPublicChainAccess(t *testing.T) {
+	t.Parallel()
+
+	var skill platformv1alpha1.Skill
+	readBootstrapAsset(t, "skills", "exploit-poc-discipline", &skill)
+	instructions := strings.Join(strings.Fields(skill.Spec.Source.Inline.Instructions), " ")
+
+	for _, marker := range []string{
+		"Public-chain RPC or API endpoints are the sole exception",
+		"direct read-only calls", "reads do not require a fork",
+		"Never sign or broadcast a transaction", "write/admin method",
+		"executable exploit step", "local devnet", "local fork",
+	} {
+		if !strings.Contains(instructions, marker) {
+			t.Errorf("exploit-poc-discipline instructions are missing %q", marker)
+		}
+	}
+}

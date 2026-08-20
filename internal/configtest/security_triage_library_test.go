@@ -148,6 +148,30 @@ func TestReportWriterRequiresEvidenceBackedSubmission(t *testing.T) {
 	}
 }
 
+func TestPoCScriptsAllowOnlyReadOnlyPublicChainAccess(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"poc-builder", "poc-validator", "report-writer"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var script triggersv1alpha1.SecurityPostScript
+			readBootstrapAsset(t, "securitypostscripts", name, &script)
+			prompt := strings.Join(strings.Fields(script.Spec.Prompt), " ")
+
+			for _, marker := range []string{
+				"query a public chain directly", "read-only RPC or API calls",
+				"reads need no fork", "Never sign or broadcast a transaction",
+				"write/admin method", "mutate remote systems",
+			} {
+				if !strings.Contains(prompt, marker) {
+					t.Errorf("%s prompt is missing %q", name, marker)
+				}
+			}
+		})
+	}
+}
+
 func TestSecurityTriageRankerAssets(t *testing.T) {
 	t.Parallel()
 
