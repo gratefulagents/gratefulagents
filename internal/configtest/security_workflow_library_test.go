@@ -224,7 +224,6 @@ func TestBlockchainValidationEvidenceContracts(t *testing.T) {
 	invalidControls := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"fingerprint":"finding-1","verdict":"confirmed","attempts":1,"reachability":"reachable","impact":"loss","reproduction":{"command":"test","tool_run":"run-1","failing_assertion":"invariant","observed_delta":"delta","negative_control_passed":false,"oracle_can_fail":false}}],"uncovered":[],"limitations":[]}`
 
 	for _, name := range evidenceContractBlockchainWorkflows {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			var workflow triggersv1alpha1.SecurityWorkflow

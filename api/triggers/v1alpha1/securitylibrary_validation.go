@@ -420,6 +420,8 @@ func ValidateSecurityWorkflowOutput(schemaJSON, valueJSON string) error {
 // validator cannot enforce. Silently accepting an unknown type, misspelled
 // keyword, or malformed composition branch turns an evidence contract into
 // documentation and can let unsupported findings reach triage.
+//
+//nolint:gocyclo // Mirroring the supported schema vocabulary in one recursive gate keeps definition and value validation aligned.
 func validateSecurityWorkflowSchema(schema map[string]any, path string) error {
 	allowed := map[string]bool{
 		"type": true, "description": true, "const": true, "enum": true,
