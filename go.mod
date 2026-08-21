@@ -14,6 +14,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/slack-go/slack v0.27.0

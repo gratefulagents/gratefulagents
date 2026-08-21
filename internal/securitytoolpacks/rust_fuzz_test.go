@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -32,6 +33,10 @@ func stageRustFuzzProject(t *testing.T, target string, crashes map[string]string
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "fuzz", "fuzz_targets", target+".rs"), []byte("// upstream harness"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "[package]\nname='fixture-fuzz'\nversion='0.0.0'\n\n[[bin]]\nname = \"" + target + "\"\npath = \"fuzz_targets/" + target + ".rs\"\n"
+	if err := os.WriteFile(filepath.Join(root, "fuzz", "Cargo.toml"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if len(crashes) > 0 {
@@ -138,6 +143,9 @@ func TestCargoFuzzReportsCrashesAsReproducibleArtifacts(t *testing.T) {
 	if len(report.Crashes) != 1 || report.Crashes[0].Name != "crash-abc" {
 		t.Fatalf("crash was not recorded: %+v", report.Crashes)
 	}
+	if report.HarnessDigest == "" || report.ManifestDigest == "" || !report.TraceCompares || report.Workers != 1 {
+		t.Fatalf("campaign provenance missing: %+v", report)
+	}
 	if len(artifacts) != 1 || string(artifacts[0].Data) != "bad input" {
 		t.Fatalf("crash artifact does not carry the reproducing input: %+v", artifacts)
 	}
@@ -185,15 +193,20 @@ func TestCargoFuzzCleanCampaignCarriesItsBounds(t *testing.T) {
 	root := stageRustFuzzProject(t, "decode_header", nil, []string{"a", "b", "c"})
 	cfg := rustFuzzConfig(root, map[string]string{"fuzz_target": "decode_header", "max_total_time": "5m"})
 
-	bounded := rustFuzzBoundedScope(cfg, rustFuzzCorpusSize(root, "decode_header"))
+	bounded := rustFuzzBoundedScope(cfg, "fuzz/fuzz_targets/decode_header.rs", 4*time.Minute, rustFuzzCorpusSize(root, "decode_header"), 2, 4, 1)
 	if bounded == nil || !strings.Contains(bounded.Bounds, "5m") {
 		t.Fatalf("bounds do not state the campaign length: %+v", bounded)
 	}
 	if !strings.Contains(bounded.Harness, "fuzz/fuzz_targets/decode_header") {
 		t.Fatalf("bounds do not name the upstream harness: %+v", bounded)
 	}
-	if !strings.Contains(bounded.Corpus, "inputs=3") {
-		t.Fatalf("bounds do not state the corpus size: %+v", bounded)
+	for _, want := range []string{"inputs in=3", "restored=2", "inputs out=4", "new inputs=1", "provenance=restored"} {
+		if !strings.Contains(bounded.Corpus, want) {
+			t.Fatalf("bounds do not state %q: %+v", want, bounded)
+		}
+	}
+	if !strings.Contains(bounded.Bounds, "workers=1") || !strings.Contains(bounded.Bounds, "trace_compares=true") {
+		t.Fatalf("bounds omit worker or tracing provenance: %+v", bounded)
 	}
 }
 
@@ -265,6 +278,122 @@ func TestCargoFuzzCollectionFailureIsNotACleanCampaign(t *testing.T) {
 // compiling anything, and libFuzzer's crash exit code has to be a value the
 // registry actually maps — otherwise a crash is downgraded to a partial run
 // with an "unmapped exit code" error instead of reported as findings.
+func TestCargoFuzzWorkersAreTypedAndBounded(t *testing.T) {
+	registry, err := NewRegistry(DefaultManifest("sha256:"+strings.Repeat("e", 64), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := stageRustFuzzProject(t, "parse_block", nil, nil)
+	for _, workers := range []string{"0", "3", "many"} {
+		if _, _, err := registry.BuildInvocation(rustFuzzConfig(root, map[string]string{"fuzz_target": "parse_block", "max_total_time": "2m", "workers": workers})); err == nil {
+			t.Fatalf("workers=%q was accepted", workers)
+		}
+	}
+	invocation, _, err := registry.BuildInvocation(rustFuzzConfig(root, map[string]string{"fuzz_target": "parse_block", "max_total_time": "2m", "workers": "2"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(invocation.Argv, "-jobs=2") || !slices.Contains(invocation.Argv, "-workers=2") || !slices.Contains(invocation.Argv, "-use_value_profile=1") || invocation.Budgets.CPU != 2000 {
+		t.Fatalf("typed workers and comparison tracing did not reach fixed argv/budget: argv=%v budget=%+v", invocation.Argv, invocation.Budgets)
+	}
+}
+
+func TestCargoFuzzResolvesExplicitManifestHarnessPath(t *testing.T) {
+	root := stageRustFuzzProject(t, "decode", nil, nil)
+	custom := filepath.Join(root, "fuzz", "fuzz_targets", "custom_entry.rs")
+	if err := os.Rename(filepath.Join(root, "fuzz", "fuzz_targets", "decode.rs"), custom); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "[package]\nname='fixture-fuzz'\nversion='0.0.0'\n\n[[bin]]\nname = \"decode\"\npath = \"\\u0066uzz_targets/custom_entry.rs\"\n"
+	if err := os.WriteFile(filepath.Join(root, "fuzz", "Cargo.toml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	harness, _, err := rustFuzzHarnessPath(root, "decode")
+	if err != nil || harness != custom {
+		t.Fatalf("resolved harness = %q, err=%v", harness, err)
+	}
+}
+
+func TestCargoFuzzCollectsOnlyNewRegularCorpusInputs(t *testing.T) {
+	root := stageRustFuzzProject(t, "parse_block", nil, []string{"old"})
+	baseline, err := rustFuzzCorpusPaths(root, "parse_block")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(root, "fuzz", "corpus", "parse_block")
+	if err := os.WriteFile(filepath.Join(directory, "new"), []byte("learned"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, after, discovered, err := collectRustFuzzCorpus(root, "parse_block", baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 || discovered != 1 || string(artifacts[0].Data) != "learned" || !strings.HasPrefix(artifacts[0].Name, "cargo-fuzz-corpus/") || len(after) != 2 {
+		t.Fatalf("collected corpus = %+v, discovered=%d, after=%d", artifacts, discovered, len(after))
+	}
+	if err := os.Symlink("new", filepath.Join(directory, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := collectRustFuzzCorpus(root, "parse_block", baseline); err == nil {
+		t.Fatal("symlink corpus entry was accepted")
+	}
+}
+
+func TestCargoFuzzCorpusGrowthIsSampledWithoutFailing(t *testing.T) {
+	root := stageRustFuzzProject(t, "parse_block", nil, nil)
+	directory := filepath.Join(root, "fuzz", "corpus", "parse_block")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < maxRustCorpusArtifacts+8; i++ {
+		if err := os.WriteFile(filepath.Join(directory, fmt.Sprintf("input-%03d", i)), []byte{byte(i)}, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	artifacts, _, discovered, err := collectRustFuzzCorpus(root, "parse_block", map[string]bool{})
+	if err != nil || discovered != maxRustCorpusArtifacts+8 || len(artifacts) != maxRustCorpusArtifacts {
+		t.Fatalf("artifacts=%d discovered=%d err=%v", len(artifacts), discovered, err)
+	}
+}
+
+func TestRustFuzzArtifactReaderRejectsFIFOWithoutBlocking(t *testing.T) {
+	directory := t.TempDir()
+	if err := syscall.Mkfifo(filepath.Join(directory, "fifo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := readRustFuzzRegularFile(directory, "fifo", 1024)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("FIFO was accepted as an artifact")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("opening a FIFO blocked artifact collection")
+	}
+}
+
+func TestRustFuzzCampaignMetadataIsTrusted(t *testing.T) {
+	encoded, err := EncodeRustFuzzCampaignMetadata(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	path := filepath.Join(root, filepath.FromSlash(RustFuzzCampaignMetadataPath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if restored, err := readRustFuzzCampaignMetadata(root); err != nil || restored != 2 {
+		t.Fatalf("metadata = %d, %v", restored, err)
+	}
+}
+
 func TestCargoFuzzInvokesTheInstalledToolchainAndMapsItsCrashExit(t *testing.T) {
 	manifest := DefaultManifest("sha256:"+strings.Repeat("d", 64), nil)
 	index := slices.IndexFunc(manifest.Tools, func(tool Tool) bool { return tool.Name == "cargo-fuzz" })

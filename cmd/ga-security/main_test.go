@@ -11,6 +11,25 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/securitytoolpacks"
 )
 
+func TestPersistPreservesLogicalArtifactName(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("corpus")
+	if err := persist(dir, securitytoolpacks.Result{Artifacts: []securitytoolpacks.Artifact{{Name: "cargo-fuzz-corpus/abc", MediaType: "application/octet-stream", Data: data}}}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "result.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result securitytoolpacks.Result
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Artifacts) != 1 || result.Artifacts[0].Name != "cargo-fuzz-corpus/abc" || result.Artifacts[0].StorageName != "raw-00" {
+		t.Fatalf("artifact identity was not preserved: %+v", result.Artifacts)
+	}
+}
+
 func TestRunAuthorizationFixtureEndToEnd(t *testing.T) {
 	fixture := filepath.Join("..", "..", "test", "fixtures", "security-toolpacks", "web", "authorization-matrix.json")
 	data, err := os.ReadFile(fixture)

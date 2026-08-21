@@ -290,6 +290,7 @@ func (r *Registry) BuildInvocation(cfg RunConfig) (Invocation, Tool, error) {
 		// Rust fuzz targets are compiled before they run, so the campaign
 		// budget carries a build allowance on top of the fuzzing itself.
 		budgets = fuzzCampaignBudget(budgets, campaign+rustFuzzBuildAllowance)
+		budgets.CPU = 1000 * rustFuzzWorkers(cfg)
 	}
 	if t.Name == "go-fuzz-tests" {
 		// The deadline follows the campaign the run asked for; a fixed budget
@@ -861,7 +862,7 @@ func defaultManifestForArch(imageDigest string, knowledgeDigests map[string]stri
 		// cargo-fuzz runs the maintainers' own fuzz/fuzz_targets. Nothing in
 		// argv can name a harness we wrote: the target is a validated upstream
 		// target name and the campaign length is bounded.
-		base("cargo-fuzz", DomainBlockchain, rustFuzzToolVersion, "rust-fuzz-json", "application/json", []string{"rust_fuzz_project"}, []string{"cargo", "+" + rustFuzzNightly, "fuzz", "run", "--fuzz-dir", "{{target}}/fuzz", "{{fuzz_target}}", "--", "-max_total_time={{max_total_time_seconds}}", "-seed={{seed}}", "-rss_limit_mb=2048", "-error_exitcode=" + rustFuzzCrashExitCode + "", "-print_final_stats=1"}),
+		base("cargo-fuzz", DomainBlockchain, rustFuzzToolVersion, "rust-fuzz-json", "application/json", []string{"rust_fuzz_project"}, []string{"cargo", "+" + rustFuzzNightly, "fuzz", "run", "--fuzz-dir", "{{target}}/fuzz", "{{fuzz_target}}", "--", "-max_total_time={{max_total_time_seconds}}", "-seed={{seed}}", "-jobs={{workers}}", "-workers={{workers}}", "-use_value_profile=1", "-rss_limit_mb=2048", "-error_exitcode=" + rustFuzzCrashExitCode + "", "-print_final_stats=1"}),
 		base("go-fuzz-tests", DomainBlockchain, "go1.26", "go-test-json", "application/x-ndjson", []string{"go_fuzz_project"}, []string{"go", "-C", "{{target}}", "test", "-json", "{{package}}", "-run=^$", "-fuzz", "{{fuzz}}", "-fuzztime={{fuzztime}}", "-parallel=1"}),
 		// EVM verification packs. The fork endpoint is never a model-supplied
 		// string: argv carries an operator-authorized alias token that the
@@ -1079,6 +1080,7 @@ func applyToolArguments(tool *Tool) {
 		tool.Arguments = []Argument{
 			{Name: "fuzz_target", Type: "string", Required: true},
 			{Name: "max_total_time", Type: "duration", Default: defaultFuzzCampaign.String()},
+			{Name: "workers", Type: "integer", Default: "1"},
 		}
 	case "go-fuzz-tests":
 		tool.Arguments = []Argument{

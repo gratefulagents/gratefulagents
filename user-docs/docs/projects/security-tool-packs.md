@@ -115,6 +115,41 @@ Echidna, Slither, and Medusa (amd64 only) accept canonical-digest Solidity proje
 
 Slither 0.11.3 accepts a digest-verified Solidity project and compiles only from an ephemeral writable copy inside its OCI root. The pinned upstream toolbox currently embeds an amd64 `solc` artifact in its arm64 manifest, so arm64 Slither compilation fails closed as unsupported instead of attempting to execute the wrong architecture; the arm64 image still verifies the packaged root and Slither version. Halmos 0.3.3 accepts Foundry projects with existing symbolic tests and executes in a single-concurrency closure with fixed Z3, loop, width, and depth bounds. Slither, Forge, Echidna, Medusa (amd64 only), and Halmos have egress for compiler and project dependency resolution; none accepts caller-supplied RPC flags. Halmos exit code 1 is a counterexample; timeout, stuck, revert-all, and exception states are operationally incomplete and never findings or proofs. Missing compiler/dependency closures remain unsupported rather than passing.
 
+### Durable Rust fuzz campaigns
+
+`cargo-fuzz` runs one repository-maintained target from `fuzz/fuzz_targets/` with
+a bounded `max_total_time`, explicit seed, and a typed worker count from 1 to 2.
+The worker count becomes fixed `-jobs=<n>` and `-workers=<n>` argv with an
+equivalent Kubernetes CPU limit. Comparison tracing is always enabled with the
+fixed `-use_value_profile=1` flag; callers still cannot pass raw libFuzzer flags,
+paths, or commands. The
+Job deadline includes both the requested campaign and the pinned Rust build
+allowance.
+
+Corpus inputs under `fuzz/corpus/<target>` are durable across scans. The control
+plane stores them under a stable repository + target-root + fuzz-target identity,
+restores them only into the staged archive, and never writes generated inputs
+into the user's checkout. The stored snapshot is byte-bounded, uses
+content-derived names, and records input format, producer tool, target revision,
+immutable staged-target digest, snapshot digest, and parent digest. Its family is
+deliberately named for the Rust libFuzzer-compatible byte-corpus format rather
+than for cargo-fuzz, so a future compatible engine can reuse the same inputs
+without pretending that it produced them.
+
+The executor rejects forged campaign metadata and non-regular corpus entries.
+After a campaign it returns only new corpus inputs as content-addressed
+`cargo-fuzz-corpus/` artifacts; crash inputs remain separate
+`cargo-fuzz-crash/` evidence and can never be promoted into the durable corpus
+by prefix confusion. A clean `not_found_under` result records requested and
+observed duration, committed/restored/input/output/new corpus counts, cold or
+restored provenance, worker count, comparison tracing, and the upstream harness.
+Crash findings additionally retain harness and fuzz-manifest digests.
+
+These are prerequisites for evaluating LibAFL, not a LibAFL integration.
+`libafl_libfuzzer` is not installed or registered by this change. Adding it
+still requires a separately pinned runtime identity and an explicit,
+reviewable manifest-migration contract for upstream fuzz projects.
+
 Foundry can exercise repository-supplied local allocs or full-genesis fixtures through harnesses such as `vm.loadAllocs`; the workflow records their paths, digests, source chain/block/timestamp context, and state-completeness limitations. Remote `createFork`/`createSelectFork` RPCs, missing state, staged RPC caches, and raw Anvil persistence snapshots are unsupported. Live-chain RPC scanning, transaction submission, key custody, FFI, and exploitation are not supported.
 
 ## Offline fixtures and CI

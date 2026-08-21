@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 )
@@ -295,6 +296,44 @@ func TestValidateRejectsUnverifiedFilesystemTargets(t *testing.T) {
 				t.Fatalf("Validate() error = %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateCargoFuzzCampaignAndWorkersBeforeDispatch(t *testing.T) {
+	registry, err := DefaultRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := baseSpec()
+	base.Tool = "cargo-fuzz"
+	base.Target.Type = "rust_fuzz_project"
+	seed := int64(7)
+	base.Seed = &seed
+	for name, arguments := range map[string][]platformv1alpha1.SecurityToolArgument{
+		"long campaign":    {{Name: "fuzz_target", Value: "decode"}, {Name: "max_total_time", Value: "16m"}},
+		"too many workers": {{Name: "fuzz_target", Value: "decode"}, {Name: "max_total_time", Value: "2m"}, {Name: "workers", Value: "3"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := base
+			spec.Arguments = arguments
+			request, err := RunConfigFor(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Validate(registry, request); err == nil {
+				t.Fatal("invalid cargo-fuzz campaign was accepted")
+			}
+		})
+	}
+	valid := base
+	valid.Arguments = []platformv1alpha1.SecurityToolArgument{{Name: "fuzz_target", Value: "decode"}, {Name: "max_total_time", Value: "5m"}, {Name: "workers", Value: "2"}}
+	request, _ := RunConfigFor(valid)
+	tool, err := Validate(registry, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool.Budgets.CPU != 2000 || tool.Budgets.Timeout < 15*time.Minute {
+		t.Fatalf("dynamic cargo-fuzz budget = %+v", tool.Budgets)
 	}
 }
 

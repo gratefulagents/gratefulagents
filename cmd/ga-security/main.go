@@ -103,11 +103,14 @@ func persist(dir string, result securitytoolpacks.Result) error {
 	}
 	for i := range result.Artifacts {
 		artifact := &result.Artifacts[i]
-		name := fmt.Sprintf("raw-%02d", i)
-		if err := os.WriteFile(filepath.Join(dir, name), artifact.Data, 0o600); err != nil {
+		storageName := fmt.Sprintf("raw-%02d", i)
+		if err := os.WriteFile(filepath.Join(dir, storageName), artifact.Data, 0o600); err != nil {
 			return err
 		}
-		artifact.Name = name
+		artifact.StorageName = storageName
+		if artifact.Name == "" {
+			artifact.Name = storageName
+		}
 		artifact.Data = nil
 	}
 	data, err := json.MarshalIndent(result, "", "  ")

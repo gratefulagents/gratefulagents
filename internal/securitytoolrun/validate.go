@@ -142,6 +142,25 @@ func Validate(registry *securitytoolpacks.Registry, req Request) (securitytoolpa
 			return tool, err
 		}
 	}
+	if tool.Name == "cargo-fuzz" {
+		if _, err := securitytoolpacks.ParseFuzzCampaign(cfg.Arguments["max_total_time"]); err != nil {
+			return tool, err
+		}
+		workers := 1
+		if value := cfg.Arguments["workers"]; value != "" {
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return tool, fmt.Errorf("argument %q must be an integer", "workers")
+			}
+			workers = parsed
+		}
+		if workers < 1 || workers > 2 {
+			return tool, fmt.Errorf("argument %q must be between 1 and 2", "workers")
+		}
+		campaign, _ := securitytoolpacks.ParseFuzzCampaign(cfg.Arguments["max_total_time"])
+		tool.Budgets.Timeout = campaign + securitytoolpacks.RustFuzzBuildAllowance + securitytoolpacks.FuzzCampaignOverhead
+		tool.Budgets.CPU = workers * 1000
+	}
 	if tool.Requirements.Network && !securitytoolpacks.IsStagedBuildTool(tool.Name) && len(cfg.Scope) == 0 {
 		return tool, fmt.Errorf("tool %s requires explicit target scope", tool.Name)
 	}
