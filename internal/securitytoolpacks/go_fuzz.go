@@ -1,6 +1,7 @@
 package securitytoolpacks
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,49 @@ import (
 	"strings"
 	"time"
 )
+
+// GoFuzzCampaignMetadataPath is reserved for control-plane-authored campaign
+// provenance. It travels with the staged archive so the isolated executor can
+// distinguish repository seeds from inputs restored from an earlier run.
+const GoFuzzCampaignMetadataPath = ".gratefulagents/go-fuzz-campaign.json"
+
+const goFuzzCampaignMetadataVersion = "v1"
+
+type goFuzzCampaignMetadata struct {
+	SchemaVersion  string `json:"schema_version"`
+	RestoredInputs int    `json:"restored_inputs"`
+}
+
+// EncodeGoFuzzCampaignMetadata creates the provenance record injected by the
+// control plane. The path is reserved and collisions with target content are
+// rejected before staging, so a repository cannot claim that a cold campaign
+// was restored.
+func EncodeGoFuzzCampaignMetadata(restoredInputs int) ([]byte, error) {
+	if restoredInputs < 0 {
+		return nil, fmt.Errorf("restored input count must not be negative")
+	}
+	return json.Marshal(goFuzzCampaignMetadata{SchemaVersion: goFuzzCampaignMetadataVersion, RestoredInputs: restoredInputs})
+}
+
+func readGoFuzzCampaignMetadata(root string) (int, error) {
+	raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(GoFuzzCampaignMetadataPath)))
+	if os.IsNotExist(err) {
+		// Older staged archives have no record and are conservatively treated
+		// as cold rather than guessing from checked-in repository seeds.
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var metadata goFuzzCampaignMetadata
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		return 0, fmt.Errorf("decode Go fuzz campaign metadata: %w", err)
+	}
+	if metadata.SchemaVersion != goFuzzCampaignMetadataVersion || metadata.RestoredInputs < 0 {
+		return 0, fmt.Errorf("invalid Go fuzz campaign metadata")
+	}
+	return metadata.RestoredInputs, nil
+}
 
 // Go fuzzing is the one language lane that already executes, and until now it
 // ran for thirty seconds from whatever corpus happened to be checked in. That
@@ -185,27 +229,47 @@ func generatedCorpusFiles(cacheRoot, target string) ([]string, error) {
 // goFuzzBoundedScope states what the campaign actually covered. "corpus" names
 // the provenance a reader needs to judge a clean result: a cold thirty-second
 // run and a restored fifteen-minute run are not the same claim.
-func goFuzzBoundedScope(pkg, target string, campaign time.Duration, seeded, promoted int) *BoundedScope {
+func goFuzzBoundedScope(pkg, target string, campaign, wallTime time.Duration, inputs, restored, outputs, newInputs int) *BoundedScope {
 	provenance := "cold"
-	if seeded > 0 {
+	if restored > 0 {
 		provenance = "restored"
 	}
+	committed := max(0, inputs-restored)
 	return &BoundedScope{
 		Harness: pkg + " " + target,
-		Corpus:  fmt.Sprintf("seed inputs in=%d (%s), promoted out=%d", seeded, provenance, promoted),
-		Bounds:  "fuzztime=" + campaign.String(),
+		Corpus: fmt.Sprintf(
+			"inputs in=%d (committed=%d, restored=%d), inputs out=%d, new inputs=%d, provenance=%s",
+			inputs, committed, restored, outputs, newInputs, provenance,
+		),
+		Bounds: fmt.Sprintf("fuzztime=%s, wall_time=%s", campaign, wallTime.Round(time.Millisecond)),
 	}
 }
 
-// countSeedCorpus counts the seed inputs the campaign started from.
-func countSeedCorpus(packageDir, target string) int {
-	entries, err := os.ReadDir(filepath.Join(packageDir, "testdata", "fuzz", target))
+// seedCorpusPaths inventories the selected target's seed and crash corpus.
+func seedCorpusPaths(packageDir, target string) map[string]bool {
+	directory := filepath.Join(packageDir, "testdata", "fuzz", target)
+	entries, err := os.ReadDir(directory)
 	if err != nil {
-		return 0
+		return nil
 	}
-	count := 0
+	paths := make(map[string]bool, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() {
+			paths[filepath.Join(directory, entry.Name())] = true
+		}
+	}
+	return paths
+}
+
+// countSeedCorpus counts the inputs the campaign started from.
+func countSeedCorpus(packageDir, target string) int {
+	return len(seedCorpusPaths(packageDir, target))
+}
+
+func newSeedCorpusCount(after, before map[string]bool) int {
+	count := 0
+	for path := range after {
+		if !before[path] {
 			count++
 		}
 	}

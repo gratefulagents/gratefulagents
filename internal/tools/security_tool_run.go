@@ -117,15 +117,11 @@ func RegisterSecurityToolRunTool(registry *Registry, state *securityScanState, d
 }
 
 type runSecurityToolTool struct {
-	// restoredFuzzInputs records how many persisted corpus inputs were
-	// restored into the staged target, so the summary can say whether a clean
-	// campaign started cold or warm.
-	restoredFuzzInputs int
-	state              *securityScanState
-	deps               SecurityToolRunDeps
-	packs              *securitytoolpacks.Registry
-	packsErr           error
-	pollInterval       time.Duration
+	state        *securityScanState
+	deps         SecurityToolRunDeps
+	packs        *securitytoolpacks.Registry
+	packsErr     error
+	pollInterval time.Duration
 }
 
 type runSecurityToolTarget struct {
@@ -352,12 +348,13 @@ func (in runSecurityToolInput) exceedsWait(maximum int) bool {
 // stagedTarget records what a request staged into object storage, for the
 // summary the agent gets back.
 type stagedTarget struct {
-	ObjectKey string `json:"object_key,omitempty"`
-	Digest    string `json:"digest,omitempty"`
-	Path      string `json:"path,omitempty"`
-	Bytes     int    `json:"bytes,omitempty"`
-	Entries   int    `json:"entries,omitempty"`
-	Skipped   int    `json:"skipped_entries,omitempty"`
+	ObjectKey          string `json:"object_key,omitempty"`
+	Digest             string `json:"digest,omitempty"`
+	Path               string `json:"path,omitempty"`
+	Bytes              int    `json:"bytes,omitempty"`
+	Entries            int    `json:"entries,omitempty"`
+	Skipped            int    `json:"skipped_entries,omitempty"`
+	RestoredFuzzInputs int    `json:"-"`
 }
 
 // buildSpec assembles the immutable request. Workspace paths are archived and
@@ -411,7 +408,14 @@ func (t *runSecurityToolTool) buildSpec(ctx context.Context, in runSecurityToolI
 	// corpus before the target is archived. It has to happen here: the staged
 	// archive is the only channel into the execution Job.
 	injected := t.goFuzzCorpusForArchive(ctx, in, local)
-	t.restoredFuzzInputs = len(injected)
+	restoredFuzzInputs := countInjectedGoFuzzInputs(local, injected)
+	if in.Tool == "go-fuzz-tests" {
+		injected, err = addGoFuzzCampaignMetadata(local, restoredFuzzInputs, injected)
+		if err != nil {
+			result := errorResultf("staging Go fuzz campaign metadata: %v", err)
+			return spec, stagedTarget{}, &result
+		}
+	}
 	archive, entries, skipped, err := archiveWorkspaceTargetWithInjected(local, injected)
 	if err != nil {
 		result := errorResultf("staging %s: %v", relative, err)
@@ -429,12 +433,13 @@ func (t *runSecurityToolTool) buildSpec(ctx context.Context, in runSecurityToolI
 	spec.Target.MediaType = stagedTargetMediaType
 	spec.Target.Revision = t.stagedTargetRevision(in.Target.Revision, local, digest)
 	return spec, stagedTarget{
-		ObjectKey: key,
-		Digest:    digest,
-		Path:      relative,
-		Bytes:     len(archive),
-		Entries:   entries,
-		Skipped:   skipped,
+		ObjectKey:          key,
+		Digest:             digest,
+		Path:               relative,
+		Bytes:              len(archive),
+		Entries:            entries,
+		Skipped:            skipped,
+		RestoredFuzzInputs: restoredFuzzInputs,
 	}, nil
 }
 
@@ -988,7 +993,7 @@ func (t *runSecurityToolTool) summarize(ctx context.Context, run *platformv1alph
 	// The campaign's new inputs become the next campaign's seed corpus, and
 	// the note says whether this run started cold or warm — a clean result
 	// from a cold first campaign means much less than one from a warm tenth.
-	if note := t.persistGoFuzzCorpus(ctx, in, summary.Artifacts); note != "" {
+	if note := t.persistGoFuzzCorpus(ctx, in, staging.RestoredFuzzInputs, summary.Artifacts); note != "" {
 		summary.Notes = append(summary.Notes, note)
 	}
 

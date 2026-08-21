@@ -120,7 +120,8 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	goFuzzBaseline := map[string]bool{}
-	goFuzzPackage, goFuzzTarget, goFuzzSeeds := "", "", 0
+	goFuzzTargetBaseline := map[string]bool{}
+	goFuzzPackage, goFuzzTarget, goFuzzSeeds, goFuzzRestored := "", "", 0, 0
 	rustCrashBaseline := map[string]bool{}
 	rustCorpusInputs := 0
 	if req.Tool.Name == "cargo-fuzz" {
@@ -135,15 +136,21 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 	}
 	if req.Tool.Name == "go-fuzz-tests" {
 		var baselineErr error
+		goFuzzRestored, baselineErr = readGoFuzzCampaignMetadata(executionTarget)
+		if baselineErr != nil {
+			return NativeResult{ExitCode: -1, Err: fmt.Errorf("read Go fuzz campaign provenance: %w", baselineErr)}
+		}
 		goFuzzBaseline, baselineErr = goFuzzCorpusPaths(executionTarget)
 		if baselineErr != nil {
 			return NativeResult{ExitCode: -1, Err: fmt.Errorf("inventory Go fuzz corpus: %w", baselineErr)}
 		}
 		goFuzzPackage = GoFuzzPackageDir(executionTarget, req.Config.Arguments["package"])
 		goFuzzTarget = GoFuzzTargetName(req.Config.Arguments["fuzz"])
-		goFuzzSeeds = countSeedCorpus(goFuzzPackage, goFuzzTarget)
+		goFuzzTargetBaseline = seedCorpusPaths(goFuzzPackage, goFuzzTarget)
+		goFuzzSeeds = len(goFuzzTargetBaseline)
 	}
 	var err error
+	executionStarted := time.Now()
 	if ociWork != "" {
 		quotaDirectories := []string{ociWork}
 		quotaLimit, quotaEntries := limit, 4096
@@ -160,6 +167,7 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 	} else {
 		err = cmd.Run()
 	}
+	executionWallTime := time.Since(executionStarted)
 	ociOutputCollected := req.Tool.OCIRoot == "" || req.Tool.OCIOutputPath == ""
 	if req.Tool.OCIOutputPath != "" && ociWork != "" {
 		if output, readErr := readBoundedOCIOutput(ociWork, filepath.Base(req.Tool.OCIOutputPath), limit); readErr == nil {
@@ -202,7 +210,7 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 		// die with the sandbox. Promote a bounded sample into the package's
 		// seed corpus first, so it leaves as artifacts and seeds the next
 		// campaign; then collect, which also picks up minimized crashers.
-		promoted, promoteErr := promoteGeneratedCorpus(ociWork, goFuzzPackage, goFuzzTarget)
+		_, promoteErr := promoteGeneratedCorpus(ociWork, goFuzzPackage, goFuzzTarget)
 		if promoteErr != nil && err == nil {
 			err = fmt.Errorf("promote Go fuzz corpus: %w", promoteErr)
 		}
@@ -212,8 +220,12 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 		} else {
 			result.Artifacts = artifacts
 		}
+		after := seedCorpusPaths(goFuzzPackage, goFuzzTarget)
 		campaign, _ := ParseFuzzCampaign(req.Config.Arguments["fuzztime"])
-		result.Bounded = goFuzzBoundedScope(req.Config.Arguments["package"], goFuzzTarget, campaign, goFuzzSeeds, promoted)
+		result.Bounded = goFuzzBoundedScope(
+			req.Config.Arguments["package"], goFuzzTarget, campaign, executionWallTime,
+			goFuzzSeeds, goFuzzRestored, len(after), newSeedCorpusCount(after, goFuzzTargetBaseline),
+		)
 	}
 	if req.Tool.Name == "cargo-fuzz" {
 		// The verdict comes from what the campaign left on disk, not from

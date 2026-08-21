@@ -297,3 +297,25 @@ func TestValidateRejectsUnverifiedFilesystemTargets(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateRejectsOutOfRangeGoFuzzCampaignBeforeDispatch(t *testing.T) {
+	registry, err := DefaultRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := baseSpec()
+	spec.Tool = "go-fuzz-tests"
+	spec.Target.Type = "go_fuzz_project"
+	spec.Arguments = []platformv1alpha1.SecurityToolArgument{
+		{Name: "package", Value: "./parser"},
+		{Name: "fuzz", Value: "^FuzzDecode$"},
+		{Name: "fuzztime", Value: "16m"},
+	}
+	request, err := RunConfigFor(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Validate(registry, request); err == nil || !strings.Contains(err.Error(), "between 30s and 15m0s") {
+		t.Fatalf("Validate() error = %v, want campaign bounds rejection", err)
+	}
+}

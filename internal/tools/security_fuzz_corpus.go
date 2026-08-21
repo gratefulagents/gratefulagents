@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -47,12 +48,16 @@ type fuzzCorpusDocument struct {
 }
 
 // fuzzCampaignIdentity names the campaign a corpus belongs to. It is derived
-// from the target repository and the exact fuzz target, never from the scan or
-// the run, so re-running a scan continues the same campaign instead of
-// starting a cold one.
-func fuzzCampaignIdentity(repository, pkg, target string) string {
-	sum := sha256.Sum256([]byte(strings.Join([]string{repository, pkg, target}, "\x00")))
+// from the repository, staged target root, package, and exact fuzz target,
+// never from the scan or run, so re-running the same target continues the
+// campaign without contaminating a sibling project in the same repository.
+func fuzzCampaignIdentity(repository, targetRoot, pkg, target string) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{repository, targetRoot, pkg, target}, "\x00")))
 	return hex.EncodeToString(sum[:])[:32]
+}
+
+func fuzzCampaignTargetRoot(locator string) string {
+	return path.Clean(filepath.ToSlash(strings.TrimSpace(locator)))
 }
 
 func fuzzCorpusObjectKey(namespace, tool, campaign string) string {
@@ -186,8 +191,8 @@ func goFuzzCorpusArtifacts(ctx context.Context, blobs SecurityToolRunBlobStore, 
 // clean result is never read as "nothing is there" when it was simply a cold
 // first campaign.
 func goFuzzCampaignNote(restored, persisted int) string {
-	if restored == 0 && persisted == 0 {
-		return "fuzz corpus: cold start, no new inputs persisted"
+	if restored == 0 {
+		return fmt.Sprintf("fuzz corpus: cold start, persisted %d new input(s) for the next campaign", persisted)
 	}
 	return fmt.Sprintf("fuzz corpus: restored %d seed input(s), persisted %d new input(s) for the next campaign", restored, persisted)
 }
@@ -207,14 +212,46 @@ func (t *runSecurityToolTool) goFuzzCorpusForArchive(ctx context.Context, in run
 	if err != nil || relative == "." || strings.HasPrefix(relative, "..") {
 		relative = ""
 	}
-	campaign := fuzzCampaignIdentity(t.state.scanCtx.Repository, pkg, target)
+	campaign := fuzzCampaignIdentity(t.state.scanCtx.Repository, fuzzCampaignTargetRoot(in.Target.Locator), pkg, target)
 	key := fuzzCorpusObjectKey(t.deps.Namespace, in.Tool, campaign)
 	return fuzzCorpusForArchive(ctx, t.deps.Blobs, key, filepath.ToSlash(relative), target)
 }
 
+// countInjectedGoFuzzInputs excludes persisted entries that are already
+// checked into the target and therefore will not be injected into its archive.
+func countInjectedGoFuzzInputs(local string, injected map[string][]byte) int {
+	count := 0
+	for name := range injected {
+		if _, err := os.Lstat(filepath.Join(local, filepath.FromSlash(name))); os.IsNotExist(err) {
+			count++
+		}
+	}
+	return count
+}
+
+// addGoFuzzCampaignMetadata carries the trusted restore count into the
+// executor. Its path is reserved so target content cannot forge provenance.
+func addGoFuzzCampaignMetadata(local string, restored int, injected map[string][]byte) (map[string][]byte, error) {
+	reserved := filepath.Join(local, filepath.FromSlash(securitytoolpacks.GoFuzzCampaignMetadataPath))
+	if _, err := os.Lstat(reserved); err == nil {
+		return nil, fmt.Errorf("target contains reserved campaign metadata path %s", securitytoolpacks.GoFuzzCampaignMetadataPath)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("inspect reserved campaign metadata path: %w", err)
+	}
+	metadata, err := securitytoolpacks.EncodeGoFuzzCampaignMetadata(restored)
+	if err != nil {
+		return nil, err
+	}
+	if injected == nil {
+		injected = map[string][]byte{}
+	}
+	injected[securitytoolpacks.GoFuzzCampaignMetadataPath] = metadata
+	return injected, nil
+}
+
 // persistGoFuzzCorpus stores what this campaign produced so the next one
 // starts from it, and returns the note describing corpus provenance.
-func (t *runSecurityToolTool) persistGoFuzzCorpus(ctx context.Context, in runSecurityToolInput, artifacts []runSecurityToolArtifact) string {
+func (t *runSecurityToolTool) persistGoFuzzCorpus(ctx context.Context, in runSecurityToolInput, restored int, artifacts []runSecurityToolArtifact) string {
 	if in.Tool != "go-fuzz-tests" {
 		return ""
 	}
@@ -222,11 +259,11 @@ func (t *runSecurityToolTool) persistGoFuzzCorpus(ctx context.Context, in runSec
 	if pkg == "" || target == "" {
 		return ""
 	}
-	campaign := fuzzCampaignIdentity(t.state.scanCtx.Repository, pkg, target)
+	campaign := fuzzCampaignIdentity(t.state.scanCtx.Repository, fuzzCampaignTargetRoot(in.Target.Locator), pkg, target)
 	key := fuzzCorpusObjectKey(t.deps.Namespace, in.Tool, campaign)
 	persisted, err := persistFuzzCorpus(ctx, t.deps.Blobs, key, campaign, goFuzzCorpusArtifacts(ctx, t.deps.Blobs, artifacts))
 	if err != nil {
 		return "fuzz corpus could not be persisted: " + err.Error()
 	}
-	return goFuzzCampaignNote(t.restoredFuzzInputs, persisted)
+	return goFuzzCampaignNote(restored, persisted)
 }
