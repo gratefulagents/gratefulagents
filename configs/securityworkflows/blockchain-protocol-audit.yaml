@@ -1059,6 +1059,38 @@ spec:
       outputSchema: |-
         {"type":"array","minItems":12,"maxItems":12,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
 
+    - name: run-upstream-fuzz-campaigns
+      role: native-fuzz-runner
+      category: other
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-cargo-fuzz
+        - name: trail-of-bits-harness-writing
+        - name: trail-of-bits-coverage-analysis
+      objective: >-
+        Use the detected components in {{tasks.detect-platforms-and-components.output}} and the risk-ranked,
+        attacker-controlled surfaces in {{tasks.map-protocol-surfaces.output}} to inventory every
+        repository-maintained native fuzz harness. For Rust, enumerate `fuzz/Cargo.toml` `[[bin]]` targets and
+        follow each manifest-declared path safely contained beneath `fuzz/`, including non-conventional paths;
+        for Go, enumerate production packages containing `FuzzXxx` functions.
+        Match every harness to an in-scope surface and prioritize parsers, wire formats, transactions, blocks,
+        RPC/P2P messages, proofs, and state transitions. Run the highest-value eligible targets through the
+        registered `cargo-fuzz` or `go-fuzz-tests` adapter with `run_security_tool`; do not merely inventory
+        them and do not substitute a model-authored general-purpose harness. A normal audit runs at most two
+        targets for two minutes each. Use an explicit seed for `cargo-fuzz`; record a null seed and the native Go
+        runner's schedule/environment reproducibility limitation for `go-fuzz-tests`. Request two Rust workers when that typed option is
+        advertised and budget permits; otherwise preserve the runtime's fixed worker count. Do not launch warm
+        follow-up rounds here: recommend the dedicated `native-fuzz-campaign` workflow when a high-risk target,
+        useful durable corpus, or coverage plateau justifies repeated rounds. A run exists only when
+        `run_security_tool` returns a run reference. Return every discovered target and its surface, selection
+        decision, exact revision, execution status, tool-run reference, seed, duration, workers, corpus
+        provenance, artifacts, errors, and limitations. Reproduce and minimize crashes where safe. Treat clean
+        execution only as `not_found_under` the recorded bounds, never as proof of safety; keep ineligible,
+        skipped, unsupported, error, timeout, and partial targets visible.
+      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+      outputSchema: |-
+        {"type":"object","additionalProperties":false,"required":["inventory","runs","uncovered","limitations"],"properties":{"inventory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","decision","reason"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"decision":{"type":"string","enum":["selected","skipped","unsupported"]},"reason":{"type":"string"}}}},"runs":{"type":"array","maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["tool","target","revision","execution_status","tool_run","seed","duration","workers","corpus_provenance","artifacts","errors","limitations"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"revision":{"type":"string"},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"corpus_provenance":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
+
     - name: validate-high-impact-findings
       role: exploit-validator
       category: other
@@ -1067,8 +1099,9 @@ spec:
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
       objective: >-
-        Settle every reported critical or high candidate from the per-surface and domain hunts. Re-read the
-        full path and confirm the entry point is production-reachable, the attacker has the stated protocol
+        Settle every reported critical or high candidate from the per-surface and domain hunts and the bounded
+        native-fuzz evidence in {{tasks.run-upstream-fuzz-campaigns.output}}. Re-read the full path and confirm
+        the entry point is production-reachable, the attacker has the stated protocol
         role, every intermediate validation is absent or bypassable, and the final impact follows. Use only
         safe local fixtures, focused tests, harnesses, or model-level reproductions; never contact a live
         network. If no suitable harness exists, create the smallest candidate-specific PoC in a disposable
@@ -1108,6 +1141,7 @@ spec:
         - wallet-mpc-cryptography-specialist
         - economics-mev-governance-specialist
         - off-chain-services-specialist
+        - run-upstream-fuzz-campaigns
       outputSchema: |-
         {
           "type": "array",
@@ -1145,12 +1179,14 @@ spec:
         - name: blockchain-security-research-method
       objective: >-
         Combine the surface and validation ledger {{tasks.account-protocol-and-validation-coverage.output}}
-        with the twelve-record domain ledger {{tasks.account-domain-coverage.output}}. Preserve every blocked
-        or absent surface, validation verdict, domain status, limitation, and finding fingerprint in a compact
-        object; do not promote unsupported or inconclusive work to examined.
-      dependsOn: [account-protocol-and-validation-coverage, account-domain-coverage]
+        with the twelve-record domain ledger {{tasks.account-domain-coverage.output}} and native-fuzz inventory,
+        bounded runs, and uncovered targets in {{tasks.run-upstream-fuzz-campaigns.output}}. Preserve every
+        blocked or absent surface, validation verdict, domain status, fuzz error/timeout/partial result,
+        limitation, and finding fingerprint in a compact object; do not promote unsupported or inconclusive
+        work to examined.
+      dependsOn: [account-protocol-and-validation-coverage, account-domain-coverage, run-upstream-fuzz-campaigns]
       outputSchema: |-
-        {"type":"object","required":["surface_validation","domains"],"properties":{"surface_validation":{"type":"object"},"domains":{"type":"array","minItems":12,"maxItems":12}}}
+        {"type":"object","required":["surface_validation","domains","native_fuzz"],"properties":{"surface_validation":{"type":"object"},"domains":{"type":"array","minItems":12,"maxItems":12},"native_fuzz":{"type":"object","additionalProperties":false,"required":["inventory","runs","uncovered","limitations"],"properties":{"inventory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","decision","reason"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"decision":{"type":"string","enum":["selected","skipped","unsupported"]},"reason":{"type":"string"}}}},"runs":{"type":"array","maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["tool","target","revision","execution_status","tool_run","seed","duration","workers","corpus_provenance","artifacts","errors","limitations"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"revision":{"type":"string"},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"corpus_provenance":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}}}
 
     - name: triage-and-report
       role: finding-triager

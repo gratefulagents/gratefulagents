@@ -117,7 +117,8 @@ Slither 0.11.3 accepts a digest-verified Solidity project and compiles only from
 
 ### Durable Rust fuzz campaigns
 
-`cargo-fuzz` runs one repository-maintained target from `fuzz/fuzz_targets/` with
+`cargo-fuzz` runs one repository-maintained `fuzz/Cargo.toml` `[[bin]]`
+target whose declared path is safely contained beneath `fuzz/`, with
 a bounded `max_total_time`, explicit seed, and a typed worker count from 1 to 2.
 The worker count becomes fixed `-jobs=<n>` and `-workers=<n>` argv with an
 equivalent Kubernetes CPU limit. Comparison tracing is always enabled with the
@@ -144,6 +145,16 @@ by prefix confusion. A clean `not_found_under` result records requested and
 observed duration, committed/restored/input/output/new corpus counts, cold or
 restored provenance, worker count, comparison tracing, and the upstream harness.
 Crash findings additionally retain harness and fuzz-manifest digests.
+
+Shared scan workflows now execute these packs rather than merely inventorying
+eligible harnesses. `blockchain-protocol-audit`, `default-deep-scan`, and the
+chain-specific applicable-tool tasks run at most two high-value upstream targets
+for two minutes each with structured coverage accounting. Rust runs use explicit
+seeds; Go runs record a null seed because Go's native fuzzer has no seed option. The
+dedicated `native-fuzz-campaign` workflow can run up to four independently
+recorded fifteen-minute rounds per selected target, restoring the durable corpus
+between rounds and stopping after a crash or unproductive/error state. Every
+clean result remains `not_found_under` its exact bounds.
 
 These are prerequisites for evaluating LibAFL, not a LibAFL integration.
 `libafl_libfuzzer` is not installed or registered by this change. Adding it

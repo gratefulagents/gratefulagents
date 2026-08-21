@@ -48,6 +48,39 @@ spec:
         A failure, timeout, missing pin, or unavailable catalog tool is an
         error/not-applicable — never a pass.
 
+        ### Repository-maintained native fuzz campaigns
+
+        Fuzzing is conditional, but discovering an eligible harness makes execution
+        mandatory when the workflow requests applicable tools. For Rust, inventory
+        `fuzz/Cargo.toml` `[[bin]]` targets and follow each manifest-declared
+        path safely contained under `fuzz/` (commonly `fuzz/fuzz_targets/`), then
+        use `cargo-fuzz`. For Go, inventory production
+        packages containing `FuzzXxx` functions and use `go-fuzz-tests`. Run only
+        repository-maintained harnesses that exercise an in-scope,
+        attacker-controlled surface; do not put a model-authored general-purpose
+        harness in the scan's accept path.
+
+        A normal scan runs at most two highest-value targets for two minutes each.
+        Use an explicit seed for `cargo-fuzz`; Go's native fuzz runner has no seed
+        option, so record a null seed and its schedule/environment reproducibility
+        limitation. Prefer parsers, wire formats, transactions, blocks,
+        RPC/P2P messages, proofs, and state transitions. Request two Rust workers
+        when the registered tool exposes that typed option and budget permits;
+        otherwise record the runtime's fixed worker count rather than injecting an
+        unsupported flag. Record every discovered target and why it ran or remained
+        uncovered, plus the tool-run reference, revision, seed, duration, workers,
+        corpus provenance, artifacts, errors, and limitations. A run exists only
+        when `run_security_tool` returns a run reference.
+
+        Longer campaigns belong in a dedicated fuzz workflow, not every normal
+        scan. A warm or high-risk target may receive repeated, independently
+        recorded rounds of at most fifteen minutes. Each round restores the durable
+        corpus from the prior round, uses an explicit Rust seed (or records the Go
+        runner's unavailable seed), stops scheduling new rounds after a crash, and
+        preserves crash and corpus artifacts. A clean
+        bounded run is `not_found_under` its exact revision, harness, corpus, seed,
+        workers, and duration — never proof of safety.
+
         Local command execution is available for repository inspection and safe
         project-native builds, tests, simulators, and harnesses. Inspect invoked
         scripts before running them. Live requests are allowed when the operator has

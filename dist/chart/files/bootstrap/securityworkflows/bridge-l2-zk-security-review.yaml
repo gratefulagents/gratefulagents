@@ -67,16 +67,24 @@ spec:
         Use only concrete artifacts, test_targets, and invariants in {{tasks.scope-architecture-and-invariants.output}}.
         Run safe local project-native builds, tests, simulators, and harnesses after inspecting every invoked script.
         When scoped coverage needs a missing harness, create the smallest deterministic harness in a disposable
-        workspace, execute it with local dummy fixtures, and preserve it as an artifact. Never contact a live network, production service, or third party. Use run_security_tool when a
-        compatible registered scanner, fuzzer, sanitizer, vector, or analyzer adapter exists. A run exists only when
-        run_security_tool returned a run reference or a local command actually completed; record tool_run as that reference
-        or the exact local command and preserve versions, exit status, output, seed, bounds, harnesses, artifacts, examined
-        and uncovered scope, and limitations. Missing tools, incompatible harnesses, errors, timeouts, and partial output
+        workspace, execute it with local dummy fixtures, and preserve it as an artifact. Never direct test traffic at a live target, production service, or unrelated third party. A registered staged-build pack may use only its reviewed dependency-resolution egress; do not treat that as authorization to scan the dependency host. Use run_security_tool when a
+        compatible registered scanner, fuzzer, sanitizer, vector, or analyzer adapter exists. In particular, inventory
+        repository-maintained Rust `fuzz/Cargo.toml` `[[bin]]` targets and Go `FuzzXxx` functions. When one covers an
+        in-scope attacker-controlled surface, run it through the registered `cargo-fuzz` or `go-fuzz-tests` adapter;
+        do not merely inventory it and do not substitute a model-authored general-purpose harness. Run at most two
+        highest-value targets for two minutes each. Use an explicit seed for `cargo-fuzz`; for `go-fuzz-tests`,
+        record a null seed and the native Go runner's schedule/environment reproducibility limitation. Request two Rust
+        workers when the typed option is available and budget permits. Record all discovered targets and why each ran or remained uncovered,
+        together with duration, workers, and corpus provenance. A registered run exists only when `run_security_tool`
+        returned a run reference; record tool_run as that reference and use null when no registered run exists. For local project-native checks, record the exact
+        completed command. Preserve versions, exit status, output, seed, bounds, harnesses, artifacts, examined and
+        uncovered scope, and limitations. Missing tools, incompatible harnesses, errors, timeouts, and partial output
         remain visible as unsupported, inconclusive, or skipped. Reproduce and minimize failures where safe. A bounded
-        no-finding run is never evidence of safety.
+        no-finding run is `not_found_under` its exact bounds, never evidence of safety. Recommend `native-fuzz-campaign`
+        instead of starting repeated warm rounds in this normal review.
       dependsOn: [scope-architecture-and-invariants]
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["tool","target","status","execution_status","tool_run","seed","bounds","harnesses","artifacts","examined","uncovered","limitations"],"properties":{"tool":{"type":"string"},"target":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"examined":{"type":"array","items":{"type":"string"}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}}
+        {"type":"array","items":{"type":"object","required":["tool","target","status","execution_status","tool_run","seed","bounds","harnesses","artifacts","examined","uncovered","limitations","selection_reason","duration","workers","corpus_provenance"],"properties":{"tool":{"type":"string"},"target":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"execution_status":{"type":"string"},"tool_run":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"examined":{"type":"array","items":{"type":"string"}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"selection_reason":{"type":"string"},"duration":{"anyOf":[{"type":"string"},{"type":"null"}]},"workers":{"anyOf":[{"type":"integer","minimum":1},{"type":"null"}]},"corpus_provenance":{"type":"array","items":{"type":"string"}}}}}
 
     - name: validate-triage-and-coverage
       role: exploit-validator

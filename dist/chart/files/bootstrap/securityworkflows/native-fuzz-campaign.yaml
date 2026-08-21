@@ -1,0 +1,76 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: native-fuzz-campaign
+spec:
+  description: Dedicated warm-corpus campaign for repository-maintained Rust cargo-fuzz and Go FuzzXxx harnesses. It selects a small set of attacker-reachable targets, runs independently recorded bounded rounds, preserves corpus lineage and crash artifacts, and reports exact not-found-under limits rather than safety claims.
+  parallelism: 2
+  tasks:
+    - name: select-upstream-fuzz-targets
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+        - name: trail-of-bits-cargo-fuzz
+        - name: trail-of-bits-coverage-analysis
+      objective: >-
+        Pin the immutable repository revision and map attacker-controlled production surfaces before selecting
+        fuzz targets. Inventory every repository-maintained Rust target declared by a `fuzz/Cargo.toml` `[[bin]]`
+        entry, following each declared path safely contained beneath `fuzz/` even when it is not under the
+        conventional `fuzz/fuzz_targets/` directory, plus every Go `FuzzXxx` function in a production package. Map
+        each harness to the parser, wire format, transaction, block, RPC/P2P message, proof, state transition,
+        or other production surface it exercises. Select at most two highest-risk eligible targets, preferring a
+        target with a useful durable corpus, an identified coverage plateau, or a magic-value/checksum barrier.
+        Never select a model-authored general-purpose harness. Return every discovered target, including skipped
+        and unsupported targets with concrete reasons. Return an empty selected array when no eligible upstream
+        harness exists; do not create one merely to make the campaign applicable.
+      outputSchema: |-
+        {"type":"object","additionalProperties":false,"required":["revision","inventory","selected","limitations"],"properties":{"revision":{"type":"string"},"inventory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","status","reason"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"status":{"type":"string","enum":["selected","skipped","unsupported"]},"reason":{"type":"string"}}}},"selected":{"type":"array","maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","rationale"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"rationale":{"type":"string"}}}},"limitations":{"type":"array","items":{"type":"string"}}}}
+
+    - name: run-bounded-warm-rounds
+      role: native-fuzz-runner
+      category: other
+      skillRefs:
+        - name: trail-of-bits-cargo-fuzz
+        - name: trail-of-bits-harness-writing
+        - name: trail-of-bits-coverage-analysis
+        - name: exploit-poc-discipline
+      objective: >-
+        Execute the selected repository-maintained targets in {{tasks.select-upstream-fuzz-targets.output}}
+        exclusively through `run_security_tool`, using `cargo-fuzz` for Rust and `go-fuzz-tests` for Go. For
+        each selected target, run up to four independently recorded rounds of at most fifteen minutes each.
+        Use a distinct explicit seed for every Rust round. Because Go's native runner has no seed option, record
+        a null seed and the schedule/environment reproducibility limitation for every Go round. Request two Rust
+        workers when the typed option is available and budget permits.
+        Let every later round restore the durable corpus produced by the prior round; record the restored corpus
+        revision, digest, and entry/byte counts rather than treating a warm round as cold. Stop scheduling new
+        rounds for a target after a crash, tool error, timeout without usable corpus, or lack of useful corpus
+        growth, and record the stop reason. A round exists only when `run_security_tool` returns a run reference.
+        Preserve each reference, immutable target revision, tool version, seed, duration, workers, harness and
+        manifest digests, corpus lineage, coverage/growth metrics, execution status, errors, and artifacts.
+        Reproduce and minimize crashes where the registered pack supports it; never direct test traffic at live
+        systems. A registered staged-build pack may use only its reviewed dependency-resolution egress, which is
+        not authorization to scan or otherwise test the dependency host.
+        Return not_applicable without launching a Job when selection is empty. A clean round is only
+        `not_found_under` its exact bounds and must never be called a pass or proof of safety.
+      dependsOn: [select-upstream-fuzz-targets]
+      outputSchema: |-
+        {"type":"object","additionalProperties":false,"required":["status","rounds","stopped","artifacts","limitations"],"properties":{"status":{"type":"string","enum":["completed","findings","not_applicable","partial","error","timeout"]},"rounds":{"type":"array","maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["tool","target","round","execution_status","tool_run","revision","seed","duration","workers","harness_digest","manifest_digest","corpus_provenance","coverage","artifacts","errors","tool_version","corpus"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"round":{"type":"integer","minimum":1,"maximum":4},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"revision":{"type":"string"},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"harness_digest":{"type":"string"},"manifest_digest":{"type":"string"},"corpus_provenance":{"type":"array","items":{"type":"string"}},"coverage":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"tool_version":{"type":"string"},"corpus":{"type":"object","additionalProperties":false,"required":["restored","restored_revision","parent_digest","snapshot_digest","input_entries","input_bytes","output_entries","output_bytes"],"properties":{"restored":{"type":"boolean"},"restored_revision":{"type":"string"},"parent_digest":{"type":"string"},"snapshot_digest":{"type":"string"},"input_entries":{"type":"integer","minimum":0},"input_bytes":{"type":"integer","minimum":0},"output_entries":{"type":"integer","minimum":0},"output_bytes":{"type":"integer","minimum":0}}}}}},"stopped":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
+
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      objective: >-
+        Compare the complete target inventory in {{tasks.select-upstream-fuzz-targets.output}} with every
+        bounded round and artifact in {{tasks.run-bounded-warm-rounds.output}}. Verify each crash against the
+        pinned revision and repository-maintained harness, deduplicate equivalent inputs, and keep only concrete
+        production-reachable impact. Report examined, skipped, unsupported, error, timeout, partial, and
+        not-applicable targets separately. For every clean target state only `not_found_under` with exact rounds,
+        seeds, durations, workers, harness/manifest digests, and corpus lineage. Preserve uncovered targets and
+        limitations, and provide the exact replay command and minimized artifact for every retained crash.
+      dependsOn: [select-upstream-fuzz-targets, run-bounded-warm-rounds]
+      outputSchema: |-
+        {"type":"object","additionalProperties":false,"required":["findings","not_found_under","examined","skipped","unsupported","errors","timeouts","partial","uncovered","limitations"],"properties":{"findings":{"type":"array","items":{"type":"string"}},"not_found_under":{"type":"array","items":{"type":"string"}},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"unsupported":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"timeouts":{"type":"array","items":{"type":"string"}},"partial":{"type":"array","items":{"type":"string"}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
