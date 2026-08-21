@@ -179,3 +179,83 @@ func TestInjectedCorpusNeverDuplicatesAWorkspaceEntry(t *testing.T) {
 		t.Fatalf("a corpus input absent from the workspace was not injected: %v", names)
 	}
 }
+
+func TestGoFuzzCampaignNoteDistinguishesColdAndRestored(t *testing.T) {
+	if got := goFuzzCampaignNote(0, 1); got != "fuzz corpus: cold start, persisted 1 new input(s) for the next campaign" {
+		t.Fatalf("cold note = %q", got)
+	}
+	if got := goFuzzCampaignNote(2, 1); got != "fuzz corpus: restored 2 seed input(s), persisted 1 new input(s) for the next campaign" {
+		t.Fatalf("warm note = %q", got)
+	}
+}
+
+func TestFuzzCampaignIdentityIsStableAndScoped(t *testing.T) {
+	base := fuzzCampaignIdentity("https://example.test/repo", "service-a", "./parser", "FuzzDecode")
+	if base != fuzzCampaignIdentity("https://example.test/repo", "service-a", "./parser", "FuzzDecode") {
+		t.Fatal("identical campaign coordinates produced different identities")
+	}
+	for _, different := range []string{
+		fuzzCampaignIdentity("https://example.test/other", "service-a", "./parser", "FuzzDecode"),
+		fuzzCampaignIdentity("https://example.test/repo", "service-b", "./parser", "FuzzDecode"),
+		fuzzCampaignIdentity("https://example.test/repo", "service-a", "./codec", "FuzzDecode"),
+		fuzzCampaignIdentity("https://example.test/repo", "service-a", "./parser", "FuzzEncode"),
+	} {
+		if different == base {
+			t.Fatal("a different repository, package, or target reused the campaign identity")
+		}
+	}
+}
+
+func TestGoFuzzSecondCampaignRestoresFirstCampaignCorpus(t *testing.T) {
+	blobs := &recordingCorpusStore{}
+	repository, pkg, target := "https://example.test/repo", "./parser", "FuzzDecode"
+	campaign := fuzzCampaignIdentity(repository, "service-a", pkg, target)
+	key := fuzzCorpusObjectKey("security", "go-fuzz-tests", campaign)
+	seed := []byte("go test fuzz v1\n[]byte(\"learned\")\n")
+	digest := fuzzCorpusEntryName(seed)
+
+	added, err := persistFuzzCorpus(context.Background(), blobs, key, campaign, []fuzzCorpusEntry{{
+		Path: "go-fuzz-corpus/parser/testdata/fuzz/FuzzDecode/crash", Digest: "sha256:" + digest, Data: seed,
+	}})
+	if err != nil || added != 1 {
+		t.Fatalf("first campaign persist = %d, %v", added, err)
+	}
+
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, "parser"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	injected := fuzzCorpusForArchive(context.Background(), blobs, key, "parser", target)
+	if len(injected) != 1 || string(injected["parser/testdata/fuzz/FuzzDecode/"+digest]) != string(seed) {
+		t.Fatalf("second campaign inputs = %#v", injected)
+	}
+	injected, err = addGoFuzzCampaignMetadata(workspace, len(injected), injected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, _, _, err := archiveWorkspaceTargetWithInjected(workspace, injected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := archiveNames(t, archive)
+	if !slices.Contains(names, "parser/testdata/fuzz/FuzzDecode/"+digest) || !slices.Contains(names, ".gratefulagents/go-fuzz-campaign.json") {
+		t.Fatalf("warm campaign archive is missing corpus or provenance: %v", names)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "parser", "testdata")); !os.IsNotExist(err) {
+		t.Fatalf("restoring the corpus modified the workspace: %v", err)
+	}
+}
+
+func TestGoFuzzCampaignMetadataPathIsReserved(t *testing.T) {
+	workspace := t.TempDir()
+	reserved := filepath.Join(workspace, ".gratefulagents", "go-fuzz-campaign.json")
+	if err := os.MkdirAll(filepath.Dir(reserved), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reserved, []byte(`{"restored_inputs":999}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := addGoFuzzCampaignMetadata(workspace, 0, nil); err == nil {
+		t.Fatal("target-authored campaign provenance was accepted")
+	}
+}

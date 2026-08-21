@@ -134,6 +134,14 @@ func Validate(registry *securitytoolpacks.Registry, req Request) (securitytoolpa
 			return tool, fmt.Errorf("argument %q is required", argument.Name)
 		}
 	}
+	// Reject impossible fuzz campaigns before creating a Job. The executor
+	// validates again when deriving argv, but campaign bounds are part of the
+	// typed request contract and should fail at control-plane preflight.
+	if tool.Name == "go-fuzz-tests" {
+		if _, err := securitytoolpacks.ParseFuzzCampaign(cfg.Arguments["fuzztime"]); err != nil {
+			return tool, err
+		}
+	}
 	if tool.Requirements.Network && !securitytoolpacks.IsStagedBuildTool(tool.Name) && len(cfg.Scope) == 0 {
 		return tool, fmt.Errorf("tool %s requires explicit target scope", tool.Name)
 	}

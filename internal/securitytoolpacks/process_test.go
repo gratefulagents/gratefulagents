@@ -7,11 +7,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestCollectGoFuzzArtifactsPreservesCorpusEntries(t *testing.T) {
+func TestGoFuzzColdCampaignCollectsCrashArtifact(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "parser", "testdata", "fuzz", "FuzzDecode", "deadbeef")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -29,7 +30,7 @@ func TestCollectGoFuzzArtifactsPreservesCorpusEntries(t *testing.T) {
 	}
 }
 
-func TestCollectGoFuzzArtifactsSkipsExistingCorpus(t *testing.T) {
+func TestGoFuzzWarmCampaignCollectsOnlyNewCrashArtifact(t *testing.T) {
 	root := t.TempDir()
 	oldPath := filepath.Join(root, "testdata", "fuzz", "FuzzDecode", "old")
 	if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
@@ -52,6 +53,74 @@ func TestCollectGoFuzzArtifactsSkipsExistingCorpus(t *testing.T) {
 	}
 	if len(artifacts) != 1 || string(artifacts[0].Data) != "new" {
 		t.Fatalf("unexpected artifacts: %+v", artifacts)
+	}
+}
+
+func TestGoFuzzProcessReportsColdAndRestoredCrashCampaigns(t *testing.T) {
+	cases := []struct {
+		name       string
+		restored   int
+		provenance string
+	}{
+		{name: "cold", restored: 0, provenance: "provenance=cold"},
+		{name: "restored", restored: 1, provenance: "provenance=restored"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			seedDir := filepath.Join(root, "parser", "testdata", "fuzz", "FuzzDecode")
+			if err := os.MkdirAll(seedDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(seedDir, "seed"), []byte("seed"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			metadata, err := EncodeGoFuzzCampaignMetadata(test.restored)
+			if err != nil {
+				t.Fatal(err)
+			}
+			metadataPath := filepath.Join(root, filepath.FromSlash(GoFuzzCampaignMetadataPath))
+			if err := os.MkdirAll(filepath.Dir(metadataPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(metadataPath, metadata, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			digest, exists, err := DigestPath(root)
+			if err != nil || !exists {
+				t.Fatalf("DigestPath() = %q, %t, %v", digest, exists, err)
+			}
+
+			result := (ProcessSandbox{}).Execute(context.Background(), ExecutionRequest{
+				Tool: Tool{Name: "go-fuzz-tests"},
+				Invocation: Invocation{
+					Argv:    []string{"/bin/sh", "-c", `/bin/mkdir -p "$1/parser/testdata/fuzz/FuzzDecode"; printf 'go test fuzz v1\n[]byte("boom")\n' > "$1/parser/testdata/fuzz/FuzzDecode/crash"`, "_", root},
+					Budgets: Budgets{Timeout: time.Second, MaxOutputSize: 1 << 20},
+				},
+				Config: RunConfig{
+					Tool:      "go-fuzz-tests",
+					Target:    Target{Locator: root, Digest: digest},
+					Arguments: map[string]string{"package": "./parser", "fuzz": "^FuzzDecode$", "fuzztime": "30s"},
+				},
+			})
+			if result.Err != nil {
+				t.Fatalf("Execute() error = %v", result.Err)
+			}
+			if len(result.Artifacts) != 1 || !strings.HasSuffix(result.Artifacts[0].Name, "/crash") {
+				t.Fatalf("crash artifacts = %+v", result.Artifacts)
+			}
+			if result.Bounded == nil {
+				t.Fatal("campaign has no bounded scope")
+			}
+			for _, want := range []string{"inputs in=1", "inputs out=2", "new inputs=1", test.provenance} {
+				if !strings.Contains(result.Bounded.Corpus, want) {
+					t.Fatalf("corpus = %q, missing %q", result.Bounded.Corpus, want)
+				}
+			}
+			if !strings.Contains(result.Bounded.Bounds, "fuzztime=30s, wall_time=") {
+				t.Fatalf("bounds = %q", result.Bounded.Bounds)
+			}
+		})
 	}
 }
 
