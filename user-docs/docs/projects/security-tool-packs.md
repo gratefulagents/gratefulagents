@@ -11,7 +11,62 @@ This is an execution primitive, not evidence that a clean target is secure. Huma
 - web/API: Playwright, OWASP ZAP, Schemathesis, RESTler, mitmproxy, SSLyze, Nuclei, and the authorization-matrix runner;
 - cryptography: Wycheproof, RFC/NIST vectors, dudect, ctgrind, tlsfuzzer, differential tests, Tamarin, ProVerif, Verifpal, and OpenSSL inspection;
 - network/protocol: Nmap, tshark, Zeek, Suricata, Scapy, boofuzz, testssl.sh, and Naabu;
-- blockchain/smart-contract: fixed Foundry security tests, Echidna, Medusa (amd64), Slither, and Halmos.
+- blockchain/smart-contract: fixed Foundry security tests, Echidna, Medusa (amd64), Slither, Halmos, Go native fuzz tests, and cargo-fuzz.
+
+### AFL++ evaluation
+
+AFL++ is not currently registered as an executable pack. The evaluation in
+[#265](https://github.com/gratefulagents/gratefulagents/issues/265) deliberately
+did not turn `afl-fuzz` into a short, cold-corpus smoke test:
+
+- the persistent-corpus lifecycle delivered by #264 is specific to Go's
+  `testdata/fuzz/<target>` layout; cargo-fuzz and a future AFL++ runner cannot
+  inherit it without a separate, typed restore and persistence contract;
+- fuzz packs still execute one process in one Job. They do not provide an AFL++
+  `-M`/`-S` fleet or final corpus synchronization, so AFL++'s campaign scheduler
+  advantage is not available yet;
+- the published `libafl_libfuzzer_runtime` crate is a `0.0.0` placeholder. The
+  supported `libafl_libfuzzer` migration still requires a dependency alias and
+  build changes, so it is not a no-edit replacement for `libfuzzer-sys` that
+  can preserve the complete upstream fuzz-project manifest; and
+- neither #265 nor the committed fixtures identify a concrete maintained target
+  that demonstrates a libFuzzer coverage plateau at a magic-value/checksum
+  barrier or requires binary-only QEMU/Frida execution.
+
+The native `afl-cc` route is therefore also deferred. A generic caller-supplied
+build command, executable path, or fuzzer flag would break the registry's closed
+argv boundary, while a platform-authored harness or per-target source patch
+would weaken the provenance claim made by the Go and Rust packs.
+
+A future AFL++ evaluation should move to implementation when **any one** of
+#265's adoption triggers is demonstrated:
+
+1. an upstream-maintained target plateaus at an identified magic-value or
+   checksum barrier and a local baseline-versus-CmpLog comparison shows that
+   CmpLog clears it;
+2. an authorized target has no usable source build and requires binary-only
+   QEMU/Frida execution; or
+3. compatible persistent corpora, final synchronization, and actual multi-core
+   worker capacity exist for AFL++ campaigns.
+
+After a trigger is met, the pack must still provide all of these execution and
+evidence contracts:
+
+1. a fixed, typed build/target convention that accepts no shell command,
+   arbitrary executable path, URL, or raw AFL++ flag from the caller;
+2. an AFL++-specific durable corpus lifecycle, bounded by count and bytes, plus
+   recorded cold/restored provenance and final worker synchronization;
+3. a digest-pinned multi-architecture runtime closure and an explicitly
+   recorded execution route (`afl-cc`, binary-only QEMU/Frida, or a supported
+   compatible runtime); and
+4. minimized crash inputs, an exact replay command, and a clean
+   `not_found_under` result that records duration, workers, corpus in/out,
+   CmpLog status, and the selected upstream harness.
+
+This is a decision against claiming AFL++ coverage under the current execution
+contract, not a conclusion that AFL++ has no value. CmpLog/Redqueen and the
+long-running multi-worker scheduler remain the reasons to adopt it once a real
+target and campaign contract make those benefits measurable.
 
 The catalog distinguishes executable entries from catalog-only entries. Catalog-only tools remain visible with a reason but cannot produce an invocation. The `security-tools` image (`Dockerfile.security-tools`) carries checksum-locked Nuclei, Naabu, Foundry, and Echidna binaries on amd64 and arm64, plus Medusa on amd64. It also includes the built-in authorization-matrix and crypto-vector runners and complete digest-pinned OCI runtime closures for OWASP ZAP, Schemathesis, SSLyze, Nmap, Zeek, Suricata, Slither, and Halmos. Those closures execute as ordinary tools inside an unprivileged Bubblewrap root filesystem; they require neither Docker nor a container socket, and the agent cannot replace their executable or arguments. Nuclei uses the single reviewed template committed under `security-knowledge`; automatic template updates and caller-selected templates are disabled. Slither uses the immutable multi-architecture Trail of Bits toolbox index. Halmos uses a hash-locked Python/Forge/compiler closure with Z3 4.13.0.0, the first compatible Z3 release that publishes both Linux amd64 and arm64 wheels. Its replay record carries architecture-specific closure digests derived from the Python platform manifest, Forge binary, Slither compiler-root manifest, and both hashed Python lock files rather than mislabeling the Python base digest as the scanner closure.
 
@@ -78,14 +133,18 @@ The replay record contains:
 
 A result is exactly one of:
 
-- `pass`: complete execution, no findings, no gaps or errors;
+- `not_found_under`: complete bounded execution with no findings, carrying the
+  harness, corpus, and limits that bound that negative result;
 - `findings`: complete execution with normalized findings;
 - `error`: execution/exit-code/normalization failure without useful findings;
 - `timeout`: deadline or sandbox timeout;
 - `partial`: useful output with errors, skipped assets, or uncovered assets;
 - `not_applicable`: target type or required capability does not match.
 
-A failure, unknown exit code, skipped asset, or coverage gap can never become `pass`. Coverage records independently list examined, skipped, and uncovered assets.
+Stored legacy `pass` results remain decodable, but new clean bounded runs are
+normalized to `not_found_under`; they never imply that the target is safe.
+
+A failure, unknown exit code, skipped asset, or coverage gap can never become `not_found_under`. Coverage records independently list examined, skipped, and uncovered assets.
 
 Native output is retained as a content-addressed artifact with media type, size, and SHA-256 digest. Binary pcaps remain separate artifacts. Every object for one run lives under `security-tool-runs/<namespace>/<name>/`: the staged `target.tar.gz`, and under `output/` the Job's `manifest.json`, the normalized `result.json`, and the `raw-NN` artifacts. `status.result.resultObjectKey`/`resultDigest` and each entry in `status.result.artifacts` (name, media type, size, digest, object key) point at them, and they outlive the Job and its TTL. Only redacted evidence is copied into finding/report fields. Authorization and proxy-authorization values, cookies, private keys, JWTs, and configured sensitive fields are removed. Raw artifacts can still contain sensitive packet or application content and therefore must use the same restricted artifact-store authorization and retention controls as scan source material.
 
