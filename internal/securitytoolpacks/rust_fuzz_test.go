@@ -345,7 +345,7 @@ func TestCargoFuzzCorpusGrowthIsSampledWithoutFailing(t *testing.T) {
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < maxRustCorpusArtifacts+8; i++ {
+	for i := range maxRustCorpusArtifacts + 8 {
 		if err := os.WriteFile(filepath.Join(directory, fmt.Sprintf("input-%03d", i)), []byte{byte(i)}, 0o600); err != nil {
 			t.Fatal(err)
 		}

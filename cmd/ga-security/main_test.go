@@ -14,19 +14,24 @@ import (
 func TestPersistPreservesLogicalArtifactName(t *testing.T) {
 	dir := t.TempDir()
 	data := []byte("corpus")
-	if err := persist(dir, securitytoolpacks.Result{Artifacts: []securitytoolpacks.Artifact{{Name: "cargo-fuzz-corpus/abc", MediaType: "application/octet-stream", Data: data}}}); err != nil {
+	result := securitytoolpacks.Result{Artifacts: []securitytoolpacks.Artifact{{
+		Name: "cargo-fuzz-corpus/abc", MediaType: "application/octet-stream", Data: data,
+	}}}
+	if err := persist(dir, result); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "result.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var result securitytoolpacks.Result
-	if err := json.Unmarshal(raw, &result); err != nil {
+	var stored securitytoolpacks.Result
+	if err := json.Unmarshal(raw, &stored); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Artifacts) != 1 || result.Artifacts[0].Name != "cargo-fuzz-corpus/abc" || result.Artifacts[0].StorageName != "raw-00" {
-		t.Fatalf("artifact identity was not preserved: %+v", result.Artifacts)
+	if len(stored.Artifacts) != 1 ||
+		stored.Artifacts[0].Name != "cargo-fuzz-corpus/abc" ||
+		stored.Artifacts[0].StorageName != "raw-00" {
+		t.Fatalf("artifact identity was not preserved: %+v", stored.Artifacts)
 	}
 }
 

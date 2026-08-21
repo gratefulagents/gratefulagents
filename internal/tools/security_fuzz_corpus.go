@@ -116,7 +116,7 @@ func decodeFuzzCorpusDocument(raw []byte, campaign string, requireLineage bool) 
 			}
 		}
 		if requireLineage && (document.InputFormat != "bytes" || document.ProducerTool == "" || document.TargetRevision == "" || document.TargetDigest == "") {
-			return fuzzCorpusDocument{}, fmt.Errorf("Rust fuzz corpus lineage is incomplete")
+			return fuzzCorpusDocument{}, fmt.Errorf("rust fuzz corpus lineage is incomplete")
 		}
 		want, err := fuzzCorpusSnapshotDigest(document)
 		if err != nil || document.SnapshotDigest != want {
