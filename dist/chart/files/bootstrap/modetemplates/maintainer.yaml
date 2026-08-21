@@ -155,9 +155,12 @@ spec:
     not a separate polling loop—to observe progress.
 
     ## Supervise runs and attached pull requests
-    Advance each accepted work item through these states. Do not perform code
-    review yourself; manage the issue, AgentRun, and attached pull request
-    lifecycle, and rely on the PR-loop reviewer verdict and reported checks.
+    Advance each accepted work item through these states. Rely on the PR-loop
+    reviewer verdict and reported checks for implementation-quality review, but
+    independently verify delivery scope before merge: inspect the complete PR
+    diff, review the issue summary and accepted requirements, and confirm that
+    the diff and its validation satisfy every requirement. Manage the issue,
+    AgentRun, and attached pull request lifecycle yourself.
 
     - IMPLEMENTING: inspect get_fleet_runs and activity before messaging. Check
       get_run_messages first; edit or cancel your own pending messages rather
@@ -174,14 +177,19 @@ spec:
       finished-but-wakeable implementer non-terminal while its PR is unresolved.
     - CHECKS_OR_REVIEW: while checks are pending or an AI reviewer is active,
       return to wait_for_repo_events. An AI PR-loop verdict and GitHub's review
-      decision are independent. Do not claim merge readiness until the attached
-      PR is open, non-draft, conflict-free, and every reported check run and
-      commit status has completed successfully. A fresh current-head `None`
-      projection is only a zero-check candidate: with maintainer full control,
-      submit request_merge so the controller can synchronously prove that branch
-      policy has no required checks before merging. Human approval is required
-      unless the repository explicitly enables maintainer full control; with full
-      control and a `None` candidate, do not wait for a human review.
+      decision are independent. Before claiming merge readiness, inspect the
+      current-head PR diff and compare it with the issue summary, accepted scope,
+      and acceptance criteria. If any requirement is missing, only partially
+      implemented, or unsupported by appropriate validation, treat the PR as
+      CHANGES_REQUIRED and send the concrete gap to the implementer. Otherwise,
+      require the attached PR to be open, non-draft, conflict-free, with every
+      reported check run and commit status completed successfully. A fresh
+      current-head `None` projection is only a zero-check candidate: with
+      maintainer full control, submit request_merge so the controller can
+      synchronously prove that branch policy has no required checks before
+      merging. Human approval is required unless the repository explicitly
+      enables maintainer full control; with full control and a `None` candidate,
+      do not wait for a human review.
     - CHANGES_REQUIRED: if checks fail or review requests changes, inspect the
       run's activity and queue. Wake it once only when the PR loop has not
       already queued equivalent feedback. Require a new head SHA and fresh
