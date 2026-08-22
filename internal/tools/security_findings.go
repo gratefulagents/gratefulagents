@@ -55,11 +55,12 @@ const (
 
 // SecurityScanContext identifies the security scan a run belongs to.
 type SecurityScanContext struct {
-	ScanName   string
-	Namespace  string
-	RunName    string
-	Repository string
-	Revision   string
+	ScanName    string
+	Namespace   string
+	RunName     string
+	Repository  string
+	Revision    string
+	CheckoutDir string
 	// MinSeverity is the scan's operator-set severity floor ("" = unset).
 	MinSeverity string
 	// DedupePermille is the scan's dedupe similarity threshold in permille:
@@ -119,7 +120,7 @@ func (c SecurityScanContext) RecordKey() string {
 // .../repository, .../revision, .../min-severity, .../dedupe-permille). It
 // returns (ctx, true) only when the scan-name annotation is present, i.e.
 // the run is a security scan run.
-func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runName string, sessionID uuid.UUID) (SecurityScanContext, bool) {
+func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runName, checkoutDir string, sessionID uuid.UUID) (SecurityScanContext, bool) {
 	if run == nil {
 		return SecurityScanContext{}, false
 	}
@@ -137,12 +138,23 @@ func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runNa
 			dedupePermille = int32(v)
 		}
 	}
+	repository := strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation])
+	revision := strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation])
+	if revision == "" && repository != "" {
+		// Unpinned scans check out the configured base branch. Resolve HEAD in
+		// the already-created run workspace so findings and research records are
+		// bound to the same immutable commit from their first write.
+		if resolved, err := resolveSecurityResearchCheckoutRevision(context.Background(), checkoutDir); err == nil {
+			revision = resolved
+		}
+	}
 	return SecurityScanContext{
 		ScanName:                   scanName,
 		Namespace:                  namespace,
 		RunName:                    runName,
-		Repository:                 strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation]),
-		Revision:                   strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation]),
+		Repository:                 repository,
+		Revision:                   revision,
+		CheckoutDir:                checkoutDir,
 		MinSeverity:                minSeverity,
 		DedupePermille:             dedupePermille,
 		ExecutionID:                strings.TrimSpace(run.Annotations[SecurityScanExecutionIDAnnotation]),
@@ -212,11 +224,15 @@ func RegisterSecurityScanTools(registry *Registry, findingStore store.SecurityFi
 		stateStore:   stateStore,
 		scanCtx:      scanCtx,
 	}
+	if researchStore, ok := findingStore.(store.SecurityResearchStore); ok {
+		state.researchStore = researchStore
+	}
 	registry.Register(&reportSecurityFindingTool{state: state})
 	registry.Register(&listSecurityFindingsTool{state: state})
 	registry.Register(&updateSecurityFindingTool{state: state})
 	registry.Register(&ingestScannerResultsTool{state: state})
 	registry.Register(&submitSecurityScanReportTool{state: state})
+	registerSecurityResearchTools(registry, state)
 	return state
 }
 
@@ -224,9 +240,10 @@ func RegisterSecurityScanTools(registry *Registry, findingStore store.SecurityFi
 // is nil it degrades to an in-memory buffer with the same upsert/list/status
 // semantics, so the tools work without Postgres.
 type securityScanState struct {
-	findingStore store.SecurityFindingStore
-	stateStore   store.StateStore
-	scanCtx      SecurityScanContext
+	findingStore  store.SecurityFindingStore
+	researchStore store.SecurityResearchStore
+	stateStore    store.StateStore
+	scanCtx       SecurityScanContext
 
 	mu        sync.Mutex
 	mem       []*store.SecurityFindingRecord
@@ -546,6 +563,14 @@ func (s *securityScanState) getFinding(ctx context.Context, id uuid.UUID) (*stor
 // The audit actor is always this run's name; the model cannot supply it.
 func (s *securityScanState) setFindingStatus(ctx context.Context, id uuid.UUID, status, note string) error {
 	actor := s.scanCtx.RunName
+	if status == store.SecurityFindingStatusConfirmed {
+		if confirmer, ok := s.findingStore.(store.SecurityFindingConfirmationStore); ok {
+			return confirmer.ConfirmSecurityFindingWithVariantSweep(ctx, s.scanCtx.Namespace, id, actor, note)
+		}
+		if s.findingStore != nil && s.researchStore != nil {
+			return fmt.Errorf("durable atomic confirmation with a required variant sweep is not supported")
+		}
+	}
 	if s.findingStore != nil {
 		return s.findingStore.SetSecurityFindingStatus(ctx, s.scanCtx.Namespace, id, status, actor, note, nil)
 	}

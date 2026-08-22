@@ -566,6 +566,51 @@ const (
 	// PlatformServiceExportSecurityFindingAuditLogProcedure is the fully-qualified name of the
 	// PlatformService's ExportSecurityFindingAuditLog RPC.
 	PlatformServiceExportSecurityFindingAuditLogProcedure = "/platform.v1.PlatformService/ExportSecurityFindingAuditLog"
+	// PlatformServiceGetSecurityCampaignResearchStatusProcedure is the fully-qualified name of the
+	// PlatformService's GetSecurityCampaignResearchStatus RPC.
+	PlatformServiceGetSecurityCampaignResearchStatusProcedure = "/platform.v1.PlatformService/GetSecurityCampaignResearchStatus"
+	// PlatformServiceGetSecurityResearchDossierProcedure is the fully-qualified name of the
+	// PlatformService's GetSecurityResearchDossier RPC.
+	PlatformServiceGetSecurityResearchDossierProcedure = "/platform.v1.PlatformService/GetSecurityResearchDossier"
+	// PlatformServiceAmendSecurityResearchDossierProcedure is the fully-qualified name of the
+	// PlatformService's AmendSecurityResearchDossier RPC.
+	PlatformServiceAmendSecurityResearchDossierProcedure = "/platform.v1.PlatformService/AmendSecurityResearchDossier"
+	// PlatformServiceListSecurityResearchHypothesesProcedure is the fully-qualified name of the
+	// PlatformService's ListSecurityResearchHypotheses RPC.
+	PlatformServiceListSecurityResearchHypothesesProcedure = "/platform.v1.PlatformService/ListSecurityResearchHypotheses"
+	// PlatformServiceCreateSecurityResearchHypothesisProcedure is the fully-qualified name of the
+	// PlatformService's CreateSecurityResearchHypothesis RPC.
+	PlatformServiceCreateSecurityResearchHypothesisProcedure = "/platform.v1.PlatformService/CreateSecurityResearchHypothesis"
+	// PlatformServiceTransitionSecurityResearchHypothesisProcedure is the fully-qualified name of the
+	// PlatformService's TransitionSecurityResearchHypothesis RPC.
+	PlatformServiceTransitionSecurityResearchHypothesisProcedure = "/platform.v1.PlatformService/TransitionSecurityResearchHypothesis"
+	// PlatformServiceReopenSecurityResearchHypothesisProcedure is the fully-qualified name of the
+	// PlatformService's ReopenSecurityResearchHypothesis RPC.
+	PlatformServiceReopenSecurityResearchHypothesisProcedure = "/platform.v1.PlatformService/ReopenSecurityResearchHypothesis"
+	// PlatformServiceListSecurityResearchCoverageProcedure is the fully-qualified name of the
+	// PlatformService's ListSecurityResearchCoverage RPC.
+	PlatformServiceListSecurityResearchCoverageProcedure = "/platform.v1.PlatformService/ListSecurityResearchCoverage"
+	// PlatformServiceRecordSecurityResearchCoverageProcedure is the fully-qualified name of the
+	// PlatformService's RecordSecurityResearchCoverage RPC.
+	PlatformServiceRecordSecurityResearchCoverageProcedure = "/platform.v1.PlatformService/RecordSecurityResearchCoverage"
+	// PlatformServiceListSecurityResearchVariantSweepsProcedure is the fully-qualified name of the
+	// PlatformService's ListSecurityResearchVariantSweeps RPC.
+	PlatformServiceListSecurityResearchVariantSweepsProcedure = "/platform.v1.PlatformService/ListSecurityResearchVariantSweeps"
+	// PlatformServiceCreateSecurityResearchVariantSweepProcedure is the fully-qualified name of the
+	// PlatformService's CreateSecurityResearchVariantSweep RPC.
+	PlatformServiceCreateSecurityResearchVariantSweepProcedure = "/platform.v1.PlatformService/CreateSecurityResearchVariantSweep"
+	// PlatformServiceCompleteSecurityResearchVariantSweepProcedure is the fully-qualified name of the
+	// PlatformService's CompleteSecurityResearchVariantSweep RPC.
+	PlatformServiceCompleteSecurityResearchVariantSweepProcedure = "/platform.v1.PlatformService/CompleteSecurityResearchVariantSweep"
+	// PlatformServiceListSecuritySubmissionOutcomeHistoryProcedure is the fully-qualified name of the
+	// PlatformService's ListSecuritySubmissionOutcomeHistory RPC.
+	PlatformServiceListSecuritySubmissionOutcomeHistoryProcedure = "/platform.v1.PlatformService/ListSecuritySubmissionOutcomeHistory"
+	// PlatformServiceRecordSecuritySubmissionOutcomeProcedure is the fully-qualified name of the
+	// PlatformService's RecordSecuritySubmissionOutcome RPC.
+	PlatformServiceRecordSecuritySubmissionOutcomeProcedure = "/platform.v1.PlatformService/RecordSecuritySubmissionOutcome"
+	// PlatformServiceCorrectSecuritySubmissionOutcomeProcedure is the fully-qualified name of the
+	// PlatformService's CorrectSecuritySubmissionOutcome RPC.
+	PlatformServiceCorrectSecuritySubmissionOutcomeProcedure = "/platform.v1.PlatformService/CorrectSecuritySubmissionOutcome"
 	// PlatformServiceListSecurityScanConfigsProcedure is the fully-qualified name of the
 	// PlatformService's ListSecurityScanConfigs RPC.
 	PlatformServiceListSecurityScanConfigsProcedure = "/platform.v1.PlatformService/ListSecurityScanConfigs"
@@ -988,6 +1033,24 @@ type PlatformServiceClient interface {
 	// ExportSecurityFindingAuditLog returns every audit event for a scan's
 	// findings as a downloadable CSV or JSON document.
 	ExportSecurityFindingAuditLog(context.Context, *connect.Request[platform.ExportSecurityFindingAuditLogRequest]) (*connect.Response[platform.ExportSecurityFindingAuditLogResponse], error)
+	// Durable, high-cardinality campaign research is stored only in the state
+	// database. Access follows the owning SecurityScan rather than namespace
+	// membership alone.
+	GetSecurityCampaignResearchStatus(context.Context, *connect.Request[platform.GetSecurityCampaignResearchStatusRequest]) (*connect.Response[platform.SecurityCampaignResearchStatus], error)
+	GetSecurityResearchDossier(context.Context, *connect.Request[platform.GetSecurityResearchDossierRequest]) (*connect.Response[platform.SecurityResearchDossier], error)
+	AmendSecurityResearchDossier(context.Context, *connect.Request[platform.AmendSecurityResearchDossierRequest]) (*connect.Response[platform.AmendSecurityResearchDossierResponse], error)
+	ListSecurityResearchHypotheses(context.Context, *connect.Request[platform.ListSecurityResearchHypothesesRequest]) (*connect.Response[platform.ListSecurityResearchHypothesesResponse], error)
+	CreateSecurityResearchHypothesis(context.Context, *connect.Request[platform.CreateSecurityResearchHypothesisRequest]) (*connect.Response[platform.CreateSecurityResearchHypothesisResponse], error)
+	TransitionSecurityResearchHypothesis(context.Context, *connect.Request[platform.TransitionSecurityResearchHypothesisRequest]) (*connect.Response[platform.SecurityResearchHypothesis], error)
+	ReopenSecurityResearchHypothesis(context.Context, *connect.Request[platform.ReopenSecurityResearchHypothesisRequest]) (*connect.Response[platform.SecurityResearchHypothesis], error)
+	ListSecurityResearchCoverage(context.Context, *connect.Request[platform.ListSecurityResearchCoverageRequest]) (*connect.Response[platform.ListSecurityResearchCoverageResponse], error)
+	RecordSecurityResearchCoverage(context.Context, *connect.Request[platform.RecordSecurityResearchCoverageRequest]) (*connect.Response[platform.RecordSecurityResearchCoverageResponse], error)
+	ListSecurityResearchVariantSweeps(context.Context, *connect.Request[platform.ListSecurityResearchVariantSweepsRequest]) (*connect.Response[platform.ListSecurityResearchVariantSweepsResponse], error)
+	CreateSecurityResearchVariantSweep(context.Context, *connect.Request[platform.CreateSecurityResearchVariantSweepRequest]) (*connect.Response[platform.CreateSecurityResearchVariantSweepResponse], error)
+	CompleteSecurityResearchVariantSweep(context.Context, *connect.Request[platform.CompleteSecurityResearchVariantSweepRequest]) (*connect.Response[platform.SecurityResearchVariantSweep], error)
+	ListSecuritySubmissionOutcomeHistory(context.Context, *connect.Request[platform.ListSecuritySubmissionOutcomeHistoryRequest]) (*connect.Response[platform.ListSecuritySubmissionOutcomeHistoryResponse], error)
+	RecordSecuritySubmissionOutcome(context.Context, *connect.Request[platform.RecordSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error)
+	CorrectSecuritySubmissionOutcome(context.Context, *connect.Request[platform.CorrectSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error)
 	// Security scanning: SecurityScan trigger configuration (the CRs that
 	// create scan runs). ListSecurityScanConfigs returns configured SecurityScan
 	// resources; the older ListSecurityScans above returns persisted scan
@@ -2200,6 +2263,96 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("ExportSecurityFindingAuditLog")),
 			connect.WithClientOptions(opts...),
 		),
+		getSecurityCampaignResearchStatus: connect.NewClient[platform.GetSecurityCampaignResearchStatusRequest, platform.SecurityCampaignResearchStatus](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityCampaignResearchStatusProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityCampaignResearchStatus")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecurityResearchDossier: connect.NewClient[platform.GetSecurityResearchDossierRequest, platform.SecurityResearchDossier](
+			httpClient,
+			baseURL+PlatformServiceGetSecurityResearchDossierProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecurityResearchDossier")),
+			connect.WithClientOptions(opts...),
+		),
+		amendSecurityResearchDossier: connect.NewClient[platform.AmendSecurityResearchDossierRequest, platform.AmendSecurityResearchDossierResponse](
+			httpClient,
+			baseURL+PlatformServiceAmendSecurityResearchDossierProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("AmendSecurityResearchDossier")),
+			connect.WithClientOptions(opts...),
+		),
+		listSecurityResearchHypotheses: connect.NewClient[platform.ListSecurityResearchHypothesesRequest, platform.ListSecurityResearchHypothesesResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityResearchHypothesesProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityResearchHypotheses")),
+			connect.WithClientOptions(opts...),
+		),
+		createSecurityResearchHypothesis: connect.NewClient[platform.CreateSecurityResearchHypothesisRequest, platform.CreateSecurityResearchHypothesisResponse](
+			httpClient,
+			baseURL+PlatformServiceCreateSecurityResearchHypothesisProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CreateSecurityResearchHypothesis")),
+			connect.WithClientOptions(opts...),
+		),
+		transitionSecurityResearchHypothesis: connect.NewClient[platform.TransitionSecurityResearchHypothesisRequest, platform.SecurityResearchHypothesis](
+			httpClient,
+			baseURL+PlatformServiceTransitionSecurityResearchHypothesisProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("TransitionSecurityResearchHypothesis")),
+			connect.WithClientOptions(opts...),
+		),
+		reopenSecurityResearchHypothesis: connect.NewClient[platform.ReopenSecurityResearchHypothesisRequest, platform.SecurityResearchHypothesis](
+			httpClient,
+			baseURL+PlatformServiceReopenSecurityResearchHypothesisProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ReopenSecurityResearchHypothesis")),
+			connect.WithClientOptions(opts...),
+		),
+		listSecurityResearchCoverage: connect.NewClient[platform.ListSecurityResearchCoverageRequest, platform.ListSecurityResearchCoverageResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityResearchCoverageProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityResearchCoverage")),
+			connect.WithClientOptions(opts...),
+		),
+		recordSecurityResearchCoverage: connect.NewClient[platform.RecordSecurityResearchCoverageRequest, platform.RecordSecurityResearchCoverageResponse](
+			httpClient,
+			baseURL+PlatformServiceRecordSecurityResearchCoverageProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("RecordSecurityResearchCoverage")),
+			connect.WithClientOptions(opts...),
+		),
+		listSecurityResearchVariantSweeps: connect.NewClient[platform.ListSecurityResearchVariantSweepsRequest, platform.ListSecurityResearchVariantSweepsResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityResearchVariantSweepsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityResearchVariantSweeps")),
+			connect.WithClientOptions(opts...),
+		),
+		createSecurityResearchVariantSweep: connect.NewClient[platform.CreateSecurityResearchVariantSweepRequest, platform.CreateSecurityResearchVariantSweepResponse](
+			httpClient,
+			baseURL+PlatformServiceCreateSecurityResearchVariantSweepProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CreateSecurityResearchVariantSweep")),
+			connect.WithClientOptions(opts...),
+		),
+		completeSecurityResearchVariantSweep: connect.NewClient[platform.CompleteSecurityResearchVariantSweepRequest, platform.SecurityResearchVariantSweep](
+			httpClient,
+			baseURL+PlatformServiceCompleteSecurityResearchVariantSweepProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CompleteSecurityResearchVariantSweep")),
+			connect.WithClientOptions(opts...),
+		),
+		listSecuritySubmissionOutcomeHistory: connect.NewClient[platform.ListSecuritySubmissionOutcomeHistoryRequest, platform.ListSecuritySubmissionOutcomeHistoryResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecuritySubmissionOutcomeHistoryProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecuritySubmissionOutcomeHistory")),
+			connect.WithClientOptions(opts...),
+		),
+		recordSecuritySubmissionOutcome: connect.NewClient[platform.RecordSecuritySubmissionOutcomeRequest, platform.RecordSecuritySubmissionOutcomeResponse](
+			httpClient,
+			baseURL+PlatformServiceRecordSecuritySubmissionOutcomeProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("RecordSecuritySubmissionOutcome")),
+			connect.WithClientOptions(opts...),
+		),
+		correctSecuritySubmissionOutcome: connect.NewClient[platform.CorrectSecuritySubmissionOutcomeRequest, platform.RecordSecuritySubmissionOutcomeResponse](
+			httpClient,
+			baseURL+PlatformServiceCorrectSecuritySubmissionOutcomeProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CorrectSecuritySubmissionOutcome")),
+			connect.WithClientOptions(opts...),
+		),
 		listSecurityScanConfigs: connect.NewClient[platform.ListSecurityScanConfigsRequest, platform.ListSecurityScanConfigsResponse](
 			httpClient,
 			baseURL+PlatformServiceListSecurityScanConfigsProcedure,
@@ -2671,6 +2824,21 @@ type platformServiceClient struct {
 	saveSecuritySavedFilter                *connect.Client[platform.SaveSecuritySavedFilterRequest, platform.SecuritySavedFilter]
 	deleteSecuritySavedFilter              *connect.Client[platform.DeleteSecuritySavedFilterRequest, emptypb.Empty]
 	exportSecurityFindingAuditLog          *connect.Client[platform.ExportSecurityFindingAuditLogRequest, platform.ExportSecurityFindingAuditLogResponse]
+	getSecurityCampaignResearchStatus      *connect.Client[platform.GetSecurityCampaignResearchStatusRequest, platform.SecurityCampaignResearchStatus]
+	getSecurityResearchDossier             *connect.Client[platform.GetSecurityResearchDossierRequest, platform.SecurityResearchDossier]
+	amendSecurityResearchDossier           *connect.Client[platform.AmendSecurityResearchDossierRequest, platform.AmendSecurityResearchDossierResponse]
+	listSecurityResearchHypotheses         *connect.Client[platform.ListSecurityResearchHypothesesRequest, platform.ListSecurityResearchHypothesesResponse]
+	createSecurityResearchHypothesis       *connect.Client[platform.CreateSecurityResearchHypothesisRequest, platform.CreateSecurityResearchHypothesisResponse]
+	transitionSecurityResearchHypothesis   *connect.Client[platform.TransitionSecurityResearchHypothesisRequest, platform.SecurityResearchHypothesis]
+	reopenSecurityResearchHypothesis       *connect.Client[platform.ReopenSecurityResearchHypothesisRequest, platform.SecurityResearchHypothesis]
+	listSecurityResearchCoverage           *connect.Client[platform.ListSecurityResearchCoverageRequest, platform.ListSecurityResearchCoverageResponse]
+	recordSecurityResearchCoverage         *connect.Client[platform.RecordSecurityResearchCoverageRequest, platform.RecordSecurityResearchCoverageResponse]
+	listSecurityResearchVariantSweeps      *connect.Client[platform.ListSecurityResearchVariantSweepsRequest, platform.ListSecurityResearchVariantSweepsResponse]
+	createSecurityResearchVariantSweep     *connect.Client[platform.CreateSecurityResearchVariantSweepRequest, platform.CreateSecurityResearchVariantSweepResponse]
+	completeSecurityResearchVariantSweep   *connect.Client[platform.CompleteSecurityResearchVariantSweepRequest, platform.SecurityResearchVariantSweep]
+	listSecuritySubmissionOutcomeHistory   *connect.Client[platform.ListSecuritySubmissionOutcomeHistoryRequest, platform.ListSecuritySubmissionOutcomeHistoryResponse]
+	recordSecuritySubmissionOutcome        *connect.Client[platform.RecordSecuritySubmissionOutcomeRequest, platform.RecordSecuritySubmissionOutcomeResponse]
+	correctSecuritySubmissionOutcome       *connect.Client[platform.CorrectSecuritySubmissionOutcomeRequest, platform.RecordSecuritySubmissionOutcomeResponse]
 	listSecurityScanConfigs                *connect.Client[platform.ListSecurityScanConfigsRequest, platform.ListSecurityScanConfigsResponse]
 	getSecurityScanConfig                  *connect.Client[platform.GetSecurityScanConfigRequest, platform.SecurityScanConfig]
 	createSecurityScan                     *connect.Client[platform.CreateSecurityScanRequest, platform.SecurityScanConfig]
@@ -3617,6 +3785,91 @@ func (c *platformServiceClient) ExportSecurityFindingAuditLog(ctx context.Contex
 	return c.exportSecurityFindingAuditLog.CallUnary(ctx, req)
 }
 
+// GetSecurityCampaignResearchStatus calls
+// platform.v1.PlatformService.GetSecurityCampaignResearchStatus.
+func (c *platformServiceClient) GetSecurityCampaignResearchStatus(ctx context.Context, req *connect.Request[platform.GetSecurityCampaignResearchStatusRequest]) (*connect.Response[platform.SecurityCampaignResearchStatus], error) {
+	return c.getSecurityCampaignResearchStatus.CallUnary(ctx, req)
+}
+
+// GetSecurityResearchDossier calls platform.v1.PlatformService.GetSecurityResearchDossier.
+func (c *platformServiceClient) GetSecurityResearchDossier(ctx context.Context, req *connect.Request[platform.GetSecurityResearchDossierRequest]) (*connect.Response[platform.SecurityResearchDossier], error) {
+	return c.getSecurityResearchDossier.CallUnary(ctx, req)
+}
+
+// AmendSecurityResearchDossier calls platform.v1.PlatformService.AmendSecurityResearchDossier.
+func (c *platformServiceClient) AmendSecurityResearchDossier(ctx context.Context, req *connect.Request[platform.AmendSecurityResearchDossierRequest]) (*connect.Response[platform.AmendSecurityResearchDossierResponse], error) {
+	return c.amendSecurityResearchDossier.CallUnary(ctx, req)
+}
+
+// ListSecurityResearchHypotheses calls platform.v1.PlatformService.ListSecurityResearchHypotheses.
+func (c *platformServiceClient) ListSecurityResearchHypotheses(ctx context.Context, req *connect.Request[platform.ListSecurityResearchHypothesesRequest]) (*connect.Response[platform.ListSecurityResearchHypothesesResponse], error) {
+	return c.listSecurityResearchHypotheses.CallUnary(ctx, req)
+}
+
+// CreateSecurityResearchHypothesis calls
+// platform.v1.PlatformService.CreateSecurityResearchHypothesis.
+func (c *platformServiceClient) CreateSecurityResearchHypothesis(ctx context.Context, req *connect.Request[platform.CreateSecurityResearchHypothesisRequest]) (*connect.Response[platform.CreateSecurityResearchHypothesisResponse], error) {
+	return c.createSecurityResearchHypothesis.CallUnary(ctx, req)
+}
+
+// TransitionSecurityResearchHypothesis calls
+// platform.v1.PlatformService.TransitionSecurityResearchHypothesis.
+func (c *platformServiceClient) TransitionSecurityResearchHypothesis(ctx context.Context, req *connect.Request[platform.TransitionSecurityResearchHypothesisRequest]) (*connect.Response[platform.SecurityResearchHypothesis], error) {
+	return c.transitionSecurityResearchHypothesis.CallUnary(ctx, req)
+}
+
+// ReopenSecurityResearchHypothesis calls
+// platform.v1.PlatformService.ReopenSecurityResearchHypothesis.
+func (c *platformServiceClient) ReopenSecurityResearchHypothesis(ctx context.Context, req *connect.Request[platform.ReopenSecurityResearchHypothesisRequest]) (*connect.Response[platform.SecurityResearchHypothesis], error) {
+	return c.reopenSecurityResearchHypothesis.CallUnary(ctx, req)
+}
+
+// ListSecurityResearchCoverage calls platform.v1.PlatformService.ListSecurityResearchCoverage.
+func (c *platformServiceClient) ListSecurityResearchCoverage(ctx context.Context, req *connect.Request[platform.ListSecurityResearchCoverageRequest]) (*connect.Response[platform.ListSecurityResearchCoverageResponse], error) {
+	return c.listSecurityResearchCoverage.CallUnary(ctx, req)
+}
+
+// RecordSecurityResearchCoverage calls platform.v1.PlatformService.RecordSecurityResearchCoverage.
+func (c *platformServiceClient) RecordSecurityResearchCoverage(ctx context.Context, req *connect.Request[platform.RecordSecurityResearchCoverageRequest]) (*connect.Response[platform.RecordSecurityResearchCoverageResponse], error) {
+	return c.recordSecurityResearchCoverage.CallUnary(ctx, req)
+}
+
+// ListSecurityResearchVariantSweeps calls
+// platform.v1.PlatformService.ListSecurityResearchVariantSweeps.
+func (c *platformServiceClient) ListSecurityResearchVariantSweeps(ctx context.Context, req *connect.Request[platform.ListSecurityResearchVariantSweepsRequest]) (*connect.Response[platform.ListSecurityResearchVariantSweepsResponse], error) {
+	return c.listSecurityResearchVariantSweeps.CallUnary(ctx, req)
+}
+
+// CreateSecurityResearchVariantSweep calls
+// platform.v1.PlatformService.CreateSecurityResearchVariantSweep.
+func (c *platformServiceClient) CreateSecurityResearchVariantSweep(ctx context.Context, req *connect.Request[platform.CreateSecurityResearchVariantSweepRequest]) (*connect.Response[platform.CreateSecurityResearchVariantSweepResponse], error) {
+	return c.createSecurityResearchVariantSweep.CallUnary(ctx, req)
+}
+
+// CompleteSecurityResearchVariantSweep calls
+// platform.v1.PlatformService.CompleteSecurityResearchVariantSweep.
+func (c *platformServiceClient) CompleteSecurityResearchVariantSweep(ctx context.Context, req *connect.Request[platform.CompleteSecurityResearchVariantSweepRequest]) (*connect.Response[platform.SecurityResearchVariantSweep], error) {
+	return c.completeSecurityResearchVariantSweep.CallUnary(ctx, req)
+}
+
+// ListSecuritySubmissionOutcomeHistory calls
+// platform.v1.PlatformService.ListSecuritySubmissionOutcomeHistory.
+func (c *platformServiceClient) ListSecuritySubmissionOutcomeHistory(ctx context.Context, req *connect.Request[platform.ListSecuritySubmissionOutcomeHistoryRequest]) (*connect.Response[platform.ListSecuritySubmissionOutcomeHistoryResponse], error) {
+	return c.listSecuritySubmissionOutcomeHistory.CallUnary(ctx, req)
+}
+
+// RecordSecuritySubmissionOutcome calls
+// platform.v1.PlatformService.RecordSecuritySubmissionOutcome.
+func (c *platformServiceClient) RecordSecuritySubmissionOutcome(ctx context.Context, req *connect.Request[platform.RecordSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error) {
+	return c.recordSecuritySubmissionOutcome.CallUnary(ctx, req)
+}
+
+// CorrectSecuritySubmissionOutcome calls
+// platform.v1.PlatformService.CorrectSecuritySubmissionOutcome.
+func (c *platformServiceClient) CorrectSecuritySubmissionOutcome(ctx context.Context, req *connect.Request[platform.CorrectSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error) {
+	return c.correctSecuritySubmissionOutcome.CallUnary(ctx, req)
+}
+
 // ListSecurityScanConfigs calls platform.v1.PlatformService.ListSecurityScanConfigs.
 func (c *platformServiceClient) ListSecurityScanConfigs(ctx context.Context, req *connect.Request[platform.ListSecurityScanConfigsRequest]) (*connect.Response[platform.ListSecurityScanConfigsResponse], error) {
 	return c.listSecurityScanConfigs.CallUnary(ctx, req)
@@ -4133,6 +4386,24 @@ type PlatformServiceHandler interface {
 	// ExportSecurityFindingAuditLog returns every audit event for a scan's
 	// findings as a downloadable CSV or JSON document.
 	ExportSecurityFindingAuditLog(context.Context, *connect.Request[platform.ExportSecurityFindingAuditLogRequest]) (*connect.Response[platform.ExportSecurityFindingAuditLogResponse], error)
+	// Durable, high-cardinality campaign research is stored only in the state
+	// database. Access follows the owning SecurityScan rather than namespace
+	// membership alone.
+	GetSecurityCampaignResearchStatus(context.Context, *connect.Request[platform.GetSecurityCampaignResearchStatusRequest]) (*connect.Response[platform.SecurityCampaignResearchStatus], error)
+	GetSecurityResearchDossier(context.Context, *connect.Request[platform.GetSecurityResearchDossierRequest]) (*connect.Response[platform.SecurityResearchDossier], error)
+	AmendSecurityResearchDossier(context.Context, *connect.Request[platform.AmendSecurityResearchDossierRequest]) (*connect.Response[platform.AmendSecurityResearchDossierResponse], error)
+	ListSecurityResearchHypotheses(context.Context, *connect.Request[platform.ListSecurityResearchHypothesesRequest]) (*connect.Response[platform.ListSecurityResearchHypothesesResponse], error)
+	CreateSecurityResearchHypothesis(context.Context, *connect.Request[platform.CreateSecurityResearchHypothesisRequest]) (*connect.Response[platform.CreateSecurityResearchHypothesisResponse], error)
+	TransitionSecurityResearchHypothesis(context.Context, *connect.Request[platform.TransitionSecurityResearchHypothesisRequest]) (*connect.Response[platform.SecurityResearchHypothesis], error)
+	ReopenSecurityResearchHypothesis(context.Context, *connect.Request[platform.ReopenSecurityResearchHypothesisRequest]) (*connect.Response[platform.SecurityResearchHypothesis], error)
+	ListSecurityResearchCoverage(context.Context, *connect.Request[platform.ListSecurityResearchCoverageRequest]) (*connect.Response[platform.ListSecurityResearchCoverageResponse], error)
+	RecordSecurityResearchCoverage(context.Context, *connect.Request[platform.RecordSecurityResearchCoverageRequest]) (*connect.Response[platform.RecordSecurityResearchCoverageResponse], error)
+	ListSecurityResearchVariantSweeps(context.Context, *connect.Request[platform.ListSecurityResearchVariantSweepsRequest]) (*connect.Response[platform.ListSecurityResearchVariantSweepsResponse], error)
+	CreateSecurityResearchVariantSweep(context.Context, *connect.Request[platform.CreateSecurityResearchVariantSweepRequest]) (*connect.Response[platform.CreateSecurityResearchVariantSweepResponse], error)
+	CompleteSecurityResearchVariantSweep(context.Context, *connect.Request[platform.CompleteSecurityResearchVariantSweepRequest]) (*connect.Response[platform.SecurityResearchVariantSweep], error)
+	ListSecuritySubmissionOutcomeHistory(context.Context, *connect.Request[platform.ListSecuritySubmissionOutcomeHistoryRequest]) (*connect.Response[platform.ListSecuritySubmissionOutcomeHistoryResponse], error)
+	RecordSecuritySubmissionOutcome(context.Context, *connect.Request[platform.RecordSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error)
+	CorrectSecuritySubmissionOutcome(context.Context, *connect.Request[platform.CorrectSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error)
 	// Security scanning: SecurityScan trigger configuration (the CRs that
 	// create scan runs). ListSecurityScanConfigs returns configured SecurityScan
 	// resources; the older ListSecurityScans above returns persisted scan
@@ -5341,6 +5612,96 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("ExportSecurityFindingAuditLog")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceGetSecurityCampaignResearchStatusHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityCampaignResearchStatusProcedure,
+		svc.GetSecurityCampaignResearchStatus,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityCampaignResearchStatus")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecurityResearchDossierHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecurityResearchDossierProcedure,
+		svc.GetSecurityResearchDossier,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecurityResearchDossier")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceAmendSecurityResearchDossierHandler := connect.NewUnaryHandler(
+		PlatformServiceAmendSecurityResearchDossierProcedure,
+		svc.AmendSecurityResearchDossier,
+		connect.WithSchema(platformServiceMethods.ByName("AmendSecurityResearchDossier")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceListSecurityResearchHypothesesHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityResearchHypothesesProcedure,
+		svc.ListSecurityResearchHypotheses,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityResearchHypotheses")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCreateSecurityResearchHypothesisHandler := connect.NewUnaryHandler(
+		PlatformServiceCreateSecurityResearchHypothesisProcedure,
+		svc.CreateSecurityResearchHypothesis,
+		connect.WithSchema(platformServiceMethods.ByName("CreateSecurityResearchHypothesis")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceTransitionSecurityResearchHypothesisHandler := connect.NewUnaryHandler(
+		PlatformServiceTransitionSecurityResearchHypothesisProcedure,
+		svc.TransitionSecurityResearchHypothesis,
+		connect.WithSchema(platformServiceMethods.ByName("TransitionSecurityResearchHypothesis")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceReopenSecurityResearchHypothesisHandler := connect.NewUnaryHandler(
+		PlatformServiceReopenSecurityResearchHypothesisProcedure,
+		svc.ReopenSecurityResearchHypothesis,
+		connect.WithSchema(platformServiceMethods.ByName("ReopenSecurityResearchHypothesis")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceListSecurityResearchCoverageHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityResearchCoverageProcedure,
+		svc.ListSecurityResearchCoverage,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityResearchCoverage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceRecordSecurityResearchCoverageHandler := connect.NewUnaryHandler(
+		PlatformServiceRecordSecurityResearchCoverageProcedure,
+		svc.RecordSecurityResearchCoverage,
+		connect.WithSchema(platformServiceMethods.ByName("RecordSecurityResearchCoverage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceListSecurityResearchVariantSweepsHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityResearchVariantSweepsProcedure,
+		svc.ListSecurityResearchVariantSweeps,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityResearchVariantSweeps")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCreateSecurityResearchVariantSweepHandler := connect.NewUnaryHandler(
+		PlatformServiceCreateSecurityResearchVariantSweepProcedure,
+		svc.CreateSecurityResearchVariantSweep,
+		connect.WithSchema(platformServiceMethods.ByName("CreateSecurityResearchVariantSweep")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCompleteSecurityResearchVariantSweepHandler := connect.NewUnaryHandler(
+		PlatformServiceCompleteSecurityResearchVariantSweepProcedure,
+		svc.CompleteSecurityResearchVariantSweep,
+		connect.WithSchema(platformServiceMethods.ByName("CompleteSecurityResearchVariantSweep")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceListSecuritySubmissionOutcomeHistoryHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecuritySubmissionOutcomeHistoryProcedure,
+		svc.ListSecuritySubmissionOutcomeHistory,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecuritySubmissionOutcomeHistory")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceRecordSecuritySubmissionOutcomeHandler := connect.NewUnaryHandler(
+		PlatformServiceRecordSecuritySubmissionOutcomeProcedure,
+		svc.RecordSecuritySubmissionOutcome,
+		connect.WithSchema(platformServiceMethods.ByName("RecordSecuritySubmissionOutcome")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceCorrectSecuritySubmissionOutcomeHandler := connect.NewUnaryHandler(
+		PlatformServiceCorrectSecuritySubmissionOutcomeProcedure,
+		svc.CorrectSecuritySubmissionOutcome,
+		connect.WithSchema(platformServiceMethods.ByName("CorrectSecuritySubmissionOutcome")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceListSecurityScanConfigsHandler := connect.NewUnaryHandler(
 		PlatformServiceListSecurityScanConfigsProcedure,
 		svc.ListSecurityScanConfigs,
@@ -5987,6 +6348,36 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceDeleteSecuritySavedFilterHandler.ServeHTTP(w, r)
 		case PlatformServiceExportSecurityFindingAuditLogProcedure:
 			platformServiceExportSecurityFindingAuditLogHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityCampaignResearchStatusProcedure:
+			platformServiceGetSecurityCampaignResearchStatusHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecurityResearchDossierProcedure:
+			platformServiceGetSecurityResearchDossierHandler.ServeHTTP(w, r)
+		case PlatformServiceAmendSecurityResearchDossierProcedure:
+			platformServiceAmendSecurityResearchDossierHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityResearchHypothesesProcedure:
+			platformServiceListSecurityResearchHypothesesHandler.ServeHTTP(w, r)
+		case PlatformServiceCreateSecurityResearchHypothesisProcedure:
+			platformServiceCreateSecurityResearchHypothesisHandler.ServeHTTP(w, r)
+		case PlatformServiceTransitionSecurityResearchHypothesisProcedure:
+			platformServiceTransitionSecurityResearchHypothesisHandler.ServeHTTP(w, r)
+		case PlatformServiceReopenSecurityResearchHypothesisProcedure:
+			platformServiceReopenSecurityResearchHypothesisHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityResearchCoverageProcedure:
+			platformServiceListSecurityResearchCoverageHandler.ServeHTTP(w, r)
+		case PlatformServiceRecordSecurityResearchCoverageProcedure:
+			platformServiceRecordSecurityResearchCoverageHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityResearchVariantSweepsProcedure:
+			platformServiceListSecurityResearchVariantSweepsHandler.ServeHTTP(w, r)
+		case PlatformServiceCreateSecurityResearchVariantSweepProcedure:
+			platformServiceCreateSecurityResearchVariantSweepHandler.ServeHTTP(w, r)
+		case PlatformServiceCompleteSecurityResearchVariantSweepProcedure:
+			platformServiceCompleteSecurityResearchVariantSweepHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecuritySubmissionOutcomeHistoryProcedure:
+			platformServiceListSecuritySubmissionOutcomeHistoryHandler.ServeHTTP(w, r)
+		case PlatformServiceRecordSecuritySubmissionOutcomeProcedure:
+			platformServiceRecordSecuritySubmissionOutcomeHandler.ServeHTTP(w, r)
+		case PlatformServiceCorrectSecuritySubmissionOutcomeProcedure:
+			platformServiceCorrectSecuritySubmissionOutcomeHandler.ServeHTTP(w, r)
 		case PlatformServiceListSecurityScanConfigsProcedure:
 			platformServiceListSecurityScanConfigsHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityScanConfigProcedure:
@@ -6802,6 +7193,66 @@ func (UnimplementedPlatformServiceHandler) DeleteSecuritySavedFilter(context.Con
 
 func (UnimplementedPlatformServiceHandler) ExportSecurityFindingAuditLog(context.Context, *connect.Request[platform.ExportSecurityFindingAuditLogRequest]) (*connect.Response[platform.ExportSecurityFindingAuditLogResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ExportSecurityFindingAuditLog is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityCampaignResearchStatus(context.Context, *connect.Request[platform.GetSecurityCampaignResearchStatusRequest]) (*connect.Response[platform.SecurityCampaignResearchStatus], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityCampaignResearchStatus is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecurityResearchDossier(context.Context, *connect.Request[platform.GetSecurityResearchDossierRequest]) (*connect.Response[platform.SecurityResearchDossier], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecurityResearchDossier is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) AmendSecurityResearchDossier(context.Context, *connect.Request[platform.AmendSecurityResearchDossierRequest]) (*connect.Response[platform.AmendSecurityResearchDossierResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.AmendSecurityResearchDossier is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityResearchHypotheses(context.Context, *connect.Request[platform.ListSecurityResearchHypothesesRequest]) (*connect.Response[platform.ListSecurityResearchHypothesesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityResearchHypotheses is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CreateSecurityResearchHypothesis(context.Context, *connect.Request[platform.CreateSecurityResearchHypothesisRequest]) (*connect.Response[platform.CreateSecurityResearchHypothesisResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateSecurityResearchHypothesis is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) TransitionSecurityResearchHypothesis(context.Context, *connect.Request[platform.TransitionSecurityResearchHypothesisRequest]) (*connect.Response[platform.SecurityResearchHypothesis], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.TransitionSecurityResearchHypothesis is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ReopenSecurityResearchHypothesis(context.Context, *connect.Request[platform.ReopenSecurityResearchHypothesisRequest]) (*connect.Response[platform.SecurityResearchHypothesis], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ReopenSecurityResearchHypothesis is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityResearchCoverage(context.Context, *connect.Request[platform.ListSecurityResearchCoverageRequest]) (*connect.Response[platform.ListSecurityResearchCoverageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityResearchCoverage is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) RecordSecurityResearchCoverage(context.Context, *connect.Request[platform.RecordSecurityResearchCoverageRequest]) (*connect.Response[platform.RecordSecurityResearchCoverageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.RecordSecurityResearchCoverage is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityResearchVariantSweeps(context.Context, *connect.Request[platform.ListSecurityResearchVariantSweepsRequest]) (*connect.Response[platform.ListSecurityResearchVariantSweepsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityResearchVariantSweeps is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CreateSecurityResearchVariantSweep(context.Context, *connect.Request[platform.CreateSecurityResearchVariantSweepRequest]) (*connect.Response[platform.CreateSecurityResearchVariantSweepResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateSecurityResearchVariantSweep is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CompleteSecurityResearchVariantSweep(context.Context, *connect.Request[platform.CompleteSecurityResearchVariantSweepRequest]) (*connect.Response[platform.SecurityResearchVariantSweep], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CompleteSecurityResearchVariantSweep is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecuritySubmissionOutcomeHistory(context.Context, *connect.Request[platform.ListSecuritySubmissionOutcomeHistoryRequest]) (*connect.Response[platform.ListSecuritySubmissionOutcomeHistoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecuritySubmissionOutcomeHistory is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) RecordSecuritySubmissionOutcome(context.Context, *connect.Request[platform.RecordSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.RecordSecuritySubmissionOutcome is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CorrectSecuritySubmissionOutcome(context.Context, *connect.Request[platform.CorrectSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CorrectSecuritySubmissionOutcome is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) ListSecurityScanConfigs(context.Context, *connect.Request[platform.ListSecurityScanConfigsRequest]) (*connect.Response[platform.ListSecurityScanConfigsResponse], error) {

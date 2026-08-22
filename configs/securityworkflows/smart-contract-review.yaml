@@ -19,7 +19,9 @@ spec:
         - name: trail-of-bits-audit-context-building
         - name: trail-of-bits-entry-point-analyzer
       objective: >-
-        Establish the exact EVM review scope before hunting. Follow production wiring and publish one
+        Call get_security_research_context first and reuse only records bound to the exact immutable target
+        revision and scope; prior-revision negative evidence is stale context. Establish the exact EVM review
+        scope before hunting. Follow production wiring and publish one
         structured object containing: the immutable revision and stated inclusions/exclusions; every
         contract project root and repository component, framework, manifests, source/test/script/artifact
         roots, dependency locks, compiler configuration, and whether it is production-relevant; and every
@@ -243,8 +245,9 @@ spec:
         ephemeral writable copy of the digest-verified project. Record compiler/remapping availability,
         normalized findings, exact execution status, artifacts, and limitations. A missing pinned compiler or
         dependency closure or arm64 Slither compiler is unsupported; error, timeout, and partial output are inconclusive; no
-        Solidity root is skipped/not_applicable. A pass means only that this exact Slither run emitted no
-        detector result. Do not re-submit tool findings or claim a broader clean bill of health.
+        Solidity root is skipped/not_applicable. A no-finding result uses execution_status not_found_under and
+        means only that this exact Slither run emitted no detector result. Do not re-submit tool findings or
+        claim a broader clean bill of health.
       dependsOn:
         - inventory-scope-repositories-deployments
         - reproducible-build-artifact-deployment-review
@@ -257,7 +260,7 @@ spec:
             "properties": {
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
-              "execution_status": {"type": "string", "enum": ["not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "execution_status": {"type": "string", "enum": ["not_found_under", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
               "tool_run": {"type": "string"},
               "artifacts": {"type": "array", "items": {"type": "string"}},
               "summary": {"type": "string"}
@@ -278,7 +281,7 @@ spec:
       dependsOn:
         - slither-static-analysis
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: deterministic-forge-tests-and-invariants
       role: test-engineer
@@ -303,9 +306,9 @@ spec:
         state replay is examined when the harness executes it. Tests using `createFork`/`createSelectFork`,
         remote RPC aliases, missing state, staged RPC caches, or raw Anvil persistence snapshots are
         unsupported, not passed. If the tool or a compatible Foundry project is unavailable, publish skipped or unsupported
-        with execution_status not_run/not_applicable. Error, timeout, partial, setup failure, and a bounded
-        fuzz run with no crash remain inconclusive coverage and never prove safety or an invariant not encoded
-        by the harness.
+        with execution_status not_run/not_applicable. Error, timeout, partial, and setup failure remain
+        inconclusive. A completed bounded fuzz run with no crash uses execution_status not_found_under and
+        never proves safety or an invariant not encoded by the harness.
       dependsOn:
         - inventory-scope-repositories-deployments
         - define-security-invariants
@@ -319,7 +322,7 @@ spec:
             "properties": {
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
-              "execution_status": {"type": "string", "enum": ["not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "execution_status": {"type": "string", "enum": ["not_found_under", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
               "seed": {"type": "integer"},
               "harnesses": {"type": "array", "items": {"type": "string"}},
               "state_mode": {"type": "string", "enum": ["none", "local_allocs", "rpc_required", "raw_anvil_snapshot", "unknown"]},
@@ -356,8 +359,9 @@ spec:
         caller-configurable RPC or FFI; dependency resolution may use network access. Do not invent scanner flags. Correlate falsified properties and
         minimized transaction sequences with the invariant portfolio and preserve replay/artifact references.
         Record harnesses, properties, seed, targets and coverage limitations. Missing harnesses are skipped,
-        an unavailable compiler/build is unsupported, and error/timeout/partial results are inconclusive. A bounded clean campaign proves only
-        that those harnesses found no violation under that seed and bound; it never proves contract safety.
+        an unavailable compiler/build is unsupported, and error/timeout/partial results are inconclusive. A completed bounded campaign with no
+        violation uses execution_status not_found_under and proves only that those harnesses found no violation
+        under that seed and bound; it never proves contract safety.
       dependsOn:
         - inventory-scope-repositories-deployments
         - define-security-invariants
@@ -371,7 +375,7 @@ spec:
             "properties": {
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
-              "execution_status": {"type": "string", "enum": ["not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "execution_status": {"type": "string", "enum": ["not_found_under", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
               "seed": {"type": "integer"},
               "harnesses": {"type": "array", "items": {"type": "string"}},
               "properties_exercised": {"type": "array", "items": {"type": "string"}},
@@ -634,14 +638,15 @@ spec:
         JSON output and an ephemeral writable digest-verified project copy; dependency resolution may use network access. Preserve test names,
         bounds, counterexamples, execution status, artifacts, and limitations. Missing harnesses are skipped;
         missing pinned compiler/dependencies are unsupported; timeout, stuck, revert-all, exception, setup
-        failure, and partial output are inconclusive and never counterexamples or proofs. A pass covers only the
-        encoded symbolic tests under those bounds. Do not re-submit normalized findings.
+        failure, and partial output are inconclusive and never counterexamples or proofs. A completed bounded
+        run with no counterexample uses execution_status not_found_under and covers only the encoded symbolic
+        tests under those bounds. Do not re-submit normalized findings.
       dependsOn:
         - inventory-scope-repositories-deployments
         - define-security-invariants
         - reproducible-build-artifact-deployment-review
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","execution_status","bounds","harnesses","counterexamples","limitations","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"execution_status":{"type":"string","enum":["not_found_under","pass","findings","error","timeout","partial","not_applicable","not_run"]},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"counterexamples":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"tool_run":{"type":"string"},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","execution_status","bounds","harnesses","counterexamples","limitations","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"execution_status":{"type":"string","enum":["not_found_under","findings","error","timeout","partial","not_applicable","not_run"]},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"counterexamples":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"tool_run":{"type":"string"},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: merge-symbolic-tool-coverage
       role: finding-triager
@@ -658,7 +663,7 @@ spec:
         - echidna-stateful-property-fuzzing
         - bounded-halmos-symbolic-tests
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","counterexamples","limitations","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"counterexamples":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","counterexamples","limitations","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"counterexamples":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: symbolic-and-formal-applicability
       role: security-reviewer
@@ -697,7 +702,7 @@ spec:
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
               "method": {"type": "string"},
-              "execution_status": {"type": "string", "enum": ["not_run", "not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
+              "execution_status": {"type": "string", "enum": ["not_run", "not_found_under", "findings", "error", "timeout", "partial", "not_applicable"]},
               "properties": {"type": "array", "items": {"type": "string"}},
               "limitations": {"type": "array", "items": {"type": "string"}},
               "summary": {"type": "string"}
@@ -791,7 +796,7 @@ spec:
               "fingerprint": {"type": "string"},
               "verdict": {"type": "string", "enum": ["confirmed", "false_positive", "inconclusive", "unsupported"]},
               "method": {"type": "string", "enum": ["forge_local", "project_native_poc", "local_trace", "manual_disproof", "none"]},
-              "execution_status": {"type": "string", "enum": ["not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
+              "execution_status": {"type": "string", "enum": ["not_found_under", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
               "tool_run": {"type": "string"},
               "reproduction": {"type": "array", "items": {"type": "string"}},
               "summary": {"type": "string"}
@@ -818,7 +823,7 @@ spec:
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-build-and-static-coverage
       role: security-reviewer
@@ -840,7 +845,7 @@ spec:
         - merge-solidity-static-analysis
         - deterministic-forge-tests-and-invariants
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-fuzz-and-formal-coverage
       role: security-reviewer
@@ -860,7 +865,7 @@ spec:
         - merge-symbolic-tool-coverage
         - symbolic-and-formal-applicability
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-calls-auth-accounting-coverage
       role: security-reviewer
@@ -873,7 +878,7 @@ spec:
         {{tasks.authorization-signatures-and-account-abstraction.output}}, and accounting and token review
         {{tasks.accounting-arithmetic-and-token-integrations.output}}. Emit deduplicated records with only
         examined, skipped, unsupported, or inconclusive status, preserving limitations and unvalidated
-        candidates as explicit gaps. Never infer safety from a pass or no finding. Carry execution_status,
+        candidates as explicit gaps. Never infer safety from execution_status not_found_under or any no-finding result. Carry execution_status,
         tool_run, seed, bounds, harnesses, and artifacts on every record; use not_applicable, seed 0, plus empty
         string and array values when no executable tool applies.
       dependsOn:
@@ -881,7 +886,7 @@ spec:
         - authorization-signatures-and-account-abstraction
         - accounting-arithmetic-and-token-integrations
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-economics-oracle-liveness-coverage
       role: security-reviewer
@@ -894,7 +899,7 @@ spec:
         {{tasks.oracles-randomness-time-and-ordering.output}}, and gas, liveness, returndata and state growth
         {{tasks.gas-liveness-returndata-and-state-growth.output}}. Emit deduplicated records with only examined,
         skipped, unsupported, or inconclusive status, preserving limitations and unvalidated candidates as
-        explicit gaps. Never infer safety from a pass or no finding. Carry execution_status, tool_run, seed,
+        explicit gaps. Never infer safety from execution_status not_found_under or any no-finding result. Carry execution_status, tool_run, seed,
         bounds, harnesses, and artifacts on every record; use not_applicable, seed 0, plus empty string and
         array values when no executable tool applies.
       dependsOn:
@@ -902,7 +907,7 @@ spec:
         - oracles-randomness-time-and-ordering
         - gas-liveness-returndata-and-state-growth
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-low-level-and-configuration-coverage
       role: security-reviewer
@@ -921,7 +926,7 @@ spec:
         - low-level-factories-proxies-and-storage
         - deployment-and-privileged-configuration
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","pass","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
+        {"type":"array","items":{"type":"object","required":["area","status","basis","execution_status","tool_run","seed","bounds","harnesses","artifacts","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"basis":{"type":"array","items":{"type":"string"}},"execution_status":{"type":"string","enum":["not_run","not_found_under","findings","error","timeout","partial","not_applicable"]},"tool_run":{"type":"string"},"seed":{"type":"integer"},"bounds":{"type":"array","items":{"type":"string"}},"harnesses":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
     - name: account-scope-and-tool-coverage
       role: security-reviewer
@@ -938,7 +943,7 @@ spec:
         repository, deployment, entry-point class, invariant domain, tool, and formal method. Status must be
         exactly examined, skipped, unsupported, or inconclusive. Preserve errors, timeouts, partial runs,
         missing artifacts or deployments, absent harnesses, and unsupported provers as explicit gaps. Never
-        turn a pass or no-finding result into broader coverage or safety. Copy execution_status, tool_run,
+        turn execution_status not_found_under or any no-finding result into broader coverage or safety. Copy execution_status, tool_run,
         seed, bounds, harnesses, and artifacts from the leaf ledgers verbatim through this merge.
       dependsOn:
         - account-foundation-coverage
@@ -954,7 +959,7 @@ spec:
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
               "basis": {"type": "array", "items": {"type": "string"}},
-              "execution_status": {"type": "string", "enum": ["not_run", "not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
+              "execution_status": {"type": "string", "enum": ["not_run", "not_found_under", "findings", "error", "timeout", "partial", "not_applicable"]},
               "tool_run": {"type": "string"},
               "seed": {"type": "integer"},
               "bounds": {"type": "array", "items": {"type": "string"}},
@@ -979,7 +984,7 @@ spec:
         {{tasks.account-low-level-and-configuration-coverage.output}}. Emit one deduplicated, concise record for
         every specialist topic and deployment/configuration area. Status must be exactly examined, skipped,
         unsupported, or inconclusive. Preserve missing evidence, tool limitations, unvalidated candidates,
-        and partial review as explicit gaps. Never turn pass or no-finding into broader coverage or safety.
+        and partial review as explicit gaps. Never turn execution_status not_found_under or any no-finding result into broader coverage or safety.
         Copy execution_status, tool_run, seed, bounds, harnesses, and artifacts from the leaf ledgers verbatim
         through this merge.
       dependsOn:
@@ -996,7 +1001,7 @@ spec:
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
               "basis": {"type": "array", "items": {"type": "string"}},
-              "execution_status": {"type": "string", "enum": ["not_run", "not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
+              "execution_status": {"type": "string", "enum": ["not_run", "not_found_under", "findings", "error", "timeout", "partial", "not_applicable"]},
               "tool_run": {"type": "string"},
               "seed": {"type": "integer"},
               "bounds": {"type": "array", "items": {"type": "string"}},
@@ -1022,7 +1027,7 @@ spec:
         deployment, entry-point class, invariant domain, specialist topic, tool, formal method and validation
         target. Status must be exactly examined, skipped, unsupported, or inconclusive. Preserve tool errors,
         timeouts, partial runs, missing artifacts/deployments, absent harnesses, unsupported RPC forks/provers,
-        and unvalidated candidates as gaps. Never upgrade pass/no-finding into broader coverage or safety.
+        and unvalidated candidates as gaps. Never upgrade execution_status not_found_under or any no-finding result into broader coverage or safety.
         Preserve exact execution_status, tool_run, seed, bounds, harnesses, and artifacts from the compact
         ledgers; for validation-only records, map the validation execution evidence without inventing a run,
         and use seed 0 when that evidence exposes no seed.
@@ -1040,7 +1045,7 @@ spec:
               "area": {"type": "string"},
               "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
               "basis": {"type": "array", "items": {"type": "string"}},
-              "execution_status": {"type": "string", "enum": ["not_run", "not_found_under", "pass", "findings", "error", "timeout", "partial", "not_applicable"]},
+              "execution_status": {"type": "string", "enum": ["not_run", "not_found_under", "findings", "error", "timeout", "partial", "not_applicable"]},
               "tool_run": {"type": "string"},
               "seed": {"type": "integer"},
               "bounds": {"type": "array", "items": {"type": "string"}},
@@ -1122,7 +1127,11 @@ spec:
         seed, bounds and artifact references, formal-method limitations, local-validation evidence,
         remediation/retest plan, and every examined,
         skipped, unsupported and inconclusive coverage record. Never describe unavailable or failed tooling
-        as executed or passed. Then assemble and submit exactly one final report.
+        as executed or passed. Persist branch outcomes with transition_security_hypothesis and
+        invariant/actor/state/transition bounds with record_security_coverage. Every confirmed root cause must
+        have create_security_variant_sweep followed by complete_security_variant_sweep with scope and evidence;
+        blocked or inconclusive sweeps stay internal without an audited human override. Call
+        get_security_campaign_status, reconcile durable gaps and budget decisions, then submit one final report.
       dependsOn:
         - validate-high-impact-exploits
         - account-lifecycle-coverage

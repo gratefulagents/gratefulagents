@@ -299,6 +299,10 @@ func (s *Store) UpsertSecurityFinding(ctx context.Context, rec *store.SecurityFi
 	if status == "" {
 		status = store.SecurityFindingStatusOpen
 	}
+	confidence := rec.Confidence
+	if confidence == "" {
+		confidence = "tentative"
+	}
 	occurrences := rec.Occurrences
 	if occurrences <= 0 {
 		occurrences = 1
@@ -330,7 +334,7 @@ func (s *Store) UpsertSecurityFinding(ctx context.Context, rec *store.SecurityFi
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	out, created, err := s.upsertSecurityFindingTx(ctx, tx, rec, status, occurrences, cwe, references, raw, sourceKind, correlated)
+	out, created, err := s.upsertSecurityFindingTx(ctx, tx, rec, status, confidence, occurrences, cwe, references, raw, sourceKind, correlated)
 	if err != nil {
 		return nil, false, err
 	}
@@ -363,7 +367,7 @@ const selectSecurityFindingForUpdateSQL = `
 // or merges the reobservation into it, classifying the baseline state and
 // appending the matching audit event.
 func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *store.SecurityFindingRecord,
-	status string, occurrences int32, cwe, references []string, raw json.RawMessage,
+	status, confidence string, occurrences int32, cwe, references []string, raw json.RawMessage,
 	sourceKind string, correlated []string) (*store.SecurityFindingRecord, bool, error) {
 	existing, err := scanSecurityFindingRow(tx.QueryRow(ctx, selectSecurityFindingForUpdateSQL,
 		rec.Namespace, rec.ScanName, rec.Repository, rec.Fingerprint))
@@ -388,7 +392,7 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 			ON CONFLICT (namespace, scan_name, repository, fingerprint) DO NOTHING
 			RETURNING `+securityFindingColumns,
 			rec.ScanID, rec.Namespace, rec.ScanName, rec.RunName, rec.SessionID,
-			rec.Fingerprint, rec.Title, rec.Category, rec.Severity, rec.Confidence,
+			rec.Fingerprint, rec.Title, rec.Category, rec.Severity, confidence,
 			rec.Repository, rec.Revision, rec.FilePath, rec.StartLine, rec.EndLine,
 			rec.Symbol, cwe, rec.Description, rec.Impact, rec.AttackVector, rec.Remediation,
 			references, rec.SourceAgent, rec.ScanStep, rec.Score, status, rec.DuplicateOf,
@@ -474,7 +478,7 @@ func (s *Store) upsertSecurityFindingTx(ctx context.Context, tx pgx.Tx, rec *sto
 		WHERE id = $1
 		RETURNING `+securityFindingColumns,
 		existing.ID, rec.ScanID, rec.ScanName, rec.RunName, rec.SessionID,
-		rec.Title, rec.Category, merge.severity, rec.Confidence, rec.Revision,
+		rec.Title, rec.Category, merge.severity, confidence, rec.Revision,
 		rec.FilePath, rec.StartLine, rec.EndLine, rec.Symbol, cwe,
 		rec.Description, rec.Impact, rec.AttackVector, rec.Remediation, references,
 		rec.SourceAgent, rec.ScanStep, rec.Score, raw,
@@ -950,6 +954,12 @@ func (s *Store) DeleteSecurityScanData(ctx context.Context, namespace, scanName 
 		return fmt.Errorf("beginning security scan delete: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	// Research targets are keyed by the SecurityScan name and follow the same
+	// deletion lifecycle. Delete them before findings so retained dossiers can
+	// never be rebound to a later scan that reuses the name.
+	if _, err := tx.Exec(ctx, `DELETE FROM security_research_targets WHERE namespace = $1 AND target_key = $2`, namespace, scanName); err != nil {
+		return fmt.Errorf("deleting security research: %w", err)
+	}
 	// Finding events cascade from findings; findings are deleted explicitly
 	// (rather than relying on the scan_id cascade) so rows re-attributed to
 	// a later run of the same scan are removed too.

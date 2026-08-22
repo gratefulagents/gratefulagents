@@ -25,6 +25,7 @@ import {
   SEVERITIES, STATUS_PILL, SeverityBadge, severityTone,
 } from "@/components/SecurityScanList";
 import { SecurityScanRunPanel } from "@/components/SecurityScanRunPanel";
+import { SecurityResearchPanel } from "@/components/SecurityResearchPanel";
 import { SecurityScanFormDialog } from "@/components/SecurityScanFormDialog";
 import { ExecutionProgressPanel } from "@/components/ExecutionProgressPanel";
 import {
@@ -1461,6 +1462,14 @@ export function SecurityScanDetail() {
           )}
         </div>
       </DetailSection>
+
+      <SecurityResearchPanel
+        namespace={scan.namespace}
+        targetKey={scan.scanName}
+        revision={scan.revision}
+        workflow={scan.scanName}
+        permission={scanConfig?.myPermission ?? ""}
+      />
 
       {namespace &&
         scanConfig?.lastExecution &&

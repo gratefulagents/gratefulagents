@@ -2,8 +2,12 @@ package tools
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -420,7 +424,7 @@ func TestSecurityScanContextFromRun(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scanCtx, ok := SecurityScanContextFromRun(tt.run, "ns1", "run1", sessionID)
+			scanCtx, ok := SecurityScanContextFromRun(tt.run, "ns1", "run1", ".", sessionID)
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
 			}
@@ -434,6 +438,55 @@ func TestSecurityScanContextFromRun(t *testing.T) {
 				t.Errorf("namespace/run/session not propagated: %+v", scanCtx)
 			}
 		})
+	}
+}
+
+func TestSecurityScanContextFromRunResolvesUnpinnedCheckout(t *testing.T) {
+	checkoutDir := t.TempDir()
+	for _, args := range [][]string{
+		{"init", checkoutDir},
+		{"-C", checkoutDir, "config", "user.email", "security-test@example.invalid"},
+		{"-C", checkoutDir, "config", "user.name", "Security Test"},
+	} {
+		if output, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(checkoutDir, "target.txt"), []byte("target checkout\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"-C", checkoutDir, "add", "target.txt"}, {"-C", checkoutDir, "commit", "-m", "target"}} {
+		if output, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	expectedOutput, err := exec.Command("git", "-C", checkoutDir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(originalDir) })
+
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+		SecurityScanNameAnnotation:       "scan-a",
+		SecurityScanRepositoryAnnotation: "github.com/acme/widget",
+	}}}
+	scanCtx, ok := SecurityScanContextFromRun(run, "ns1", "run1", checkoutDir, uuid.New())
+	if !ok {
+		t.Fatal("SecurityScanContextFromRun returned ok=false")
+	}
+	if scanCtx.Revision != strings.TrimSpace(string(expectedOutput)) {
+		t.Fatalf("resolved revision = %q, want checkout HEAD %q", scanCtx.Revision, strings.TrimSpace(string(expectedOutput)))
+	}
+	decoded, err := hex.DecodeString(scanCtx.Revision)
+	if err != nil || len(decoded) < 20 {
+		t.Fatalf("resolved revision %q is not an immutable commit hash", scanCtx.Revision)
 	}
 }
 
@@ -493,7 +546,7 @@ func TestSecurityScanContextPolicyAnnotations(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Annotations: tt.annotations}}
-			scanCtx, ok := SecurityScanContextFromRun(run, "ns1", "run1", sessionID)
+			scanCtx, ok := SecurityScanContextFromRun(run, "ns1", "run1", ".", sessionID)
 			if !ok {
 				t.Fatalf("expected scan context")
 			}
@@ -1773,7 +1826,7 @@ func TestSecurityScanContextFromRunParsesExecutionAnnotations(t *testing.T) {
 		SecurityScanRecordNameAnnotation:  " secscan-nightly-scan-exec-1 ",
 		SecurityScanTaskNameAnnotation:    " recon ",
 	}}}
-	scanCtx, ok := SecurityScanContextFromRun(run, "default", "nightly-scan-recon-0", uuid.New())
+	scanCtx, ok := SecurityScanContextFromRun(run, "default", "nightly-scan-recon-0", ".", uuid.New())
 	if !ok {
 		t.Fatalf("scan context not recognized")
 	}
@@ -1785,7 +1838,7 @@ func TestSecurityScanContextFromRunParsesExecutionAnnotations(t *testing.T) {
 		t.Fatalf("record key = %q (RecordRunName %q), want shared execution record name", scanCtx.RecordKey(), scanCtx.RecordRunName)
 	}
 	delete(run.Annotations, SecurityScanRecordNameAnnotation)
-	if scanCtx, _ := SecurityScanContextFromRun(run, "default", "r", uuid.Nil); scanCtx.RecordKey() != "r" {
+	if scanCtx, _ := SecurityScanContextFromRun(run, "default", "r", ".", uuid.Nil); scanCtx.RecordKey() != "r" {
 		t.Errorf("record key without annotation = %q, want the run's own name", scanCtx.RecordKey())
 	}
 

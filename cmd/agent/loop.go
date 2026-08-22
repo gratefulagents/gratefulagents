@@ -239,7 +239,7 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	if bugReportStore, ok := sc.StateStore().(store.AgentBugReportStore); ok {
 		tools.RegisterReportBugTool(toolRegistry, bugReportStore, cfg.Namespace, cfg.TaskName, sc.SessionID())
 	}
-	if scanCtx, ok := tools.SecurityScanContextFromRun(run, cfg.Namespace, cfg.TaskName, sc.SessionID()); ok {
+	if scanCtx, ok := tools.SecurityScanContextFromRun(run, cfg.Namespace, cfg.TaskName, cfg.RepoDir, sc.SessionID()); ok {
 		// nil when the state store has no Postgres-backed finding storage; the
 		// tools then fall back to an in-memory finding buffer for this run.
 		securityFindingStore, _ := sc.StateStore().(store.SecurityFindingStore)

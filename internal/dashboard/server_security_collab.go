@@ -333,6 +333,11 @@ func (s *Server) BulkUpdateSecurityFindingStatus(ctx context.Context, req *platf
 		if !store.ValidSecurityFindingStatus(status) {
 			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid finding status %q", status))
 		}
+		if status == store.SecurityFindingStatusConfirmed {
+			if _, durableResearch := s.stateStore.(store.SecurityResearchStore); durableResearch {
+				return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("bulk confirmation is disabled because each confirmation must atomically create its required variant sweep; confirm findings individually"))
+			}
+		}
 		upd.Status = &status
 	}
 	if req.GetSetAssignee() {

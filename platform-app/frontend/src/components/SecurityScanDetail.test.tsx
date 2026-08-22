@@ -49,6 +49,10 @@ vi.mock("@/components/SecurityScanRunPanel", () => ({
   SecurityScanRunPanel: () => <div data-testid="scan-run-panel" />,
 }));
 
+vi.mock("@/components/SecurityResearchPanel", () => ({
+  SecurityResearchPanel: () => <div data-testid="security-research-panel" />,
+}));
+
 // The full create/edit form has its own test suite. This detail-page suite
 // only verifies that the current scan config is handed to duplicate mode.
 vi.mock("@/components/SecurityScanFormDialog", () => ({

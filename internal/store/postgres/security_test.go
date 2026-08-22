@@ -326,6 +326,49 @@ func TestSecurityFindingStoreLifecycle(t *testing.T) {
 	lifecycleTestScanDeletion(ctx, t, s, finding, other)
 }
 
+func TestSecurityFindingEmptyConfidenceDefaultsWithoutMutatingInput(t *testing.T) {
+	s := setupSecurityTestStore(t)
+	ctx := context.Background()
+	scan, err := s.UpsertSecurityScan(ctx, &store.SecurityScanRecord{
+		Namespace: "default", ScanName: "nightly", RunName: "nightly-1", Repository: "org/repo",
+	})
+	if err != nil {
+		t.Fatalf("UpsertSecurityScan: %v", err)
+	}
+
+	insert := &store.SecurityFindingRecord{
+		ScanID: scan.ID, Namespace: "default", ScanName: "nightly", RunName: "nightly-1",
+		Fingerprint: "empty-confidence", Title: "Finding", Category: "other",
+		Severity: "medium", Repository: "org/repo",
+	}
+	createdFinding, created, err := s.UpsertSecurityFinding(ctx, insert)
+	if err != nil || !created {
+		t.Fatalf("insert: created=%v err=%v", created, err)
+	}
+	if createdFinding.Confidence != "tentative" {
+		t.Errorf("inserted confidence = %q, want tentative", createdFinding.Confidence)
+	}
+	if insert.Confidence != "" {
+		t.Errorf("insert input confidence = %q, want unchanged empty value", insert.Confidence)
+	}
+
+	reobservation := &store.SecurityFindingRecord{
+		ScanID: scan.ID, Namespace: "default", ScanName: "nightly", RunName: "nightly-2",
+		Fingerprint: "empty-confidence", Title: "Finding again", Category: "other",
+		Severity: "medium", Repository: "org/repo",
+	}
+	merged, created, err := s.UpsertSecurityFinding(ctx, reobservation)
+	if err != nil || created {
+		t.Fatalf("reobservation: created=%v err=%v", created, err)
+	}
+	if merged.Confidence != "tentative" {
+		t.Errorf("reobserved confidence = %q, want tentative", merged.Confidence)
+	}
+	if reobservation.Confidence != "" {
+		t.Errorf("reobservation input confidence = %q, want unchanged empty value", reobservation.Confidence)
+	}
+}
+
 func lifecycleTestComments(ctx context.Context, t *testing.T, s *Store, finding *store.SecurityFindingRecord) {
 	t.Helper()
 
