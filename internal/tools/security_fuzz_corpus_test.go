@@ -5,12 +5,17 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/gratefulagents/gratefulagents/internal/securitytoolpacks"
 )
 
 type recordingCorpusStore struct {
@@ -69,7 +74,7 @@ func TestFuzzCorpusIsInjectedIntoTheArchiveNotTheWorkspace(t *testing.T) {
 	}
 
 	document, err := json.Marshal(fuzzCorpusDocument{
-		SchemaVersion: fuzzCorpusSchemaVersion, Campaign: "c1",
+		SchemaVersion: fuzzCorpusLegacyVersion, Campaign: "c1",
 		Entries: []fuzzCorpusEntry{{Path: "parser/testdata/fuzz/FuzzDecode/old", Digest: "sha256:x", Data: []byte("seed-input")}},
 	})
 	if err != nil {
@@ -106,7 +111,7 @@ func TestFuzzCorpusIsInjectedIntoTheArchiveNotTheWorkspace(t *testing.T) {
 // corpus, because the entry name is re-derived from its content.
 func TestFuzzCorpusEntryPathsAreDerivedNotTrusted(t *testing.T) {
 	document, err := json.Marshal(fuzzCorpusDocument{
-		SchemaVersion: fuzzCorpusSchemaVersion,
+		SchemaVersion: fuzzCorpusLegacyVersion,
 		Entries: []fuzzCorpusEntry{
 			{Path: "../../../etc/passwd", Digest: "sha256:a", Data: []byte("evil")},
 			{Path: "/absolute", Digest: "sha256:b", Data: []byte("also evil")},
@@ -243,6 +248,114 @@ func TestGoFuzzSecondCampaignRestoresFirstCampaignCorpus(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(workspace, "parser", "testdata")); !os.IsNotExist(err) {
 		t.Fatalf("restoring the corpus modified the workspace: %v", err)
+	}
+}
+
+func TestCargoFuzzSecondCampaignRestoresFirstCorpusWithoutTouchingWorkspace(t *testing.T) {
+	blobs := &recordingCorpusStore{}
+	tool := &runSecurityToolTool{state: &securityScanState{scanCtx: SecurityScanContext{Repository: "https://example.test/repo"}}, deps: SecurityToolRunDeps{Namespace: "security", Blobs: blobs}}
+	in := runSecurityToolInput{Tool: "cargo-fuzz", Target: runSecurityToolTarget{Locator: "client", Revision: "rev-1"}, Arguments: map[string]string{"fuzz_target": "decode"}}
+	campaign, key := tool.rustFuzzCorpusCoordinates(in)
+	seed := []byte("learned-rust-input")
+	added, err := persistFuzzCorpusWithLineage(context.Background(), blobs, key, campaign, fuzzCorpusLineage{InputFormat: "bytes", ProducerTool: "cargo-fuzz", TargetRevision: "rev-1", TargetDigest: "sha256:" + strings.Repeat("a", 64)}, []fuzzCorpusEntry{{Digest: "sha256:" + fuzzCorpusEntryName(seed), Data: seed}})
+	if err != nil || added != 1 {
+		t.Fatalf("persist = %d, %v", added, err)
+	}
+	workspace := t.TempDir()
+	injected := tool.rustFuzzCorpusForArchive(context.Background(), in)
+	if len(injected) != 1 {
+		t.Fatalf("restored %d inputs", len(injected))
+	}
+	injected, err = addRustFuzzCampaignMetadata(workspace, len(injected), injected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, _, _, err := archiveWorkspaceTargetWithInjected(workspace, injected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := archiveNames(t, archive)
+	want := "fuzz/corpus/decode/" + fuzzCorpusEntryName(seed)
+	if !slices.Contains(names, want) || !slices.Contains(names, securitytoolpacks.RustFuzzCampaignMetadataPath) {
+		t.Fatalf("archive missing Rust corpus/provenance: %v", names)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "fuzz")); !os.IsNotExist(err) {
+		t.Fatalf("restore modified workspace: %v", err)
+	}
+	var stored fuzzCorpusDocument
+	if err := json.Unmarshal(blobs.objects[key], &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.InputFormat != "bytes" || stored.ProducerTool != "cargo-fuzz" || stored.SnapshotDigest == "" {
+		t.Fatalf("lineage missing: %+v", stored)
+	}
+}
+
+func TestCargoFuzzCorpusIsIsolatedAndCrashArtifactsAreExcluded(t *testing.T) {
+	corpus, crash := []byte("corpus"), []byte("crash")
+	corpusSum, crashSum := sha256.Sum256(corpus), sha256.Sum256(crash)
+	corpusDigest := "sha256:" + hex.EncodeToString(corpusSum[:])
+	crashDigest := "sha256:" + hex.EncodeToString(crashSum[:])
+	blobs := &recordingCorpusStore{objects: map[string][]byte{"corpus": corpus, "crash": crash}}
+	entries, err := rustFuzzCorpusArtifacts(context.Background(), blobs, []runSecurityToolArtifact{
+		{Name: "cargo-fuzz-corpus/" + strings.TrimPrefix(corpusDigest, "sha256:")[:32], MediaType: "application/octet-stream", ObjectKey: "corpus", Digest: corpusDigest, Size: int64(len(corpus))},
+		{Name: "cargo-fuzz-crash/crash-a", MediaType: "application/octet-stream", ObjectKey: "crash", Digest: crashDigest, Size: int64(len(crash))},
+	})
+	if err != nil || len(entries) != 1 || string(entries[0].Data) != "corpus" {
+		t.Fatalf("durable entries = %+v, err=%v", entries, err)
+	}
+	base := fuzzCampaignIdentity("repo-a", "root", rustFuzzCorpusFamily, "decode")
+	for _, other := range []string{
+		fuzzCampaignIdentity("repo-b", "root", rustFuzzCorpusFamily, "decode"),
+		fuzzCampaignIdentity("repo-a", "other", rustFuzzCorpusFamily, "decode"),
+		fuzzCampaignIdentity("repo-a", "root", rustFuzzCorpusFamily, "encode"),
+	} {
+		if other == base {
+			t.Fatal("Rust corpus lineage was not isolated")
+		}
+	}
+}
+
+func TestCargoFuzzCorpusRejectsTamperedSnapshotAndCrashDuplicate(t *testing.T) {
+	blobs := &recordingCorpusStore{}
+	seed := []byte("same-input")
+	sum := sha256.Sum256(seed)
+	digest := "sha256:" + hex.EncodeToString(sum[:])
+	name := "cargo-fuzz-corpus/" + strings.TrimPrefix(digest, "sha256:")[:32]
+	entries, err := rustFuzzCorpusArtifacts(context.Background(), &recordingCorpusStore{objects: map[string][]byte{"corpus": seed}}, []runSecurityToolArtifact{
+		{Name: name, MediaType: "application/octet-stream", ObjectKey: "corpus", Digest: digest, Size: int64(len(seed))},
+		{Name: "cargo-fuzz-crash/crash", MediaType: "application/octet-stream", ObjectKey: "crash", Digest: digest, Size: int64(len(seed))},
+	})
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("crashing input was retained: %+v, err=%v", entries, err)
+	}
+	campaign := "campaign"
+	lineage := fuzzCorpusLineage{InputFormat: "bytes", ProducerTool: "cargo-fuzz", TargetRevision: "rev", TargetDigest: "sha256:" + strings.Repeat("a", 64)}
+	if _, err := persistFuzzCorpusWithLineage(context.Background(), blobs, "key", campaign, lineage, []fuzzCorpusEntry{{Data: seed}}); err != nil {
+		t.Fatal(err)
+	}
+	var document fuzzCorpusDocument
+	if err := json.Unmarshal(blobs.objects["key"], &document); err != nil {
+		t.Fatal(err)
+	}
+	document.TargetRevision = "forged"
+	tampered, _ := json.Marshal(document)
+	if _, err := decodeFuzzCorpusDocument(tampered, campaign, true); err == nil {
+		t.Fatal("tampered lineage was accepted")
+	}
+}
+
+func TestRustFuzzCampaignMetadataPathIsReserved(t *testing.T) {
+	workspace := t.TempDir()
+	reserved := filepath.Join(workspace, filepath.FromSlash(securitytoolpacks.RustFuzzCampaignMetadataPath))
+	if err := os.MkdirAll(filepath.Dir(reserved), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reserved, []byte(`{"restored_inputs":999}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := addRustFuzzCampaignMetadata(workspace, 0, nil); err == nil {
+		t.Fatal("target-authored Rust campaign provenance was accepted")
 	}
 }
 

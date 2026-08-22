@@ -157,7 +157,7 @@ spec:
 
 The controller seeds each scan run with a generated prompt containing the target, scope, the workflow as an explicit sub-agent plan, the machine-readable finding contract, ranking rules, and the reporting policy. The coordinating agent then spawns **one sub-agent per workflow task**, runs tasks whose dependencies are complete in parallel (never more than `parallelism` at a time), and holds back a task until everything in its `dependsOn` list has finished.
 
-When `workflow` is empty, the built-in default plan is used: eleven focused hunting tasks plus a final triage task that depends on all of them.
+When `workflow` is empty, the built-in default plan is used: eleven focused hunting tasks plus conditional execution of repository-maintained Rust and Go fuzz targets, followed by a final triage task that depends on all of them.
 
 | Task | Category | Role |
 | --- | --- | --- |
@@ -172,11 +172,14 @@ When `workflow` is empty, the built-in default plan is used: eleven focused hunt
 | `dependency-and-supply-chain` | supply-chain | `dependency-auditor` |
 | `infrastructure-and-configuration` | misconfiguration | `vulnerability-hunter` |
 | `business-logic` | logic-flaw | `vulnerability-hunter` |
+| `run-upstream-native-fuzz` | other | `native-fuzz-runner` |
 | `triage-and-report` | triage (depends on all of the above) | `finding-triager` |
+
+The native-fuzz task runs only repository-maintained `cargo-fuzz` or Go `FuzzXxx` harnesses that cover an attacker-controlled surface. A normal scan selects at most two targets for two minutes each and records its run reference, seed, workers, bounds, corpus provenance, artifacts, and uncovered targets. Rust runs use explicit seeds; Go's native runner has no seed option, so Go results record a null seed and the resulting schedule/environment reproducibility limitation. Longer warm-corpus work uses the separate `native-fuzz-campaign` workflow, which runs independently recorded rounds of at most fifteen minutes and restores the prior durable corpus between rounds.
 
 ### Specialist roles and the scan skill
 
-The platform ships six `RoleInstruction` specialists used by the default plan — `threat-modeler`, `vulnerability-hunter`, `secrets-auditor`, `dependency-auditor`, `exploit-validator`, and `finding-triager` — plus a `security-scan` `Skill` containing the scanning handbook (per-language sources and sinks, framework pitfalls, authn/authz and injection checklists, IaC/CI misconfiguration checks, and severity calibration). The `security-scan` mode attaches the skill to every scan run, and the coordinating agent loads it on demand.
+The platform ships seven `RoleInstruction` specialists used by the default plan — `threat-modeler`, `vulnerability-hunter`, `secrets-auditor`, `dependency-auditor`, `native-fuzz-runner`, `exploit-validator`, and `finding-triager` — plus a `security-scan` `Skill` containing the scanning handbook (per-language sources and sinks, framework pitfalls, authn/authz and injection checklists, IaC/CI misconfiguration checks, and severity calibration). The `security-scan` mode attaches the skill to every scan run, and the coordinating agent loads it on demand.
 
 Set `role` on a workflow task to pick a different specialist, or define your own `RoleInstruction` and reference it by name.
 

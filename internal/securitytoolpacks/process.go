@@ -123,7 +123,9 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 	goFuzzTargetBaseline := map[string]bool{}
 	goFuzzPackage, goFuzzTarget, goFuzzSeeds, goFuzzRestored := "", "", 0, 0
 	rustCrashBaseline := map[string]bool{}
-	rustCorpusInputs := 0
+	rustCorpusBaseline := map[string]bool{}
+	rustCorpusInputs, rustCorpusRestored := 0, 0
+	rustHarnessDigest, rustManifestDigest, rustHarnessRelative := "", "", ""
 	if req.Tool.Name == "cargo-fuzz" {
 		existing, baselineErr := rustFuzzCrashPaths(executionTarget, req.Config.Arguments["fuzz_target"])
 		if baselineErr != nil {
@@ -132,7 +134,34 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 		for _, path := range existing {
 			rustCrashBaseline[path] = true
 		}
-		rustCorpusInputs = rustFuzzCorpusSize(executionTarget, req.Config.Arguments["fuzz_target"])
+		rustCorpusRestored, baselineErr = readRustFuzzCampaignMetadata(executionTarget)
+		if baselineErr != nil {
+			return NativeResult{ExitCode: -1, Err: fmt.Errorf("read Rust fuzz campaign provenance: %w", baselineErr)}
+		}
+		rustCorpusBaseline, baselineErr = rustFuzzCorpusPaths(executionTarget, req.Config.Arguments["fuzz_target"])
+		if baselineErr != nil {
+			return NativeResult{ExitCode: -1, Err: fmt.Errorf("inventory cargo-fuzz corpus: %w", baselineErr)}
+		}
+		rustCorpusInputs = len(rustCorpusBaseline)
+		harnessPath, manifestPath, pathErr := rustFuzzHarnessPath(executionTarget, req.Config.Arguments["fuzz_target"])
+		if pathErr != nil {
+			return NativeResult{ExitCode: -1, Err: pathErr}
+		}
+		if relative, relErr := filepath.Rel(executionTarget, harnessPath); relErr == nil {
+			rustHarnessRelative = filepath.ToSlash(relative)
+		} else {
+			return NativeResult{ExitCode: -1, Err: fmt.Errorf("resolve Rust fuzz harness path: %w", relErr)}
+		}
+		if data, readErr := os.ReadFile(harnessPath); readErr == nil {
+			rustHarnessDigest = sha256Digest(data)
+		} else {
+			return NativeResult{ExitCode: -1, Err: fmt.Errorf("hash Rust fuzz harness: %w", readErr)}
+		}
+		if data, readErr := os.ReadFile(manifestPath); readErr == nil {
+			rustManifestDigest = sha256Digest(data)
+		} else {
+			return NativeResult{ExitCode: -1, Err: fmt.Errorf("hash Rust fuzz manifest: %w", readErr)}
+		}
 	}
 	if req.Tool.Name == "go-fuzz-tests" {
 		var baselineErr error
@@ -232,6 +261,35 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 		// libFuzzer's console text: a crash file is a reproducible input, a
 		// stderr banner is a string that changes between releases.
 		report, artifacts, collectErr := collectRustFuzzRun(executionTarget, rustCrashBaseline, req.Config, exitCode, append(stdout.Bytes(), stderr.Bytes()...))
+		report.WallTime = executionWallTime.Round(time.Millisecond).String()
+		// These digests were captured before target code ran, so a harness that
+		// rewrites its own source cannot forge the campaign identity.
+		report.HarnessDigest = rustHarnessDigest
+		report.ManifestDigest = rustManifestDigest
+		corpusArtifacts, rustCorpusAfter, discovered, corpusErr := collectRustFuzzCorpus(executionTarget, req.Config.Arguments["fuzz_target"], rustCorpusBaseline)
+		crashDigests := map[string]bool{}
+		for _, crash := range report.Crashes {
+			crashDigests[crash.Digest] = true
+		}
+		corpusArtifacts = slices.DeleteFunc(corpusArtifacts, func(artifact Artifact) bool { return crashDigests[artifact.Digest] })
+		if remaining := max(0, maxRustTotalArtifacts-len(artifacts)); len(corpusArtifacts) > remaining {
+			corpusArtifacts = corpusArtifacts[:remaining]
+		}
+		report.CorpusInputs = rustCorpusInputs
+		report.CorpusRestored = rustCorpusRestored
+		report.CorpusOutputs = len(rustCorpusAfter)
+		report.CorpusNew = discovered
+		report.CorpusRetained = len(corpusArtifacts)
+		report.CorpusProvenance = "cold"
+		if rustCorpusRestored > 0 {
+			report.CorpusProvenance = "restored"
+		}
+		if corpusErr != nil && len(report.Crashes) > 0 {
+			report.CorpusError = corpusErr.Error()
+		} else if collectErr == nil {
+			collectErr = corpusErr
+		}
+		artifacts = append(artifacts, corpusArtifacts...)
 		document, marshalErr := json.Marshal(report)
 		if collectErr == nil {
 			collectErr = marshalErr
@@ -243,12 +301,12 @@ func (ProcessSandbox) Execute(ctx context.Context, req ExecutionRequest) (result
 			// letting the generic handler suppress this under a pass verdict.
 			result.Output = nil
 			result.ExitCode = 2
-			result.Err = fmt.Errorf("collect cargo-fuzz crashes: %w", collectErr)
+			result.Err = fmt.Errorf("collect cargo-fuzz campaign evidence: %w", collectErr)
 			return result
 		}
 		result.Output = document
 		result.Artifacts = artifacts
-		result.Bounded = rustFuzzBoundedScope(req.Config, rustCorpusInputs)
+		result.Bounded = rustFuzzBoundedScope(req.Config, rustHarnessRelative, executionWallTime, rustCorpusInputs, rustCorpusRestored, len(rustCorpusAfter), discovered)
 		if len(report.Crashes) > 0 && exitCode == 0 {
 			// libFuzzer can report a crash and still exit zero under some
 			// runners; the artifact is the fact, so the status follows it.

@@ -21,6 +21,7 @@ var securityScanRoles = []string{
 	"dependency-auditor",
 	"exploit-validator",
 	"finding-triager",
+	"native-fuzz-runner",
 	"secrets-auditor",
 	"threat-modeler",
 	"vulnerability-hunter",
@@ -173,7 +174,10 @@ func TestSecurityScanSkillAsset(t *testing.T) {
 	}
 	instructions := skill.Spec.Source.Inline.Instructions
 	// The handbook must agree with the schema the tools actually enforce.
-	for _, marker := range []string{"report_security_finding", "attack_vector", "confidence", "supply-chain", "path-traversal"} {
+	for _, marker := range []string{
+		"report_security_finding", "attack_vector", "confidence", "supply-chain", "path-traversal",
+		"cargo-fuzz", "go-fuzz-tests", "two minutes", "fifteen minutes", "corpus provenance",
+	} {
 		if !strings.Contains(instructions, marker) {
 			t.Errorf("skill instructions must cover %q", marker)
 		}

@@ -238,6 +238,36 @@ func TestSecurityToolRunMissingImageFails(t *testing.T) {
 	}
 }
 
+func TestCargoFuzzJobUsesRequestedCampaignAndWorkerBudget(t *testing.T) {
+	t.Setenv(securityToolsImageEnv, securityToolTestImage)
+	run := newSecurityToolRun(func(run *platformv1alpha1.SecurityToolRun) {
+		run.Spec.Tool = "cargo-fuzz"
+		run.Spec.Target.Type = "rust_fuzz_project"
+		run.Spec.Target.MediaType = "application/gzip"
+		seed := int64(7)
+		run.Spec.Seed = &seed
+		run.Spec.Arguments = []platformv1alpha1.SecurityToolArgument{
+			{Name: "fuzz_target", Value: "decode"},
+			{Name: "max_total_time", Value: "5m"},
+			{Name: "workers", Value: "2"},
+		}
+	})
+	c := newSecurityToolRunClient(t, run)
+	reconciled := reconcileSecurityToolRun(t, c, &stubBlobReader{})
+	if reconciled.Status.Phase != platformv1alpha1.SecurityToolRunPhaseRunning {
+		t.Fatalf("phase = %q message=%q", reconciled.Status.Phase, reconciled.Status.Message)
+	}
+	job := getSecurityToolJob(t, c)
+	container := job.Spec.Template.Spec.Containers[0]
+	if got := container.Resources.Limits.Cpu().MilliValue(); got != 2000 {
+		t.Fatalf("CPU limit = %dm, want 2000m", got)
+	}
+	minimum := int64((5*time.Minute + securitytoolpacks.RustFuzzBuildAllowance + securitytoolpacks.FuzzCampaignOverhead + securityToolsDeadlineSlack).Seconds())
+	if job.Spec.ActiveDeadlineSeconds == nil || *job.Spec.ActiveDeadlineSeconds != minimum {
+		t.Fatalf("activeDeadlineSeconds = %v, want %d", job.Spec.ActiveDeadlineSeconds, minimum)
+	}
+}
+
 //nolint:gocyclo // One hardened Job spec, asserted field by field.
 func TestSecurityToolRunCreatesHardenedJob(t *testing.T) {
 	t.Setenv(securityToolsImageEnv, securityToolTestImage)

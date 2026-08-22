@@ -265,7 +265,7 @@ func TestJobUploadsManifestLastWithExpectedShape(t *testing.T) {
 			{Tool: "authorization-matrix", RuleID: "R2", Message: "m", Severity: "low", FilePath: "b"},
 		},
 		Artifacts: []securitytoolpacks.Artifact{
-			{MediaType: "application/json", Digest: digestBytes([]byte("one")), Size: 3, Data: []byte("one")},
+			{Name: "typed/one", MediaType: "application/json", Digest: digestBytes([]byte("one")), Size: 3, Data: []byte("one")},
 			{MediaType: "text/plain", Digest: digestBytes([]byte("two")), Size: 3, Data: []byte("two")},
 		},
 		Errors: []string{"partial coverage"},
@@ -307,7 +307,7 @@ func TestJobUploadsManifestLastWithExpectedShape(t *testing.T) {
 		t.Fatalf("manifest artifacts = %v", manifest["artifacts"])
 	}
 	first, _ := artifacts[0].(map[string]any)
-	if first["name"] != "raw-00" || first["object_key"] != "runs/scan-1/raw-00" ||
+	if first["name"] != "typed/one" || first["object_key"] != "runs/scan-1/raw-00" ||
 		first["media_type"] != "application/json" || first["digest"] != digestBytes([]byte("one")) ||
 		first["size"] != float64(3) {
 		t.Fatalf("manifest artifacts[0] = %v", first)

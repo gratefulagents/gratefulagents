@@ -322,10 +322,14 @@ func publishResult(ctx context.Context, store objectStore, prefix, outputDir, to
 		}
 	}
 	for _, artifact := range result.Artifacts {
-		key := prefix + "/" + artifact.Name
-		data, err := os.ReadFile(filepath.Join(outputDir, artifact.Name))
+		storageName := artifact.StorageName
+		if storageName == "" {
+			storageName = artifact.Name
+		}
+		key := prefix + "/" + storageName
+		data, err := os.ReadFile(filepath.Join(outputDir, storageName))
 		if err != nil {
-			return securitytoolrun.Manifest{}, fmt.Errorf("read artifact %s: %w", artifact.Name, err)
+			return securitytoolrun.Manifest{}, fmt.Errorf("read artifact %s: %w", storageName, err)
 		}
 		if err := store.Put(ctx, key, data, artifact.MediaType); err != nil {
 			return securitytoolrun.Manifest{}, fmt.Errorf("upload %s: %w", key, err)

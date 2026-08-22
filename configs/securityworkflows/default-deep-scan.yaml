@@ -3,14 +3,21 @@ kind: SecurityWorkflow
 metadata:
   name: default-deep-scan
 spec:
-  description: The platform's default deep scan plan and sole source of its workflow content. SecurityScans that declare neither workflow nor workflowRef resolve this namespaced resource. Eleven parallel specialist hunts fan into a final triage-and-report task.
+  description: The platform's default deep scan plan and sole source of its workflow content. SecurityScans that declare neither workflow nor workflowRef resolve this namespaced resource. Eleven specialist hunts plus conditional native fuzz execution fan into a final triage-and-report task.
   tasks:
     - name: attack-surface-mapping
       role: threat-modeler
       category: recon
       skillRefs:
         - name: trail-of-bits-audit-context-building
-      objective: "Map the application's attack surface: entry points, exposed endpoints, trust boundaries, privileged operations, and data flows from untrusted input to sensitive sinks."
+      objective: >-
+        Map the application's attack surface: entry points, exposed endpoints, trust boundaries, privileged
+        operations, and data flows from untrusted input to sensitive sinks. Return a risk-ranked array of
+        concrete production surfaces with repository-relative evidence so downstream native fuzz selection can
+        match existing harnesses to attacker-controlled inputs. Return an empty array only when repository
+        evidence establishes that no production surface is in scope.
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","additionalProperties":false,"required":["surface","entrypoint","attacker","files","risk"],"properties":{"surface":{"type":"string"},"entrypoint":{"type":"string"},"attacker":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"risk":{"type":"string","enum":["critical","high","medium","low"]}}}}
     - name: authn-authz
       role: vulnerability-hunter
       category: authn
@@ -77,13 +84,43 @@ spec:
         - name: trail-of-bits-sharp-edges
         - name: trail-of-bits-property-based-testing
       objective: "Hunt for business-logic flaws: race conditions, state-machine bypasses, abuse of workflows (payments, quotas, invites), and missing server-side enforcement of invariants."
+    - name: run-upstream-native-fuzz
+      role: native-fuzz-runner
+      category: other
+      skillRefs:
+        - name: trail-of-bits-cargo-fuzz
+        - name: trail-of-bits-harness-writing
+        - name: trail-of-bits-coverage-analysis
+      objective: >-
+        Use {{tasks.attack-surface-mapping.output}} to inventory repository-maintained Rust targets declared by
+        `fuzz/Cargo.toml` `[[bin]]` entries and Go `FuzzXxx` functions, then match them to in-scope,
+        attacker-controlled surfaces. If none exists, return not_applicable cheaply with the searched paths and
+        uncovered surfaces. Otherwise run at most two highest-value parser, wire-format, protocol-message, proof,
+        transaction, or state-machine targets for two minutes each through `run_security_tool` using the
+        registered `cargo-fuzz` or `go-fuzz-tests` adapter. Use an explicit seed for `cargo-fuzz`; record a null
+        seed and the native Go runner's schedule/environment reproducibility limitation for `go-fuzz-tests`.
+        Request two Rust workers when
+        the typed option is available and budget permits; otherwise record fixed runtime parallelism. Never use
+        a model-authored general-purpose harness for this baseline and do not merely inventory an eligible
+        upstream harness. Record every target, selection decision, revision, returned run reference, execution
+        status, seed, duration, workers, corpus provenance, artifacts, errors, uncovered scope, and limitations.
+        A clean run is only not_found_under its bounds and is never proof of safety. Recommend the dedicated
+        `native-fuzz-campaign` workflow rather than starting warm follow-up rounds in a normal deep scan.
+      dependsOn: [attack-surface-mapping]
+      outputSchema: |-
+        {"type":"object","additionalProperties":false,"required":["status","inventory","runs","uncovered","limitations"],"properties":{"status":{"type":"string","enum":["examined","not_applicable","unsupported","inconclusive"]},"inventory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","decision","reason"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"decision":{"type":"string","enum":["selected","skipped","unsupported"]},"reason":{"type":"string"}}}},"runs":{"type":"array","maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["tool","target","revision","execution_status","tool_run","seed","duration","workers","corpus_provenance","artifacts","errors","limitations"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"revision":{"type":"string"},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"corpus_provenance":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
     - name: triage-and-report
       role: finding-triager
       category: triage
       skillRefs:
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
-      objective: "Triage every reported finding: verify exploitability, remove false positives and duplicates, apply the ranking rules, then assemble and submit the final scan report."
+      objective: >-
+        Triage every reported finding and the native-fuzz evidence in
+        {{tasks.run-upstream-native-fuzz.output}}: verify exploitability, remove false positives and duplicates,
+        apply the ranking rules, then assemble and submit the final scan report. Preserve fuzz errors, timeouts,
+        unsupported and skipped targets, uncovered surfaces, exact bounds, and corpus limitations; never turn a
+        clean bounded run into a safety claim.
       dependsOn:
         - attack-surface-mapping
         - authn-authz
@@ -96,3 +133,4 @@ spec:
         - dependency-and-supply-chain
         - infrastructure-and-configuration
         - business-logic
+        - run-upstream-native-fuzz

@@ -139,11 +139,12 @@ type Coverage struct {
 }
 
 type Artifact struct {
-	Name      string `json:"name"`
-	MediaType string `json:"media_type"`
-	Digest    string `json:"digest"`
-	Size      int    `json:"size"`
-	Data      []byte `json:"-"`
+	Name        string `json:"name"`
+	StorageName string `json:"storage_name,omitempty"`
+	MediaType   string `json:"media_type"`
+	Digest      string `json:"digest"`
+	Size        int    `json:"size"`
+	Data        []byte `json:"-"`
 }
 
 type Replay struct {

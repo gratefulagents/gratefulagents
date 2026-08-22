@@ -76,6 +76,7 @@ var securityWorkflowLibrary = []string{
 	"external-flow-analysis",
 	"kubernetes-operator-audit",
 	"mpc-cryptography-security-review",
+	"native-fuzz-campaign",
 	"off-chain-services-security-review",
 	"pr-diff-review",
 	"secrets-and-supply-chain",
@@ -672,6 +673,223 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 	for _, status := range []string{"errors", "timeouts", "unsupported", "skipped", "inconclusive", "retest"} {
 		if !strings.Contains(strings.ToLower(triage.Objective), status) {
 			t.Errorf("triage-and-report must account for %q", status)
+		}
+	}
+}
+
+func TestNativeFuzzExecutionIsExplicit(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range evidenceContractBlockchainWorkflows {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var workflow triggersv1alpha1.SecurityWorkflow
+			readBootstrapAsset(t, "securityworkflows", name, &workflow)
+			var objective string
+			for _, task := range workflow.Spec.Tasks {
+				if task.Name == "applicable-tool-execution" {
+					objective = strings.ToLower(task.Objective)
+					break
+				}
+			}
+			if objective == "" {
+				t.Fatal("missing applicable-tool-execution task")
+			}
+			for _, required := range []string{
+				"run_security_tool", "cargo-fuzz", "go-fuzz-tests", "fuzz/cargo.toml",
+				"fuzzxxx", "at most two", "two minutes", "corpus provenance", "not_found_under",
+				"null seed", "dependency-resolution egress",
+			} {
+				if !strings.Contains(objective, required) {
+					t.Errorf("applicable-tool-execution must require %q", required)
+				}
+			}
+			var schema struct {
+				Items struct {
+					Required   []string `json:"required"`
+					Properties map[string]struct {
+						AnyOf []json.RawMessage `json:"anyOf"`
+					} `json:"properties"`
+				} `json:"items"`
+			}
+			for _, task := range workflow.Spec.Tasks {
+				if task.Name == "applicable-tool-execution" {
+					if err := json.Unmarshal([]byte(task.OutputSchema), &schema); err != nil {
+						t.Fatalf("decode applicable-tool-execution schema: %v", err)
+					}
+				}
+			}
+			for _, field := range []string{"selection_reason", "duration", "workers", "corpus_provenance"} {
+				if !slices.Contains(schema.Items.Required, field) {
+					t.Errorf("applicable-tool-execution schema must require %q", field)
+				}
+			}
+			if len(schema.Items.Properties["tool_run"].AnyOf) != 2 {
+				t.Error("tool_run must allow a run reference or null when no run exists")
+			}
+		})
+	}
+}
+
+func TestNativeFuzzBaselineWorkflows(t *testing.T) {
+	t.Parallel()
+
+	assertBaseline := func(t *testing.T, workflowName, taskName string) triggersv1alpha1.SecurityScanTask {
+		t.Helper()
+		var workflow triggersv1alpha1.SecurityWorkflow
+		readBootstrapAsset(t, "securityworkflows", workflowName, &workflow)
+		byName := make(map[string]triggersv1alpha1.SecurityScanTask, len(workflow.Spec.Tasks))
+		for _, task := range workflow.Spec.Tasks {
+			byName[task.Name] = task
+		}
+		task, ok := byName[taskName]
+		if !ok {
+			t.Fatalf("%s is missing task %s", workflowName, taskName)
+		}
+		if task.Role != "native-fuzz-runner" {
+			t.Errorf("%s role = %q, want native-fuzz-runner", taskName, task.Role)
+		}
+		objective := strings.ToLower(task.Objective)
+		for _, required := range []string{
+			"run_security_tool", "cargo-fuzz", "go-fuzz-tests", "at most two", "two minutes",
+			"explicit seed", "workers", "corpus provenance", "not_found_under", "native-fuzz-campaign",
+		} {
+			if !strings.Contains(objective, required) {
+				t.Errorf("%s must require %q", taskName, required)
+			}
+		}
+		var schema struct {
+			Properties map[string]struct {
+				MaxItems int `json:"maxItems"`
+				Items    struct {
+					Properties map[string]struct {
+						AnyOf []json.RawMessage `json:"anyOf"`
+					} `json:"properties"`
+				} `json:"items"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal([]byte(task.OutputSchema), &schema); err != nil {
+			t.Fatalf("decode %s output schema: %v", taskName, err)
+		}
+		if schema.Properties["runs"].MaxItems != 2 {
+			t.Errorf("%s runs maxItems = %d, want 2", taskName, schema.Properties["runs"].MaxItems)
+		}
+		if len(schema.Properties["runs"].Items.Properties["seed"].AnyOf) != 2 {
+			t.Errorf("%s run seed must allow integer for Rust or null for Go", taskName)
+		}
+		return task
+	}
+
+	t.Run("blockchain-protocol-audit", func(t *testing.T) {
+		t.Parallel()
+		task := assertBaseline(t, "blockchain-protocol-audit", "run-upstream-fuzz-campaigns")
+		if !slices.Equal(task.DependsOn, []string{"detect-platforms-and-components", "map-protocol-surfaces"}) {
+			t.Errorf("fuzz dependencies = %v", task.DependsOn)
+		}
+
+		var workflow triggersv1alpha1.SecurityWorkflow
+		readBootstrapAsset(t, "securityworkflows", "blockchain-protocol-audit", &workflow)
+		byName := make(map[string]triggersv1alpha1.SecurityScanTask, len(workflow.Spec.Tasks))
+		for _, workflowTask := range workflow.Spec.Tasks {
+			byName[workflowTask.Name] = workflowTask
+		}
+		for _, consumer := range []string{"validate-high-impact-findings", "account-complete-protocol-coverage"} {
+			if !slices.Contains(byName[consumer].DependsOn, task.Name) ||
+				!strings.Contains(byName[consumer].Objective, "{{tasks."+task.Name+".output}}") {
+				t.Errorf("%s must consume native fuzz output", consumer)
+			}
+		}
+		var aggregateSchema struct {
+			Properties map[string]struct {
+				Required []string `json:"required"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal([]byte(byName["account-complete-protocol-coverage"].OutputSchema), &aggregateSchema); err != nil {
+			t.Fatalf("decode complete protocol coverage schema: %v", err)
+		}
+		for _, field := range []string{"inventory", "runs", "uncovered", "limitations"} {
+			if !slices.Contains(aggregateSchema.Properties["native_fuzz"].Required, field) {
+				t.Errorf("native_fuzz aggregation must preserve %q", field)
+			}
+		}
+	})
+
+	t.Run("default-deep-scan", func(t *testing.T) {
+		t.Parallel()
+		task := assertBaseline(t, "default-deep-scan", "run-upstream-native-fuzz")
+		var workflow triggersv1alpha1.SecurityWorkflow
+		readBootstrapAsset(t, "securityworkflows", "default-deep-scan", &workflow)
+		for _, consumer := range workflow.Spec.Tasks {
+			if consumer.Name == "triage-and-report" {
+				if !slices.Contains(consumer.DependsOn, task.Name) ||
+					!strings.Contains(consumer.Objective, "{{tasks."+task.Name+".output}}") {
+					t.Error("default triage must consume native fuzz output")
+				}
+				return
+			}
+		}
+		t.Fatal("default deep scan is missing triage-and-report")
+	})
+}
+
+func TestNativeFuzzCampaignUsesBoundedWarmRounds(t *testing.T) {
+	t.Parallel()
+
+	var workflow triggersv1alpha1.SecurityWorkflow
+	readBootstrapAsset(t, "securityworkflows", "native-fuzz-campaign", &workflow)
+	byName := make(map[string]triggersv1alpha1.SecurityScanTask, len(workflow.Spec.Tasks))
+	for _, task := range workflow.Spec.Tasks {
+		byName[task.Name] = task
+	}
+	for _, required := range []string{"select-upstream-fuzz-targets", "run-bounded-warm-rounds", "triage-and-report"} {
+		if _, ok := byName[required]; !ok {
+			t.Fatalf("native fuzz campaign is missing %s", required)
+		}
+	}
+	run := byName["run-bounded-warm-rounds"]
+	if run.Role != "native-fuzz-runner" {
+		t.Errorf("run-bounded-warm-rounds role = %q, want native-fuzz-runner", run.Role)
+	}
+	objective := strings.ToLower(run.Objective)
+	for _, required := range []string{
+		"run_security_tool", "cargo-fuzz", "go-fuzz-tests", "four", "fifteen minutes",
+		"distinct explicit seed", "restore the durable corpus", "stop scheduling", "not_found_under",
+	} {
+		if !strings.Contains(objective, required) {
+			t.Errorf("warm campaign must require %q", required)
+		}
+	}
+	var schema struct {
+		Properties map[string]struct {
+			MaxItems int `json:"maxItems"`
+			Items    struct {
+				Required   []string `json:"required"`
+				Properties map[string]struct {
+					AnyOf    []json.RawMessage `json:"anyOf"`
+					Required []string          `json:"required"`
+				} `json:"properties"`
+			} `json:"items"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(run.OutputSchema), &schema); err != nil {
+		t.Fatalf("decode warm campaign schema: %v", err)
+	}
+	rounds := schema.Properties["rounds"]
+	if rounds.MaxItems != 8 {
+		t.Errorf("rounds maxItems = %d, want 8", rounds.MaxItems)
+	}
+	for _, field := range []string{"tool_version", "corpus"} {
+		if !slices.Contains(rounds.Items.Required, field) {
+			t.Errorf("warm round schema must require %q", field)
+		}
+	}
+	if len(rounds.Items.Properties["seed"].AnyOf) != 2 {
+		t.Error("warm round seed must allow integer for Rust or null for Go")
+	}
+	for _, field := range []string{"restored", "restored_revision", "parent_digest", "snapshot_digest", "input_entries", "input_bytes", "output_entries", "output_bytes"} {
+		if !slices.Contains(rounds.Items.Properties["corpus"].Required, field) {
+			t.Errorf("warm round corpus schema must require %q", field)
 		}
 	}
 }
