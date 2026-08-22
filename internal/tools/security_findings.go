@@ -55,11 +55,12 @@ const (
 
 // SecurityScanContext identifies the security scan a run belongs to.
 type SecurityScanContext struct {
-	ScanName   string
-	Namespace  string
-	RunName    string
-	Repository string
-	Revision   string
+	ScanName    string
+	Namespace   string
+	RunName     string
+	Repository  string
+	Revision    string
+	CheckoutDir string
 	// MinSeverity is the scan's operator-set severity floor ("" = unset).
 	MinSeverity string
 	// DedupePermille is the scan's dedupe similarity threshold in permille:
@@ -119,7 +120,7 @@ func (c SecurityScanContext) RecordKey() string {
 // .../repository, .../revision, .../min-severity, .../dedupe-permille). It
 // returns (ctx, true) only when the scan-name annotation is present, i.e.
 // the run is a security scan run.
-func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runName string, sessionID uuid.UUID) (SecurityScanContext, bool) {
+func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runName, checkoutDir string, sessionID uuid.UUID) (SecurityScanContext, bool) {
 	if run == nil {
 		return SecurityScanContext{}, false
 	}
@@ -137,12 +138,23 @@ func SecurityScanContextFromRun(run *platformv1alpha1.AgentRun, namespace, runNa
 			dedupePermille = int32(v)
 		}
 	}
+	repository := strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation])
+	revision := strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation])
+	if revision == "" && repository != "" {
+		// Unpinned scans check out the configured base branch. Resolve HEAD in
+		// the already-created run workspace so findings and research records are
+		// bound to the same immutable commit from their first write.
+		if resolved, err := resolveSecurityResearchCheckoutRevision(context.Background(), checkoutDir); err == nil {
+			revision = resolved
+		}
+	}
 	return SecurityScanContext{
 		ScanName:                   scanName,
 		Namespace:                  namespace,
 		RunName:                    runName,
-		Repository:                 strings.TrimSpace(run.Annotations[SecurityScanRepositoryAnnotation]),
-		Revision:                   strings.TrimSpace(run.Annotations[SecurityScanRevisionAnnotation]),
+		Repository:                 repository,
+		Revision:                   revision,
+		CheckoutDir:                checkoutDir,
 		MinSeverity:                minSeverity,
 		DedupePermille:             dedupePermille,
 		ExecutionID:                strings.TrimSpace(run.Annotations[SecurityScanExecutionIDAnnotation]),

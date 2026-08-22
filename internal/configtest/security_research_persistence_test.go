@@ -29,7 +29,6 @@ func TestBlockchainResearchAssetsRequireDurablePersistence(t *testing.T) {
 	}
 
 	for _, asset := range assets {
-		asset := asset
 		t.Run(asset.path, func(t *testing.T) {
 			body, err := os.ReadFile(asset.path)
 			if err != nil {

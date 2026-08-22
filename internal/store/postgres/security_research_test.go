@@ -60,7 +60,7 @@ func createResearchHypothesis(t *testing.T, s *Store, namespace string, revision
 	t.Helper()
 	value, created, err := s.CreateSecurityResearchHypothesis(context.Background(), namespace, &store.SecurityResearchHypothesis{
 		RevisionID: revisionID, HypothesisKey: key, Title: "Hypothesis " + key,
-		Invariant: "accounting remains balanced", IdempotencyKey: "create-" + key,
+		Invariant: "accounting remains balanced", Actor: "test-agent", IdempotencyKey: "create-" + key,
 	})
 	if err != nil || !created {
 		t.Fatalf("hypothesis %s: created=%v err=%v", key, created, err)
@@ -77,9 +77,13 @@ func TestSecurityResearchHypothesisIsolationTransitionsAndLineage(t *testing.T) 
 		t.Fatalf("cross-namespace revision = %#v, %v", got, err)
 	}
 	h1 := createResearchHypothesis(t, s, namespace, revision.ID, "h1")
+	events, err := s.ListSecurityResearchHypothesisEvents(ctx, namespace, h1.ID)
+	if err != nil || len(events) != 1 || events[0].Actor != "test-agent" {
+		t.Fatalf("creation audit actor: events=%#v err=%v", events, err)
+	}
 	replayed, created, err := s.CreateSecurityResearchHypothesis(ctx, namespace, &store.SecurityResearchHypothesis{
 		RevisionID: revision.ID, HypothesisKey: "h1", Title: "Hypothesis h1",
-		Invariant: "accounting remains balanced", IdempotencyKey: "create-h1",
+		Invariant: "accounting remains balanced", Actor: "test-agent", IdempotencyKey: "create-h1",
 	})
 	if err != nil || created || replayed.ID != h1.ID {
 		t.Fatalf("create replay: value=%#v created=%v err=%v", replayed, created, err)
@@ -126,6 +130,7 @@ func TestSecurityResearchHypothesisIsolationTransitionsAndLineage(t *testing.T) 
 	}
 }
 
+//nolint:gocyclo // This integration test intentionally exercises the complete durable lifecycle.
 func TestSecurityResearchSweepReservationsOutcomesAndPrecision(t *testing.T) {
 	s, namespace := setupSecurityResearchTestStore(t)
 	ctx := context.Background()

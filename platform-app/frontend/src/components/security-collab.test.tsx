@@ -69,6 +69,10 @@ vi.mock("@/components/SecurityScanRunPanel", () => ({
   SecurityScanRunPanel: () => <div data-testid="scan-run-panel" />,
 }));
 
+vi.mock("@/components/SecurityResearchPanel", () => ({
+  SecurityResearchPanel: () => <div data-testid="security-research-panel" />,
+}));
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();

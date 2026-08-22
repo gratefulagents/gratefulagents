@@ -42,6 +42,24 @@ const (
 	SecurityHypothesisResultAbandoned    = "abandoned"
 )
 
+func ValidSecurityCoverageDimension(value string) bool {
+	switch value {
+	case SecurityCoverageInvariant, SecurityCoverageActor, SecurityCoverageState, SecurityCoverageTransition:
+		return true
+	default:
+		return false
+	}
+}
+
+func ValidSecurityCoverageVerdict(value string) bool {
+	switch value {
+	case SecurityCoverageDisproved, SecurityCoverageAdequatelyTested, SecurityCoverageInadequatelyTested, SecurityCoverageNotTested:
+		return true
+	default:
+		return false
+	}
+}
+
 const (
 	SecurityCoverageInvariant  = "invariant"
 	SecurityCoverageActor      = "actor"
@@ -125,6 +143,7 @@ type SecurityResearchHypothesis struct {
 	Status         string
 	Result         string
 	Detail         json.RawMessage
+	Actor          string
 	Version        int32
 	IdempotencyKey string
 	CreatedAt      time.Time

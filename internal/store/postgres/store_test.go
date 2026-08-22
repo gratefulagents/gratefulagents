@@ -273,8 +273,8 @@ func TestConversation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PollNewUserMessages: %v", err)
 	}
-	if len(userMsgs) != 1 || userMsgs[0].ID != msg3.ID {
-		t.Errorf("PollNewUserMessages: got %d messages, want 1 with id %d", len(userMsgs), msg3.ID)
+	if len(userMsgs) != 2 || userMsgs[0].ID != msg1.ID || userMsgs[1].ID != msg3.ID {
+		t.Errorf("PollNewUserMessages: got %#v, want pending user messages %d and %d", userMsgs, msg1.ID, msg3.ID)
 	}
 }
 

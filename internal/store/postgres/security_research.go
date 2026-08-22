@@ -126,9 +126,9 @@ func (s *Store) BindSecurityResearchRevision(ctx context.Context, namespace stri
 	// confirmations use ConfirmSecurityFindingWithVariantSweep atomically.
 	if _, err := s.pool.Exec(ctx, `INSERT INTO security_research_variant_sweeps
 		(revision_id, finding_id, root_cause, scope, status, result, idempotency_key)
-		SELECT $1, f.id, f.title,
+		SELECT $1::uuid, f.id, f.title,
 			jsonb_build_object('finding_fingerprint', f.fingerprint, 'required', true, 'reconciled', true),
-			'pending', '{}'::jsonb, 'confirmed-finding:' || f.id::text || ':' || $1::text
+			'pending', '{}'::jsonb, 'confirmed-finding:' || f.id::text || ':' || $1::uuid::text
 		FROM security_findings f
 		JOIN security_research_targets t ON t.id = $2
 		WHERE f.namespace = $3 AND f.scan_name = t.target_key AND f.revision = $4 AND f.status = 'confirmed'
@@ -291,8 +291,8 @@ func (s *Store) CreateSecurityResearchHypothesis(ctx context.Context, namespace 
 	if err := requireSecurityNamespace(namespace); err != nil {
 		return nil, false, err
 	}
-	if value == nil || value.RevisionID == uuid.Nil || strings.TrimSpace(value.HypothesisKey) == "" || strings.TrimSpace(value.Title) == "" || strings.TrimSpace(value.Invariant) == "" || strings.TrimSpace(value.IdempotencyKey) == "" {
-		return nil, false, errors.New("revision, key, title, invariant, and idempotency key are required")
+	if value == nil || value.RevisionID == uuid.Nil || strings.TrimSpace(value.HypothesisKey) == "" || strings.TrimSpace(value.Title) == "" || strings.TrimSpace(value.Invariant) == "" || strings.TrimSpace(value.Actor) == "" || strings.TrimSpace(value.IdempotencyKey) == "" {
+		return nil, false, errors.New("revision, key, title, invariant, actor, and idempotency key are required")
 	}
 	if value.Status == "" {
 		value.Status = store.SecurityHypothesisProposed
@@ -340,7 +340,7 @@ func (s *Store) CreateSecurityResearchHypothesis(ctx context.Context, namespace 
 	if created {
 		if _, err := tx.Exec(ctx, `INSERT INTO security_research_hypothesis_events
 			(hypothesis_id, event_type, to_status, result, actor, detail, hypothesis_version, idempotency_key)
-			VALUES ($1, 'created', $2, $3, '', $4, 1, $5)`, stored.ID, stored.Status, stored.Result, detail, "create:"+stored.IdempotencyKey); err != nil {
+			VALUES ($1, 'created', $2, $3, $4, $5, 1, $6)`, stored.ID, stored.Status, stored.Result, strings.TrimSpace(value.Actor), detail, "create:"+stored.IdempotencyKey); err != nil {
 			return nil, false, fmt.Errorf("recording hypothesis creation: %w", err)
 		}
 	}
@@ -643,14 +643,10 @@ func (s *Store) RecordSecurityResearchCoverage(ctx context.Context, namespace st
 	if value == nil || value.RevisionID == uuid.Nil || strings.TrimSpace(value.SubjectKey) == "" || strings.TrimSpace(value.IdempotencyKey) == "" {
 		return nil, false, errors.New("revision, coverage subject, and idempotency key are required")
 	}
-	switch value.Dimension {
-	case store.SecurityCoverageInvariant, store.SecurityCoverageActor, store.SecurityCoverageState, store.SecurityCoverageTransition:
-	default:
+	if !store.ValidSecurityCoverageDimension(value.Dimension) {
 		return nil, false, errors.New("invalid coverage dimension")
 	}
-	switch value.Verdict {
-	case store.SecurityCoverageDisproved, store.SecurityCoverageAdequatelyTested, store.SecurityCoverageInadequatelyTested, store.SecurityCoverageNotTested:
-	default:
+	if !store.ValidSecurityCoverageVerdict(value.Verdict) {
 		return nil, false, errors.New("invalid coverage verdict")
 	}
 	bounds, err := researchJSON(value.Bounds, `{}`)
@@ -999,6 +995,7 @@ func scanSecuritySubmissionReservation(row securityResearchScanner) (*store.Secu
 
 const securitySubmissionReservationColumns = `r.id, r.submission_id, r.target_id, r.workflow, r.period_days, r.budget_limit, r.idempotency_key, r.reserved_at, r.expires_at, r.voided_at`
 
+//nolint:gocyclo // Reservation ownership, expiry, replay, and rolling-budget checks intentionally share one transaction.
 func (s *Store) ReserveSecurityResearchSubmission(ctx context.Context, namespace string, request store.SecuritySubmissionReservationRequest) (*store.SecuritySubmissionReservationResult, error) {
 	if err := requireSecurityNamespace(namespace); err != nil {
 		return nil, err
@@ -1079,15 +1076,16 @@ func (s *Store) ReserveSecurityResearchSubmission(ctx context.Context, namespace
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("checking submission reservation idempotency: %w", err)
 	}
-	existing, err = scanSecuritySubmissionReservation(tx.QueryRow(ctx, `SELECT `+securitySubmissionReservationColumns+`
-		FROM security_research_submission_reservations r WHERE r.submission_id = $1 AND r.voided_at IS NULL`, request.SubmissionID))
-	if err == nil {
+	var activeReservation bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM security_research_submission_reservations
+		WHERE submission_id = $1 AND voided_at IS NULL)`, request.SubmissionID).Scan(&activeReservation); err != nil {
+		return nil, fmt.Errorf("checking active submission reservation: %w", err)
+	}
+	if activeReservation {
 		// An active reservation is an owned lease. Only the exact idempotent
 		// attempt above may replay it; a different attempt must not proceed.
 		return nil, store.ErrSecurityResearchReservationConflict
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("checking active submission reservation: %w", err)
 	}
 	if status != "candidate" {
 		return nil, errors.New("submission is not eligible for reservation")

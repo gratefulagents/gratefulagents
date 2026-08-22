@@ -2,10 +2,12 @@ package tools
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/gratefulagents/sdk/pkg/agentsdk"
@@ -34,13 +36,38 @@ func registerSecurityResearchTools(registry *Registry, state *securityScanState)
 	registry.Register(&getSecurityCampaignStatusTool{state: state})
 }
 
+func resolveSecurityResearchCheckoutRevision(ctx context.Context, checkoutDir string) (string, error) {
+	checkoutDir = strings.TrimSpace(checkoutDir)
+	if checkoutDir == "" {
+		return "", errors.New("trusted checkout directory is required")
+	}
+	output, err := exec.CommandContext(ctx, "git", "-C", checkoutDir, "rev-parse", "--verify", "HEAD").Output()
+	if err != nil {
+		return "", err
+	}
+	revision := strings.TrimSpace(string(output))
+	decoded, err := hex.DecodeString(revision)
+	if err != nil || len(decoded) < 20 {
+		return "", fmt.Errorf("git HEAD %q is not an immutable commit hash", revision)
+	}
+	return strings.ToLower(revision), nil
+}
+
 func (s *securityScanState) ensureSecurityResearchContext(ctx context.Context) (*securityResearchContext, error) {
 	namespace := strings.TrimSpace(s.scanCtx.Namespace)
 	targetKey := strings.TrimSpace(s.scanCtx.ScanName)
 	locator := strings.TrimSpace(s.scanCtx.Repository)
 	revisionValue := strings.TrimSpace(s.scanCtx.Revision)
-	if namespace == "" || targetKey == "" || locator == "" || revisionValue == "" {
-		return nil, fmt.Errorf("trusted run context must provide namespace, scan target, repository, and exact revision")
+	if revisionValue == "" {
+		resolved, err := resolveSecurityResearchCheckoutRevision(ctx, s.scanCtx.CheckoutDir)
+		if err != nil {
+			return nil, fmt.Errorf("resolving the immutable checkout revision: %w", err)
+		}
+		revisionValue = resolved
+		s.scanCtx.Revision = resolved
+	}
+	if namespace == "" || targetKey == "" || locator == "" {
+		return nil, fmt.Errorf("trusted run context must provide namespace, scan target, and repository")
 	}
 	metadata, _ := json.Marshal(map[string]string{
 		"scan_name":    s.scanCtx.ScanName,
@@ -104,17 +131,17 @@ func parseSecurityResearchUUID(value, field string, optional bool) (*uuid.UUID, 
 	return &id, nil
 }
 
-func (s *securityScanState) currentSecurityHypothesis(ctx context.Context, revisionID, hypothesisID uuid.UUID) (*store.SecurityResearchHypothesis, error) {
+func (s *securityScanState) currentSecurityHypothesis(ctx context.Context, revisionID, hypothesisID uuid.UUID) error {
 	values, err := s.researchStore.ListSecurityResearchHypotheses(ctx, s.scanCtx.Namespace, revisionID)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for i := range values {
 		if values[i].ID == hypothesisID {
-			return &values[i], nil
+			return nil
 		}
 	}
-	return nil, fmt.Errorf("hypothesis does not belong to the trusted exact revision")
+	return fmt.Errorf("hypothesis does not belong to the trusted exact revision")
 }
 
 func (s *securityScanState) currentSecuritySweep(ctx context.Context, revisionID, sweepID uuid.UUID) (*store.SecurityResearchVariantSweep, error) {
@@ -274,6 +301,10 @@ func (t *createSecurityHypothesisTool) Execute(ctx context.Context, input json.R
 	if err != nil {
 		return securityResearchFailure(err)
 	}
+	actor, err := t.state.securityResearchActor()
+	if err != nil {
+		return securityResearchFailure(err)
+	}
 	value, created, err := t.state.researchStore.CreateSecurityResearchHypothesis(ctx, t.state.scanCtx.Namespace, &store.SecurityResearchHypothesis{
 		RevisionID:     bound.revision.ID,
 		HypothesisKey:  strings.TrimSpace(in.HypothesisKey),
@@ -282,6 +313,7 @@ func (t *createSecurityHypothesisTool) Execute(ctx context.Context, input json.R
 		Status:         store.SecurityHypothesisProposed,
 		Result:         store.SecurityHypothesisResultPending,
 		Detail:         in.Detail,
+		Actor:          actor,
 		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
 	})
 	if err != nil {
@@ -327,7 +359,7 @@ func (t *transitionSecurityHypothesisTool) Execute(ctx context.Context, input js
 	if err != nil {
 		return securityResearchFailure(err)
 	}
-	if _, err := t.state.currentSecurityHypothesis(ctx, bound.revision.ID, *hypothesisID); err != nil {
+	if err := t.state.currentSecurityHypothesis(ctx, bound.revision.ID, *hypothesisID); err != nil {
 		return securityResearchFailure(err)
 	}
 	actor, err := t.state.securityResearchActor()
@@ -392,7 +424,7 @@ func (t *recordSecurityCoverageTool) Execute(ctx context.Context, input json.Raw
 		return securityResearchFailure(err)
 	}
 	if hypothesisID != nil {
-		if _, err := t.state.currentSecurityHypothesis(ctx, bound.revision.ID, *hypothesisID); err != nil {
+		if err := t.state.currentSecurityHypothesis(ctx, bound.revision.ID, *hypothesisID); err != nil {
 			return securityResearchFailure(err)
 		}
 	}
@@ -462,7 +494,7 @@ func (t *createSecurityVariantSweepTool) Execute(ctx context.Context, input json
 		}
 	}
 	if rootHypothesisID != nil {
-		if _, err := t.state.currentSecurityHypothesis(ctx, bound.revision.ID, *rootHypothesisID); err != nil {
+		if err := t.state.currentSecurityHypothesis(ctx, bound.revision.ID, *rootHypothesisID); err != nil {
 			return securityResearchFailure(err)
 		}
 	}
@@ -625,12 +657,4 @@ func securityResearchWorkflow(scanCtx SecurityScanContext) string {
 		return workflow
 	}
 	return defaultSecurityResearchWorkflow
-}
-
-func securityResearchPrecisionSince(periodDays int32) *time.Time {
-	if periodDays <= 0 {
-		return nil
-	}
-	since := time.Now().UTC().Add(-time.Duration(periodDays) * 24 * time.Hour)
-	return &since
 }

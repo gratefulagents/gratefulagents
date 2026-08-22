@@ -21,30 +21,6 @@ const (
 	maxSecurityResearchJSONBytes           = 256 << 10
 )
 
-func (s *Server) ensureConfirmedFindingVariantSweep(ctx context.Context, finding *store.SecurityFindingRecord, actor string) error {
-	research, ok := s.stateStore.(store.SecurityResearchStore)
-	if !ok || finding == nil {
-		return nil
-	}
-	revision, err := research.GetSecurityResearchRevision(ctx, finding.Namespace, finding.ScanName, finding.Revision)
-	if err != nil {
-		return securityResearchError("getting confirmed finding research revision", err)
-	}
-	if revision == nil {
-		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("security research context is required before confirming finding %s", finding.ID))
-	}
-	scope, _ := json.Marshal(map[string]any{"finding_fingerprint": finding.Fingerprint, "required": true, "actor": actor})
-	_, _, err = research.CreateSecurityResearchVariantSweep(ctx, finding.Namespace, &store.SecurityResearchVariantSweep{
-		RevisionID: revision.ID, FindingID: &finding.ID, RootCause: finding.Title,
-		Scope: scope, Status: store.SecurityVariantSweepPending, Actor: actor,
-		IdempotencyKey: "confirmed-finding:" + finding.ID.String() + ":" + revision.ID.String(),
-	})
-	if err != nil {
-		return securityResearchError("creating required variant sweep", err)
-	}
-	return nil
-}
-
 func (s *Server) securityResearchStore() (store.SecurityResearchStore, error) {
 	research, ok := s.stateStore.(store.SecurityResearchStore)
 	if !ok {
@@ -90,17 +66,17 @@ func (s *Server) authorizeSecurityResearchWrite(ctx context.Context, namespace, 
 	return nil
 }
 
-func securityResearchHypothesisForRevision(ctx context.Context, research store.SecurityResearchStore, namespace string, revisionID, hypothesisID uuid.UUID) (*store.SecurityResearchHypothesis, error) {
+func securityResearchHypothesisForRevision(ctx context.Context, research store.SecurityResearchStore, namespace string, revisionID, hypothesisID uuid.UUID) error {
 	values, err := research.ListSecurityResearchHypotheses(ctx, namespace, revisionID)
 	if err != nil {
-		return nil, securityResearchError("checking hypothesis revision", err)
+		return securityResearchError("checking hypothesis revision", err)
 	}
 	for i := range values {
 		if values[i].ID == hypothesisID {
-			return &values[i], nil
+			return nil
 		}
 	}
-	return nil, connect.NewError(connect.CodeNotFound, store.ErrSecurityResearchHypothesisNotFound)
+	return connect.NewError(connect.CodeNotFound, store.ErrSecurityResearchHypothesisNotFound)
 }
 
 func securityResearchSweepForRevision(ctx context.Context, research store.SecurityResearchStore, namespace string, revisionID, sweepID uuid.UUID) (*store.SecurityResearchVariantSweep, error) {
@@ -303,7 +279,8 @@ func (s *Server) ListSecurityResearchHypotheses(ctx context.Context, req *platfo
 }
 
 func (s *Server) CreateSecurityResearchHypothesis(ctx context.Context, req *platform.CreateSecurityResearchHypothesisRequest) (*platform.CreateSecurityResearchHypothesisResponse, error) {
-	if _, err := securityResearchActor(ctx); err != nil {
+	actor, err := securityResearchActor(ctx)
+	if err != nil {
 		return nil, err
 	}
 	research, namespace, targetKey, revision, err := s.securityResearchRevision(ctx, req.GetScope())
@@ -322,7 +299,7 @@ func (s *Server) CreateSecurityResearchHypothesis(ctx context.Context, req *plat
 	}
 	value, created, err := research.CreateSecurityResearchHypothesis(ctx, namespace, &store.SecurityResearchHypothesis{
 		RevisionID: revision.ID, HypothesisKey: req.GetHypothesisKey(), Title: req.GetTitle(), Invariant: req.GetInvariant(),
-		Status: store.SecurityHypothesisProposed, Result: store.SecurityHypothesisResultPending, Detail: detail, IdempotencyKey: req.GetIdempotencyKey(),
+		Status: store.SecurityHypothesisProposed, Result: store.SecurityHypothesisResultPending, Detail: detail, Actor: actor, IdempotencyKey: req.GetIdempotencyKey(),
 	})
 	if err != nil {
 		return nil, securityResearchError("creating security research hypothesis", err)
@@ -346,7 +323,7 @@ func (s *Server) TransitionSecurityResearchHypothesis(ctx context.Context, req *
 	if err != nil {
 		return nil, err
 	}
-	if _, err := securityResearchHypothesisForRevision(ctx, research, namespace, revision.ID, id); err != nil {
+	if err := securityResearchHypothesisForRevision(ctx, research, namespace, revision.ID, id); err != nil {
 		return nil, err
 	}
 	detail, err := securityResearchJSON(req.GetDetailJson(), "{}", "detail_json")
@@ -379,7 +356,7 @@ func (s *Server) ReopenSecurityResearchHypothesis(ctx context.Context, req *plat
 	if err != nil {
 		return nil, err
 	}
-	if _, err := securityResearchHypothesisForRevision(ctx, research, namespace, revision.ID, id); err != nil {
+	if err := securityResearchHypothesisForRevision(ctx, research, namespace, revision.ID, id); err != nil {
 		return nil, err
 	}
 	detail, err := securityResearchJSON(req.GetDetailJson(), "{}", "detail_json")
@@ -432,9 +409,15 @@ func (s *Server) RecordSecurityResearchCoverage(ctx context.Context, req *platfo
 		return nil, err
 	}
 	if hypothesisID != nil {
-		if _, err := securityResearchHypothesisForRevision(ctx, research, namespace, revision.ID, *hypothesisID); err != nil {
+		if err := securityResearchHypothesisForRevision(ctx, research, namespace, revision.ID, *hypothesisID); err != nil {
 			return nil, err
 		}
+	}
+	if !store.ValidSecurityCoverageDimension(req.GetDimension()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid coverage dimension %q", req.GetDimension()))
+	}
+	if !store.ValidSecurityCoverageVerdict(req.GetVerdict()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid coverage verdict %q", req.GetVerdict()))
 	}
 	bounds, err := securityResearchJSON(req.GetBoundsJson(), "{}", "bounds_json")
 	if err != nil {

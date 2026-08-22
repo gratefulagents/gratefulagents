@@ -173,9 +173,29 @@ func TestSecurityCampaignResearchStatusUsesScanVisibilityAndAggregates(t *testin
 	}
 }
 
+func TestRecordSecurityResearchCoverageRejectsInvalidEnums(t *testing.T) {
+	m := seedResearchStore(t)
+	srv := newSecurityTestServer(t, m)
+	request := func(dimension, verdict string) *platform.RecordSecurityResearchCoverageRequest {
+		return &platform.RecordSecurityResearchCoverageRequest{
+			Scope: researchTestScope(), SubjectKey: "balances", Dimension: dimension,
+			Verdict: verdict, BoundsJson: `{}`, EvidenceJson: `[]`, IdempotencyKey: "coverage-1",
+		}
+	}
+	if _, err := srv.RecordSecurityResearchCoverage(actorContext("alice", "member", "", ""), request("unknown", store.SecurityCoverageAdequatelyTested)); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("invalid dimension error = %v, want InvalidArgument", err)
+	}
+	if _, err := srv.RecordSecurityResearchCoverage(actorContext("alice", "member", "", ""), request(store.SecurityCoverageInvariant, "unknown")); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("invalid verdict error = %v, want InvalidArgument", err)
+	}
+	if len(m.coverage) != 0 {
+		t.Fatalf("invalid requests persisted %d coverage records", len(m.coverage))
+	}
+}
+
 func TestSecurityResearchListsAreBounded(t *testing.T) {
 	m := seedResearchStore(t)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		m.hypotheses = append(m.hypotheses, store.SecurityResearchHypothesis{ID: uuid.New(), RevisionID: m.revision.ID, CreatedAt: time.Now(), UpdatedAt: time.Now()})
 	}
 	srv := newSecurityTestServer(t, m)

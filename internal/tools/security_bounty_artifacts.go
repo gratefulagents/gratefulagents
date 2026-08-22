@@ -713,6 +713,7 @@ func validateBountySubmissionClaim(submission securityBountySubmission, scanCtx 
 	return problems
 }
 
+//nolint:gocyclo // Submission preparation deliberately evaluates all evidence, ranking, precision, and lease gates in order.
 func (t *saveSecurityBountySubmissionTool) prepareSecurityResearchSubmission(ctx context.Context, finding *store.SecurityFindingRecord, payload securityBountySubmission) (string, bool, func(bool) error, error) {
 	periodDays := t.state.scanCtx.SubmissionBudgetPeriodDays
 	budget := t.state.scanCtx.SubmissionBudget
