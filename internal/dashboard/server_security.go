@@ -279,9 +279,18 @@ func (s *Server) UpdateSecurityFindingStatus(ctx context.Context, req *platform.
 		}
 		expiry = &t
 	}
-	if err := sec.SetSecurityFindingStatus(ctx, finding.Namespace, finding.ID, req.GetStatus(), actor.Subject, req.GetNote(), expiry); err != nil {
-		if errors.Is(err, store.ErrSecurityFindingNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding %s not found", finding.ID))
+	if req.GetStatus() == store.SecurityFindingStatusConfirmed {
+		confirmer, ok := s.stateStore.(store.SecurityFindingConfirmationStore)
+		if !ok {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("atomic finding confirmation is not supported by the configured state store"))
+		}
+		err = confirmer.ConfirmSecurityFindingWithVariantSweep(ctx, finding.Namespace, finding.ID, actor.Subject, req.GetNote())
+	} else {
+		err = sec.SetSecurityFindingStatus(ctx, finding.Namespace, finding.ID, req.GetStatus(), actor.Subject, req.GetNote(), expiry)
+	}
+	if err != nil {
+		if errors.Is(err, store.ErrSecurityFindingNotFound) || errors.Is(err, store.ErrSecurityResearchRevisionNotFound) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("security finding or exact research revision for %s not found", finding.ID))
 		}
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("updating security finding status: %w", err))
 	}

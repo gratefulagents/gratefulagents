@@ -212,11 +212,15 @@ func RegisterSecurityScanTools(registry *Registry, findingStore store.SecurityFi
 		stateStore:   stateStore,
 		scanCtx:      scanCtx,
 	}
+	if researchStore, ok := findingStore.(store.SecurityResearchStore); ok {
+		state.researchStore = researchStore
+	}
 	registry.Register(&reportSecurityFindingTool{state: state})
 	registry.Register(&listSecurityFindingsTool{state: state})
 	registry.Register(&updateSecurityFindingTool{state: state})
 	registry.Register(&ingestScannerResultsTool{state: state})
 	registry.Register(&submitSecurityScanReportTool{state: state})
+	registerSecurityResearchTools(registry, state)
 	return state
 }
 
@@ -224,9 +228,10 @@ func RegisterSecurityScanTools(registry *Registry, findingStore store.SecurityFi
 // is nil it degrades to an in-memory buffer with the same upsert/list/status
 // semantics, so the tools work without Postgres.
 type securityScanState struct {
-	findingStore store.SecurityFindingStore
-	stateStore   store.StateStore
-	scanCtx      SecurityScanContext
+	findingStore  store.SecurityFindingStore
+	researchStore store.SecurityResearchStore
+	stateStore    store.StateStore
+	scanCtx       SecurityScanContext
 
 	mu        sync.Mutex
 	mem       []*store.SecurityFindingRecord
@@ -546,6 +551,14 @@ func (s *securityScanState) getFinding(ctx context.Context, id uuid.UUID) (*stor
 // The audit actor is always this run's name; the model cannot supply it.
 func (s *securityScanState) setFindingStatus(ctx context.Context, id uuid.UUID, status, note string) error {
 	actor := s.scanCtx.RunName
+	if status == store.SecurityFindingStatusConfirmed {
+		if confirmer, ok := s.findingStore.(store.SecurityFindingConfirmationStore); ok {
+			return confirmer.ConfirmSecurityFindingWithVariantSweep(ctx, s.scanCtx.Namespace, id, actor, note)
+		}
+		if s.findingStore != nil && s.researchStore != nil {
+			return fmt.Errorf("durable atomic confirmation with a required variant sweep is not supported")
+		}
+	}
 	if s.findingStore != nil {
 		return s.findingStore.SetSecurityFindingStatus(ctx, s.scanCtx.Namespace, id, status, actor, note, nil)
 	}

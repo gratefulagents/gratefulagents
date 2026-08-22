@@ -32,7 +32,9 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-entry-point-analyzer
       objective: >-
-        Pin the source target before anyone reasons about it. Always record the immutable source revision,
+        Pin the source target before anyone reasons about it. First call get_security_research_context and
+        load only records bound to this exact target revision and scope; prior-revision negative evidence is
+        stale context. Always record the immutable source revision,
         project layout, build system, test entry points, and source-level scope from project root
         {{params.project_root}}. Deployment and archive-chain evidence is an optional enrichment lane. If
         any of {{params.deployment_manifest}}, {{params.fork_endpoint_alias}}, {{params.chain_id}},
@@ -306,6 +308,10 @@ spec:
         reporting is rationed, and a rejected submission costs more than a withheld one. State the bounded
         negative result explicitly — which invariants were tested, at which revision and block, under which
         bounds and coverage — so a clean or blocked run is recorded as not found under those bounds rather
-        than as a clean bill of health. Then submit the final scan report.
+        than as a clean bill of health. Persist branch outcomes with transition_security_hypothesis and
+        invariant/actor/state/transition bounds with record_security_coverage. Every confirmed root cause must
+        have create_security_variant_sweep followed by complete_security_variant_sweep with scope and evidence;
+        blocked or inconclusive sweeps stay internal without an audited human override. Call
+        get_security_campaign_status, reconcile durable gaps and budget decisions, then submit the final report.
       dependsOn:
         - quantify-impact-and-eligibility

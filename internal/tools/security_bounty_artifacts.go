@@ -404,6 +404,21 @@ func (t *validateSecurityPoCTool) Execute(ctx context.Context, input json.RawMes
 	if err := t.state.setFindingStatus(ctx, finding.ID, findingStatus, "PoC validator: "+validation.Reason); err != nil {
 		return Result{Content: "saving finding verdict: " + err.Error(), IsError: true}, nil
 	}
+	if validation.Confirmed && t.state.researchStore != nil {
+		bound, err := t.state.ensureSecurityResearchContext(ctx)
+		if err != nil {
+			return Result{Content: "binding confirmed finding to durable research: " + err.Error(), IsError: true}, nil
+		}
+		scope, _ := json.Marshal(map[string]any{"finding_fingerprint": finding.Fingerprint, "required": true})
+		_, _, err = t.state.researchStore.CreateSecurityResearchVariantSweep(ctx, finding.Namespace, &store.SecurityResearchVariantSweep{
+			RevisionID: bound.revision.ID, FindingID: &finding.ID, RootCause: finding.Title,
+			Scope: scope, Status: store.SecurityVariantSweepPending, Actor: t.state.scanCtx.RunName,
+			IdempotencyKey: "confirmed-finding:" + finding.ID.String() + ":" + bound.revision.ID.String(),
+		})
+		if err != nil {
+			return Result{Content: "creating required variant sweep: " + err.Error(), IsError: true}, nil
+		}
+	}
 	return Result{Content: "PoC validation recorded as " + status + "."}, nil
 }
 
@@ -497,10 +512,6 @@ func (t *saveSecurityBountySubmissionTool) Execute(ctx context.Context, input js
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	budgetState, err := t.submissionBudgetState(ctx, finding)
-	if err != nil {
-		return Result{Content: err.Error(), IsError: true}, nil
-	}
 	var candidate *securityPoCCandidate
 	var validation *securityPoCValidation
 	var builderRun, validatorRun string
@@ -522,6 +533,18 @@ func (t *saveSecurityBountySubmissionTool) Execute(ctx context.Context, input js
 		}
 		builderRun, validatorRun = candidateArtifact.ActorRun, validationArtifact.ActorRun
 	}
+	budgetState, retained, finishReservation, err := t.prepareSecurityResearchSubmission(ctx, finding, submission)
+	if err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
+	if retained {
+		return Result{Content: budgetState}, nil
+	}
+	defer func() {
+		if finishReservation != nil {
+			_ = finishReservation(false)
+		}
+	}()
 	if err := upsertFindingArtifact(ctx, t.artifacts, finding.Namespace, finding.ID, t.state.scanCtx.ExecutionID, store.SecurityFindingArtifactBountySubmission, submission, t.state.scanCtx.RunName, artifactStatus); err != nil {
 		return Result{Content: "saving bounty submission: " + err.Error(), IsError: true}, nil
 	}
@@ -561,7 +584,13 @@ func (t *saveSecurityBountySubmissionTool) Execute(ctx context.Context, input js
 	if err != nil {
 		return Result{Content: "saving bundle metadata: " + err.Error(), IsError: true}, nil
 	}
-	return Result{Content: fmt.Sprintf("Security review bundle uploaded (%s, sha256 %s).", filename, digestHex)}, nil
+	if finishReservation != nil {
+		if err := finishReservation(true); err != nil {
+			return Result{Content: "finalizing durable submission: " + err.Error(), IsError: true}, nil
+		}
+		finishReservation = nil
+	}
+	return Result{Content: fmt.Sprintf("Security review bundle uploaded (%s, sha256 %s). Durable submission: %s", filename, digestHex, budgetState)}, nil
 }
 
 func buildSecuritySubmissionBundle(finding *store.SecurityFindingRecord, scanCtx SecurityScanContext, candidate securityPoCCandidate, validation securityPoCValidation, markdown, builderRun, validatorRun string) ([]byte, error) {
@@ -684,54 +713,208 @@ func validateBountySubmissionClaim(submission securityBountySubmission, scanCtx 
 	return problems
 }
 
-// submissionBudgetState enforces the program's submission budget. Reporting is
-// rationed on every major platform, so when more eligible findings exist than
-// the budget allows only the highest-ranked ones are packaged; the rest stay
-// candidates with the reason recorded. An unset budget imposes no limit.
-//
-// Ranking is scan-wide rather than execution-wide, so re-running a scan
-// repackages the same top findings instead of granting a fresh allowance, and
-// ties are broken deterministically by fingerprint so a tie can never let more
-// findings through than the budget permits.
-//
-// The program's period (submissionBudget.periodDays) is recorded but not
-// enforced here: counting submissions across a rolling window needs durable
-// submission accounting, which is tracked as the follow-up on #253. The budget
-// state string says so, so a per-scan cap is never mistaken for a per-period one.
-func (t *saveSecurityBountySubmissionTool) submissionBudgetState(ctx context.Context, finding *store.SecurityFindingRecord) (string, error) {
+func (t *saveSecurityBountySubmissionTool) prepareSecurityResearchSubmission(ctx context.Context, finding *store.SecurityFindingRecord, payload securityBountySubmission) (string, bool, func(bool) error, error) {
+	periodDays := t.state.scanCtx.SubmissionBudgetPeriodDays
 	budget := t.state.scanCtx.SubmissionBudget
-	if budget <= 0 || finding == nil {
-		return "", nil
+	if t.state.researchStore == nil {
+		if periodDays > 0 && budget > 0 {
+			return "", false, nil, fmt.Errorf("durable security research storage is required to enforce the configured rolling submission period")
+		}
+		state, retained, err := t.submissionBudgetState(ctx, finding)
+		return state, retained, nil, err
+	}
+	bound, err := t.state.ensureSecurityResearchContext(ctx)
+	if err != nil {
+		return "", false, nil, err
+	}
+	if finding.Status == store.SecurityFindingStatusConfirmed || finding.Status == store.SecurityFindingStatusTriaged {
+		sweeps, err := t.state.researchStore.ListSecurityResearchVariantSweeps(ctx, t.state.scanCtx.Namespace, bound.revision.ID)
+		if err != nil {
+			return "", false, nil, fmt.Errorf("checking the required variant sweep: %w", err)
+		}
+		completed := false
+		for _, sweep := range sweeps {
+			if sweep.FindingID != nil && *sweep.FindingID == finding.ID && sweep.Status == store.SecurityVariantSweepCompleted && store.ValidSecurityVariantSweepCompletionEvidence(sweep.Result) {
+				completed = true
+				break
+			}
+		}
+		if !completed {
+			return "", false, nil, fmt.Errorf("a completed variant sweep for this triaged or confirmed finding is required before bounty packaging")
+		}
+	}
+	if periodDays <= 0 || budget <= 0 {
+		state, retained, err := t.submissionBudgetState(ctx, finding)
+		return state, retained, nil, err
+	}
+	workflow := securityResearchWorkflow(t.state.scanCtx)
+	precision, err := t.state.researchStore.GetSecuritySubmissionPrecision(ctx, t.state.scanCtx.Namespace, bound.target.ID, workflow, nil)
+	if err != nil {
+		return "", false, nil, fmt.Errorf("reading submission precision: %w", err)
+	}
+	effectiveBudget, evidenceGate := securitySubmissionPrecisionPolicy(budget, precision)
+	if (evidenceGate == "strict-perfect-verification" || evidenceGate == "heightened-independent-reproduction") && finding.Status != store.SecurityFindingStatusConfirmed {
+		return "", false, nil, fmt.Errorf("precision policy %s requires a confirmed finding with independent PoC validation", evidenceGate)
+	}
+	rank, err := t.submissionRank(ctx, finding, evidenceGate)
+	if err != nil {
+		return "", false, nil, err
+	}
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		return "", false, nil, fmt.Errorf("encoding durable submission candidate: %w", err)
+	}
+	candidate, _, err := t.state.researchStore.CreateSecurityResearchSubmission(ctx, t.state.scanCtx.Namespace, &store.SecurityResearchSubmission{
+		RevisionID:   bound.revision.ID,
+		FindingID:    &finding.ID,
+		Workflow:     workflow,
+		CandidateKey: finding.Fingerprint,
+		Rank:         int32(rank),
+		Payload:      rawPayload,
+		Status:       "candidate",
+	})
+	if err != nil {
+		return "", false, nil, fmt.Errorf("creating durable submission candidate: %w", err)
+	}
+	attemptKey := strings.TrimSpace(t.state.scanCtx.ExecutionID)
+	if attemptKey == "" {
+		attemptKey = strings.TrimSpace(t.state.scanCtx.RunName)
+	}
+	reservationKey := "bounty-package:" + attemptKey + ":" + finding.Fingerprint
+	reservation := &store.SecuritySubmissionReservationResult{Reserved: false, Limit: effectiveBudget}
+	if int32(rank) <= effectiveBudget {
+		reservation, err = t.state.researchStore.ReserveSecurityResearchSubmission(ctx, t.state.scanCtx.Namespace, store.SecuritySubmissionReservationRequest{
+			SubmissionID:   candidate.ID,
+			Workflow:       workflow,
+			PeriodDays:     periodDays,
+			BudgetLimit:    effectiveBudget,
+			IdempotencyKey: reservationKey,
+		})
+		if err != nil {
+			return "", false, nil, fmt.Errorf("reserving rolling submission budget: %w", err)
+		}
+	}
+	decision, reason := "submit", fmt.Sprintf("reserved rolling %d-day submission budget", periodDays)
+	if int32(rank) > effectiveBudget {
+		decision = "retain"
+		reason = fmt.Sprintf("candidate rank %d is outside deterministic top-%d", rank, effectiveBudget)
+	} else if !reservation.Reserved {
+		decision = "retain"
+		reason = fmt.Sprintf("rolling %d-day submission budget exhausted (%d/%d used)", periodDays, reservation.Used, reservation.Limit)
+	}
+	inputs, _ := json.Marshal(map[string]any{
+		"published_budget_limit": budget,
+		"effective_budget_limit": effectiveBudget,
+		"period_days":            periodDays,
+		"used":                   reservation.Used,
+		"precision":              precision,
+		"precision_policy":       "accepted_over_adjudicated_v1",
+		"evidence_gate":          evidenceGate,
+	})
+	_, _, err = t.state.researchStore.CreateSecurityResearchDecisionSnapshot(ctx, t.state.scanCtx.Namespace, &store.SecurityResearchDecisionSnapshot{
+		RevisionID:     bound.revision.ID,
+		SubmissionID:   &candidate.ID,
+		Workflow:       workflow,
+		CandidateKey:   finding.Fingerprint,
+		Decision:       decision,
+		Reason:         reason,
+		Rank:           int32(rank),
+		Inputs:         inputs,
+		IdempotencyKey: "decision:" + reservationKey,
+	})
+	if err != nil {
+		if reservation.Reserved {
+			if cleaner, ok := t.state.researchStore.(store.SecuritySubmissionReservationCleanupStore); ok {
+				_ = cleaner.VoidSecurityResearchSubmissionReservation(context.Background(), t.state.scanCtx.Namespace, candidate.ID, reservationKey)
+			}
+		}
+		return "", false, nil, fmt.Errorf("recording submission decision: %w", err)
+	}
+	if !reservation.Reserved {
+		return fmt.Sprintf("Submission %s retained as candidate: %s; candidate rank %d.", candidate.ID, reason, rank), true, nil, nil
+	}
+	finish := func(success bool) error {
+		if success {
+			return t.state.researchStore.MarkSecurityResearchSubmissionSubmitted(context.Background(), t.state.scanCtx.Namespace, candidate.ID, time.Now().UTC())
+		}
+		if cleaner, ok := t.state.researchStore.(store.SecuritySubmissionReservationCleanupStore); ok {
+			return cleaner.VoidSecurityResearchSubmissionReservation(context.Background(), t.state.scanCtx.Namespace, candidate.ID, reservationKey)
+		}
+		return nil
+	}
+	return fmt.Sprintf("submission_id %s; rank %d; rolling %d-day budget reserved (%d/%d used); evidence gate %s", candidate.ID, rank, periodDays, reservation.Used, reservation.Limit, evidenceGate), false, finish, nil
+}
+
+// securitySubmissionPrecisionPolicy applies a versioned, conservative feedback
+// rule after enough adjudicated outcomes exist. Pending submissions never enter
+// the denominator, and feedback can only tighten the published program cap.
+func securitySubmissionPrecisionPolicy(published int32, precision *store.SecuritySubmissionPrecision) (int32, string) {
+	if published <= 0 {
+		return published, "program-default"
+	}
+	if precision == nil {
+		return published, "cold-start"
+	}
+	adjudicated := precision.Accepted + precision.Duplicate + precision.Informative + precision.Rejected
+	if adjudicated < 5 {
+		return published, "cold-start-minimum-5"
+	}
+	effective := published
+	switch signal := float64(precision.Accepted) / float64(adjudicated); {
+	case signal < 0.2:
+		effective = min(effective, 1)
+		return effective, "strict-perfect-verification"
+	case signal < 0.4:
+		effective = min(effective, 2)
+		return effective, "heightened-independent-reproduction"
+	default:
+		return effective, "standard-program-evidence"
+	}
+}
+
+func (t *saveSecurityBountySubmissionTool) submissionRank(ctx context.Context, finding *store.SecurityFindingRecord, evidenceGate string) (int, error) {
+	if finding == nil {
+		return 0, fmt.Errorf("finding is required")
 	}
 	filter := t.state.scopeFilter()
-	// Scan-wide: a new execution of the same scan must not mint a new
-	// allowance for the same program.
 	filter.ExecutionID = ""
 	filter.TaskName = ""
-	filter.Status = store.SecurityFindingStatusConfirmed
+	filter.Status = ""
 	findings, err := t.state.listFindings(ctx, filter)
 	if err != nil {
-		// A budget that cannot be evaluated must not silently authorize an
-		// unlimited number of submissions.
-		return "", fmt.Errorf("evaluating the program's submission budget: %w", err)
+		return 0, fmt.Errorf("evaluating the program's submission budget: %w", err)
 	}
 	rank := 1
 	for _, candidate := range findings {
-		if candidate.ID == finding.ID || candidate.DuplicateOf != nil || candidate.SuppressedBy != "" {
+		if candidate.ID == finding.ID {
+			continue
+		}
+		if _, err := securityReportBundleStatus(&candidate, t.state.scanCtx); err != nil {
+			continue
+		}
+		if (evidenceGate == "strict-perfect-verification" || evidenceGate == "heightened-independent-reproduction") && candidate.Status != store.SecurityFindingStatusConfirmed {
 			continue
 		}
 		if outranksForSubmission(candidate, *finding) {
 			rank++
 		}
 	}
-	period := ""
-	if days := t.state.scanCtx.SubmissionBudgetPeriodDays; days > 0 {
-		period = fmt.Sprintf(", program period %d days not enforced per-window", days)
+	return rank, nil
+}
+
+func (t *saveSecurityBountySubmissionTool) submissionBudgetState(ctx context.Context, finding *store.SecurityFindingRecord) (string, bool, error) {
+	budget := t.state.scanCtx.SubmissionBudget
+	if budget <= 0 || finding == nil {
+		return "", false, nil
+	}
+	rank, err := t.submissionRank(ctx, finding, "")
+	if err != nil {
+		return "", false, err
 	}
 	if int32(rank) > budget {
-		return "", fmt.Errorf("the program's submission budget of %d is exhausted for this scan: this finding ranks %d, so it stays a candidate instead of a submission%s", budget, rank, period)
+		return fmt.Sprintf("Submission retained as candidate: scan-wide budget %d is exhausted; candidate rank %d.", budget, rank), true, nil
 	}
-	return fmt.Sprintf("rank %d of budget %d (scan-wide%s)", rank, budget, period), nil
+	return fmt.Sprintf("rank %d of budget %d (scan-wide)", rank, budget), false, nil
 }
 
 // outranksForSubmission reports whether other should consume a submission slot

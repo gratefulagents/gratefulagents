@@ -289,6 +289,25 @@ service PlatformService {
   // findings as a downloadable CSV or JSON document.
   rpc ExportSecurityFindingAuditLog(ExportSecurityFindingAuditLogRequest) returns (ExportSecurityFindingAuditLogResponse);
 
+  // Durable, high-cardinality campaign research is stored only in the state
+  // database. Access follows the owning SecurityScan rather than namespace
+  // membership alone.
+  rpc GetSecurityCampaignResearchStatus(GetSecurityCampaignResearchStatusRequest) returns (SecurityCampaignResearchStatus);
+  rpc GetSecurityResearchDossier(GetSecurityResearchDossierRequest) returns (SecurityResearchDossier);
+  rpc AmendSecurityResearchDossier(AmendSecurityResearchDossierRequest) returns (AmendSecurityResearchDossierResponse);
+  rpc ListSecurityResearchHypotheses(ListSecurityResearchHypothesesRequest) returns (ListSecurityResearchHypothesesResponse);
+  rpc CreateSecurityResearchHypothesis(CreateSecurityResearchHypothesisRequest) returns (CreateSecurityResearchHypothesisResponse);
+  rpc TransitionSecurityResearchHypothesis(TransitionSecurityResearchHypothesisRequest) returns (SecurityResearchHypothesis);
+  rpc ReopenSecurityResearchHypothesis(ReopenSecurityResearchHypothesisRequest) returns (SecurityResearchHypothesis);
+  rpc ListSecurityResearchCoverage(ListSecurityResearchCoverageRequest) returns (ListSecurityResearchCoverageResponse);
+  rpc RecordSecurityResearchCoverage(RecordSecurityResearchCoverageRequest) returns (RecordSecurityResearchCoverageResponse);
+  rpc ListSecurityResearchVariantSweeps(ListSecurityResearchVariantSweepsRequest) returns (ListSecurityResearchVariantSweepsResponse);
+  rpc CreateSecurityResearchVariantSweep(CreateSecurityResearchVariantSweepRequest) returns (CreateSecurityResearchVariantSweepResponse);
+  rpc CompleteSecurityResearchVariantSweep(CompleteSecurityResearchVariantSweepRequest) returns (SecurityResearchVariantSweep);
+  rpc ListSecuritySubmissionOutcomeHistory(ListSecuritySubmissionOutcomeHistoryRequest) returns (ListSecuritySubmissionOutcomeHistoryResponse);
+  rpc RecordSecuritySubmissionOutcome(RecordSecuritySubmissionOutcomeRequest) returns (RecordSecuritySubmissionOutcomeResponse);
+  rpc CorrectSecuritySubmissionOutcome(CorrectSecuritySubmissionOutcomeRequest) returns (RecordSecuritySubmissionOutcomeResponse);
+
   // Security scanning: SecurityScan trigger configuration (the CRs that
   // create scan runs). ListSecurityScanConfigs returns configured SecurityScan
   // resources; the older ListSecurityScans above returns persisted scan
@@ -5719,4 +5738,271 @@ message UpdateBugReportStatusRequest {
   string id = 2;
   string status = 3;
   string note = 4;
+}
+
+// SecurityResearchScope identifies one immutable revision of the
+// SecurityScan named by target_key.
+message SecurityResearchScope {
+  string namespace = 1;
+  string target_key = 2;
+  string revision = 3;
+}
+
+message GetSecurityCampaignResearchStatusRequest {
+  SecurityResearchScope scope = 1;
+  string workflow = 2;
+}
+
+message SecuritySubmissionPrecision {
+  int64 submitted = 1;
+  int64 accepted = 2;
+  int64 duplicate = 3;
+  int64 informative = 4;
+  int64 rejected = 5;
+  int64 resolved = 6;
+}
+
+message SecurityCampaignResearchStatus {
+  string target_id = 1;
+  string revision_id = 2;
+  string target_key = 3;
+  string revision = 4;
+  string workflow = 5;
+  int32 dossier_version = 6;
+  map<string, int32> hypothesis_status_counts = 7;
+  map<string, int32> hypothesis_result_counts = 8;
+  map<string, int32> coverage_verdict_counts = 9;
+  map<string, int32> variant_sweep_status_counts = 10;
+  SecuritySubmissionPrecision precision = 11;
+}
+
+message SecurityResearchDossier {
+  string id = 1;
+  string revision_id = 2;
+  int32 version = 3;
+  string parent_id = 4;
+  string content_json = 5;
+  string change_summary = 6;
+  string actor = 7;
+  string idempotency_key = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message GetSecurityResearchDossierRequest {
+  SecurityResearchScope scope = 1;
+}
+
+message AmendSecurityResearchDossierRequest {
+  SecurityResearchScope scope = 1;
+  int32 expected_version = 2;
+  string expected_parent_id = 3;
+  string content_json = 4;
+  string change_summary = 5;
+  string idempotency_key = 6;
+}
+
+message AmendSecurityResearchDossierResponse {
+  SecurityResearchDossier dossier = 1;
+  bool created = 2;
+}
+
+message SecurityResearchHypothesis {
+  string id = 1;
+  string revision_id = 2;
+  string hypothesis_key = 3;
+  string title = 4;
+  string invariant = 5;
+  string status = 6;
+  string result = 7;
+  string detail_json = 8;
+  int32 version = 9;
+  string idempotency_key = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+}
+
+message ListSecurityResearchHypothesesRequest {
+  SecurityResearchScope scope = 1;
+  int32 limit = 2;
+}
+
+message ListSecurityResearchHypothesesResponse {
+  repeated SecurityResearchHypothesis hypotheses = 1;
+  bool truncated = 2;
+}
+
+message CreateSecurityResearchHypothesisRequest {
+  SecurityResearchScope scope = 1;
+  string hypothesis_key = 2;
+  string title = 3;
+  string invariant = 4;
+  string detail_json = 5;
+  string idempotency_key = 6;
+}
+
+message CreateSecurityResearchHypothesisResponse {
+  SecurityResearchHypothesis hypothesis = 1;
+  bool created = 2;
+}
+
+message TransitionSecurityResearchHypothesisRequest {
+  SecurityResearchScope scope = 1;
+  string hypothesis_id = 2;
+  int32 expected_version = 3;
+  string to_status = 4;
+  string result = 5;
+  string rationale = 6;
+  string detail_json = 7;
+  string idempotency_key = 8;
+}
+
+message ReopenSecurityResearchHypothesisRequest {
+  SecurityResearchScope scope = 1;
+  string hypothesis_id = 2;
+  int32 expected_version = 3;
+  string rationale = 4;
+  string detail_json = 5;
+  string idempotency_key = 6;
+}
+
+message SecurityResearchCoverage {
+  string id = 1;
+  string revision_id = 2;
+  string hypothesis_id = 3;
+  string dimension = 4;
+  string subject_key = 5;
+  string verdict = 6;
+  string bounds_json = 7;
+  string evidence_json = 8;
+  string actor = 9;
+  string idempotency_key = 10;
+  google.protobuf.Timestamp created_at = 11;
+}
+
+message ListSecurityResearchCoverageRequest {
+  SecurityResearchScope scope = 1;
+  int32 limit = 2;
+}
+
+message ListSecurityResearchCoverageResponse {
+  repeated SecurityResearchCoverage coverage = 1;
+  bool truncated = 2;
+}
+
+message RecordSecurityResearchCoverageRequest {
+  SecurityResearchScope scope = 1;
+  string hypothesis_id = 2;
+  string dimension = 3;
+  string subject_key = 4;
+  string verdict = 5;
+  string bounds_json = 6;
+  string evidence_json = 7;
+  string idempotency_key = 8;
+}
+
+message RecordSecurityResearchCoverageResponse {
+  SecurityResearchCoverage coverage = 1;
+  bool created = 2;
+}
+
+message SecurityResearchVariantSweep {
+  string id = 1;
+  string revision_id = 2;
+  string finding_id = 3;
+  string root_hypothesis_id = 4;
+  string root_cause = 5;
+  string scope_json = 6;
+  string status = 7;
+  string result_json = 8;
+  string idempotency_key = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp completed_at = 11;
+}
+
+message ListSecurityResearchVariantSweepsRequest {
+  SecurityResearchScope scope = 1;
+  int32 limit = 2;
+}
+
+message ListSecurityResearchVariantSweepsResponse {
+  repeated SecurityResearchVariantSweep sweeps = 1;
+  bool truncated = 2;
+}
+
+message CreateSecurityResearchVariantSweepRequest {
+  SecurityResearchScope scope = 1;
+  string finding_id = 2;
+  string root_hypothesis_id = 3;
+  string root_cause = 4;
+  string scope_json = 5;
+  string status = 6;
+  string idempotency_key = 7;
+}
+
+message CreateSecurityResearchVariantSweepResponse {
+  SecurityResearchVariantSweep sweep = 1;
+  bool created = 2;
+}
+
+message CompleteSecurityResearchVariantSweepRequest {
+  SecurityResearchScope scope = 1;
+  string sweep_id = 2;
+  string status = 3;
+  string result_json = 4;
+  string idempotency_key = 5;
+}
+
+message SecuritySubmissionOutcomeEvent {
+  int64 id = 1;
+  string submission_id = 2;
+  string outcome = 3;
+  string external_reference = 4;
+  string rationale = 5;
+  string actor = 6;
+  int64 correction_of = 7;
+  string idempotency_key = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message ListSecuritySubmissionOutcomeHistoryRequest {
+  SecurityResearchScope scope = 1;
+  string submission_id = 2;
+  int32 limit = 3;
+}
+
+message ListSecuritySubmissionOutcomeHistoryResponse {
+  repeated SecuritySubmissionOutcomeEvent events = 1;
+  bool truncated = 2;
+}
+
+message SecuritySubmissionOutcome {
+  string submission_id = 1;
+  int64 event_id = 2;
+  string outcome = 3;
+  string external_reference = 4;
+  google.protobuf.Timestamp recorded_at = 5;
+}
+
+message RecordSecuritySubmissionOutcomeRequest {
+  SecurityResearchScope scope = 1;
+  string submission_id = 2;
+  string outcome = 3;
+  string external_reference = 4;
+  string rationale = 5;
+  string idempotency_key = 6;
+}
+
+message CorrectSecuritySubmissionOutcomeRequest {
+  SecurityResearchScope scope = 1;
+  string submission_id = 2;
+  int64 correction_of = 3;
+  string outcome = 4;
+  string external_reference = 5;
+  string rationale = 6;
+  string idempotency_key = 7;
+}
+
+message RecordSecuritySubmissionOutcomeResponse {
+  SecuritySubmissionOutcome outcome = 1;
+  bool created = 2;
 }

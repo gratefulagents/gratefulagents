@@ -95,6 +95,22 @@ func TestMigration049RegisteredAndConcurrentSafe(t *testing.T) {
 	}
 }
 
+func TestMigration055Registered(t *testing.T) {
+	for _, migration := range orderedMigrations() {
+		if migration.version != 55 {
+			continue
+		}
+		if migration.sql == "" || migration.sql != migration055Up {
+			t.Fatal("migration 055 must carry the embedded security research SQL")
+		}
+		if migration.optional || noTxMigrations[55] {
+			t.Fatal("migration 055 is required and must run transactionally")
+		}
+		return
+	}
+	t.Fatal("migration 055 is not registered in orderedMigrations and would never be applied")
+}
+
 func TestMigration050Registered(t *testing.T) {
 	for _, migration := range orderedMigrations() {
 		if migration.version != 50 {

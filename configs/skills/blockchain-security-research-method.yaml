@@ -20,6 +20,33 @@ spec:
         chain-specific checklists with a repeatable research process. Never treat a
         checklist, scanner, audit, or bounded test as proof of safety.
 
+        ## 0. Use the durable research record
+
+        Begin every campaign with `get_security_research_context`. The platform,
+        not model prose, supplies the namespace, stable target identity, immutable
+        revision, scope binding, and actor. Reuse a dossier or negative result as
+        current evidence only when that exact binding matches; after a revision or
+        scope change it is stale context until it is re-established.
+
+        Persist material architecture, authority, state-machine, representation,
+        invariant, and open-question changes with `amend_security_dossier`. Create
+        each falsifiable branch with `create_security_hypothesis`, and record every
+        transition with `transition_security_hypothesis`, including falsified,
+        blocked, timed-out, inconclusive, and abandoned work. Never silently retry
+        an exact-revision falsification; reopen it only for new evidence and state
+        the reason. Record tested invariants, actors, states, and transitions with
+        `record_security_coverage`, preserving bounds, evidence, and limitations.
+
+        After a finding is confirmed, create its root-cause sibling search with
+        `create_security_variant_sweep` and finish it with
+        `complete_security_variant_sweep`. A report is not submission-ready until
+        the sweep completed with recorded scope and evidence, or a human supplied
+        an explicit audited override. Before final triage, call
+        `get_security_campaign_status` and reconcile every outstanding hypothesis,
+        coverage gap, sweep, and submission-budget decision. These durable tools
+        supplement finding tools; they never turn a hypothesis or bounded negative
+        result into a vulnerability.
+
         ## 1. Freeze the target and governing rules
 
         Record the immutable source revision, build and dependency locks, deployed

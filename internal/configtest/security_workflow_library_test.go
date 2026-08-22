@@ -1207,3 +1207,57 @@ func TestProtocolFamilyWorkflowsKeepTheirSpine(t *testing.T) {
 		})
 	}
 }
+
+func TestSmartContractReviewExecutionStatusEnums(t *testing.T) {
+	t.Parallel()
+
+	var workflow triggersv1alpha1.SecurityWorkflow
+	readBootstrapAsset(t, "securityworkflows", "smart-contract-review", &workflow)
+
+	executionStatusEnums := 0
+	for _, task := range workflow.Spec.Tasks {
+		if strings.TrimSpace(task.OutputSchema) == "" {
+			continue
+		}
+		var schema any
+		if err := json.Unmarshal([]byte(task.OutputSchema), &schema); err != nil {
+			t.Fatalf("task %q output schema: %v", task.Name, err)
+		}
+		var walk func(any)
+		walk = func(value any) {
+			switch value := value.(type) {
+			case map[string]any:
+				for key, child := range value {
+					if key == "execution_status" {
+						executionStatusEnums++
+						statusSchema, ok := child.(map[string]any)
+						if !ok {
+							t.Errorf("task %q execution_status schema has type %T, want object", task.Name, child)
+							continue
+						}
+						values, ok := statusSchema["enum"].([]any)
+						if !ok {
+							t.Errorf("task %q execution_status enum has type %T, want array", task.Name, statusSchema["enum"])
+							continue
+						}
+						if !slices.Contains(values, any("not_found_under")) {
+							t.Errorf("task %q execution_status enum must include not_found_under", task.Name)
+						}
+						if slices.Contains(values, any("pass")) {
+							t.Errorf("task %q execution_status enum must not include pass", task.Name)
+						}
+					}
+					walk(child)
+				}
+			case []any:
+				for _, child := range value {
+					walk(child)
+				}
+			}
+		}
+		walk(schema)
+	}
+	if executionStatusEnums == 0 {
+		t.Error("smart-contract-review has no execution_status enums")
+	}
+}

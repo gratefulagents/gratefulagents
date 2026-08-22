@@ -13,7 +13,9 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
       objective: >-
-        Build the authoritative scope, platform, and component inventory for this repository before any surface
+        Call get_security_research_context first and reuse only records bound to the exact immutable target
+        revision and scope; prior-revision negative evidence is stale context. Build the authoritative scope,
+        platform, and component inventory for this repository before any surface
         is mapped. Record the immutable revision under review, explicit in-scope and out-of-scope roots, stated
         deployment/artifact availability, and limitations. Inspect manifests, build files, imports, schemas,
         source layout, generated artifacts, tests,
@@ -1215,7 +1217,11 @@ spec:
         remediation, regression-test guidance, rollout or migration risk, and a deterministic retest recipe
         naming a new immutable revision, exact target, applicable registered tool and seed/bounds, and expected
         evidence. State that an actual remediation retest requires a follow-up scan of that revision; do not
-        claim it happened in this immutable scan. Then submit the final report.
+        claim it happened in this immutable scan. Persist branch outcomes with transition_security_hypothesis
+        and invariant/actor/state/transition bounds with record_security_coverage. Every confirmed root cause
+        requires create_security_variant_sweep followed by complete_security_variant_sweep with scope and
+        evidence; blocked or inconclusive sweeps stay internal without an audited human override. Call
+        get_security_campaign_status, reconcile durable gaps and budget decisions, then submit the final report.
       dependsOn:
         - account-complete-protocol-coverage
         - account-chain-coverage
