@@ -11,6 +11,7 @@ spec:
       category: reconnaissance
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
       objective: >-
         Build an identity-object-action-tenant matrix for the URL in the Target section. Use the full
@@ -36,6 +37,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
       objective: >-
         Use {{tasks.map-access-matrix.output}} to assess object-level and tenant isolation with safe differential
         checks. Compare the exact same known read-only request as anonymous and supplied identities, or across two
@@ -58,6 +60,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
       objective: >-
         Use {{tasks.map-access-matrix.output}} to assess function-level and action authorization. For routes whose
         behavior is demonstrably read-only, compare visibility and the same request across anonymous and supplied
@@ -80,6 +83,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
       objective: >-
         Use {{tasks.map-access-matrix.output}} to assess contextual access-control enforcement on read-only
         surfaces: tenant selectors, organization headers or path segments, nested resources, alternate content
@@ -117,6 +121,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
       objective: >-

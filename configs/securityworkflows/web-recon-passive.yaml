@@ -11,6 +11,7 @@ spec:
       category: reconnaissance
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
       objective: >-
         Map the website named in the Target section as an external security researcher. You have the
         full run tool surface available: use Browser for rendered behavior, WebFetch for direct HTTP
@@ -34,6 +35,7 @@ spec:
         - application-recon
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
         - name: exploit-poc-discipline
       objective: >-

@@ -11,6 +11,7 @@ spec:
       category: reconnaissance
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: cloud-iac-hunting
       objective: >-
         Build a deployment map for the website named in the Target section from DNS and certificate metadata,
@@ -31,6 +32,7 @@ spec:
         - map-deployment-surface
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: cloud-iac-hunting
       objective: >-
         Assess transport and edge policy for the exact origins in {{tasks.map-deployment-surface.output}}:
@@ -51,6 +53,7 @@ spec:
         - map-deployment-surface
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: cloud-iac-hunting
       objective: >-
         Assess only routes and artifacts directly evidenced in {{tasks.map-deployment-surface.output}} for
@@ -71,6 +74,7 @@ spec:
         - map-deployment-surface
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: cloud-iac-hunting
       objective: >-
         Assess {{tasks.map-deployment-surface.output}} for directly observable origin disclosure, virtual-host

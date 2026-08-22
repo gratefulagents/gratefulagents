@@ -11,6 +11,7 @@ spec:
       category: reconnaissance
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
       objective: >-
         Build a logic map for the website named in the Target section using public pages, read-only authenticated views
@@ -32,6 +33,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
       objective: >-
         Assess read-only identity, role, object, ownership, and tenant boundaries in
         {{tasks.map-roles-and-workflows.output}} for the website named in the Target section. Compare anonymous and explicitly
@@ -50,6 +52,7 @@ spec:
         - map-roles-and-workflows
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
       objective: >-
         Assess the documented and client-observable workflows in {{tasks.map-roles-and-workflows.output}} for
@@ -70,6 +73,7 @@ spec:
         - map-roles-and-workflows
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: exploit-poc-discipline
       objective: >-
         Assess visible pricing, discount, currency, quantity, entitlement, quota, idempotency, and
@@ -90,6 +94,7 @@ spec:
         - map-roles-and-workflows
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
       objective: >-
         Assess public and fixture-visible registration, invitation, recovery, verification, referral, search,

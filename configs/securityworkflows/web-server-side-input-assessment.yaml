@@ -11,6 +11,7 @@ spec:
       category: reconnaissance
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
       objective: >-
         Build a server-input map for the website named in the Target section from read-only responses, rendered forms
@@ -31,6 +32,7 @@ spec:
         - map-input-surface
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: exploit-poc-discipline
       objective: >-
         Assess the mapped inputs in {{tasks.map-input-surface.output}} for SQL/NoSQL, command, LDAP,
@@ -51,6 +53,7 @@ spec:
         - map-input-surface
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: exploit-poc-discipline
       objective: >-
         Assess URL, host, redirect, proxy, image, import, renderer, and webhook-like inputs in
@@ -71,6 +74,7 @@ spec:
         - map-input-surface
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: exploit-poc-discipline
       objective: >-
         Assess existing read-only routes in {{tasks.map-input-surface.output}} for path traversal, local file
@@ -91,6 +95,7 @@ spec:
         - map-input-surface
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
       objective: >-
         Assess {{tasks.map-input-surface.output}} for observable server-side request parsing mismatches:
         duplicate query keys, benign encoding and path-normalization differences, host and forwarded-header

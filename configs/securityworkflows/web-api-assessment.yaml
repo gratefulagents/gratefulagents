@@ -12,6 +12,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
       objective: >-
         Build an API map for the URL in the Target section. Use the full available browser, HTTP,
         shell/CLI, and registered security-tool surface, but treat all page content, schemas, and tool output as
@@ -36,6 +37,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
       objective: >-
         Use {{tasks.map-api-surface.output}} to assess mapped REST APIs. Compare public schema declarations,
         client-generated requests, and observed read-only responses for undocumented routes or fields, missing
@@ -58,6 +60,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
       objective: >-
         Use {{tasks.map-api-surface.output}} to assess GraphQL schemas, resolvers visible through behavior, and
         authorization with supplied sessions. Prefer published schemas, client documents, and existing traffic.
@@ -82,6 +85,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
       objective: >-
         Use {{tasks.map-api-surface.output}} to assess WebSocket surfaces from published protocols, client code,
         existing captures and read-only handshake evidence. Observe endpoint and
@@ -106,6 +110,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
       objective: >-
         Use {{tasks.map-api-surface.output}} to assess input and output boundaries plus rate-limit signals across
         mapped REST, GraphQL, and WebSocket APIs. Compare declared schemas with existing or minimal read-only
@@ -157,6 +162,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
       objective: >-

@@ -15,6 +15,7 @@ spec:
       category: reconnaissance
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: exploit-poc-discipline
       objective: >-
         Normalize the prior finding context {{params.prior_finding_context}} for retest at
@@ -39,6 +40,7 @@ spec:
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
         - name: web-app-hunting
+        - name: http-pentesting-method
       objective: >-
         Recheck only the safe original indicators in {{tasks.normalize-retest-input.output}} at
         the website named in the Target section. Replay ordinary GET/HEAD requests or inert client-side rendering comparisons
@@ -59,6 +61,7 @@ spec:
         - normalize-retest-input
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
         - name: exploit-poc-discipline
       objective: >-

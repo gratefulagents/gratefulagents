@@ -11,6 +11,7 @@ spec:
       category: reconnaissance
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
       objective: >-
         Build an authentication map for the URL in the Target section. Use the full available browser,
@@ -35,6 +36,7 @@ spec:
       dependsOn: [map-auth-surface]
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
       objective: >-
         Use {{tasks.map-auth-surface.output}} to assess lifecycle and MFA boundaries through read-only
@@ -58,6 +60,7 @@ spec:
       dependsOn: [map-auth-surface]
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
       objective: >-
         Use {{tasks.map-auth-surface.output}} to assess session handling with anonymous traffic and supplied
@@ -80,6 +83,7 @@ spec:
       dependsOn: [map-auth-surface]
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
       objective: >-
         Use {{tasks.map-auth-surface.output}} for read-only JWT and OAuth/OIDC assessment. Inspect public discovery
@@ -117,6 +121,7 @@ spec:
       dependsOn: [map-auth-surface, aggregate-auth-evidence]
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline

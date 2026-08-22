@@ -139,7 +139,20 @@ func TestFullAccessWebWorkflowsUsePromptOnlyLiveSafety(t *testing.T) {
 
 			var workflow triggersv1alpha1.SecurityWorkflow
 			readBootstrapAsset(t, "securityworkflows", name, &workflow)
+			hasHTTPMethod := false
 			for _, task := range workflow.Spec.Tasks {
+				for _, ref := range task.SkillRefs {
+					if ref.Name == "http-pentesting-method" {
+						hasHTTPMethod = true
+					}
+				}
+				if slices.ContainsFunc(task.SkillRefs, func(ref platformv1alpha1.NamedRef) bool {
+					return ref.Name == "web-app-hunting"
+				}) && !slices.ContainsFunc(task.SkillRefs, func(ref platformv1alpha1.NamedRef) bool {
+					return ref.Name == "http-pentesting-method"
+				}) {
+					t.Errorf("task %q uses web-app-hunting without the live HTTP method", task.Name)
+				}
 				if task.Tools != nil {
 					t.Errorf("task %q narrows tools; web workflows must retain the full run tool surface", task.Name)
 				}
@@ -168,6 +181,9 @@ func TestFullAccessWebWorkflowsUsePromptOnlyLiveSafety(t *testing.T) {
 				if !promptOnlySafety {
 					t.Errorf("task %q must carry the prompt-only no-state-change rule", task.Name)
 				}
+			}
+			if !hasHTTPMethod {
+				t.Error("full-access web workflow must reference http-pentesting-method")
 			}
 		})
 	}
