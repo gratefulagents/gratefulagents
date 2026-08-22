@@ -111,6 +111,7 @@ var inlineSecuritySkills = []string{
 	"evm-economic-and-mev-review",
 	"evm-low-level-and-deployment-review",
 	"exploit-poc-discipline",
+	"http-pentesting-method",
 	"kubernetes-operator-hunting",
 	"move-chain-security-review",
 	"web-app-hunting",

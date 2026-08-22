@@ -11,6 +11,7 @@ spec:
       category: reconnaissance
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: exploit-poc-discipline
       objective: >-
         Establish the engagement and scope model for the URL in the Target section before testing. Resolve
@@ -63,6 +64,7 @@ spec:
         - engagement-scope-model
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
       objective: >-
         Using the engagement model at {{tasks.engagement-scope-model.output}}, map the observable attack
@@ -103,6 +105,7 @@ spec:
       dependsOn: [engagement-scope-model, attack-surface-mapping]
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
         - name: exploit-poc-discipline
       objective: >-
@@ -142,6 +145,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: exploit-poc-discipline
       objective: >-
         Assess authorization and tenant isolation using {{tasks.engagement-scope-model.output}} and
@@ -167,6 +171,7 @@ spec:
       dependsOn: [engagement-scope-model, attack-surface-mapping]
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: trail-of-bits-codeql
         - name: trail-of-bits-semgrep
         - name: exploit-poc-discipline
@@ -194,6 +199,7 @@ spec:
       dependsOn: [engagement-scope-model, attack-surface-mapping]
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: exploit-poc-discipline
       objective: >-
         Assess browser and client-side security using {{tasks.engagement-scope-model.output}} and
@@ -220,6 +226,7 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: exploit-poc-discipline
       objective: >-
         Assess REST, RPC, GraphQL, and WebSocket surfaces using {{tasks.engagement-scope-model.output}} and
@@ -245,6 +252,7 @@ spec:
       dependsOn: [engagement-scope-model, attack-surface-mapping]
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
         - name: exploit-poc-discipline
       objective: >-
@@ -272,6 +280,7 @@ spec:
       dependsOn: [engagement-scope-model, attack-surface-mapping]
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: exploit-poc-discipline
         - name: trail-of-bits-property-based-testing
       objective: >-
@@ -299,6 +308,7 @@ spec:
       dependsOn: [engagement-scope-model, attack-surface-mapping]
       skillRefs:
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: cloud-iac-hunting
         - name: exploit-poc-discipline
       objective: >-
@@ -426,6 +436,7 @@ spec:
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
         - name: web-app-hunting
+        - name: http-pentesting-method
         - name: api-authz-hunting
       objective: >-
         Cross-validate the identity/authorization/injection evidence bundle at

@@ -223,6 +223,14 @@ For a website or domain target, choose the workflow by depth:
 
 Website scans use dedicated full-access mode templates and do not remove Browser, WebFetch, Bash/CLI, registered scanners, workspace, or other tools granted by the selected RuntimeProfile. The workflow objectives carry the live-testing rule as an instruction: do not make stateful target changes, send potentially mutating requests, upload content, trigger callbacks, brute-force credentials, or perform load testing. When a valid test inherently requires a state change, the agent records it as untested unless the operator explicitly supplied a disposable fixture or environment; it must never simulate a successful result.
 
+#### Live HTTP assessment method
+
+Web workflows assess live HTTP targets in phases: map the authorized surface, run safe probes, validate candidates, then triage the results. They maintain an evidence ledger that records exact evidence and its redacted counterpart, so validation and reporting can distinguish captured evidence from the version safe to retain or share. Full browser, HTTP, shell, and registered/available scanner access is unchanged.
+
+- Scanner selection is deterministic: use the registered/available ZAP, Schemathesis, Nuclei, and SSLyze scanners for their applicable web checks. Use Nmap or Naabu only for separately operator-authorized network discovery.
+- Scanner output is a lead, not a finding. Validate it with the available browser, HTTP, shell, and scanner access before reporting it.
+- Operator-authorized network scope is unchanged. Web coordinator mode adds no separate fan-out ceiling; workflow and operator parallelism settings govern concurrent work.
+
 A `SecurityScan` references them with:
 
 ```yaml

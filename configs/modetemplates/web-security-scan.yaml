@@ -16,7 +16,9 @@ spec:
     maxTurns: 200
     subAgentMaxTurns: 120
     maxRetries: 1
-    maxConcurrentSubAgents: 5
+    # Zero means this mode does not impose a fan-out ceiling. The selected
+    # workflow/operator parallelism and DAG dependencies remain authoritative.
+    maxConcurrentSubAgents: 0
 
   # Do not clamp any capability granted by the selected RuntimeProfile. Live
   # web reconnaissance keeps browser, HTTP, shell, scanner, and mutation tools.
@@ -48,7 +50,13 @@ spec:
 
     ### 2. Fan out focused hunts
     - Spawn one sub-agent per workflow task through the subagent DAG, honoring
-      each task's dependsOn and the parallelism cap in the plan.
+      each task's dependsOn and the parallelism in the plan. This mode adds no
+      separate fan-out ceiling: expose the complete specialist network allowed
+      by the selected workflow and operator configuration.
+    - Give live HTTP tasks the http-pentesting-method skill and the effective
+      registered-tool inventory. Route ZAP, Schemathesis, Nuclei, SSLyze, and
+      separately authorized Nmap/Naabu work to the task that can correlate each
+      scanner lead with browser or direct HTTP evidence.
     - Give each sub-agent its objective, the finding schema, and the paths it
       owns. Never send the same broad "find bugs" prompt to every agent.
     - Use the specialist roles: vulnerability-hunter for source review,

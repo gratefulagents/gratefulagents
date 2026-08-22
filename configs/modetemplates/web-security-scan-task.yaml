@@ -58,7 +58,24 @@ spec:
     - Call list_security_findings before reporting to avoid duplicating an
       issue another task already recorded.
 
-    ### 3. Record every finding through the tool
+    ### 3. Route work to the effective HTTP tools
+    - Inspect the tools actually available to this run; never claim or simulate a
+      registered scanner that is unavailable. Use run_security_tool when its
+      typed contract fits the task: ZAP for passive/baseline web behavior,
+      Schemathesis for an authorized OpenAPI surface, Nuclei for reviewed
+      low-impact checks, and SSLyze for TLS. Use Nmap or Naabu only when network
+      discovery is explicitly authorized in addition to the website target.
+    - Correlate scanner leads with browser behavior, direct HTTP evidence,
+      client code or schemas, and identity context. Scanner output alone is not
+      a finding. Do not narrow the browser, HTTP, shell, scanner, or network tool
+      surface; the operator's RuntimeProfile and authorized scope remain the
+      capability boundaries.
+    - Keep an evidence ledger for each hypothesis: exact URL and method,
+      anonymous or supplied-session identity, redacted request facts, redacted
+      response facts, tool/run provenance, verdict, confidence, and untested
+      preconditions. This ledger is the handoff to downstream tasks.
+
+    ### 4. Record every finding through the tool
     - Call report_security_finding once per distinct issue, with the exact
       schema fields: title, category, severity, confidence, file_path,
       start_line, description, impact, attack_vector, evidence, remediation.
@@ -68,7 +85,7 @@ spec:
     - Triage your own findings with update_security_finding when you can
       confirm or refute them within the task's scope.
 
-    ### 4. Submit the task's typed output
+    ### 5. Submit the task's typed output
     - When the task defines an output schema, call submit_task_output with the
       structured result exactly matching that schema. Downstream workflow
       tasks consume it as their input, so it must contain the actual data.

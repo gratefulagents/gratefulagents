@@ -96,6 +96,12 @@ func TestWebSecurityScanModeTemplateIsFullAccess(t *testing.T) {
 	if mode.Spec.PermissionMode != platformv1alpha1.PermissionModeDangerFullAccess {
 		t.Errorf("permissionMode = %q, want danger-full-access", mode.Spec.PermissionMode)
 	}
+	if mode.Spec.Constraints == nil {
+		t.Fatal("web scan mode must declare constraints")
+	}
+	if got := mode.Spec.Constraints.MaxConcurrentSubAgents; got != 0 {
+		t.Errorf("maxConcurrentSubAgents = %d, want 0 (workflow/operator parallelism remains authoritative)", got)
+	}
 }
 
 func TestSecurityDraftModeTemplateAsset(t *testing.T) {
