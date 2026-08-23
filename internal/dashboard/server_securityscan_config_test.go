@@ -278,6 +278,36 @@ func TestCreateSecurityScanDerivesNameWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestCreateSecurityScanDockerInDockerRequiresAdmin(t *testing.T) {
+	enabled := true
+	spec := &platform.SecurityScanConfigSpec{
+		RepoUrl:  "https://github.com/example/app.git",
+		Defaults: &platform.AgentRunDefaults{DockerInDocker: &enabled},
+	}
+	srv, c := newCronTestServer(t)
+	if _, err := srv.CreateSecurityScan(projectActorCtx(), &platform.CreateSecurityScanRequest{
+		Name: "member-dind", Spec: spec,
+	}); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("CreateSecurityScan(member DinD) error = %v, want PermissionDenied", err)
+	}
+
+	resp, err := srv.CreateSecurityScan(actorContext("admin-1", "admin", "", ""),
+		&platform.CreateSecurityScanRequest{Name: "admin-dind", Spec: spec})
+	if err != nil {
+		t.Fatalf("CreateSecurityScan(admin DinD) error = %v", err)
+	}
+	if !resp.GetSpec().GetDefaults().GetDockerInDocker() {
+		t.Fatal("response DockerInDocker = false, want true")
+	}
+	stored := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: resp.Namespace, Name: resp.Name}, stored); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if !stored.Spec.Defaults.DockerInDocker {
+		t.Fatal("stored DockerInDocker = false, want true")
+	}
+}
+
 func TestCreateSecurityScanValidationFailures(t *testing.T) {
 	base := func() *platform.SecurityScanConfigSpec {
 		return &platform.SecurityScanConfigSpec{RepoUrl: "https://github.com/example/app.git"}
@@ -596,6 +626,51 @@ func TestUpdateSecurityScanReplacesSpecAndPreservesAdminDefaults(t *testing.T) {
 	// kubectl-only admin flags survive a dashboard save.
 	if !cr.Spec.Defaults.DisableCommandSandbox {
 		t.Fatal("DisableCommandSandbox cleared by dashboard update, want preserved")
+	}
+}
+
+func TestUpdateSecurityScanDockerInDockerAuthorization(t *testing.T) {
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "dind-scan", Namespace: ns},
+		Spec: triggersv1alpha1.SecurityScanSpec{
+			RepoURL:  "https://github.com/example/app.git",
+			Defaults: triggersv1alpha1.AgentRunDefaults{DockerInDocker: true},
+		},
+	}
+	srv, c := newCronTestServer(t, existing)
+	enabled := true
+	if _, err := srv.UpdateSecurityScan(projectActorCtx(), &platform.UpdateSecurityScanRequest{
+		Namespace: ns, Name: existing.Name,
+		Spec: &platform.SecurityScanConfigSpec{RepoUrl: existing.Spec.RepoURL,
+			Defaults: &platform.AgentRunDefaults{DockerInDocker: &enabled}},
+	}); err != nil {
+		t.Fatalf("UpdateSecurityScan(member unchanged DinD) error = %v", err)
+	}
+
+	disabled := false
+	if _, err := srv.UpdateSecurityScan(projectActorCtx(), &platform.UpdateSecurityScanRequest{
+		Namespace: ns, Name: existing.Name,
+		Spec: &platform.SecurityScanConfigSpec{RepoUrl: existing.Spec.RepoURL,
+			Defaults: &platform.AgentRunDefaults{DockerInDocker: &disabled}},
+	}); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("UpdateSecurityScan(member changes DinD) error = %v, want PermissionDenied", err)
+	}
+
+	if _, err := srv.UpdateSecurityScan(actorContext("admin-1", "admin", "", ""),
+		&platform.UpdateSecurityScanRequest{
+			Namespace: ns, Name: existing.Name,
+			Spec: &platform.SecurityScanConfigSpec{RepoUrl: existing.Spec.RepoURL,
+				Defaults: &platform.AgentRunDefaults{DockerInDocker: &disabled}},
+		}); err != nil {
+		t.Fatalf("UpdateSecurityScan(admin changes DinD) error = %v", err)
+	}
+	stored := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: existing.Name}, stored); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if stored.Spec.Defaults.DockerInDocker {
+		t.Fatal("stored DockerInDocker = true, want false after admin update")
 	}
 }
 

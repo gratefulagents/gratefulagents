@@ -38,6 +38,7 @@ import {
   type BudgetDraft,
 } from "@/components/SecurityPolicyPackDialog";
 import { client } from "@/lib/client";
+import { useOptionalAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { toneText } from "@/lib/status";
 import { applyModelDefaults, hasActiveModelDefaults } from "@/lib/modelDefaults";
@@ -397,8 +398,11 @@ export function SecurityScanFormDialog({
   onSaved?: (config: SecurityScanConfig) => void;
   onOpenChange?: (open: boolean) => void;
 }) {
+  const auth = useOptionalAuth();
+  const isAdmin = auth?.user?.role === "admin";
   const isEdit = Boolean(config);
   const isDuplicate = !isEdit && Boolean(duplicateFrom);
+  const isNewScan = !config && !duplicateFrom;
   const source = config ?? duplicateFrom ?? initialConfig;
   const [open, setOpen] = useState(defaultOpen);
   const [spec, setSpec] = useState<SpecState>(() => initialDialogSpec(source, isDuplicate));
@@ -408,9 +412,18 @@ export function SecurityScanFormDialog({
   const [notifications, setNotifications] = useState<NotificationRuleState[]>(() =>
     initialNotifications(source),
   );
-  const [defaults, setDefaults] = useState<AgentRunDefaults>(
-    () => source?.spec?.defaults ?? emptyDefaults(),
-  );
+  const [defaults, setDefaults] = useState<AgentRunDefaults>(() => {
+    const initial = source?.spec?.defaults
+      ? clone(AgentRunDefaultsSchema, source.spec.defaults)
+      : emptyDefaults();
+    if (isNewScan && isAdmin && initial.dockerInDocker === undefined) {
+      initial.dockerInDocker = true;
+    } else if (!isEdit && !isAdmin) {
+      // A non-admin duplicate must not inherit a hidden privileged grant.
+      initial.dockerInDocker = undefined;
+    }
+    return initial;
+  });
   const [policies, setPolicies] = useState<TriggerPolicies>(() =>
     resolvedTriggerPolicies(configPolicySource(config ?? duplicateFrom)),
   );
@@ -423,7 +436,6 @@ export function SecurityScanFormDialog({
   // New scans include ones prefilled from an imported program target
   // (initialConfig): the template rarely sets a model, so the user's saved
   // defaults still apply to whatever it left untouched.
-  const isNewScan = !config && !duplicateFrom;
   const { defaults: myModelDefaults, loaded: modelDefaultsLoaded } = useMyModelDefaults(
     open && isNewScan,
   );
@@ -447,6 +459,7 @@ export function SecurityScanFormDialog({
       return next;
     });
   }, [open, isNewScan, modelDefaultsLoaded, myModelDefaults]);
+
   const [libraryWorkflows, setLibraryWorkflows] = useState<SecurityWorkflowResource[]>([]);
   const [libraryRankers, setLibraryRankers] = useState<SecurityRankerResource[]>([]);
   const [libraryPostScripts, setLibraryPostScripts] = useState<SecurityPostScriptResource[]>([]);
@@ -494,6 +507,8 @@ export function SecurityScanFormDialog({
   const selectedSecurityProgram =
     securityPrograms.find((program) => program.name === spec.securityProgramRef.trim()) ?? null;
   const packEnforcesBudgets = selectedPolicyPack?.enforced.includes("budgets") ?? false;
+  const effectiveDockerInDocker =
+    defaults.dockerInDocker ?? (isNewScan && isAdmin);
 
   function updateNotification(index: number, patch: Partial<NotificationRuleState>) {
     setNotifications((prev) => prev.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)));
@@ -505,7 +520,15 @@ export function SecurityScanFormDialog({
     setRankers(initialRankers(source));
     setPostScripts(initialPostScripts(source));
     setNotifications(initialNotifications(source));
-    setDefaults(source?.spec?.defaults ?? emptyDefaults());
+    const initialDefaults = source?.spec?.defaults
+      ? clone(AgentRunDefaultsSchema, source.spec.defaults)
+      : emptyDefaults();
+    if (isNewScan && isAdmin && initialDefaults.dockerInDocker === undefined) {
+      initialDefaults.dockerInDocker = true;
+    } else if (!isEdit && !isAdmin) {
+      initialDefaults.dockerInDocker = undefined;
+    }
+    setDefaults(initialDefaults);
     setPolicies(resolvedTriggerPolicies(configPolicySource(config ?? duplicateFrom)));
     setUseSavedCredentials(source ? scanConfigUsesSavedCredentials(source) : true);
     setError(null);
@@ -524,6 +547,9 @@ export function SecurityScanFormDialog({
       defaults,
       useSavedCredentials,
     });
+    // The shared trigger normalizer intentionally omits privileged fields;
+    // SecurityScan is the admin-gated dashboard path that reattaches DinD.
+    normalizedDefaults.dockerInDocker = effectiveDockerInDocker;
     const scope = create(SecurityScanScopeConfigSchema, {
       focus: spec.focus.trim(),
       includePaths: splitList(spec.includePaths, /[,\n]/),
@@ -2065,6 +2091,30 @@ export function SecurityScanFormDialog({
                   Add post-script
                 </Button>
               </OptionRow>
+
+              {isAdmin ? (
+                <OptionRow
+                  icon={ShieldCheck}
+                  title="Privileged runtime"
+                  summary={effectiveDockerInDocker ? "Docker-in-Docker enabled" : "Disabled"}
+                  modified={effectiveDockerInDocker}
+                >
+                  <FlowSwitchRow
+                    id="scan-defaults-docker-in-docker"
+                    label="Docker-in-Docker"
+                    hint="Run a privileged Docker daemon sidecar so security tools can build and inspect container images. Enabled by default for new security scans."
+                    control={
+                      <Switch
+                        id="scan-defaults-docker-in-docker"
+                        checked={effectiveDockerInDocker}
+                        onCheckedChange={(checked) =>
+                          setDefaults((prev) => ({ ...prev, dockerInDocker: checked }))
+                        }
+                      />
+                    }
+                  />
+                </OptionRow>
+              ) : null}
 
               <RunDefaultsRows
                 idPrefix="scan-defaults"

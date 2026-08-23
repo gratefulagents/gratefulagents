@@ -123,6 +123,13 @@ func (s *Server) CreateSecurityScan(
 	if err != nil {
 		return nil, err
 	}
+	if defaults := req.GetSpec().GetDefaults(); defaults != nil && defaults.DockerInDocker != nil {
+		if defaults.GetDockerInDocker() && !actorIsAdmin(actor) {
+			return nil, connect.NewError(connect.CodePermissionDenied,
+				fmt.Errorf("only cluster admins may enable Docker-in-Docker for security scans"))
+		}
+		spec.Defaults.DockerInDocker = defaults.GetDockerInDocker()
+	}
 	if ref := spec.SecurityProgramRef; ref != nil {
 		if err := s.requireResourceAccess(ctx, securityProgramResourceType, ref.Name, namespace, AccessViewer, "use this security program"); err != nil {
 			return nil, err
@@ -214,6 +221,14 @@ func (s *Server) UpdateSecurityScan(
 	if err != nil {
 		return nil, err
 	}
+	dockerInDocker := existing.Spec.Defaults.DockerInDocker
+	if defaults := req.GetSpec().GetDefaults(); defaults != nil && defaults.DockerInDocker != nil {
+		dockerInDocker = defaults.GetDockerInDocker()
+		if dockerInDocker != existing.Spec.Defaults.DockerInDocker && !actorIsAdmin(requestActorFromContext(ctx)) {
+			return nil, connect.NewError(connect.CodePermissionDenied,
+				fmt.Errorf("only cluster admins may change Docker-in-Docker for security scans"))
+		}
+	}
 	if ref := spec.SecurityProgramRef; ref != nil {
 		if err := s.requireResourceAccess(ctx, securityProgramResourceType, ref.Name, namespace, AccessViewer, "use this security program"); err != nil {
 			return nil, err
@@ -233,6 +248,9 @@ func (s *Server) UpdateSecurityScan(
 	}
 
 	preserveAdminOnlyTriggerDefaults(&spec.Defaults, existing.Spec.Defaults)
+	// Security scans expose DinD to admins through the dashboard. Restore the
+	// requested value after preserving the escape hatches that remain API-only.
+	spec.Defaults.DockerInDocker = dockerInDocker
 	existing.Spec = *spec
 	if err := s.k8sClient.Update(ctx, existing); err != nil {
 		for _, fn := range policyCleanup {
@@ -1189,6 +1207,7 @@ func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.
 		ConcurrencyPolicy: string(spec.ConcurrencyPolicy),
 		Defaults:          crdDefaultsToProto(spec.Defaults),
 	}
+	pb.Defaults.DockerInDocker = &spec.Defaults.DockerInDocker
 	if spec.MaxRuntime.Duration != 0 {
 		pb.MaxRuntime = spec.MaxRuntime.Duration.String()
 	}

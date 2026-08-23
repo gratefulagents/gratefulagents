@@ -54,6 +54,7 @@ describe("buildImportedScanCreateRequest", () => {
     });
     expect(request.spec?.minSeverity).toBe("");
     expect(request.spec?.dedupe?.enabled).toBe(true);
+    expect(request.spec?.defaults?.dockerInDocker).toBe(true);
   });
 
   it("defaults to workspace-write access with unrestricted egress", () => {
@@ -104,9 +105,19 @@ describe("buildImportedScanCreateRequest", () => {
     });
   });
 
-  it("uses empty defaults when none are supplied", () => {
+  it("uses empty model defaults when none are supplied", () => {
     const request = buildImportedScanCreateRequest(repoTarget);
-    expect(request.spec?.defaults).toMatchObject({ provider: "", model: "", reasoningLevel: "" });
+    expect(request.spec?.defaults).toMatchObject({
+      provider: "",
+      model: "",
+      reasoningLevel: "",
+      dockerInDocker: true,
+    });
+  });
+
+  it("lets non-admin import callers explicitly disable the privileged default", () => {
+    const request = buildImportedScanCreateRequest(repoTarget, { dockerInDocker: false });
+    expect(request.spec?.defaults?.dockerInDocker).toBe(false);
   });
 });
 

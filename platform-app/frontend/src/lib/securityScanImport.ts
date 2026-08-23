@@ -17,6 +17,7 @@ import {
 export type ImportedScanOptions = {
   defaults?: AgentRunDefaults;
   policies?: TriggerPolicies;
+  dockerInDocker?: boolean;
 };
 
 /**
@@ -63,6 +64,10 @@ export function buildImportedScanCreateRequest(
     defaults: options.defaults ?? emptyDefaults(),
     useSavedCredentials: true,
   });
+  // Security-program imports are expected to run local containerized tooling.
+  // Keep DinD enabled by default; non-admin callers explicitly opt out in the
+  // dashboard because the backend protects this privileged capability.
+  defaults.dockerInDocker = options.dockerInDocker ?? true;
   const spec = create(SecurityScanConfigSpecSchema, {
     repoUrl: target.repoUrl,
     targetUrl: target.targetUrl,

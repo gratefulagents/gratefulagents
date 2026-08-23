@@ -22368,9 +22368,14 @@ type AgentRunDefaults struct {
 	// self-hosted OpenAI-compatible inference endpoint. Runs created from these
 	// defaults get a hardened per-run SSH port-forward sidecar and their
 	// OPENAI_BASE_URL points at the tunnel (overriding openai_base_url).
-	SshTunnelRef  string `protobuf:"bytes,26,opt,name=ssh_tunnel_ref,json=sshTunnelRef,proto3" json:"ssh_tunnel_ref,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SshTunnelRef string `protobuf:"bytes,26,opt,name=ssh_tunnel_ref,json=sshTunnelRef,proto3" json:"ssh_tunnel_ref,omitempty"`
+	// docker_in_docker gives runs created from these defaults a privileged
+	// docker:dind sidecar. Dashboard writes are restricted to cluster admins.
+	// Optional presence lets security scans default this on for new configs
+	// without changing existing configs when they are edited by non-admins.
+	DockerInDocker *bool `protobuf:"varint,27,opt,name=docker_in_docker,json=dockerInDocker,proto3,oneof" json:"docker_in_docker,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AgentRunDefaults) Reset() {
@@ -22576,6 +22581,13 @@ func (x *AgentRunDefaults) GetSshTunnelRef() string {
 		return x.SshTunnelRef
 	}
 	return ""
+}
+
+func (x *AgentRunDefaults) GetDockerInDocker() bool {
+	if x != nil && x.DockerInDocker != nil {
+		return *x.DockerInDocker
+	}
+	return false
 }
 
 // TriggerPolicies carries the dashboard-managed runtime/MCP policy
@@ -44634,7 +44646,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x15use_saved_credentials\x18\x10 \x01(\bR\x13useSavedCredentials\x12!\n" +
 	"\fgithub_token\x18\x11 \x01(\tR\vgithubToken\x129\n" +
 	"\bdefaults\x18\x12 \x01(\v2\x1d.platform.v1.AgentRunDefaultsR\bdefaults\x128\n" +
-	"\bpolicies\x18\x13 \x01(\v2\x1c.platform.v1.TriggerPoliciesR\bpolicies\"\xe0\a\n" +
+	"\bpolicies\x18\x13 \x01(\v2\x1c.platform.v1.TriggerPoliciesR\bpolicies\"\xa4\b\n" +
 	"\x10AgentRunDefaults\x12\x19\n" +
 	"\brepo_url\x18\x01 \x01(\tR\arepoUrl\x120\n" +
 	"\x14additional_repo_urls\x18\x02 \x03(\tR\x12additionalRepoUrls\x12\x1f\n" +
@@ -44664,7 +44676,9 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\rworkflow_mode\x18\x15 \x01(\tR\fworkflowMode\x12\x19\n" +
 	"\bmode_ref\x18\x16 \x01(\tR\amodeRef\x12%\n" +
 	"\x0eexecution_mode\x18\x17 \x01(\tR\rexecutionMode\x12$\n" +
-	"\x0essh_tunnel_ref\x18\x1a \x01(\tR\fsshTunnelRefJ\x04\b\x14\x10\x15R\x12skill_package_refs\"\xc1\x02\n" +
+	"\x0essh_tunnel_ref\x18\x1a \x01(\tR\fsshTunnelRef\x12-\n" +
+	"\x10docker_in_docker\x18\x1b \x01(\bH\x00R\x0edockerInDocker\x88\x01\x01B\x13\n" +
+	"\x11_docker_in_dockerJ\x04\b\x14\x10\x15R\x12skill_package_refs\"\xc1\x02\n" +
 	"\x0fTriggerPolicies\x12:\n" +
 	"\x19configure_runtime_profile\x18\x01 \x01(\bR\x17configureRuntimeProfile\x12'\n" +
 	"\x0fpermission_mode\x18\x02 \x01(\tR\x0epermissionMode\x12\x1f\n" +
@@ -48235,6 +48249,7 @@ func file_rpc_platform_service_proto_init() {
 	file_rpc_platform_service_proto_msgTypes[209].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[212].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[234].OneofWrappers = []any{}
+	file_rpc_platform_service_proto_msgTypes[263].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[265].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[313].OneofWrappers = []any{}
 	file_rpc_platform_service_proto_msgTypes[316].OneofWrappers = []any{}
