@@ -151,6 +151,11 @@ export function useAuth() {
   return ctx;
 }
 
+/** Read auth state when a reusable dialog may also render in isolation. */
+export function useOptionalAuth() {
+  return useContext(AuthContext);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     isAuthenticated: false,

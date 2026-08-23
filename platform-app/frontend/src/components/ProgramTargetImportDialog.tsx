@@ -15,6 +15,7 @@ import {
   buildImportedScanCreateRequest,
   runDefaultsFromModelDefaults,
 } from "@/lib/securityScanImport";
+import { useOptionalAuth } from "@/contexts/AuthContext";
 import type { ModelDefaults, SecurityProgramResource } from "@/rpc/platform/service_pb";
 
 export function ProgramTargetImportDialog({
@@ -30,6 +31,8 @@ export function ProgramTargetImportDialog({
   onTargetSelected: (target: ProgramScanTarget) => void;
   onImported?: (summary: { created: number; failed: number }) => void;
 }) {
+  const auth = useOptionalAuth();
+  const canUseDockerInDocker = auth?.user?.role === "admin";
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -78,7 +81,10 @@ export function ProgramTargetImportDialog({
     const failed: { name: string; error: string }[] = [];
     for (const target of queue) {
       try {
-        await client.createSecurityScan(buildImportedScanCreateRequest(target, { defaults }));
+        await client.createSecurityScan(buildImportedScanCreateRequest(target, {
+          defaults,
+          dockerInDocker: canUseDockerInDocker,
+        }));
         succeeded += 1;
         setCreated(succeeded);
       } catch (err: unknown) {

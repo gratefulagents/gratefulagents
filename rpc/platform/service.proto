@@ -3368,6 +3368,11 @@ message AgentRunDefaults {
   // defaults get a hardened per-run SSH port-forward sidecar and their
   // OPENAI_BASE_URL points at the tunnel (overriding openai_base_url).
   string ssh_tunnel_ref = 26;
+  // docker_in_docker gives runs created from these defaults a privileged
+  // docker:dind sidecar. Dashboard writes are restricted to cluster admins.
+  // Optional presence lets security scans default this on for new configs
+  // without changing existing configs when they are edited by non-admins.
+  optional bool docker_in_docker = 27;
 }
 
 // TriggerPolicies carries the dashboard-managed runtime/MCP policy

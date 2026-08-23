@@ -76,6 +76,10 @@ vi.mock("@/lib/client", () => ({
   },
 }));
 
+vi.mock("@/contexts/AuthContext", () => ({
+  useOptionalAuth: () => ({ user: { role: "admin" } }),
+}));
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -86,6 +90,12 @@ function renderDialog() {
 }
 
 describe("SecurityScanFormDialog", () => {
+  it("enables Docker-in-Docker by default for a new admin-authored scan", () => {
+    renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: /Privileged runtime/ }));
+    expect(screen.getByRole("switch", { name: "Docker-in-Docker" }).getAttribute("aria-checked")).toBe("true");
+  });
+
   it("shows only the essentials up front; advanced pieces stay collapsed", () => {
     renderDialog();
 
