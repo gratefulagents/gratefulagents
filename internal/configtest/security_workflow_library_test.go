@@ -243,21 +243,25 @@ func TestProgramLinkedWorkflowsCloseTheFindingLifecycle(t *testing.T) {
 
 			var workflow triggersv1alpha1.SecurityWorkflow
 			readBootstrapAsset(t, "securityworkflows", name, &workflow)
-			all := strings.ToLower(workflow.Spec.Description)
+			var hasNegativeControlSchema, hasOracleSchema, hasVariantSweepOwner bool
 			for _, task := range workflow.Spec.Tasks {
-				all += "\n" + strings.ToLower(task.Objective)
-			}
-			for _, marker := range []string{
-				"negative control",
-				"oracle",
-				"create_security_variant_sweep",
-				"complete_security_variant_sweep",
-				"get_security_campaign_status",
-				"bundle",
-			} {
-				if !strings.Contains(all, marker) {
-					t.Errorf("program-linked workflow is missing lifecycle marker %q", marker)
+				schema := strings.ToLower(task.OutputSchema)
+				hasNegativeControlSchema = hasNegativeControlSchema || strings.Contains(schema, "negative_control_passed")
+				hasOracleSchema = hasOracleSchema || strings.Contains(schema, "oracle_can_fail") || strings.Contains(schema, "oracle_calibrated")
+				objective := strings.ToLower(task.Objective)
+				hasTaskVariantSkill := false
+				for _, ref := range task.SkillRefs {
+					hasTaskVariantSkill = hasTaskVariantSkill || ref.Name == "trail-of-bits-variant-analysis"
 				}
+				hasVariantSweepOwner = hasVariantSweepOwner ||
+					(hasTaskVariantSkill && strings.Contains(objective, "create_security_variant_sweep") &&
+						strings.Contains(objective, "complete_security_variant_sweep"))
+			}
+			if !hasNegativeControlSchema || !hasOracleSchema {
+				t.Error("program-linked workflow must schema-enforce negative-control and oracle calibration evidence")
+			}
+			if !hasVariantSweepOwner {
+				t.Error("one task must own the variant-analysis skill and durable create/complete sweep persistence")
 			}
 			triage := workflow.Spec.Tasks[len(workflow.Spec.Tasks)-1]
 			if triage.Name != "triage-and-report" {
@@ -320,7 +324,10 @@ func TestBlockchainValidationEvidenceContracts(t *testing.T) {
 			if validation == nil {
 				t.Fatal("missing validate-triage-and-coverage task")
 			}
-			if !strings.Contains(validation.Objective, "never submit an unvalidated candidate") {
+			objective := strings.ToLower(validation.Objective)
+			conservesCandidates := strings.Contains(objective, "never submit an unvalidated candidate") ||
+				(strings.Contains(objective, "every canonical candidate") && strings.Contains(objective, "exactly one"))
+			if !conservesCandidates {
 				t.Error("validation objective must cover every candidate intended for the final findings list")
 			}
 			validOutputs := []string{validConfirmed, validTriaged, validFalsePositive}

@@ -307,6 +307,7 @@ spec:
         - name: blockchain-security-research-method
         - name: bug-bounty-reporting
         - name: trail-of-bits-fp-check
+        - name: trail-of-bits-variant-analysis
       objective: >-
         Assemble the report from {{tasks.quantify-impact-and-eligibility.output}} under one admission rule:
         a finding survives only when a named calibrated invariant broke, a reproducible failing assertion
@@ -322,11 +323,8 @@ spec:
         invariant/actor/state/transition bounds with record_security_coverage. Every confirmed root cause must
         have create_security_variant_sweep followed by complete_security_variant_sweep with scope and evidence;
         blocked or inconclusive sweeps stay internal without an audited human override. Call
-        get_security_campaign_status and reconcile durable gaps and budget decisions. For every technically
-        confirmed finding, include a bundle-readiness decision: mark the evidence bundle ready only when it has
-        the immutable revision and fork block or local configuration, exact command and seed, runnable local
-        reproduction artifact, failing assertion and observed delta, passing negative control, calibrated oracle,
-        eligibility clause, prerequisites, impact, and remediation; otherwise mark it not ready and enumerate the
-        missing elements. Then submit the final report.
+        get_security_campaign_status and reconcile durable gaps and budget decisions. Hand every technically
+        confirmed finding to the configured post-script pipeline and report packaging separately from confirmation;
+        only a successfully persisted post-script artifact may be called bundle-ready. Then submit the final report.
       dependsOn:
         - quantify-impact-and-eligibility

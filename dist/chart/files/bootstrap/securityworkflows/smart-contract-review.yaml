@@ -1115,9 +1115,8 @@ spec:
         Solidity root; Forge and Echidna use the revised project roots with seed `2062026`. Do not claim those future runs occurred. Define expected pass/failure evidence and require source-artifact-deployment comparison,
         privileged configuration and unresolved coverage gaps to be rechecked. Keep false positives out of
         remediation but preserve triaged candidates as explicit investigation items. For every confirmed root
-        cause, complete a Trail of Bits-style variant sweep across the affected pattern and reachable sibling
-        implementations before finalizing remediation, and include the sweep id, searched scope and patterns,
-        sibling dispositions, and completion evidence; a blocked or incomplete sweep is not completed evidence.
+        cause, apply the referenced variant-analysis skill and include the schema-required sweep evidence; a
+        blocked or incomplete sweep is not completed evidence.
         Submit a structured plan; an empty finding plan and variant-sweep array are valid when no findings are
         confirmed while coverage-gap retests remain.
       dependsOn:
@@ -1191,12 +1190,13 @@ spec:
         skipped, unsupported and inconclusive coverage record. Never describe unavailable or failed tooling
         as executed or passed. Persist branch outcomes with transition_security_hypothesis and
         invariant/actor/state/transition bounds with record_security_coverage. Every confirmed root cause must
-        have a completed Trail of Bits-style variant analysis represented by create_security_variant_sweep
-        followed by complete_security_variant_sweep. Include each sweep id, searched scope and patterns, sibling
-        candidate dispositions, and completion evidence in the report; blocked or incomplete sweeps stay internal
+        have a completed durable sweep from create_security_variant_sweep and complete_security_variant_sweep.
+        Reconcile its schema-required evidence in the report; blocked or incomplete sweeps stay internal
         without an audited human override. Call get_security_campaign_status after all transitions and coverage
         records, reconcile every durable gap and budget decision against the final findings and coverage ledger,
-        and include the campaign-status snapshot and reconciliation outcomes in the final report before submitting it.
+        and include the campaign-status snapshot and reconciliation outcomes in the final report. Hand retained
+        findings to the configured post-script pipeline; technical confirmation is not bundle readiness, and only a
+        successfully persisted packaging artifact may be reported bundle-ready. Then submit the report.
       dependsOn:
         - validate-high-impact-exploits
         - account-lifecycle-coverage

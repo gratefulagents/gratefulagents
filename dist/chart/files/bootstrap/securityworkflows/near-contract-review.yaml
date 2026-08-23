@@ -291,6 +291,7 @@ spec:
         - name: trail-of-bits-property-based-testing
         - name: trail-of-bits-rust-review
         - name: exploit-poc-discipline
+        - name: trail-of-bits-variant-analysis
       objective: >-
         In one write-capable run, bootstrap the sandbox, build and calibrate the oracle, then reproduce or kill
         candidate findings recorded by the four discovery lanes. Do not originate new vulnerabilities. The full
@@ -343,16 +344,13 @@ spec:
         local-only result into a claim about deployed configuration. A hypothesis without a failing
         assertion is refuted or untested and may not be reported.
 
-        Before executing proofs, inventory every candidate emitted by every discovery dependency, preserving its
-        source task and fingerprint. Return exactly one broken, refuted, or untested verdict for each discovered
-        fingerprint; deduplication may map aliases to one canonical fingerprint but may not silently drop an alias.
-        The discovered and validated fingerprint sets in candidate_reconciliation must be identical and
-        unreconciled_fingerprints must be empty before any candidate can reach final reporting.
+        Reconcile every discovery candidate by source and fingerprint. Return exactly one schema-valid verdict per
+        fingerprint, preserve deduplicated aliases, and require identical discovered and validated sets before final
+        reporting.
 
-        For each broken root cause, perform a Trail of Bits-style variant analysis across the full in-scope tree.
-        Record one variant_sweep_ledger entry containing the searched scope, concrete syntactic and semantic
-        patterns, every match, the true-positive and false-positive disposition of every match, and a CI regression
-        rule that detects the root cause. A broken candidate is not reportable until its ledger entry is complete.
+        For every broken root cause, call create_security_variant_sweep, apply the referenced variant-analysis skill,
+        call complete_security_variant_sweep with the resulting scope and evidence, and populate the schema-required
+        variant_sweep_ledger. A broken candidate is not reportable until its durable ledger entry is complete.
       dependsOn:
         - pin-target-and-toolchain
         - map-contract-invariants
@@ -554,16 +552,10 @@ spec:
         unauthorized mainnet-import endpoint — so a clean or blocked run is recorded as not found under
         those bounds rather than as a clean bill of health. Then submit the final scan report.
 
-        Before submission, use transition_security_hypothesis to persist one terminal outcome for every
-        discovered candidate, including refuted, blocked, timed-out, inconclusive, abandoned, and deduplicated
-        aliases, and use record_security_coverage for invariant, actor, state, and transition bounds. Reconcile each
-        confirmed root cause's structured ledger with create_security_variant_sweep and
-        complete_security_variant_sweep; incomplete sweeps remain internal unless an audited human override exists.
-        Call get_security_campaign_status and reconcile every outstanding hypothesis, coverage gap, sweep, and
-        submission-budget decision before submitting exactly one final scan report.
-
-        The final report must state that bundle readiness is produced only by the policy postscript, not by this
-        workflow task. Keep every policy-postscript packaging failure explicit in final status and the finding
-        record; never silently ignore failed packaging or claim that an artifact exists when packaging failed.
+        Before submission, call transition_security_hypothesis once per discovered candidate,
+        record_security_coverage for the tested bounds, reconcile the validator's persisted completed sweeps, and
+        call get_security_campaign_status. Submit exactly one report with every remaining blocker and budget
+        decision. Bundle readiness belongs only to the policy postscript; never claim an artifact exists unless it
+        was persisted successfully.
       dependsOn:
         - quantify-impact-and-submission-readiness

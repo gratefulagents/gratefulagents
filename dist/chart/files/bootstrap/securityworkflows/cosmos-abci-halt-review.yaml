@@ -236,6 +236,7 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
+        - name: trail-of-bits-variant-analysis
       objective: >-
         Assemble the final report from {{tasks.validate-halt-candidates.output}} and keep as submitted findings
         only candidates whose verdict is confirmed. Put triaged candidates in a clearly non-finding appendix
@@ -252,11 +253,9 @@ spec:
         create_security_variant_sweep followed by complete_security_variant_sweep across sibling ABCI hooks,
         module handlers, recovery boundaries, and SDK-version variants with scope and evidence; blocked or
         inconclusive sweeps remain internal without an audited human override. Call get_security_campaign_status
-        and reconcile durable coverage gaps, deferred targets, and budget decisions. For every confirmed finding,
-        include a bundle-readiness decision: mark its evidence bundle ready only when it contains the immutable
-        revision, exact local command, runnable reproduction artifact, attacker trigger, observed result, positive
-        and negative controls, blast radius, prerequisites, remediation, and deterministic retest recipe;
-        otherwise mark it not ready and enumerate every missing element. Then submit the final scan report.
+        and reconcile durable coverage gaps, deferred targets, and budget decisions. Hand every retained finding to
+        the configured post-script pipeline and report packaging separately from technical confirmation; only a
+        successfully persisted post-script artifact may be called bundle-ready. Then submit the final scan report.
       dependsOn:
         - map-abci-methods
         - validate-halt-candidates
