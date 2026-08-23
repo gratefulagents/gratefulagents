@@ -1,0 +1,131 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-lombard-finance
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/lombard-finance/evm-smart-contracts
+      baseBranch: main
+      workflowRef: cross-chain-messaging-review
+      policyPackRef: bug-bounty
+      scanName: immunefi-lombard-evm
+      displayName: Lombard EVM contracts
+      priority: 1
+      featured: true
+  provider: Immunefi
+  displayName: Lombard Finance
+  programURL: https://immunefi.com/bug-bounty/lombard-finance/scope/
+  verifiedAt: 2026-08-23T00:00:00Z
+  severitySystem: immunefi-v2.3
+  pocRequired: true
+  pocEnvironment: mainnet-fork
+  kycRequired: true
+  assets:
+    - chainID: "1"
+      address: "0x8236a87084f8b84306f72007f36f2618a5634494"
+      displayName: LBTC Mainnet
+      addedOn: 2 September 2024
+    - chainID: "1"
+      address: "0x055E84e7FE8955E2781010B866f10Ef6E1E77e59"
+      displayName: Proxy Upgrade Timelock
+      addedOn: 2 September 2024
+    - chainID: "1"
+      address: "0xdad58dfa5c1a7a34419afdbe1f0d610efeea95e4"
+      displayName: Consortium
+      addedOn: 24 March 2026
+    - chainID: "1"
+      address: "0xc750eCAC7250E0D18ecE2C7a5F130E3A765dc260"
+      displayName: BasculeV1
+      addedOn: 24 March 2026
+    - chainID: "1"
+      address: "0xC3ecFE771564e3f28CFB7a9b203F4d10279338eD"
+      displayName: GMPBasculeV1
+      addedOn: 24 March 2026
+    - chainID: "1"
+      address: "0xB0F70C0bD6FD87dbEb7C10dC692a2a6106817072"
+      displayName: BTC.b
+      addedOn: 24 March 2026
+    - chainID: "1"
+      address: "0x9eCe5fB1aB62d9075c4ec814b321e24D8EA021ac"
+      displayName: AssetRouter
+      addedOn: 24 March 2026
+    - chainID: "1"
+      address: "0x964677F337d6528d659b1892D0045B8B27183fc0"
+      displayName: Mailbox
+      addedOn: 24 March 2026
+    - chainID: "1"
+      address: "0x451c54981C7DA5d95901b770C540547cF5FE0A2D"
+      displayName: BridgeV2
+      addedOn: 24 March 2026
+    - chainID: "1"
+      address: "0x1De9fcfeDF3E51266c188ee422fbA1c7860DA0eF"
+      displayName: StakedLBTCOracle
+      addedOn: 24 March 2026
+  inScopeImpacts:
+    - impact: "Manipulation of governance voting result deviating from voted outcome and resulting in a direct change from intended effect of original results"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Permanent freezing of funds"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Protocol insolvency"
+      level: critical
+      assetType: Smart Contract
+  outOfScope:
+    - "Theoretical misconfiguration vulnerabilities. Reports based on hypothetical admin misconfigurations are out of scope; if the misconfiguration already exists in production, it is in scope."
+    - "Third-party services not managed by Lombard, including RPC providers, indexers, and similar infrastructure."
+    - "Disabled or deprecated contracts that are no longer actively used, unless a direct risk to an asset listed in scope qualifies under Primacy of Impact."
+    - "Incorrect data supplied by third party oracles"
+    - "Not to exclude oracle manipulation/flash loan attacks"
+    - "Impacts requiring basic economic and governance attacks (e.g. 51% attack)"
+    - "Lack of liquidity impacts, Sybil attacks, and centralization risks"
+    - "Impacts requiring attacks that the reporter has already exploited themselves, leading to damage"
+    - "Impacts caused by leaked credentials or privileged addresses without additional modifications to the privileges attributed"
+    - "Best practice recommendations, feature requests, and impacts on test or configuration files"
+    - "Impacts requiring phishing or other social engineering attacks against project's employees and/or customers"
+  knownIssues:
+    - source: Previous audits
+      summary: All issues covered by previous audits and all issues previously reported through bug bounty or audit competitions are ineligible.
+      reference: https://github.com/lombard-finance/evm-smart-contracts/tree/main/docs/audit
+  prohibitedTesting:
+    - "Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet"
+    - "Any testing with pricing oracles or third-party smart contracts"
+    - "Attempting phishing or other social engineering attacks against employees and/or customers"
+    - "Any testing with third-party systems and applications"
+    - "Any denial of service attacks that are executed against project assets"
+    - "Automated testing of services that generates significant amounts of traffic"
+    - "Public disclosure of an unpatched vulnerability in an embargoed bounty"
+  scopePolicy: |-
+    Verbatim Immunefi scope excerpts (retrieved 2026-08-23; page last updated 23 August 2026).
+
+    Displayed wording is preserved; layout whitespace is normalized. This snapshot contains EVM contract-track excerpts, and the live program page remains authoritative. Operator notes below distinguish the EVM-only import boundary and ROI metrics from quoted program terms.
+
+    Maximum bounty: $250,000. Critical smart-contract rewards are 10% of directly affected funds, with a $50,000 minimum and $250,000 cap. A PoC, KYC, and a non-refundable submission fee are required. Arbitration is enabled. Critical and High smart-contract reports use Primacy of Impact. The public vault showed approximately $40,000.
+
+    Assets in Scope
+    The live scope listed 52 assets across EVM networks, Sui, Starknet, and web properties. Relevant contract names include LBTC, StakedLBTC, BTC.b/NativeLBTC, Consortium, BasculeV1, GMPBasculeV1, AssetRouter, Mailbox, BridgeV2, and StakedLBTCOracle. Deployment manifests are:
+    - EVM: https://github.com/lombard-finance/evm-smart-contracts/blob/main/mainnet.json
+    - Sui: https://github.com/lombard-finance/sui-move-contracts/blob/main/mainnet.json
+    - Starknet: https://github.com/lombard-finance/starknet-cairo-contracts/blob/main/mainnet.json
+
+    Import boundary
+    This catalog entry deliberately imports only the EVM repository; Sui, Starknet, and Web & App assets remain part of the live bounty but are not represented as scan targets here. The repository and mainnet.json contain contracts that are not in scope. Only source files and deployed addresses explicitly included in the current Immunefi asset table are eligible. The typed asset entries above are the EVM rows visible in the verified public page; the complete live 52-row table remains authoritative. Before reviewing, map each imported file to its listed name, deployed chain/address, and implementation. Disabled and deprecated contracts are excluded except where the published Primacy-of-Impact exception applies.
+
+    Impacts in Scope
+    Critical
+    Manipulation of governance voting result deviating from voted outcome and resulting in a direct change from intended effect of original results
+    Critical
+    Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield
+    Critical
+    Permanent freezing of funds
+    Critical
+    Protocol insolvency
+
+    Out of scope
+    Theoretical admin misconfiguration unless it already exists in production; unmanaged third-party RPCs, indexers, or integrations; disabled/deprecated contracts without direct listed-asset risk; oracle-data, basic governance, liquidity, Sybil, centralization, leaked-key, privileged-role, best-practice, test-only, and social-engineering claims described in the typed exclusions. Previous audits and reports are known issues. All testing must use a local fork.
+
+    ROI note
+    Sourced selection factors: 2026 additions for bridge, mailbox, bascule, asset-router, and oracle surfaces and a $50,000 critical floor. Counterweights are the broad 52-asset live scope, KYC, non-refundable submission fee, approximately $40,000 visible in the vault, and prior audits; review one deployed asset family at a time.
