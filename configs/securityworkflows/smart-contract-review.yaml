@@ -750,8 +750,10 @@ spec:
         - name: evm-economic-and-mev-review
         - name: evm-low-level-and-deployment-review
       objective: >-
-        Validate every critical/high candidate produced after the executable and manual stages, using the
-        entry-point map in {{tasks.map-architecture-assets-roles-entrypoints.output}}, invariants in
+        Call list_security_findings and validate every recorded candidate intended for final findings after the
+        executable and manual stages, working in descending order of realistic impact without excluding
+        lower-severity candidates, using the entry-point map in
+        {{tasks.map-architecture-assets-roles-entrypoints.output}}, invariants in
         {{tasks.define-security-invariants.output}}, static-analysis status in
         {{tasks.merge-solidity-static-analysis.output}}, seeded Forge status in
         {{tasks.deterministic-forge-tests-and-invariants.output}}, and bounded Halmos status in
@@ -765,11 +767,14 @@ spec:
         test or project-native PoC in a disposable working copy, execute it locally, debug setup and harness
         failures, and preserve the exact commands, exit statuses, observed output, and artifact. Do not treat the
         earlier general suite as exploit confirmation. Confirm only an observed reproduction of the attacker path
-        and impact. If execution remains impossible after concrete attempts, provide the smallest transaction/state
-        trace and mark validation inconclusive or unsupported. A missing pre-existing harness is not a reason to
-        stop. Publish one
-        verdict per eligible finding fingerprint and an empty array only when no critical/high candidates
-        exist.
+        and impact with demonstrated production reachability, a calibrated failing oracle, and a passing negative
+        control. If execution remains impossible after concrete attempts, provide the smallest transaction/state
+        trace and mark the verdict triaged with the concrete blocker. A missing pre-existing harness is not a reason
+        to stop. For each candidate, call update_security_finding with status confirmed, triaged, or false_positive
+        and an evidence note tied to its fingerprint; preserve its candidate-specific PoC, test path, command, and
+        artifact paths under that fingerprint for postscript bundling. Never claim confirmation without the
+        required execution evidence. Publish one verdict per recorded candidate intended for final findings and an
+        empty array only when no such candidates exist.
       dependsOn:
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
@@ -791,16 +796,51 @@ spec:
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["fingerprint", "verdict", "method", "execution_status", "reproduction", "summary"],
+            "additionalProperties": false,
+            "required": ["fingerprint", "verdict", "method", "execution_status", "summary"],
             "properties": {
-              "fingerprint": {"type": "string"},
-              "verdict": {"type": "string", "enum": ["confirmed", "false_positive", "inconclusive", "unsupported"]},
+              "fingerprint": {"type": "string", "minLength": 1},
+              "verdict": {"type": "string", "enum": ["confirmed", "triaged", "false_positive"]},
               "method": {"type": "string", "enum": ["forge_local", "project_native_poc", "local_trace", "manual_disproof", "none"]},
               "execution_status": {"type": "string", "enum": ["not_found_under", "findings", "error", "timeout", "partial", "not_applicable", "not_run"]},
-              "tool_run": {"type": "string"},
-              "reproduction": {"type": "array", "items": {"type": "string"}},
-              "summary": {"type": "string"}
-            }
+              "tool_run": {"type": "string", "minLength": 1},
+              "reachability": {"type": "string", "minLength": 1},
+              "impact": {"type": "string", "minLength": 1},
+              "reproduction": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["setup", "environment", "command", "test_path", "failing_assertion", "expected_output", "observed_output", "observed_delta", "negative_control_passed", "oracle_can_fail"],
+                "properties": {
+                  "setup": {"type": "string", "minLength": 1},
+                  "environment": {"type": "string", "minLength": 1},
+                  "command": {"type": "string", "minLength": 1},
+                  "test_path": {"type": "string", "minLength": 1},
+                  "failing_assertion": {"type": "string", "minLength": 1},
+                  "expected_output": {"type": "string", "minLength": 1},
+                  "observed_output": {"type": "string", "minLength": 1},
+                  "observed_delta": {"type": "string", "minLength": 1},
+                  "negative_control_passed": {"const": true},
+                  "oracle_can_fail": {"const": true}
+                }
+              },
+              "blocker": {"type": "string", "minLength": 1},
+              "disproof": {"type": "string", "minLength": 1},
+              "summary": {"type": "string", "minLength": 1}
+            },
+            "allOf": [
+              {
+                "if": {"properties": {"verdict": {"const": "confirmed"}}, "required": ["verdict"]},
+                "then": {"required": ["reachability", "impact", "reproduction"]}
+              },
+              {
+                "if": {"properties": {"verdict": {"const": "triaged"}}, "required": ["verdict"]},
+                "then": {"required": ["blocker"]}
+              },
+              {
+                "if": {"properties": {"verdict": {"const": "false_positive"}}, "required": ["verdict"]},
+                "then": {"required": ["disproof"]}
+              }
+            ]
           }
         }
 
@@ -1063,6 +1103,7 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-variant-analysis
         - name: exploit-poc-discipline
       objective: >-
         Produce remediation and follow-up retest guidance from validation
@@ -1073,15 +1114,19 @@ spec:
         Specify that follow-up deterministic Slither uses the revised immutable revision and applicable
         Solidity root; Forge and Echidna use the revised project roots with seed `2062026`. Do not claim those future runs occurred. Define expected pass/failure evidence and require source-artifact-deployment comparison,
         privileged configuration and unresolved coverage gaps to be rechecked. Keep false positives out of
-        remediation but preserve inconclusive/unsupported candidates as explicit investigation items. Submit
-        a structured plan; an empty finding plan is valid while coverage-gap retests remain.
+        remediation but preserve triaged candidates as explicit investigation items. For every confirmed root
+        cause, complete a Trail of Bits-style variant sweep across the affected pattern and reachable sibling
+        implementations before finalizing remediation, and include the sweep id, searched scope and patterns,
+        sibling dispositions, and completion evidence; a blocked or incomplete sweep is not completed evidence.
+        Submit a structured plan; an empty finding plan and variant-sweep array are valid when no findings are
+        confirmed while coverage-gap retests remain.
       dependsOn:
         - validate-high-impact-exploits
         - account-lifecycle-coverage
       outputSchema: |-
         {
           "type": "object",
-          "required": ["findings", "coverage_retests"],
+          "required": ["findings", "variant_sweeps", "coverage_retests"],
           "properties": {
             "findings": {
               "type": "array",
@@ -1099,6 +1144,21 @@ spec:
                 }
               }
             },
+            "variant_sweeps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["fingerprint", "sweep_id", "scope", "search_patterns", "sibling_dispositions", "completion_evidence"],
+                "properties": {
+                  "fingerprint": {"type": "string", "minLength": 1},
+                  "sweep_id": {"type": "string", "minLength": 1},
+                  "scope": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "search_patterns": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "sibling_dispositions": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "completion_evidence": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+                }
+              }
+            },
             "coverage_retests": {"type": "array", "items": {"type": "object", "required": ["area", "action", "expected_evidence"], "properties": {"area": {"type": "string"}, "action": {"type": "string"}, "expected_evidence": {"type": "string"}}}}
           }
         }
@@ -1112,14 +1172,16 @@ spec:
         - name: bug-bounty-reporting
         - name: evm-economic-and-mev-review
         - name: evm-low-level-and-deployment-review
+        - name: trail-of-bits-variant-analysis
       objective: >-
         Perform the workflow's only final triage and reporting pass. Load every recorded finding and reconcile
         it with local validation {{tasks.validate-high-impact-exploits.output}}, lifecycle coverage
         {{tasks.account-lifecycle-coverage.output}}, and remediation/retest guidance
         {{tasks.remediation-and-retest.output}}. Re-read cited code and retain only concrete production-reachable
         attacker paths with file:line evidence, a broken explicit invariant, prerequisites and quantified fund,
-        authorization, integrity or liveness impact. Keep confirmed critical/high findings; retain an
-        inconclusive candidate only as tentative with its blocker prominent; reject scanner noise, impossible
+        authorization, integrity or liveness impact. Keep confirmed findings at any severity only when their
+        validation result contains the required reachability, impact, calibrated reproduction and controls;
+        retain a triaged candidate only as tentative with its blocker prominent; reject scanner noise, impossible
         state, deliberate trust assumptions and paths stopped by another guard. Merge duplicates by root cause
         and rank direct fund loss/insolvency, unauthorized control/upgrades, permanent freeze, economic/MEV
         extraction and sustained liveness failure by realistic prerequisites. The report must include the
@@ -1129,9 +1191,12 @@ spec:
         skipped, unsupported and inconclusive coverage record. Never describe unavailable or failed tooling
         as executed or passed. Persist branch outcomes with transition_security_hypothesis and
         invariant/actor/state/transition bounds with record_security_coverage. Every confirmed root cause must
-        have create_security_variant_sweep followed by complete_security_variant_sweep with scope and evidence;
-        blocked or inconclusive sweeps stay internal without an audited human override. Call
-        get_security_campaign_status, reconcile durable gaps and budget decisions, then submit one final report.
+        have a completed Trail of Bits-style variant analysis represented by create_security_variant_sweep
+        followed by complete_security_variant_sweep. Include each sweep id, searched scope and patterns, sibling
+        candidate dispositions, and completion evidence in the report; blocked or incomplete sweeps stay internal
+        without an audited human override. Call get_security_campaign_status after all transitions and coverage
+        records, reconcile every durable gap and budget decision against the final findings and coverage ledger,
+        and include the campaign-status snapshot and reconciliation outcomes in the final report before submitting it.
       dependsOn:
         - validate-high-impact-exploits
         - account-lifecycle-coverage

@@ -334,6 +334,17 @@ spec:
         failing assertion, the observed lamport, token or account-state delta, a negative control that did
         not trigger, and the calibration mutant proving the oracle can fail. Record the reproducibility
         class. A hypothesis without a failing assertion is refuted or untested and may not be reported.
+
+        Before executing proofs, inventory every candidate emitted by every discovery dependency, preserving its
+        source task and fingerprint. Return exactly one broken, refuted, or untested verdict for each discovered
+        fingerprint; deduplication may map aliases to one canonical fingerprint but may not silently drop an alias.
+        The discovered and validated fingerprint sets in candidate_reconciliation must be identical and
+        unreconciled_fingerprints must be empty before any candidate can reach final reporting.
+
+        For each broken root cause, perform a Trail of Bits-style variant analysis across the full in-scope tree.
+        Record one variant_sweep_ledger entry containing the searched scope, concrete syntactic and semantic
+        patterns, every match, the true-positive and false-positive disposition of every match, and a CI regression
+        rule that detects the root cause. A broken candidate is not reportable until its ledger entry is complete.
       dependsOn:
         - pin-program-target-and-toolchain
         - map-program-invariants
@@ -344,7 +355,7 @@ spec:
       outputSchema: |-
         {
           "type": "object",
-          "required": ["bootstrap_status", "sbf_build_status", "harness_status", "executable_invariant_count", "calibrated_invariant_count", "tool_runs", "hypotheses", "limitations"],
+          "required": ["bootstrap_status", "sbf_build_status", "harness_status", "executable_invariant_count", "calibrated_invariant_count", "tool_runs", "hypotheses", "limitations", "candidate_reconciliation", "variant_sweep_ledger"],
           "properties": {
             "bootstrap_status": {"type": "string", "enum": ["built", "partial", "blocked"], "description": "built only when the pinned toolchain installed and the recorded build and test commands both ran"},
             "bootstrap_blocker": {"type": "string", "description": "Required when bootstrap_status is not built: the exact failing command and its output"},
@@ -361,11 +372,36 @@ spec:
                 "required": ["tool", "command", "exit_status"],
                 "properties": {
                   "tool": {"type": "string"},
-                  "command": {"type": "string"},
+                  "command": {"type": "string", "minLength": 1},
                   "exit_status": {"type": "string"},
                   "seed": {"type": "string"},
                   "attempts": {"type": "integer", "minimum": 0},
                   "successes": {"type": "integer", "minimum": 0}
+                }
+              }
+            },
+            "candidate_reconciliation": {
+              "type": "object",
+              "required": ["discovered_fingerprints", "validated_fingerprints", "unreconciled_fingerprints"],
+              "properties": {
+                "discovered_fingerprints": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "validated_fingerprints": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "unreconciled_fingerprints": {"type": "array", "items": {"type": "string", "minLength": 1}, "maxItems": 0, "description": "Must be empty; discovered and validated fingerprint sets must be identical"}
+              }
+            },
+            "variant_sweep_ledger": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["root_cause_fingerprint", "scope", "patterns", "matches", "true_positives", "false_positives", "ci_regression_rule"],
+                "properties": {
+                  "root_cause_fingerprint": {"type": "string", "minLength": 1},
+                  "scope": {"type": "string", "minLength": 1},
+                  "patterns": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "matches": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "true_positives": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "false_positives": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "ci_regression_rule": {"type": "string", "minLength": 1}
                 }
               }
             },
@@ -382,16 +418,19 @@ spec:
                   "fingerprint": {"type": "string", "description": "Required when verdict is broken"},
                   "reproduction": {
                     "type": "object",
-                    "required": ["command", "substrate", "test_path", "failing_assertion", "observed_delta", "negative_control_passed", "oracle_can_fail", "reproducibility_class"],
+                    "required": ["command", "substrate", "test_path", "failing_assertion", "observed_delta", "expected_output", "observed_output", "environment", "negative_control_passed", "oracle_can_fail", "reproducibility_class"],
                     "properties": {
-                      "command": {"type": "string"},
+                      "command": {"type": "string", "minLength": 1},
                       "seed": {"type": "string"},
                       "substrate": {"type": "string", "enum": ["litesvm", "program_test", "local_validator", "unit_tests"]},
-                      "test_path": {"type": "string", "description": "Repository-relative path of the added harness test the program can run unchanged, plus the mod.rs entry it was wired into"},
-                      "failing_assertion": {"type": "string"},
-                      "observed_delta": {"type": "string", "description": "Observed lamport, token-account or program-state delta"},
-                      "negative_control_passed": {"type": "boolean"},
-                      "oracle_can_fail": {"type": "boolean"},
+                      "test_path": {"type": "string", "minLength": 1, "description": "Repository-relative path of the added harness test the program can run unchanged, plus the mod.rs entry it was wired into"},
+                      "failing_assertion": {"type": "string", "minLength": 1},
+                      "observed_delta": {"type": "string", "minLength": 1, "description": "Observed lamport, token-account or program-state delta"},
+                      "expected_output": {"type": "string", "minLength": 1},
+                      "observed_output": {"type": "string", "minLength": 1},
+                      "environment": {"type": "string", "minLength": 1},
+                      "negative_control_passed": {"const": true},
+                      "oracle_can_fail": {"const": true},
                       "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]}
                     }
                   }
@@ -507,5 +546,17 @@ spec:
         the program artifact build or the endpoint alias was unavailable — so a clean or blocked run is
         recorded as not found under those bounds rather than as a clean bill of health. Then submit the
         final scan report.
+
+        Before submission, use transition_security_hypothesis to persist one terminal outcome for every
+        discovered candidate, including refuted, blocked, timed-out, inconclusive, abandoned, and deduplicated
+        aliases, and use record_security_coverage for invariant, actor, state, and transition bounds. Reconcile each
+        confirmed root cause's structured ledger with create_security_variant_sweep and
+        complete_security_variant_sweep; incomplete sweeps remain internal unless an audited human override exists.
+        Call get_security_campaign_status and reconcile every outstanding hypothesis, coverage gap, sweep, and
+        submission-budget decision before submitting exactly one final scan report.
+
+        The final report must state that bundle readiness is produced only by the policy postscript, not by this
+        workflow task. Keep every policy-postscript packaging failure explicit in final status and the finding
+        record; never silently ignore failed packaging or claim that an artifact exists when packaging failed.
       dependsOn:
         - quantify-impact-and-submission-readiness

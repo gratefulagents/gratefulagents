@@ -1101,20 +1101,25 @@ spec:
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
       objective: >-
-        Settle every reported critical or high candidate from the per-surface and domain hunts and the bounded
-        native-fuzz evidence in {{tasks.run-upstream-fuzz-campaigns.output}}. Re-read the full path and confirm
+        Call list_security_findings and settle every recorded candidate from the per-surface and domain hunts and
+        the bounded native-fuzz evidence in {{tasks.run-upstream-fuzz-campaigns.output}}. Reconcile the exact
+        fingerprint set: emit one disposition for each recorded fingerprint, no invented results, omissions, or
+        duplicates, and preserve the source task(s) and named invariant that produced it. Prioritize critical
+        and high candidates first, but never submit an unvalidated candidate at any severity. Re-read the full path and confirm
         the entry point is production-reachable, the attacker has the stated protocol
         role, every intermediate validation is absent or bypassable, and the final impact follows. Use only
-        safe local fixtures, focused tests, harnesses, or model-level reproductions; never contact a live
+        safe local fixtures, focused tests, or harnesses that execute the real target code; never contact a live
         network. If no suitable harness exists, create the smallest candidate-specific PoC in a disposable
         working copy, execute it, debug it, minimize it, and preserve exact commands, exit statuses, observed
-        output, and artifacts. A missing pre-existing harness is not a reason to stop. For consensus and bridge issues, construct the smallest object/sequence that makes the
+        output, and artifacts. Exercise a positive control proving the oracle detects the claimed violation and
+        a negative control proving the same harness does not fail on a valid path. A missing pre-existing harness
+        is not a reason to stop. For consensus and bridge issues, construct the smallest object/sequence that makes the
         implementations disagree or accept invalid state. For DoS, measure or tightly bound attacker versus
         victim cost and recovery. For races, establish a concrete interleaving. For signer issues, use dummy
         keys and prove the unauthorized signing decision. Update each candidate to confirmed when the local
         proof holds, false_positive when a specific control disproves it, or triaged when safe local evidence
-        cannot settle it. Publish one result for every eligible fingerprint, including the concrete blocker
-        for every triaged result; publish an empty array only when no critical or high candidates qualify.
+        cannot settle it. Publish one result for every recorded fingerprint, including the concrete blocker
+        for every triaged result; publish an empty array only when no candidates were recorded.
       dependsOn:
         - review-critical-surface
         - consensus-finality-and-state-transition
@@ -1149,13 +1154,40 @@ spec:
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["fingerprint", "verdict", "reproduction", "summary"],
+            "additionalProperties": false,
+            "required": ["fingerprint", "source_tasks", "invariant", "verdict", "attempts", "summary"],
             "properties": {
-              "fingerprint": {"type": "string"},
+              "fingerprint": {"type": "string", "minLength": 1},
+              "source_tasks": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+              "invariant": {"type": "string", "minLength": 1},
               "verdict": {"type": "string", "enum": ["confirmed", "false_positive", "triaged"]},
-              "reproduction": {"type": "array", "items": {"type": "string"}},
-              "summary": {"type": "string", "description": "Local proof, the control that disproves the path, or the specific validation blocker"}
-            }
+              "attempts": {"type": "integer", "minimum": 1},
+              "reachability": {"type": "string", "minLength": 1},
+              "impact": {"type": "string", "minLength": 1},
+              "blocker": {"type": "string", "minLength": 1},
+              "disproof": {"type": "string", "minLength": 1},
+              "reproduction": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["command", "exit_status", "artifact", "substrate", "failing_assertion", "observed_output", "negative_control_passed", "oracle_can_fail"],
+                "properties": {
+                  "command": {"type": "string", "minLength": 1},
+                  "exit_status": {"type": "string", "minLength": 1},
+                  "artifact": {"type": "string", "minLength": 1, "description": "Repository-relative or tool-returned local reproduction artifact"},
+                  "substrate": {"type": "string", "enum": ["local_fixture", "focused_test", "local_harness"]},
+                  "failing_assertion": {"type": "string", "minLength": 1},
+                  "observed_output": {"type": "string", "minLength": 1},
+                  "negative_control_passed": {"const": true},
+                  "oracle_can_fail": {"const": true}
+                }
+              },
+              "summary": {"type": "string", "minLength": 1, "description": "Local proof, the control that disproves the path, or the specific validation blocker"}
+            },
+            "allOf": [
+              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "confirmed"}}}, "then": {"required": ["reachability", "impact", "reproduction"]}},
+              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "false_positive"}}}, "then": {"required": ["disproof"]}},
+              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "triaged"}}}, "then": {"required": ["blocker"]}}
+            ]
           }
         }
 
@@ -1202,9 +1234,9 @@ spec:
         {{tasks.account-complete-protocol-coverage.output}}, chain ledger
         {{tasks.account-chain-coverage.output}}, and cross-system ledger
         {{tasks.account-cross-system-coverage.output}}. Call list_security_findings and re-read each concrete
-        attacker path and file:line before keeping it. Keep confirmed critical/high findings; retain an
-        unresolved candidate only when evidence still supports a plausible path, label it tentative, and make
-        its blocker conspicuous. Reject claims that assume a modified binary, pre-existing operator compromise,
+        attacker path and file:line before keeping it. Keep as submitted findings only candidates whose verdict
+        is confirmed in the complete protocol/domain ledger; place unresolved candidates in a clearly
+        non-finding appendix with conspicuous blockers. Reject claims that assume a modified binary, pre-existing operator compromise,
         impossible state, or a validation performed elsewhere, and merge duplicates sharing one root cause.
         Rank unauthenticated consensus failure or direct fund loss first, followed by persistent state
         corruption, key compromise, bridge safety failure, single-peer takeover, and sustained denial of
@@ -1221,7 +1253,11 @@ spec:
         and invariant/actor/state/transition bounds with record_security_coverage. Every confirmed root cause
         requires create_security_variant_sweep followed by complete_security_variant_sweep with scope and
         evidence; blocked or inconclusive sweeps stay internal without an audited human override. Call
-        get_security_campaign_status, reconcile durable gaps and budget decisions, then submit the final report.
+        get_security_campaign_status and reconcile durable gaps and budget decisions. For every confirmed finding,
+        include a bundle-readiness decision: mark its evidence bundle ready only when it contains the immutable
+        revision, exact local command, local reproduction artifact, observed result, positive and negative controls,
+        prerequisites, impact, remediation, and deterministic retest recipe; otherwise mark it not ready and name
+        every missing element. Then submit the final report.
       dependsOn:
         - account-complete-protocol-coverage
         - account-chain-coverage

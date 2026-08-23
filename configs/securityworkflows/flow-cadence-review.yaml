@@ -174,6 +174,17 @@ spec:
         A confirmed verdict requires the exact command, repository-relative test path, failing assertion or
         observed resource/balance delta, a negative control, and evidence that the oracle can fail. Update the
         structured finding for every candidate and return one result per fingerprint.
+
+        Before executing proofs, inventory every candidate emitted by every discovery dependency, preserving its
+        source task and fingerprint. Return exactly one confirmed, refuted, or untested verdict for each discovered
+        fingerprint; deduplication may map aliases to one canonical fingerprint but may not silently drop an alias.
+        The discovered and validated fingerprint sets in candidate_reconciliation must be identical and
+        unreconciled_fingerprints must be empty before any candidate can reach final reporting.
+
+        For each confirmed root cause, perform a Trail of Bits-style variant analysis across the full in-scope tree.
+        Record one variant_sweep_ledger entry containing the searched scope, concrete syntactic and semantic
+        patterns, every match, the true-positive and false-positive disposition of every match, and a CI regression
+        rule that detects the root cause. A confirmed candidate is not reportable until its ledger entry is complete.
       dependsOn:
         - pin-flow-target-and-harness
         - hunt-capabilities-entitlements-and-resources
@@ -183,30 +194,65 @@ spec:
         - hunt-staking-epochs-fees-and-scheduling
       outputSchema: |-
         {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["fingerprint", "verdict"],
-            "properties": {
-              "fingerprint": {"type": "string", "minLength": 1},
-              "verdict": {"type": "string", "enum": ["confirmed", "refuted", "untested"]},
-              "blocking_gap": {"type": "string", "minLength": 1},
-              "reproduction": {
-                "type": "object",
-                "required": ["command", "test_path", "observed_result", "negative_control_passed", "oracle_can_fail"],
-                "properties": {
-                  "command": {"type": "string", "minLength": 1},
-                  "test_path": {"type": "string", "minLength": 1},
-                  "observed_result": {"type": "string", "minLength": 1},
-                  "negative_control_passed": {"const": true},
-                  "oracle_can_fail": {"const": true}
-                }
+          "type": "object",
+          "required": ["candidate_reconciliation", "results", "variant_sweep_ledger"],
+          "properties": {
+            "candidate_reconciliation": {
+              "type": "object",
+              "required": ["discovered_fingerprints", "validated_fingerprints", "unreconciled_fingerprints"],
+              "properties": {
+                "discovered_fingerprints": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "validated_fingerprints": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "unreconciled_fingerprints": {"type": "array", "items": {"type": "string", "minLength": 1}, "maxItems": 0, "description": "Must be empty; discovered and validated fingerprint sets must be identical"}
               }
             },
-            "allOf": [
-              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "confirmed"}}}, "then": {"required": ["reproduction"]}},
-              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "untested"}}}, "then": {"required": ["blocking_gap"]}}
-            ]
+            "results": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["fingerprint", "verdict"],
+                "properties": {
+                  "fingerprint": {"type": "string", "minLength": 1},
+                  "verdict": {"type": "string", "enum": ["confirmed", "refuted", "untested"]},
+                  "blocking_gap": {"type": "string", "minLength": 1},
+                  "reproduction": {
+                    "type": "object",
+                    "required": ["command", "test_path", "failing_assertion", "observed_delta", "expected_output", "observed_output", "environment", "negative_control_passed", "oracle_can_fail"],
+                    "properties": {
+                      "command": {"type": "string", "minLength": 1},
+                      "test_path": {"type": "string", "minLength": 1},
+                      "failing_assertion": {"type": "string", "minLength": 1},
+                      "observed_delta": {"type": "string", "minLength": 1},
+                      "expected_output": {"type": "string", "minLength": 1},
+                      "observed_output": {"type": "string", "minLength": 1},
+                      "environment": {"type": "string", "minLength": 1},
+                      "negative_control_passed": {"const": true},
+                      "oracle_can_fail": {"const": true}
+                    }
+                  }
+                },
+                "allOf": [
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "confirmed"}}}, "then": {"required": ["reproduction"]}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "untested"}}}, "then": {"required": ["blocking_gap"]}}
+                ]
+              }
+            },
+            "variant_sweep_ledger": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["root_cause_fingerprint", "scope", "patterns", "matches", "true_positives", "false_positives", "ci_regression_rule"],
+                "properties": {
+                  "root_cause_fingerprint": {"type": "string", "minLength": 1},
+                  "scope": {"type": "string", "minLength": 1},
+                  "patterns": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "matches": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "true_positives": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "false_positives": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "ci_regression_rule": {"type": "string", "minLength": 1}
+                }
+              }
+            }
           }
         }
 
@@ -263,6 +309,18 @@ spec:
         findings. Include every technically confirmed vulnerability even when provider submission readiness is
         blocked; label that blocker instead of suppressing the discovery. Drop refuted claims. Record the result as
         not found under those bounds when nothing is confirmed, naming the revision, Cadence version, emulator lane and any
-        blocked coverage. Submit the final scan report exactly once.
+        blocked coverage.
+
+        Before submission, use transition_security_hypothesis to persist one terminal outcome for every
+        discovered candidate, including refuted, blocked, timed-out, inconclusive, abandoned, and deduplicated
+        aliases, and use record_security_coverage for invariant, actor, state, and transition bounds. Reconcile each
+        confirmed root cause's structured ledger with create_security_variant_sweep and
+        complete_security_variant_sweep; incomplete sweeps remain internal unless an audited human override exists.
+        Call get_security_campaign_status and reconcile every outstanding hypothesis, coverage gap, sweep, and
+        submission-budget decision before submitting exactly one final scan report.
+
+        The final report must state that bundle readiness is produced only by the policy postscript, not by this
+        workflow task. Keep every policy-postscript packaging failure explicit in final status and the finding
+        record; never silently ignore failed packaging or claim that an artifact exists when packaging failed.
       dependsOn:
         - quantify-impact-and-submission-readiness

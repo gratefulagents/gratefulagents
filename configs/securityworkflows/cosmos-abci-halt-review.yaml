@@ -161,6 +161,74 @@ spec:
         }
       dependsOn:
         - map-abci-methods
+    - name: validate-halt-candidates
+      role: exploit-validator
+      category: other
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-fp-check
+        - name: exploit-poc-discipline
+      objective: >-
+        Validate every candidate recorded by {{tasks.investigate-panic-paths.output}},
+        {{tasks.consensus-non-determinism.output}}, and {{tasks.unbounded-gas-and-state-growth.output}} that
+        could appear in the final findings list. Do not originate new vulnerabilities. Call
+        list_security_findings, settle each fingerprint, and update its status. Re-read the complete path and
+        confirm production reachability, least-privileged attacker control, every intervening validation or
+        recovery boundary, and the claimed consensus or resource impact. Use only deterministic local Go tests,
+        an in-process ABCI harness, or a disposable local multi-node fixture with dummy keys and funds; never
+        contact a live chain, public testnet, validator, RPC endpoint, or third party. If no compatible harness
+        exists, create the smallest candidate-specific test in a disposable working copy, execute it, debug it,
+        and minimize it. A confirmed verdict requires an exact command and exit status, a preserved local
+        artifact, the attacker trigger, observed result, a positive control proving the oracle can detect the
+        failure, and a negative control showing a valid input or bounded workload does not trigger it. For a
+        panic, demonstrate whether recovery contains it or local block production stops; for non-determinism,
+        demonstrate divergent app hashes or state from identical inputs; for gas or growth, measure attacker
+        versus validator cost under stated bounds. Mark a disproved path false_positive with the exact guard,
+        recovery boundary, or bound that stops it. Leave an unexecutable path triaged with its concrete blocker,
+        never as a submitted finding. Return exactly one result per candidate fingerprint, or an empty array only
+        when no candidates were recorded.
+      dependsOn:
+        - investigate-panic-paths
+        - consensus-non-determinism
+        - unbounded-gas-and-state-growth
+      outputSchema: |-
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["fingerprint", "verdict", "attempts", "summary"],
+            "properties": {
+              "fingerprint": {"type": "string", "minLength": 1},
+              "verdict": {"type": "string", "enum": ["confirmed", "false_positive", "triaged"]},
+              "attempts": {"type": "integer", "minimum": 1},
+              "blocker": {"type": "string", "minLength": 1},
+              "disproof": {"type": "string", "minLength": 1},
+              "summary": {"type": "string", "minLength": 1},
+              "reproduction": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["command", "exit_status", "artifact", "substrate", "trigger", "observed_result", "impact", "negative_control_passed", "oracle_can_fail"],
+                "properties": {
+                  "command": {"type": "string", "minLength": 1},
+                  "exit_status": {"type": "string", "minLength": 1},
+                  "artifact": {"type": "string", "minLength": 1, "description": "Repository-relative test path or tool-returned local artifact"},
+                  "substrate": {"type": "string", "enum": ["go_unit_test", "go_integration_test", "local_abci_harness", "local_multinode_harness"]},
+                  "trigger": {"type": "string", "minLength": 1},
+                  "observed_result": {"type": "string", "minLength": 1},
+                  "impact": {"type": "string", "minLength": 1},
+                  "negative_control_passed": {"const": true},
+                  "oracle_can_fail": {"const": true}
+                }
+              }
+            },
+            "allOf": [
+              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "confirmed"}}}, "then": {"required": ["reproduction"]}},
+              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "false_positive"}}}, "then": {"required": ["disproof"]}},
+              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "triaged"}}}, "then": {"required": ["blocker"]}}
+            ]
+          }
+        }
     - name: triage-and-report
       role: finding-triager
       category: triage
@@ -169,21 +237,26 @@ spec:
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
       objective: >-
-        Call list_security_findings to load every halt candidate this scan recorded - the per-entry-point
-        panic hunts, the non-determinism audit, and the gas and state-growth audit all write there - and
-        address each one by its fingerprint with update_security_finding.
-        For each panic report, re-read the path and confirm two things before keeping it: that the input is
-        genuinely attacker-controlled at that point, and that the panic is not already contained by an ante
-        handler check, a validation step in ValidateBasic or the message server, or baseapp's per-transaction
-        recover. Rank by blast radius: a panic in a begin or end blocker, proposal handler, or upgrade
+        Assemble the final report from {{tasks.validate-halt-candidates.output}} and keep as submitted findings
+        only candidates whose verdict is confirmed. Put triaged candidates in a clearly non-finding appendix
+        with their blockers and drop false positives while preserving their disproof in the coverage ledger.
+        Rank by blast radius: a panic in a begin or end blocker, proposal handler, or upgrade
         handler that stops the chain outranks one that only fails a transaction, and a deterministic
         divergence outranks a slow state-growth problem. Merge duplicates that several entry points share
         through one helper. The per-entry-point fan-out covers at most the first 16 entries of the
         risk-ranked inventory in {{tasks.map-abci-methods.output}}: name every ABCI entry point beyond that
-        cut in the report summary as an explicit coverage gap. Then assemble and submit the final scan
-        report.
+        cut in the report summary as an explicit coverage gap. Persist every branch outcome with
+        transition_security_hypothesis and record invariant, actor, state, transition, ABCI-entry, harness,
+        revision, seed, and execution bounds with record_security_coverage; a bounded clean run is only not
+        found under those bounds, never proof of safety. Every confirmed root cause requires
+        create_security_variant_sweep followed by complete_security_variant_sweep across sibling ABCI hooks,
+        module handlers, recovery boundaries, and SDK-version variants with scope and evidence; blocked or
+        inconclusive sweeps remain internal without an audited human override. Call get_security_campaign_status
+        and reconcile durable coverage gaps, deferred targets, and budget decisions. For every confirmed finding,
+        include a bundle-readiness decision: mark its evidence bundle ready only when it contains the immutable
+        revision, exact local command, runnable reproduction artifact, attacker trigger, observed result, positive
+        and negative controls, blast radius, prerequisites, remediation, and deterministic retest recipe;
+        otherwise mark it not ready and enumerate every missing element. Then submit the final scan report.
       dependsOn:
         - map-abci-methods
-        - investigate-panic-paths
-        - consensus-non-determinism
-        - unbounded-gas-and-state-growth
+        - validate-halt-candidates

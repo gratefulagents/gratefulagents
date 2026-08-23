@@ -1934,6 +1934,29 @@ type postScriptFindingStore struct {
 	filters   []store.SecurityFindingFilter
 }
 
+type postScriptArtifactStore struct {
+	artifacts map[string]*store.SecurityFindingArtifact
+	requests  []string
+	getErr    error
+}
+
+func (s *postScriptArtifactStore) UpsertSecurityFindingArtifact(_ context.Context, _ string, artifact *store.SecurityFindingArtifact) (*store.SecurityFindingArtifact, error) {
+	s.artifacts[artifact.ExecutionID] = artifact
+	return artifact, nil
+}
+
+func (s *postScriptArtifactStore) GetSecurityFindingArtifact(_ context.Context, _ string, _ uuid.UUID, executionID, _ string) (*store.SecurityFindingArtifact, error) {
+	s.requests = append(s.requests, executionID)
+	if s.getErr != nil {
+		return nil, s.getErr
+	}
+	return s.artifacts[executionID], nil
+}
+
+func (s *postScriptArtifactStore) ListSecurityFindingArtifacts(context.Context, string, uuid.UUID, string) ([]store.SecurityFindingArtifact, error) {
+	return nil, nil
+}
+
 func (s *postScriptFindingStore) ListSecurityFindings(_ context.Context, f store.SecurityFindingFilter) ([]store.SecurityFindingRecord, error) {
 	s.listCalls++
 	s.filters = append(s.filters, f)
@@ -2023,6 +2046,122 @@ func postScriptRun(t *testing.T, runs []platformv1alpha1.AgentRun, scripts, fing
 	}
 	t.Fatalf("post-script run %s/%s missing from %#v", scripts, fingerprint, runs)
 	return platformv1alpha1.AgentRun{}
+}
+
+func TestSecurityScanReportWriterRequiresReadyCurrentExecutionBundle(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		findingStatus     string
+		artifactStatus    string
+		artifactFromPrior bool
+		transientReadErr  bool
+		wantSuccess       bool
+	}{
+		{name: "missing artifact", findingStatus: store.SecurityFindingStatusConfirmed},
+		{name: "non-ready artifact", findingStatus: store.SecurityFindingStatusConfirmed, artifactStatus: "review"},
+		{name: "ready artifact", findingStatus: store.SecurityFindingStatusConfirmed, artifactStatus: "ready", wantSuccess: true},
+		{name: "ready artifact from prior execution", findingStatus: store.SecurityFindingStatusConfirmed, artifactStatus: "ready", artifactFromPrior: true},
+		{name: "transient artifact read error", findingStatus: store.SecurityFindingStatusConfirmed, transientReadErr: true},
+		{name: "non-confirmed review", findingStatus: store.SecurityFindingStatusTriaged, wantSuccess: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			clock := now
+			oneRetry := int32(1)
+			scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{{
+				Name: "report-writer", Prompt: "Package the finding.",
+			}}, 2)
+			scan.Spec.Execution.TaskMaxRetries = &oneRetry
+			scan.Spec.Execution.RetryBackoff = metav1.Duration{Duration: time.Second}
+			reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+			finding := postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical")
+			finding.Status = tc.findingStatus
+			findings := &postScriptFindingStore{findings: []store.SecurityFindingRecord{finding}}
+			artifacts := &postScriptArtifactStore{artifacts: map[string]*store.SecurityFindingArtifact{}}
+			if tc.transientReadErr {
+				artifacts.getErr = fmt.Errorf("temporary artifact store read failure")
+			}
+			reconciler.Findings = findings
+			reconciler.Artifacts = artifacts
+			reconciler.Now = func() time.Time { return clock }
+
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+			research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+			markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+			exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+			artifactExecution := exec.ID
+			if tc.artifactFromPrior {
+				artifactExecution = "prior-execution"
+			}
+			if tc.artifactStatus != "" {
+				artifacts.artifacts[artifactExecution] = &store.SecurityFindingArtifact{
+					FindingID: finding.ID, ExecutionID: artifactExecution,
+					Kind: store.SecurityFindingArtifactSubmissionBundle, Status: tc.artifactStatus,
+				}
+			}
+			run := postScriptRun(t, securityScanRuns(t, k8sClient, scan.Namespace), "report-writer", finding.Fingerprint)
+			markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+			exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+			job := postScriptJob(t, exec, finding.Fingerprint)
+			if tc.transientReadErr {
+				if job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning || job.Attempts != 1 {
+					t.Fatalf("report-writer job = %#v, want successful model run held for artifact recheck without another attempt", job)
+				}
+				artifacts.getErr = nil
+				artifacts.artifacts[exec.ID] = &store.SecurityFindingArtifact{
+					FindingID: finding.ID, ExecutionID: exec.ID,
+					Kind: store.SecurityFindingArtifactSubmissionBundle, Status: "ready",
+				}
+				reconcileDeterministicSecurityScan(t, reconciler, scan)
+				job = postScriptJob(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, finding.Fingerprint)
+				if job.State != triggersv1alpha1.SecurityScanPostScriptStateSucceeded || job.Attempts != 1 {
+					t.Fatalf("report-writer recheck = %#v, want success without duplicated model work", job)
+				}
+				return
+			}
+			if tc.wantSuccess {
+				if job.State != triggersv1alpha1.SecurityScanPostScriptStateSucceeded {
+					t.Fatalf("report-writer job = %#v, want Succeeded", job)
+				}
+				if tc.findingStatus != store.SecurityFindingStatusConfirmed && len(artifacts.requests) != 0 {
+					t.Fatalf("artifact requests = %#v, want none for a non-confirmed finding", artifacts.requests)
+				}
+				return
+			}
+
+			if job.State != triggersv1alpha1.SecurityScanPostScriptStatePending &&
+				job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
+				t.Fatalf("report-writer job = %#v, want a queued or running retry after missing durable output", job)
+			}
+			if len(artifacts.requests) != 1 || artifacts.requests[0] != exec.ID {
+				t.Fatalf("artifact requests = %#v, want only current execution %q", artifacts.requests, exec.ID)
+			}
+			if job.State == triggersv1alpha1.SecurityScanPostScriptStatePending {
+				clock = clock.Add(time.Second)
+				reconcileDeterministicSecurityScan(t, reconciler, scan)
+				exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+				job = postScriptJob(t, exec, finding.Fingerprint)
+			}
+			if job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning || job.Attempts != 2 {
+				t.Fatalf("report-writer retry = %#v, want second model attempt", job)
+			}
+			markSecurityScanTaskRun(t, k8sClient, scan.Namespace, job.RunName, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+			exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+			job = postScriptJob(t, exec, finding.Fingerprint)
+			if job.State != triggersv1alpha1.SecurityScanPostScriptStateFailed || len(exec.CoverageGaps) != 1 {
+				t.Fatalf("exhausted report-writer job = %#v, gaps = %#v; want terminal failure with coverage gap", job, exec.CoverageGaps)
+			}
+			if findings.findings[0].Status != store.SecurityFindingStatusConfirmed {
+				t.Fatalf("finding status = %q, want confirmed unchanged", findings.findings[0].Status)
+			}
+		})
+	}
 }
 
 func TestSecurityScanVacuousSinkFanOutStillMaterializesPostScripts(t *testing.T) {

@@ -49,12 +49,43 @@ spec:
         encodings, malleability, batch verification, domain separation, side channels, FFI lifetimes, and
         zeroization. Follow attacker-controlled values through parsing, authorization, state transition, external
         interaction, rollback, retry, recovery, and upgrade paths; compare equivalent admission and execution paths.
-        Report only production-reachable invariant violations with decisive file:line evidence, prerequisites,
-        impact, and finding fingerprint. Return examined, skipped, unsupported, and inconclusive targets explicitly.
+        For every production-reachable invariant violation with decisive file:line evidence, create a durable hypothesis with create_security_hypothesis under the exact revision and report one canonical candidate record. Each record must carry a stable unique candidate_id, finding fingerprint, returned hypothesis id/version, broken invariant, least-privileged attacker, controlled input, ordered file:line trace, expected guard or transition, impact, and concrete falsifier. Never emit a fingerprint-only candidate. Return examined, skipped, unsupported, and inconclusive targets explicitly.
         Only claim executable tool or test results when the command actually ran and its output is preserved.
       dependsOn: [scope-architecture-and-invariants]
       outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["area", "status", "examined", "skipped", "limitations", "candidates"],
+          "properties": {
+            "area": {"type": "string", "minLength": 1},
+            "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
+            "examined": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "skipped": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "candidates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["candidate_id", "fingerprint", "hypothesis_id", "hypothesis_version", "invariant", "attacker", "controlled_input", "trace", "expected_guard_or_transition", "impact", "falsifier"],
+                "properties": {
+                  "candidate_id": {"type": "string", "minLength": 1},
+                  "fingerprint": {"type": "string", "minLength": 1},
+                  "hypothesis_id": {"type": "string", "minLength": 1},
+                  "hypothesis_version": {"type": "integer", "minimum": 1},
+                  "invariant": {"type": "string", "minLength": 1},
+                  "attacker": {"type": "string", "minLength": 1},
+                  "controlled_input": {"type": "string", "minLength": 1},
+                  "trace": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "expected_guard_or_transition": {"type": "string", "minLength": 1},
+                  "impact": {"type": "string", "minLength": 1},
+                  "falsifier": {"type": "string", "minLength": 1}
+                }
+              }
+            }
+          }
+        }
 
     - name: applicable-tool-execution
       role: vulnerability-hunter
@@ -94,15 +125,106 @@ spec:
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
       objective: >-
-        Validate every candidate intended for the final findings list in {{tasks.specialist-review.output}}; prioritize critical and high candidates first, but never submit an unvalidated candidate as a finding. Validate it against {{tasks.scope-architecture-and-invariants.output}} and actual evidence in {{tasks.applicable-tool-execution.output}}.
-        Confirm production reachability, least-privileged attacker control, each bypassed guard, and impact. Use
-        only safe deterministic local fixtures and dummy assets; never contact a live network or third party. First try a candidate-specific compatible harness. If none exists or it does not exercise the candidate, create the smallest candidate-specific PoC or regression harness in a disposable local workspace and execute it with a project-native test runner, simulator, or registered tool. Cite the returned run/artifact or exact commands, exit statuses, and observed output. Debug and minimize the PoC, and confirm a finding only when it reproduces the attacker-controlled path and claimed impact. If execution remains impossible after concrete setup and debugging attempts, give the smallest code/state/message trace and leave the verdict triaged; a missing pre-existing harness is not a reason to stop. Then
+        Reconcile every canonical candidate in {{tasks.specialist-review.output}} against
+        {{tasks.scope-architecture-and-invariants.output}} and actual evidence in
+        {{tasks.applicable-tool-execution.output}}. Emit exactly one candidate_result for every discovery
+        candidate, matched by candidate_id, fingerprint, and hypothesis_id, with no omissions, duplicates, or
+        invented candidates. Prioritize critical and high candidates first, but never submit an unvalidated
+        candidate as a finding. Transition every durable hypothesis through investigating to promoted, falsified,
+        or blocked with transition_security_hypothesis; preserve every attempt and never silently retry an
+        exact-revision falsification. Confirm production reachability, least-privileged attacker control, each
+        bypassed guard, and impact. Use only safe deterministic local fixtures and dummy assets; never contact a
+        live network or third party. First try a candidate-specific compatible harness. If none exists or it does
+        not exercise the candidate, create the smallest candidate-specific PoC or regression harness in a
+        disposable local workspace and execute it with a project-native test runner, simulator, or registered
+        tool. Debug and minimize the PoC. A confirmed verdict requires schema-complete reproduction evidence:
+        setup, environment, exact command, repository-relative test_path, failing assertion, expected output,
+        observed output, observed state delta, a passing negative control, and calibrated proof that the oracle can
+        fail. A triaged verdict requires the concrete blocker after setup/debugging attempts and the smallest
+        code/state/message trace available. A false_positive verdict requires the decisive disproof and stopping
+        guard. For every candidate and inventory area, call record_security_coverage for the applicable invariant,
+        actor, state, and transition bounds and copy the returned durable coverage id into coverage_records. Then
         account for every component, entry point, boundary, artifact, invariant, target, tool attempt, and candidate
         under examined, skipped, unsupported, or inconclusive. Preserve errors, timeouts, blocked validation and
         uncovered targets; absence of a finding is not a pass.
       dependsOn: [scope-architecture-and-invariants, specialist-review, applicable-tool-execution]
       outputSchema: |-
-        {"type":"object","additionalProperties":false,"required":["examined","skipped","unsupported","inconclusive","candidate_results","uncovered","limitations"],"properties":{"examined":{"type":"array","items":{"type":"string","minLength":1}},"skipped":{"type":"array","items":{"type":"string","minLength":1}},"unsupported":{"type":"array","items":{"type":"string","minLength":1}},"inconclusive":{"type":"array","items":{"type":"string","minLength":1}},"candidate_results":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["fingerprint","verdict","attempts"],"properties":{"fingerprint":{"type":"string","minLength":1},"verdict":{"type":"string","enum":["confirmed","false_positive","triaged"]},"attempts":{"type":"integer","minimum":1},"reachability":{"type":"string","minLength":1},"impact":{"type":"string","minLength":1},"blocker":{"type":"string","minLength":1},"disproof":{"type":"string","minLength":1},"reproduction":{"type":"object","additionalProperties":false,"required":["command","tool_run","failing_assertion","observed_delta","negative_control_passed","oracle_can_fail"],"properties":{"command":{"type":"string","minLength":1},"tool_run":{"type":"string","minLength":1},"failing_assertion":{"type":"string","minLength":1},"observed_delta":{"type":"string","minLength":1},"negative_control_passed":{"const":true},"oracle_can_fail":{"const":true}}}},"allOf":[{"if":{"required":["verdict"],"properties":{"verdict":{"const":"confirmed"}}},"then":{"required":["reachability","impact","reproduction"]}},{"if":{"required":["verdict"],"properties":{"verdict":{"const":"triaged"}}},"then":{"required":["blocker"]}},{"if":{"required":["verdict"],"properties":{"verdict":{"const":"false_positive"}}},"then":{"required":["disproof"]}}]}},"uncovered":{"type":"array","items":{"type":"string","minLength":1}},"limitations":{"type":"array","items":{"type":"string","minLength":1}}}}
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["examined", "skipped", "unsupported", "inconclusive", "candidate_results", "coverage_records", "uncovered", "limitations"],
+          "properties": {
+            "examined": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "skipped": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "unsupported": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "inconclusive": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "candidate_results": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["candidate_id", "fingerprint", "hypothesis_id", "hypothesis_version", "hypothesis_status", "hypothesis_result", "verdict", "attempts"],
+                "properties": {
+                  "candidate_id": {"type": "string", "minLength": 1},
+                  "fingerprint": {"type": "string", "minLength": 1},
+                  "hypothesis_id": {"type": "string", "minLength": 1},
+                  "hypothesis_version": {"type": "integer", "minimum": 2},
+                  "hypothesis_status": {"type": "string", "enum": ["promoted", "falsified", "blocked"]},
+                  "hypothesis_result": {"type": "string", "enum": ["positive", "negative", "failed", "timed_out", "inconclusive", "abandoned"]},
+                  "verdict": {"type": "string", "enum": ["confirmed", "false_positive", "triaged"]},
+                  "attempts": {"type": "integer", "minimum": 1},
+                  "reachability": {"type": "string", "minLength": 1},
+                  "impact": {"type": "string", "minLength": 1},
+                  "coverage_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "blocker": {"type": "string", "minLength": 1},
+                  "disproof": {"type": "string", "minLength": 1},
+                  "reproduction": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["setup", "environment", "command", "test_path", "tool_run", "failing_assertion", "expected_output", "observed_output", "observed_delta", "negative_control_passed", "oracle_calibrated"],
+                    "properties": {
+                      "setup": {"type": "string", "minLength": 1},
+                      "environment": {"type": "string", "minLength": 1},
+                      "command": {"type": "string", "minLength": 1},
+                      "test_path": {"type": "string", "minLength": 1},
+                      "tool_run": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+                      "failing_assertion": {"type": "string", "minLength": 1},
+                      "expected_output": {"type": "string", "minLength": 1},
+                      "observed_output": {"type": "string", "minLength": 1},
+                      "observed_delta": {"type": "string", "minLength": 1},
+                      "negative_control_passed": {"const": true},
+                      "oracle_calibrated": {"const": true}
+                    }
+                  }
+                },
+                "allOf": [
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "confirmed"}}}, "then": {"required": ["reachability", "impact", "coverage_ids", "reproduction"], "properties": {"hypothesis_status": {"const": "promoted"}, "hypothesis_result": {"const": "positive"}}}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "triaged"}}}, "then": {"required": ["blocker"], "properties": {"hypothesis_status": {"const": "blocked"}}}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "false_positive"}}}, "then": {"required": ["disproof"], "properties": {"hypothesis_status": {"const": "falsified"}, "hypothesis_result": {"const": "negative"}}}}
+                ]
+              }
+            },
+            "coverage_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["coverage_id", "dimension", "subject", "verdict", "bounds", "evidence", "recorded"],
+                "properties": {
+                  "coverage_id": {"type": "string", "minLength": 1},
+                  "dimension": {"type": "string", "enum": ["invariant", "actor", "state", "transition"]},
+                  "subject": {"type": "string", "minLength": 1},
+                  "verdict": {"type": "string", "enum": ["disproved", "adequately_tested", "inadequately_tested", "not_tested"]},
+                  "bounds": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "recorded": {"const": true}
+                }
+              }
+            },
+            "uncovered": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}}
+          }
+        }
 
     - name: remediation-and-retest
       role: vulnerability-hunter
@@ -113,14 +235,55 @@ spec:
         - name: trail-of-bits-property-based-testing
       objective: >-
         Use {{tasks.validate-triage-and-coverage.output}} to give the smallest root-cause remediation and
-        deterministic regression/retest plan for each confirmed or still-triaged finding. Search for sibling
-        variants without broad refactoring. Name the restored invariant, change location, migration/rollout risk,
-        regression property, fixture or harness, required immutable remediation revision, exact compatible
-        registered tool plus seed/bounds when available, expected evidence, and residual unsupported work. This scan
-        cannot contain the future revision: do not claim a fix was applied or retested; require a follow-up scan.
+        deterministic regression/retest plan for each confirmed or still-triaged candidate. Name the restored
+        invariant, change location, migration/rollout risk, regression property, fixture or harness, required
+        immutable remediation revision, exact compatible registered tool plus seed/bounds when available, expected
+        evidence, and residual unsupported work. For every confirmed root cause, call
+        create_security_variant_sweep, search the complete in-scope sibling surface without broad refactoring, and
+        call complete_security_variant_sweep with status completed, searched scope, methods, evidence, discovered
+        variants, and summary. A confirmed root cause without a completed durable sweep remains a campaign and
+        bundle-readiness blocker and must never be represented as sweep-complete. This immutable scan cannot contain
+        the future remediation revision: do not claim a fix was applied or retested; require a follow-up scan.
       dependsOn: [validate-triage-and-coverage]
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["fingerprint","remediation","regression_test","retest","rollout_risk"],"properties":{"fingerprint":{"type":"string"},"remediation":{"type":"string"},"regression_test":{"type":"string"},"retest":{"type":"string"},"rollout_risk":{"type":"string"}}}}
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["candidate_id", "fingerprint", "verdict"],
+            "properties": {
+              "candidate_id": {"type": "string", "minLength": 1},
+              "fingerprint": {"type": "string", "minLength": 1},
+              "verdict": {"type": "string", "enum": ["confirmed", "triaged"]},
+              "root_cause": {"type": "string", "minLength": 1},
+              "remediation": {"type": "string", "minLength": 1},
+              "regression_test": {"type": "string", "minLength": 1},
+              "retest": {"type": "string", "minLength": 1},
+              "rollout_risk": {"type": "string", "minLength": 1},
+              "blocker": {"type": "string", "minLength": 1},
+              "next_investigation_step": {"type": "string", "minLength": 1},
+              "variant_sweep": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["sweep_id", "status", "scope", "methods", "evidence", "variants", "summary"],
+                "properties": {
+                  "sweep_id": {"type": "string", "minLength": 1},
+                  "status": {"const": "completed"},
+                  "scope": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "methods": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "evidence": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "variants": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "summary": {"type": "string", "minLength": 1}
+                }
+              }
+            },
+            "allOf": [
+              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "confirmed"}}}, "then": {"required": ["root_cause", "remediation", "regression_test", "retest", "rollout_risk", "variant_sweep"]}},
+              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "triaged"}}}, "then": {"required": ["blocker", "next_investigation_step"]}}
+            ]
+          }
+        }
 
     - name: triage-and-report
       role: finding-triager
@@ -130,11 +293,24 @@ spec:
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
       objective: >-
-        Produce exactly one final report from {{tasks.validate-triage-and-coverage.output}} and {{tasks.remediation-and-retest.output}}. Call list_security_findings, re-read each path and file:line, deduplicate root causes,
-        and retain as submitted findings only candidate_results whose verdict is confirmed, with prerequisites and impact. Keep triaged candidates only in a clearly non-finding appendix. Separate confirmed findings,
-        tentative/triaged candidates, false positives, task/tool errors and timeouts, examined coverage, skipped
-        targets, unsupported execution/context, inconclusive work, uncovered inventory, and limitations. Include
-        minimal remediation, regression test, rollout risk, and follow-up retest recipe for every kept finding. A
-        bounded clean run applies only to its revision, target, harness, seed and bounds and never proves safety.
-        Submit one report.
+        Produce exactly one final report from {{tasks.validate-triage-and-coverage.output}} and
+        {{tasks.remediation-and-retest.output}}. Call list_security_findings, re-read each path and file:line, and
+        reconcile findings one-to-one with canonical candidate_id, fingerprint, durable hypothesis transition,
+        coverage records, and remediation result. Deduplicate root causes and retain as submitted findings only
+        candidate_results whose verdict is confirmed and whose confirmed root cause has a completed durable variant
+        sweep. Keep triaged candidates only in a clearly non-finding appendix with their blockers, and preserve each
+        false-positive disproof. Separate technically confirmed findings, tentative/triaged candidates, false
+        positives, task/tool errors and timeouts, examined coverage, skipped targets, unsupported execution/context,
+        inconclusive work, uncovered inventory, and limitations. Include minimal remediation, regression test,
+        rollout risk, and follow-up retest recipe for every kept finding. Persist any remaining branch outcome with
+        transition_security_hypothesis and any missing invariant/actor/state/transition bound with
+        record_security_coverage. Call get_security_campaign_status immediately before submission and reconcile
+        every outstanding hypothesis, coverage gap, variant sweep, and submission-budget decision; never hide a
+        campaign blocker. A bounded clean run applies only to its revision, target, harness, seed and bounds and
+        never proves safety. Explicitly hand every retained confirmed or triaged finding to the configured
+        per-finding post-script packaging pipeline and re-read its result before submitting the report. Distinguish
+        technical confirmation from bundle readiness: a confirmed reproduction establishes only technical
+        confirmation, while bundle_ready requires a packaging post-script to save the submission or review artifact
+        successfully. If packaging is absent, pending, skipped, or failed, report that state as not bundle-ready and
+        never claim the artifact exists. Submit one report.
       dependsOn: [validate-triage-and-coverage, remediation-and-retest]
