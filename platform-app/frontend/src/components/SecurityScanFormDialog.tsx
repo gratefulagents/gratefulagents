@@ -1,5 +1,5 @@
 import { clone, create } from "@bufbuild/protobuf";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bell, CalendarClock, Crosshair, GitBranch, GitPullRequest, ListChecks, Loader2, Route, ShieldAlert, ShieldCheck, SlidersHorizontal } from "lucide-react";
 
 import {
@@ -464,19 +464,47 @@ export function SecurityScanFormDialog({
   const [libraryRankers, setLibraryRankers] = useState<SecurityRankerResource[]>([]);
   const [libraryPostScripts, setLibraryPostScripts] = useState<SecurityPostScriptResource[]>([]);
   const [policyPacks, setPolicyPacks] = useState<SecurityPolicyPackResource[]>([]);
+  const [policyPacksLoading, setPolicyPacksLoading] = useState(isNewScan && !source);
+  const policyPackLoadRef = useRef<Promise<SecurityPolicyPackResource[]> | null>(null);
+  const policyPackLoadGenerationRef = useRef(0);
+  const policyPackTouchedRef = useRef(false);
   const [securityPrograms, setSecurityPrograms] = useState<SecurityProgramResource[]>([]);
 
   // The library is optional context: load it when the dialog opens and fall
   // back to empty pickers when it cannot be listed.
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
+    policyPackLoadGenerationRef.current++;
     void (async () => {
+      const policyPackLoad = client
+        .listSecurityPolicyPacks({ namespace: "" })
+        .then((response) => response.policyPacks)
+        .catch(() => [] as SecurityPolicyPackResource[]);
+      policyPackLoadRef.current = policyPackLoad;
+      try {
+        const packs = await policyPackLoad;
+        if (cancelled) return;
+        setPolicyPacks(packs);
+        // A scratch scan should not silently skip the shipped baseline's
+        // severity ranker and finding validator. Program-imported, edited,
+        // and duplicated scans already carry an intentional policy choice.
+        if (isNewScan && !source && packs.some((pack) => pack.name === "baseline")) {
+          setSpec((prev) =>
+            prev.policyPackRef || policyPackTouchedRef.current
+              ? prev
+              : { ...prev, policyPackRef: "baseline" },
+          );
+        }
+      } catch { /* policyPackLoad normalizes failures to an empty library */ }
+      if (!cancelled) setPolicyPacksLoading(false);
       try {
         const [wf, rk, ps] = await Promise.all([
           client.listSecurityWorkflows({ namespace: "" }),
           client.listSecurityRankers({ namespace: "" }),
           client.listSecurityPostScripts({ namespace: "" }),
         ]);
+        if (cancelled) return;
         setLibraryWorkflows(wf.workflows);
         setLibraryRankers(rk.rankers);
         setLibraryPostScripts(ps.postScripts);
@@ -484,19 +512,19 @@ export function SecurityScanFormDialog({
         // Library pickers stay empty; inline editing keeps working.
       }
       try {
-        const pp = await client.listSecurityPolicyPacks({ namespace: "" });
-        setPolicyPacks(pp.policyPacks);
-      } catch {
-        // The pack picker stays empty; an existing ref still shows as-is.
-      }
-      try {
         const programList = await client.listSecurityPrograms({ namespace: "" });
+        if (cancelled) return;
         setSecurityPrograms(programList.programs);
       } catch {
         // The program picker stays empty; an existing ref still shows as-is.
       }
     })();
-  }, [open]);
+    return () => {
+      cancelled = true;
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- invalidate submissions awaiting this load
+      policyPackLoadGenerationRef.current++;
+    };
+  }, [open, isNewScan, source]);
 
   function update<K extends keyof SpecState>(field: K, value: SpecState[K]) {
     setSpec((prev) => ({ ...prev, [field]: value }));
@@ -506,6 +534,18 @@ export function SecurityScanFormDialog({
     policyPacks.find((pack) => pack.name === spec.policyPackRef.trim()) ?? null;
   const selectedSecurityProgram =
     securityPrograms.find((program) => program.name === spec.securityProgramRef.trim()) ?? null;
+  const effectiveRankerCount =
+    rankers.length +
+    new Set([
+      ...spec.rankerRefs,
+      ...(selectedPolicyPack?.defaultRankerRefs ?? []),
+    ]).size;
+  const effectivePostScriptCount =
+    postScripts.length +
+    new Set([
+      ...spec.postScriptRefs,
+      ...(selectedPolicyPack?.defaultPostScriptRefs ?? []),
+    ]).size;
   const packEnforcesBudgets = selectedPolicyPack?.enforced.includes("budgets") ?? false;
   const effectiveDockerInDocker =
     defaults.dockerInDocker ?? (isNewScan && isAdmin);
@@ -515,6 +555,7 @@ export function SecurityScanFormDialog({
   }
 
   function reset() {
+    policyPackTouchedRef.current = false;
     setSpec(initialDialogSpec(source, isDuplicate));
     setTasks(initialTasks(source));
     setRankers(initialRankers(source));
@@ -534,7 +575,7 @@ export function SecurityScanFormDialog({
     setError(null);
   }
 
-  function buildSpec() {
+  function buildSpec(policyPackRef = spec.policyPackRef) {
     // Reuse the shared trigger-defaults normalization from the Cron form.
     const { defaults: normalizedDefaults } = buildCronRequest({
       namespace: "",
@@ -598,7 +639,7 @@ export function SecurityScanFormDialog({
       workflowRef: spec.workflowRef,
       rankerRefs: spec.rankerRefs,
       postScriptRefs: spec.postScriptRefs,
-      policyPackRef: spec.policyPackRef,
+      policyPackRef,
       securityProgramRef: spec.securityProgramRef,
       budgets: budgetsFromDraft(spec.budgets),
       parallelism: spec.parallelism.trim() ? Number(spec.parallelism) : 0,
@@ -731,7 +772,14 @@ export function SecurityScanFormDialog({
     }
     setSubmitting(true);
     try {
-      const requestSpec = buildSpec();
+      let policyPackRef = spec.policyPackRef;
+      if (isNewScan && !source && !policyPackRef && !policyPackTouchedRef.current) {
+        const generation = policyPackLoadGenerationRef.current;
+        const packs = await policyPackLoadRef.current;
+        if (generation !== policyPackLoadGenerationRef.current) return;
+        if (packs?.some((pack) => pack.name === "baseline")) policyPackRef = "baseline";
+      }
+      const requestSpec = buildSpec(policyPackRef);
       const saved = isEdit
         ? await client.updateSecurityScan(
             create(UpdateSecurityScanRequestSchema, {
@@ -766,6 +814,7 @@ export function SecurityScanFormDialog({
       open={open}
       onOpenChange={(nextOpen) => {
         if (submitting && !nextOpen) return;
+        if (nextOpen && isNewScan && !source) setPolicyPacksLoading(true);
         setOpen(nextOpen);
         onOpenChange?.(nextOpen);
         if (!nextOpen) reset();
@@ -1256,9 +1305,15 @@ export function SecurityScanFormDialog({
                     id="scan-policy-pack-ref"
                     className={selectClass}
                     value={spec.policyPackRef}
-                    onChange={(event) => update("policyPackRef", event.target.value)}
+                    disabled={policyPacksLoading}
+                    onChange={(event) => {
+                      policyPackTouchedRef.current = true;
+                      update("policyPackRef", event.target.value);
+                    }}
                   >
-                    <option value="">None</option>
+                    <option value="">
+                      {policyPacksLoading ? "Loading policies…" : "None"}
+                    </option>
                     {policyPacks.map((pack) => (
                       <option key={pack.name} value={pack.name}>{pack.name}</option>
                     ))}
@@ -1895,8 +1950,8 @@ export function SecurityScanFormDialog({
                 icon={SlidersHorizontal}
                 title="Rankers & post-scripts"
                 summary={
-                  rankers.length || postScripts.length || spec.rankerRefs.length || spec.postScriptRefs.length
-                    ? `${rankers.length + spec.rankerRefs.length} ranker${rankers.length + spec.rankerRefs.length === 1 ? "" : "s"} · ${postScripts.length + spec.postScriptRefs.length} post-script${postScripts.length + spec.postScriptRefs.length === 1 ? "" : "s"}`
+                  effectiveRankerCount || effectivePostScriptCount
+                    ? `${effectiveRankerCount} ranker${effectiveRankerCount === 1 ? "" : "s"} · ${effectivePostScriptCount} post-script${effectivePostScriptCount === 1 ? "" : "s"}`
                     : "None"
                 }
                 modified={

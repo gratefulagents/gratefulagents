@@ -57,6 +57,21 @@ vi.mock("@/lib/client", () => ({
     listSecurityPolicyPacks: vi.fn().mockResolvedValue({
       policyPacks: [
         {
+          name: "baseline",
+          description: "general scan defaults",
+          minSeverity: "low",
+          failOnSeverity: "critical",
+          requiredCategories: [],
+          allowedRuntimeProfiles: [],
+          defaultRankerRefs: ["default-severity"],
+          defaultPostScriptRefs: ["validate-finding"],
+          enforced: [],
+          suppressions: [],
+          budgets: {},
+          usageCount: 0,
+          referencingScans: [],
+        },
+        {
           name: "prod-policy",
           description: "prod floors",
           minSeverity: "medium",
@@ -715,6 +730,55 @@ describe("SecurityScanFormDialog repository events and notifications", () => {
 });
 
 describe("SecurityScanFormDialog policy pack & budgets", () => {
+  it("waits for policy discovery when a scratch scan is submitted immediately", async () => {
+    let resolvePacks!: (value: Awaited<ReturnType<typeof client.listSecurityPolicyPacks>>) => void;
+    vi.mocked(client.listSecurityPolicyPacks).mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePacks = resolve; }),
+    );
+
+    renderDialog();
+    fireEvent.change(screen.getByLabelText(/Repository URL/), {
+      target: { value: "https://github.com/acme/payments.git" },
+    });
+    fireEvent.submit(document.querySelector("form") as HTMLFormElement);
+    expect(client.createSecurityScan).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolvePacks({
+        policyPacks: [{
+          name: "baseline",
+          description: "general scan defaults",
+          minSeverity: "low",
+          failOnSeverity: "critical",
+          requiredCategories: [],
+          allowedRuntimeProfiles: [],
+          defaultRankerRefs: ["default-severity"],
+          defaultPostScriptRefs: ["validate-finding"],
+          enforced: [],
+          suppressions: [],
+          budgets: {},
+          usageCount: 0,
+          referencingScans: [],
+        }],
+      } as unknown as Awaited<ReturnType<typeof client.listSecurityPolicyPacks>>);
+    });
+
+    await waitFor(() => expect(client.createSecurityScan).toHaveBeenCalledTimes(1));
+    const request = vi.mocked(client.createSecurityScan).mock.calls[0][0];
+    expect(request.spec?.policyPackRef).toBe("baseline");
+  });
+
+  it("defaults a scratch scan to baseline and shows its effective post-processing", async () => {
+    renderDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: /Policy pack & budgets/ }));
+    const select = await screen.findByLabelText("Policy pack");
+    await waitFor(() => expect((select as HTMLSelectElement).value).toBe("baseline"));
+
+    expect(screen.getByRole("button", { name: /Rankers & post-scripts/ }).textContent)
+      .toContain("1 ranker · 1 post-script");
+  });
+
   it("shows the pack's inherited values and enforced fields when selected", async () => {
     renderDialog();
 
@@ -746,7 +810,9 @@ describe("SecurityScanFormDialog policy pack & budgets", () => {
     renderDialog();
 
     fireEvent.click(screen.getByRole("button", { name: /Policy pack & budgets/ }));
-    await screen.findByLabelText("Policy pack");
+    const select = await screen.findByLabelText("Policy pack");
+    await waitFor(() => expect((select as HTMLSelectElement).value).toBe("baseline"));
+    fireEvent.change(select, { target: { value: "" } });
     expect(screen.queryByTestId("policy-pack-budget-warning")).toBeNull();
     expect(screen.queryByTestId("policy-pack-summary")).toBeNull();
   });
