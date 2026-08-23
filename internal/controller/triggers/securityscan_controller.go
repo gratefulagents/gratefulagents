@@ -69,7 +69,9 @@ type SecurityScanReconciler struct {
 	// Findings, when non-nil, refreshes status.findings from persisted
 	// findings after runs are created or observed.
 	Findings store.SecurityFindingStore
-	Now      func() time.Time
+	// Artifacts verifies durable outputs produced by post-script jobs.
+	Artifacts store.SecurityFindingArtifactStore
+	Now       func() time.Time
 	// Recorder, when non-nil, emits Kubernetes events for skipped fork
 	// contributions, check publish failures, and notification failures.
 	Recorder events.EventRecorder

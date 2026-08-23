@@ -15,19 +15,9 @@ spec:
         - name: trail-of-bits-entry-point-analyzer
         - name: trail-of-bits-property-based-testing
       objective: >-
-        Record the immutable revision and all in-scope/out-of-scope roots. Inventory bridge contracts/programs,
-        light clients, relayers, guardians, sequencers, batchers, data-availability components, fault-proof games,
-        circuits, witnesses, provers, verifiers, setup artifacts, cross-domain queues, tests, deployments, and
-        counterpart references. Follow production wiring and enumerate assets, privileged and attacker roles, entry
-        points, state, trust boundaries, external dependencies, artifacts, deployments, existing tests, and
-        harnesses with repository-relative evidence. Define testable invariants for every lifecycle and boundary,
-        including origin/destination/emitter/chain binding, message uniqueness and replay protection, lock/mint and
-        burn/release conservation including decimals, finality/reorg safety, retry/refund idempotency, derivation
-        and data availability, forced inclusion, challenge deadlines, public-input/witness binding, circuit
-        constraints, transcript domains, and prover/verifier agreement. Each invariant must name the protected
-        asset, attacker, allowed transition, enforcement, alternate paths, impact, and local validation target. Mark
-        absent or conflicting context explicitly. This task is inventory and threat modeling only and must not claim
-        build, test, analyzer, fuzzer, simulator, prover, network, or run_security_tool execution.
+        Apply the referenced context, entry-point, and property skills at the immutable revision and populate the
+        schema. Inventory bridge contracts/programs, light clients, relayers, guardians, sequencers, batchers, data-availability components, fault-proof games, circuits, witnesses, provers, verifiers, setup artifacts, cross-domain queues, tests, deployments, and counterpart references. Derive chain-specific, locally testable invariants for origin/destination/emitter/chain binding, message uniqueness and replay protection, value conservation and decimals, finality/reorg safety, retry/refund idempotency, derivation and data availability, forced inclusion, challenge deadlines, proof public-input/witness binding, circuit constraints, transcript domains, and prover/verifier agreement. This task is inventory and threat modeling only; record missing or
+        conflicting context and do not claim any build, test, tool, prover, simulator, or network execution.
       outputSchema: |-
         {"type":"object","required":["revision","in_scope","out_of_scope","components","entrypoints","trust_boundaries","assets","roles","artifacts","invariants","test_targets","limitations"],"properties":{"revision":{"type":"string"},"in_scope":{"type":"array","items":{"type":"string"}},"out_of_scope":{"type":"array","items":{"type":"string"}},"components":{"type":"array","items":{"type":"string"}},"entrypoints":{"type":"array","items":{"type":"string"}},"trust_boundaries":{"type":"array","items":{"type":"string"}},"assets":{"type":"array","items":{"type":"string"}},"roles":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"invariants":{"type":"array","items":{"type":"object"}},"test_targets":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
 
@@ -41,20 +31,46 @@ spec:
         - name: trail-of-bits-sharp-edges
         - name: trail-of-bits-constant-time-analysis
       objective: >-
-        Use {{tasks.scope-architecture-and-invariants.output}} for a complete manual specialist review. Trace at
-        least one end-to-end message and value lifecycle across contracts/programs, relayers, proofs, finality,
-        execution, retries and refunds. Audit canonical encoding, quorum and epoch changes, reorgs, partial failure,
-        optimistic derivation/DA/forced inclusion/challenges, validity proof roots and statements, missing
-        constraints, ranges, field aliasing, transcript/domain separation, aggregation, recursion, setup provenance,
-        verifier keys, and prover/verifier disagreement. Follow attacker-controlled values through parsing,
-        authorization, state transition, external interaction, rollback, retry, recovery, and upgrade paths; compare
-        equivalent admission and execution paths. Report only production-reachable invariant violations with
-        decisive file:line evidence, prerequisites, impact, and finding fingerprint. Return examined, skipped,
-        unsupported, and inconclusive targets explicitly. This task must not claim executable tool or
-        test results.
+        Use {{tasks.scope-architecture-and-invariants.output}} for the specialist review. Trace an end-to-end message and value lifecycle. Audit canonical encoding, quorum/epoch changes, reorgs, partial failure, optimistic derivation, DA, forced inclusion and challenges, validity-proof statements and roots, missing constraints, ranges, field aliasing, transcript/domain separation, aggregation, recursion, setup provenance, verifier keys, and prover/verifier disagreement.
+        For each production-reachable invariant violation with decisive file:line evidence, call
+        create_security_hypothesis and emit one schema-valid canonical candidate preserving the returned identity;
+        never emit a fingerprint-only candidate. Return examined, skipped, unsupported, and inconclusive targets,
+        and claim executable evidence only when its output was preserved.
       dependsOn: [scope-architecture-and-invariants]
       outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["area", "status", "examined", "skipped", "limitations", "candidates"],
+          "properties": {
+            "area": {"type": "string", "minLength": 1},
+            "status": {"type": "string", "enum": ["examined", "skipped", "unsupported", "inconclusive"]},
+            "examined": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "skipped": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "candidates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["candidate_id", "fingerprint", "hypothesis_id", "hypothesis_version", "invariant", "attacker", "controlled_input", "trace", "expected_guard_or_transition", "impact", "falsifier"],
+                "properties": {
+                  "candidate_id": {"type": "string", "minLength": 1},
+                  "fingerprint": {"type": "string", "minLength": 1},
+                  "hypothesis_id": {"type": "string", "minLength": 1},
+                  "hypothesis_version": {"type": "integer", "minimum": 1},
+                  "invariant": {"type": "string", "minLength": 1},
+                  "attacker": {"type": "string", "minLength": 1},
+                  "controlled_input": {"type": "string", "minLength": 1},
+                  "trace": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "expected_guard_or_transition": {"type": "string", "minLength": 1},
+                  "impact": {"type": "string", "minLength": 1},
+                  "falsifier": {"type": "string", "minLength": 1}
+                }
+              }
+            }
+          }
+        }
 
     - name: applicable-tool-execution
       role: vulnerability-hunter
@@ -94,15 +110,93 @@ spec:
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
       objective: >-
-        Validate every candidate intended for the final findings list in {{tasks.specialist-review.output}}; prioritize critical and high candidates first, but never submit an unvalidated candidate as a finding. Validate it against {{tasks.scope-architecture-and-invariants.output}} and actual evidence in {{tasks.applicable-tool-execution.output}}.
-        Confirm production reachability, least-privileged attacker control, each bypassed guard, and impact. Use
-        only safe deterministic local fixtures and dummy assets; never contact a live network or third party. First try a candidate-specific compatible harness. If none exists or it does not exercise the candidate, create the smallest candidate-specific PoC or regression harness in a disposable local workspace and execute it with a project-native test runner, simulator, or registered tool. Cite the returned run/artifact or exact commands, exit statuses, and observed output. Debug and minimize the PoC, and confirm a finding only when it reproduces the attacker-controlled path and claimed impact. If execution remains impossible after concrete setup and debugging attempts, give the smallest code/state/message trace and leave the verdict triaged; a missing pre-existing harness is not a reason to stop. Then
-        account for every component, entry point, boundary, artifact, invariant, target, tool attempt, and candidate
-        under examined, skipped, unsupported, or inconclusive. Preserve errors, timeouts, blocked validation and
-        uncovered targets; absence of a finding is not a pass.
+        Apply the referenced false-positive and PoC skills to every canonical candidate from
+        {{tasks.specialist-review.output}}, using the exact scope and executable evidence supplied by the
+        dependency tasks. Emit exactly one schema-valid candidate_result per candidate, preserving candidate_id,
+        fingerprint, and hypothesis_id; prioritization may change order but never coverage. The workflow-specific
+        contract is: transition each durable hypothesis to promoted, falsified, or blocked; keep all execution local
+        and safe; require the schema's complete reproduction evidence for confirmed results, a concrete blocker for
+        triaged results, and decisive disproof for false positives. Call record_security_coverage for applicable
+        invariant, actor, state, and transition bounds, copy returned IDs into coverage_records, and reconcile every
+        inventory area, tool attempt, and candidate as examined, skipped, unsupported, or inconclusive.
       dependsOn: [scope-architecture-and-invariants, specialist-review, applicable-tool-execution]
       outputSchema: |-
-        {"type":"object","additionalProperties":false,"required":["examined","skipped","unsupported","inconclusive","candidate_results","uncovered","limitations"],"properties":{"examined":{"type":"array","items":{"type":"string","minLength":1}},"skipped":{"type":"array","items":{"type":"string","minLength":1}},"unsupported":{"type":"array","items":{"type":"string","minLength":1}},"inconclusive":{"type":"array","items":{"type":"string","minLength":1}},"candidate_results":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["fingerprint","verdict","attempts"],"properties":{"fingerprint":{"type":"string","minLength":1},"verdict":{"type":"string","enum":["confirmed","false_positive","triaged"]},"attempts":{"type":"integer","minimum":1},"reachability":{"type":"string","minLength":1},"impact":{"type":"string","minLength":1},"blocker":{"type":"string","minLength":1},"disproof":{"type":"string","minLength":1},"reproduction":{"type":"object","additionalProperties":false,"required":["command","tool_run","failing_assertion","observed_delta","negative_control_passed","oracle_can_fail"],"properties":{"command":{"type":"string","minLength":1},"tool_run":{"type":"string","minLength":1},"failing_assertion":{"type":"string","minLength":1},"observed_delta":{"type":"string","minLength":1},"negative_control_passed":{"const":true},"oracle_can_fail":{"const":true}}}},"allOf":[{"if":{"required":["verdict"],"properties":{"verdict":{"const":"confirmed"}}},"then":{"required":["reachability","impact","reproduction"]}},{"if":{"required":["verdict"],"properties":{"verdict":{"const":"triaged"}}},"then":{"required":["blocker"]}},{"if":{"required":["verdict"],"properties":{"verdict":{"const":"false_positive"}}},"then":{"required":["disproof"]}}]}},"uncovered":{"type":"array","items":{"type":"string","minLength":1}},"limitations":{"type":"array","items":{"type":"string","minLength":1}}}}
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["examined", "skipped", "unsupported", "inconclusive", "candidate_results", "coverage_records", "uncovered", "limitations"],
+          "properties": {
+            "examined": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "skipped": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "unsupported": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "inconclusive": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "candidate_results": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["candidate_id", "fingerprint", "hypothesis_id", "hypothesis_version", "hypothesis_status", "hypothesis_result", "verdict", "attempts"],
+                "properties": {
+                  "candidate_id": {"type": "string", "minLength": 1},
+                  "fingerprint": {"type": "string", "minLength": 1},
+                  "hypothesis_id": {"type": "string", "minLength": 1},
+                  "hypothesis_version": {"type": "integer", "minimum": 2},
+                  "hypothesis_status": {"type": "string", "enum": ["promoted", "falsified", "blocked"]},
+                  "hypothesis_result": {"type": "string", "enum": ["positive", "negative", "failed", "timed_out", "inconclusive", "abandoned"]},
+                  "verdict": {"type": "string", "enum": ["confirmed", "false_positive", "triaged"]},
+                  "attempts": {"type": "integer", "minimum": 1},
+                  "reachability": {"type": "string", "minLength": 1},
+                  "impact": {"type": "string", "minLength": 1},
+                  "coverage_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "blocker": {"type": "string", "minLength": 1},
+                  "disproof": {"type": "string", "minLength": 1},
+                  "reproduction": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["setup", "environment", "command", "test_path", "tool_run", "failing_assertion", "expected_output", "observed_output", "observed_delta", "negative_control_passed", "oracle_calibrated"],
+                    "properties": {
+                      "setup": {"type": "string", "minLength": 1},
+                      "environment": {"type": "string", "minLength": 1},
+                      "command": {"type": "string", "minLength": 1},
+                      "test_path": {"type": "string", "minLength": 1},
+                      "tool_run": {"anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}]},
+                      "failing_assertion": {"type": "string", "minLength": 1},
+                      "expected_output": {"type": "string", "minLength": 1},
+                      "observed_output": {"type": "string", "minLength": 1},
+                      "observed_delta": {"type": "string", "minLength": 1},
+                      "negative_control_passed": {"const": true},
+                      "oracle_calibrated": {"const": true}
+                    }
+                  }
+                },
+                "allOf": [
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "confirmed"}}}, "then": {"required": ["reachability", "impact", "coverage_ids", "reproduction"], "properties": {"hypothesis_status": {"const": "promoted"}, "hypothesis_result": {"const": "positive"}}}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "triaged"}}}, "then": {"required": ["blocker"], "properties": {"hypothesis_status": {"const": "blocked"}}}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "false_positive"}}}, "then": {"required": ["disproof"], "properties": {"hypothesis_status": {"const": "falsified"}, "hypothesis_result": {"const": "negative"}}}}
+                ]
+              }
+            },
+            "coverage_records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["coverage_id", "dimension", "subject", "verdict", "bounds", "evidence", "recorded"],
+                "properties": {
+                  "coverage_id": {"type": "string", "minLength": 1},
+                  "dimension": {"type": "string", "enum": ["invariant", "actor", "state", "transition"]},
+                  "subject": {"type": "string", "minLength": 1},
+                  "verdict": {"type": "string", "enum": ["disproved", "adequately_tested", "inadequately_tested", "not_tested"]},
+                  "bounds": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "recorded": {"const": true}
+                }
+              }
+            },
+            "uncovered": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}}
+          }
+        }
 
     - name: remediation-and-retest
       role: vulnerability-hunter
@@ -112,15 +206,51 @@ spec:
         - name: trail-of-bits-variant-analysis
         - name: trail-of-bits-property-based-testing
       objective: >-
-        Use {{tasks.validate-triage-and-coverage.output}} to give the smallest root-cause remediation and
-        deterministic regression/retest plan for each confirmed or still-triaged finding. Search for sibling
-        variants without broad refactoring. Name the restored invariant, change location, migration/rollout risk,
-        regression property, fixture or harness, required immutable remediation revision, exact compatible
-        registered tool plus seed/bounds when available, expected evidence, and residual unsupported work. This scan
-        cannot contain the future revision: do not claim a fix was applied or retested; require a follow-up scan.
+        Use {{tasks.validate-triage-and-coverage.output}} to provide the schema-required remediation and follow-up
+        retest record for each confirmed or triaged candidate; do not claim a future fix or retest occurred. Apply
+        the referenced variant-analysis skill to every confirmed root cause, persist it with
+        create_security_variant_sweep and complete_security_variant_sweep, and return the durable sweep evidence in
+        variant_sweep. A missing or incomplete sweep remains a campaign and bundle-readiness blocker.
       dependsOn: [validate-triage-and-coverage]
       outputSchema: |-
-        {"type":"array","items":{"type":"object","required":["fingerprint","remediation","regression_test","retest","rollout_risk"],"properties":{"fingerprint":{"type":"string"},"remediation":{"type":"string"},"regression_test":{"type":"string"},"retest":{"type":"string"},"rollout_risk":{"type":"string"}}}}
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["candidate_id", "fingerprint", "verdict"],
+            "properties": {
+              "candidate_id": {"type": "string", "minLength": 1},
+              "fingerprint": {"type": "string", "minLength": 1},
+              "verdict": {"type": "string", "enum": ["confirmed", "triaged"]},
+              "root_cause": {"type": "string", "minLength": 1},
+              "remediation": {"type": "string", "minLength": 1},
+              "regression_test": {"type": "string", "minLength": 1},
+              "retest": {"type": "string", "minLength": 1},
+              "rollout_risk": {"type": "string", "minLength": 1},
+              "blocker": {"type": "string", "minLength": 1},
+              "next_investigation_step": {"type": "string", "minLength": 1},
+              "variant_sweep": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["sweep_id", "status", "scope", "methods", "evidence", "variants", "summary"],
+                "properties": {
+                  "sweep_id": {"type": "string", "minLength": 1},
+                  "status": {"const": "completed"},
+                  "scope": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "methods": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "evidence": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "variants": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "summary": {"type": "string", "minLength": 1}
+                }
+              }
+            },
+            "allOf": [
+              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "confirmed"}}}, "then": {"required": ["root_cause", "remediation", "regression_test", "retest", "rollout_risk", "variant_sweep"]}},
+              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "triaged"}}}, "then": {"required": ["blocker", "next_investigation_step"]}}
+            ]
+          }
+        }
 
     - name: triage-and-report
       role: finding-triager
@@ -130,11 +260,14 @@ spec:
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
       objective: >-
-        Produce exactly one final report from {{tasks.validate-triage-and-coverage.output}} and {{tasks.remediation-and-retest.output}}. Call list_security_findings, re-read each path and file:line, deduplicate root causes,
-        and retain as submitted findings only candidate_results whose verdict is confirmed, with prerequisites and impact. Keep triaged candidates only in a clearly non-finding appendix. Separate confirmed findings,
-        tentative/triaged candidates, false positives, task/tool errors and timeouts, examined coverage, skipped
-        targets, unsupported execution/context, inconclusive work, uncovered inventory, and limitations. Include
-        minimal remediation, regression test, rollout risk, and follow-up retest recipe for every kept finding. A
-        bounded clean run applies only to its revision, target, harness, seed and bounds and never proves safety.
-        Submit one report.
+        Produce exactly one final report from {{tasks.validate-triage-and-coverage.output}} and
+        {{tasks.remediation-and-retest.output}}. Reconcile durable findings one-to-one with candidate IDs,
+        fingerprints, hypothesis transitions, coverage records, and remediation results. Retain as findings only
+        confirmed candidates with completed durable variant sweeps; put triaged candidates, false-positive
+        disproofs, errors, unsupported or inconclusive work, and coverage gaps in clearly separate sections. Persist
+        any missing terminal transition or coverage record, call get_security_campaign_status immediately before
+        submission, and reconcile every remaining blocker and budget decision. Hand retained confirmed or triaged
+        findings to the configured per-finding post-script pipeline. Technical confirmation is not bundle readiness:
+        only a successfully persisted packaging artifact may be reported ready; otherwise report the packaging state
+        and never claim the artifact exists.
       dependsOn: [validate-triage-and-coverage, remediation-and-retest]

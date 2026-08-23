@@ -262,6 +262,7 @@ spec:
         - name: trail-of-bits-property-based-testing
         - name: evm-low-level-and-deployment-review
         - name: exploit-poc-discipline
+        - name: trail-of-bits-variant-analysis
       objective: >-
         In one write-capable run, bootstrap the sandbox, build and calibrate the oracle, then reproduce or kill
         the candidate findings recorded by the four discovery lanes. Do not originate new vulnerabilities. The full
@@ -319,6 +320,14 @@ spec:
         reproducibility class and never generalize a local-only result into a claim about deployed
         configuration. A hypothesis without a failing assertion is refuted or untested and may not be
         reported.
+
+        Reconcile every discovery candidate by source and fingerprint. Return exactly one schema-valid verdict per
+        fingerprint, preserve deduplicated aliases, and require identical discovered and validated sets before final
+        reporting.
+
+        For every broken root cause, call create_security_variant_sweep, apply the referenced variant-analysis skill,
+        call complete_security_variant_sweep with the resulting scope and evidence, and populate the schema-required
+        variant_sweep_ledger. A broken candidate is not reportable until its durable ledger entry is complete.
       dependsOn:
         - pin-target-and-toolchain
         - map-order-lifecycle-and-settlement-invariants
@@ -329,7 +338,7 @@ spec:
       outputSchema: |-
         {
           "type": "object",
-          "required": ["bootstrap_status", "fork_status", "executable_invariant_count", "calibrated_invariant_count", "tool_runs", "hypotheses", "limitations"],
+          "required": ["bootstrap_status", "fork_status", "executable_invariant_count", "calibrated_invariant_count", "tool_runs", "hypotheses", "limitations", "candidate_reconciliation", "variant_sweep_ledger"],
           "properties": {
             "bootstrap_status": {"type": "string", "enum": ["built", "partial", "blocked"], "description": "built only when the recorded build and test command both ran"},
             "bootstrap_blocker": {"type": "string"},
@@ -344,11 +353,36 @@ spec:
                 "required": ["tool", "command", "exit_status"],
                 "properties": {
                   "tool": {"type": "string"},
-                  "command": {"type": "string"},
+                  "command": {"type": "string", "minLength": 1},
                   "exit_status": {"type": "string"},
                   "seed": {"type": "string"},
                   "attempts": {"type": "integer", "minimum": 0},
                   "successes": {"type": "integer", "minimum": 0}
+                }
+              }
+            },
+            "candidate_reconciliation": {
+              "type": "object",
+              "required": ["discovered_fingerprints", "validated_fingerprints", "unreconciled_fingerprints"],
+              "properties": {
+                "discovered_fingerprints": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "validated_fingerprints": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "unreconciled_fingerprints": {"type": "array", "items": {"type": "string", "minLength": 1}, "maxItems": 0, "description": "Must be empty; discovered and validated fingerprint sets must be identical"}
+              }
+            },
+            "variant_sweep_ledger": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["root_cause_fingerprint", "scope", "patterns", "matches", "true_positives", "false_positives", "ci_regression_rule"],
+                "properties": {
+                  "root_cause_fingerprint": {"type": "string", "minLength": 1},
+                  "scope": {"type": "string", "minLength": 1},
+                  "patterns": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "matches": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "true_positives": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "false_positives": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                  "ci_regression_rule": {"type": "string", "minLength": 1}
                 }
               }
             },
@@ -365,16 +399,19 @@ spec:
                   "fingerprint": {"type": "string", "description": "Required when verdict is broken"},
                   "reproduction": {
                     "type": "object",
-                    "required": ["command", "substrate", "test_path", "failing_assertion", "observed_delta", "negative_control_passed", "oracle_can_fail", "reproducibility_class"],
+                    "required": ["command", "substrate", "test_path", "failing_assertion", "observed_delta", "expected_output", "observed_output", "environment", "negative_control_passed", "oracle_can_fail", "reproducibility_class"],
                     "properties": {
-                      "command": {"type": "string"},
+                      "command": {"type": "string", "minLength": 1},
                       "seed": {"type": "string"},
                       "substrate": {"type": "string", "enum": ["pinned_fork", "project_tests", "local_devnet"]},
-                      "test_path": {"type": "string", "description": "Repository-relative path of the added test the program can run unchanged"},
-                      "failing_assertion": {"type": "string"},
-                      "observed_delta": {"type": "string"},
-                      "negative_control_passed": {"type": "boolean"},
-                      "oracle_can_fail": {"type": "boolean"},
+                      "test_path": {"type": "string", "minLength": 1, "description": "Repository-relative path of the added test the program can run unchanged"},
+                      "failing_assertion": {"type": "string", "minLength": 1},
+                      "observed_delta": {"type": "string", "minLength": 1},
+                      "expected_output": {"type": "string", "minLength": 1},
+                      "observed_output": {"type": "string", "minLength": 1},
+                      "environment": {"type": "string", "minLength": 1},
+                      "negative_control_passed": {"const": true},
+                      "oracle_can_fail": {"const": true},
                       "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]}
                     }
                   }
@@ -495,5 +532,11 @@ spec:
         lanes were blocked by a missing toolchain or endpoint — so a clean or blocked run is recorded as
         not found under those bounds rather than as a clean bill of health. Then submit the final scan
         report.
+
+        Before submission, call transition_security_hypothesis once per discovered candidate,
+        record_security_coverage for the tested bounds, reconcile the validator's persisted completed sweeps, and
+        call get_security_campaign_status. Submit exactly one report with every remaining blocker and budget
+        decision. Bundle readiness belongs only to the policy postscript; never claim an artifact exists unless it
+        was persisted successfully.
       dependsOn:
         - quantify-impact-and-submission-readiness

@@ -345,9 +345,7 @@ func (e *securityScanExecutionEngine) postScriptPipelineChunks(all []triggersv1a
 }
 
 // observePostScripts folds terminal post-script AgentRun phases into the job
-// entries, mirroring observe() for tasks. A succeeded job records the
-// finding's resulting status: that reloaded status is the durable evidence
-// the script actually reached a verdict, since the run itself keeps nothing.
+// entries, mirroring observe() for tasks.
 func (e *securityScanExecutionEngine) observePostScripts(ctx context.Context) {
 	for i := range e.exec.PostScriptJobs {
 		job := &e.exec.PostScriptJobs[i]
@@ -370,6 +368,17 @@ func (e *securityScanExecutionEngine) observePostScripts(ctx context.Context) {
 		}
 		switch run.Status.Phase {
 		case platformv1alpha1.AgentRunPhaseSucceeded:
+			if reason, class := e.confirmedReportWriterArtifactFailure(ctx, job); reason != "" {
+				if class == "pending" {
+					// The model run is already successful. A transient store read
+					// must not spend another model attempt or duplicate post-script
+					// side effects; leave the job Running and verify again later.
+					job.LastError = truncateSecurityScanError(reason)
+					continue
+				}
+				e.recordPostScriptFailure(job, reason, class)
+				continue
+			}
 			job.State = triggersv1alpha1.SecurityScanPostScriptStateSucceeded
 			job.LastError = ""
 			job.FinishedAt = &e.now
@@ -385,6 +394,33 @@ func (e *securityScanExecutionEngine) observePostScripts(ctx context.Context) {
 				triggersv1alpha1.SecurityScanTaskFailureNonRetryable)
 		}
 	}
+}
+
+func (e *securityScanExecutionEngine) confirmedReportWriterArtifactFailure(ctx context.Context, job *triggersv1alpha1.SecurityScanPostScriptJobStatus) (string, string) {
+	if !slices.Contains(securityScanPostScriptJobNames(*job), "report-writer") {
+		return "", ""
+	}
+	rec, err := e.loadPostScriptFinding(ctx, job)
+	if err != nil {
+		return fmt.Sprintf("could not verify report-writer submission bundle: %v", err), "pending"
+	}
+	if rec == nil || rec.Status != store.SecurityFindingStatusConfirmed {
+		return "", ""
+	}
+	if e.r.Artifacts == nil {
+		return "report-writer completed for a confirmed finding, but no finding artifact store is configured", triggersv1alpha1.SecurityScanTaskFailureNonRetryable
+	}
+	artifact, err := e.r.Artifacts.GetSecurityFindingArtifact(ctx, e.scan.Namespace, rec.ID, e.exec.ID, store.SecurityFindingArtifactSubmissionBundle)
+	if err != nil {
+		return fmt.Sprintf("could not verify report-writer submission bundle: %v", err), "pending"
+	}
+	if artifact == nil {
+		return fmt.Sprintf("report-writer completed for a confirmed finding without a submission_bundle artifact for execution %q", e.exec.ID), triggersv1alpha1.SecurityScanTaskFailureRetryable
+	}
+	if artifact.Status != "ready" {
+		return fmt.Sprintf("report-writer submission_bundle artifact for execution %q has status %q, want %q", e.exec.ID, artifact.Status, "ready"), triggersv1alpha1.SecurityScanTaskFailureRetryable
+	}
+	return "", ""
 }
 
 // postScriptVerdict reloads the finding once to describe what the job left

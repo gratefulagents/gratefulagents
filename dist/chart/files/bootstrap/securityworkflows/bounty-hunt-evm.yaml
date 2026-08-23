@@ -226,22 +226,32 @@ spec:
                   "reproduction": {
                     "type": "object",
                     "description": "Required when verdict is broken. pinned_fork requires fork_status executed and a verified pin; project_tests and local_devnet may prove only claims that do not depend on deployed configuration",
-                    "required": ["command", "seed", "substrate", "failing_assertion", "observed_delta", "negative_control_passed", "oracle_can_fail", "reproducibility_class", "attempts", "successes"],
+                    "additionalProperties": false,
+                    "required": ["command", "exit_status", "seed", "substrate", "artifact", "failing_assertion", "observed_delta", "negative_control_passed", "oracle_can_fail", "reproducibility_class", "attempts", "successes"],
                     "properties": {
-                      "command": {"type": "string"},
-                      "seed": {"type": "string"},
+                      "command": {"type": "string", "minLength": 1},
+                      "exit_status": {"type": "string", "minLength": 1},
+                      "seed": {"type": "string", "minLength": 1},
                       "substrate": {"type": "string", "enum": ["pinned_fork", "project_tests", "local_devnet"]},
-                      "failing_assertion": {"type": "string"},
-                      "observed_delta": {"type": "string"},
-                      "negative_control_passed": {"type": "boolean", "description": "Must be true for a broken verdict"},
-                      "oracle_can_fail": {"type": "boolean", "description": "Must be true for a broken verdict, proven by calibration"},
+                      "artifact": {"type": "string", "minLength": 1, "description": "Repository-relative test/PoC path or tool-returned reproduction artifact"},
+                      "failing_assertion": {"type": "string", "minLength": 1},
+                      "observed_delta": {"type": "string", "minLength": 1},
+                      "negative_control_passed": {"const": true, "description": "The valid-path negative control did not trigger"},
+                      "oracle_can_fail": {"const": true, "description": "The calibration mutant proved the oracle can fail"},
                       "reproducibility_class": {"type": "string", "enum": ["deterministic", "seeded_replayable", "schedule_or_environment_dependent", "statistical", "observational_only"]},
                       "attempts": {"type": "integer", "minimum": 1},
                       "successes": {"type": "integer", "minimum": 1},
-                      "stopping_rule": {"type": "string", "description": "Required for schedule_or_environment_dependent, statistical, or observational_only results"}
-                    }
+                      "stopping_rule": {"type": "string", "minLength": 1, "description": "Required for schedule_or_environment_dependent, statistical, or observational_only results"}
+                    },
+                    "allOf": [
+                      {"if": {"required": ["reproducibility_class"], "properties": {"reproducibility_class": {"enum": ["schedule_or_environment_dependent", "statistical", "observational_only"]}}}, "then": {"required": ["stopping_rule"]}}
+                    ]
                   }
-                }
+                },
+                "allOf": [
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "broken"}}}, "then": {"required": ["fingerprint", "reproduction"]}},
+                  {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "untested"}}}, "then": {"required": ["missing_dependency"]}}
+                ]
               }
             },
             "limitations": {"type": "array", "items": {"type": "string"}}
@@ -297,6 +307,7 @@ spec:
         - name: blockchain-security-research-method
         - name: bug-bounty-reporting
         - name: trail-of-bits-fp-check
+        - name: trail-of-bits-variant-analysis
       objective: >-
         Assemble the report from {{tasks.quantify-impact-and-eligibility.output}} under one admission rule:
         a finding survives only when a named calibrated invariant broke, a reproducible failing assertion
@@ -312,6 +323,8 @@ spec:
         invariant/actor/state/transition bounds with record_security_coverage. Every confirmed root cause must
         have create_security_variant_sweep followed by complete_security_variant_sweep with scope and evidence;
         blocked or inconclusive sweeps stay internal without an audited human override. Call
-        get_security_campaign_status, reconcile durable gaps and budget decisions, then submit the final report.
+        get_security_campaign_status and reconcile durable gaps and budget decisions. Hand every technically
+        confirmed finding to the configured post-script pipeline and report packaging separately from confirmation;
+        only a successfully persisted post-script artifact may be called bundle-ready. Then submit the final report.
       dependsOn:
         - quantify-impact-and-eligibility

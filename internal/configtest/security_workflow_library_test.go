@@ -47,6 +47,28 @@ var blockchainSecurityWorkflowLibrary = []string{
 	"solana-defi-program-review",
 }
 
+// programLinkedSecurityWorkflows are the workflows selected by the shipped
+// SecurityProgram scan targets. These are bounty-facing entry points, so a
+// prompt-only finding must not bypass local proof, sibling search, campaign
+// reconciliation, or the post-script bundle handoff.
+var programLinkedSecurityWorkflows = []string{
+	"aptos-move-security-review",
+	"blockchain-protocol-audit",
+	"bounty-hunt-evm",
+	"bridge-l2-zk-security-review",
+	"cosmos-abci-halt-review",
+	"cross-chain-messaging-review",
+	"evm-lending-cdp-review",
+	"evm-orderbook-settlement-review",
+	"flow-cadence-review",
+	"mpc-cryptography-security-review",
+	"near-contract-review",
+	"rollup-stack-review",
+	"solana-defi-program-review",
+	"substrate-xcm-security-review",
+	"wallet-security-review",
+}
+
 var fullAccessWebWorkflowLibrary = []string{
 	"web-access-control-assessment",
 	"web-api-assessment",
@@ -212,6 +234,49 @@ func TestBlockchainSecurityWorkflowsUseResearchMethod(t *testing.T) {
 	}
 }
 
+func TestProgramLinkedWorkflowsCloseTheFindingLifecycle(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range programLinkedSecurityWorkflows {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var workflow triggersv1alpha1.SecurityWorkflow
+			readBootstrapAsset(t, "securityworkflows", name, &workflow)
+			var hasNegativeControlSchema, hasOracleSchema, hasVariantSweepOwner bool
+			for _, task := range workflow.Spec.Tasks {
+				schema := strings.ToLower(task.OutputSchema)
+				hasNegativeControlSchema = hasNegativeControlSchema || strings.Contains(schema, "negative_control_passed")
+				hasOracleSchema = hasOracleSchema || strings.Contains(schema, "oracle_can_fail") || strings.Contains(schema, "oracle_calibrated")
+				objective := strings.ToLower(task.Objective)
+				hasTaskVariantSkill := false
+				for _, ref := range task.SkillRefs {
+					hasTaskVariantSkill = hasTaskVariantSkill || ref.Name == "trail-of-bits-variant-analysis"
+				}
+				hasVariantSweepOwner = hasVariantSweepOwner ||
+					(hasTaskVariantSkill && strings.Contains(objective, "create_security_variant_sweep") &&
+						strings.Contains(objective, "complete_security_variant_sweep"))
+			}
+			if !hasNegativeControlSchema || !hasOracleSchema {
+				t.Error("program-linked workflow must schema-enforce negative-control and oracle calibration evidence")
+			}
+			if !hasVariantSweepOwner {
+				t.Error("one task must own the variant-analysis skill and durable create/complete sweep persistence")
+			}
+			triage := workflow.Spec.Tasks[len(workflow.Spec.Tasks)-1]
+			if triage.Name != "triage-and-report" {
+				t.Fatalf("last task = %q, want triage-and-report", triage.Name)
+			}
+			final := strings.ToLower(triage.Objective)
+			for _, marker := range []string{"get_security_campaign_status", "bundle"} {
+				if !strings.Contains(final, marker) {
+					t.Errorf("final triage is missing %q", marker)
+				}
+			}
+		})
+	}
+}
+
 var evidenceContractBlockchainWorkflows = []string{
 	"algorand-security-review",
 	"aptos-move-security-review",
@@ -239,6 +304,10 @@ func TestBlockchainValidationEvidenceContracts(t *testing.T) {
 	invalidFalsePositive := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"fingerprint":"finding-3","verdict":"false_positive","attempts":1}],"uncovered":[],"limitations":[]}`
 	invalidEmptyEvidence := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"fingerprint":"finding-1","verdict":"confirmed","attempts":1,"reachability":"","impact":"loss","reproduction":{"command":"test","tool_run":"run-1","failing_assertion":"invariant","observed_delta":"delta","negative_control_passed":true,"oracle_can_fail":true}}],"uncovered":[],"limitations":[]}`
 	invalidControls := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"fingerprint":"finding-1","verdict":"confirmed","attempts":1,"reachability":"reachable","impact":"loss","reproduction":{"command":"test","tool_run":"run-1","failing_assertion":"invariant","observed_delta":"delta","negative_control_passed":false,"oracle_can_fail":false}}],"uncovered":[],"limitations":[]}`
+	trackedConfirmed := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"candidate_id":"candidate-1","fingerprint":"finding-1","hypothesis_id":"hypothesis-1","hypothesis_version":2,"hypothesis_status":"promoted","hypothesis_result":"positive","verdict":"confirmed","attempts":1,"reachability":"public entry point reaches transition","impact":"one unit leaves custody","coverage_ids":["coverage-1"],"reproduction":{"setup":"build pinned revision","environment":"local fixture with dummy assets","command":"project-test candidate-1","test_path":"test/candidate_1","tool_run":"run-1","failing_assertion":"conservation invariant","expected_output":"transition rejected","observed_output":"transition accepted","observed_delta":"protocol=-1 attacker=+1","negative_control_passed":true,"oracle_calibrated":true}}],"coverage_records":[],"uncovered":[],"limitations":[]}`
+	trackedTriaged := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"candidate_id":"candidate-2","fingerprint":"finding-2","hypothesis_id":"hypothesis-2","hypothesis_version":2,"hypothesis_status":"blocked","hypothesis_result":"inconclusive","verdict":"triaged","attempts":1,"blocker":"required local toolchain is unavailable"}],"coverage_records":[],"uncovered":[],"limitations":[]}`
+	trackedFalsePositive := `{"examined":[],"skipped":[],"unsupported":[],"inconclusive":[],"candidate_results":[{"candidate_id":"candidate-3","fingerprint":"finding-3","hypothesis_id":"hypothesis-3","hypothesis_version":2,"hypothesis_status":"falsified","hypothesis_result":"negative","verdict":"false_positive","attempts":1,"disproof":"production caller verifies signer"}],"coverage_records":[],"uncovered":[],"limitations":[]}`
+	trackedInvalidControls := strings.Replace(trackedConfirmed, `"negative_control_passed":true`, `"negative_control_passed":false`, 1)
 
 	for _, name := range evidenceContractBlockchainWorkflows {
 		t.Run(name, func(t *testing.T) {
@@ -255,15 +324,24 @@ func TestBlockchainValidationEvidenceContracts(t *testing.T) {
 			if validation == nil {
 				t.Fatal("missing validate-triage-and-coverage task")
 			}
-			if !strings.Contains(validation.Objective, "never submit an unvalidated candidate") {
+			objective := strings.ToLower(validation.Objective)
+			conservesCandidates := strings.Contains(objective, "never submit an unvalidated candidate") ||
+				(strings.Contains(objective, "every canonical candidate") && strings.Contains(objective, "exactly one"))
+			if !conservesCandidates {
 				t.Error("validation objective must cover every candidate intended for the final findings list")
 			}
-			for _, output := range []string{validConfirmed, validTriaged, validFalsePositive} {
+			validOutputs := []string{validConfirmed, validTriaged, validFalsePositive}
+			invalidOutputs := []string{invalidConfirmed, invalidTriaged, invalidFalsePositive, invalidEmptyEvidence, invalidControls}
+			if strings.Contains(validation.OutputSchema, `"coverage_records"`) {
+				validOutputs = []string{trackedConfirmed, trackedTriaged, trackedFalsePositive}
+				invalidOutputs = []string{trackedInvalidControls}
+			}
+			for _, output := range validOutputs {
 				if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(validation.OutputSchema, output); err != nil {
 					t.Errorf("valid evidence output rejected: %v", err)
 				}
 			}
-			for _, output := range []string{invalidConfirmed, invalidTriaged, invalidFalsePositive, invalidEmptyEvidence, invalidControls} {
+			for _, output := range invalidOutputs {
 				if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(validation.OutputSchema, output); err == nil {
 					t.Errorf("evidence-free verdict accepted: %s", output)
 				}
@@ -548,6 +626,14 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 	}
 
 	validation := byName["validate-high-impact-exploits"]
+	validConfirmed := `[{"fingerprint":"finding-1","verdict":"confirmed","method":"forge_local","execution_status":"findings","summary":"reproduced","reachability":"public deposit path","impact":"protocol loses one unit","reproduction":{"setup":"install pinned dependencies","environment":"local anvil with dummy assets","command":"forge test --match-test testExploit","test_path":"test/Exploit.t.sol","failing_assertion":"asset conservation","expected_output":"transaction reverts","observed_output":"test passes and attacker balance increases","observed_delta":"protocol=-1 attacker=+1","negative_control_passed":true,"oracle_can_fail":true}}]`
+	invalidConfirmed := `[{"fingerprint":"finding-1","verdict":"confirmed","method":"local_trace","execution_status":"not_run","summary":"reasoning only","reachability":"assumed","impact":"loss","reproduction":{"setup":"none","environment":"none","command":"echo plausible","test_path":"test/Exploit.t.sol","failing_assertion":"asset conservation","expected_output":"fail","observed_output":"not run","observed_delta":"unknown","negative_control_passed":false,"oracle_can_fail":false}}]`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(validation.OutputSchema, validConfirmed); err != nil {
+		t.Errorf("complete confirmed EVM evidence rejected: %v", err)
+	}
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(validation.OutputSchema, invalidConfirmed); err == nil {
+		t.Error("EVM validation schema accepted confirmation without passing controls")
+	}
 	if !slices.Contains(validation.DependsOn, "bounded-halmos-symbolic-tests") || !strings.Contains(validation.Objective, "{{tasks.bounded-halmos-symbolic-tests.output}}") {
 		t.Error("high-impact validation must consume bounded Halmos results directly")
 	}

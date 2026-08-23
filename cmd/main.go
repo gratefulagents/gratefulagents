@@ -419,11 +419,13 @@ func main() {
 	}
 
 	securityFindingStore, _ := sharedStateStore.(store.SecurityFindingStore)
+	securityFindingArtifactStore, _ := sharedStateStore.(store.SecurityFindingArtifactStore)
 	if err := (&triggercontroller.SecurityScanReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
 		StateStore:       sharedStateStore,
 		Findings:         securityFindingStore,
+		Artifacts:        securityFindingArtifactStore,
 		Recorder:         mgr.GetEventRecorder("securityscan-controller"),
 		DashboardBaseURL: strings.TrimSpace(os.Getenv("DASHBOARD_PUBLIC_BASE_URL")),
 	}).SetupWithManager(mgr); err != nil {
