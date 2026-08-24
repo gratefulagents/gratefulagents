@@ -99,24 +99,30 @@ def run(seed: int = 320, max_cases: int = 15) -> dict[str, Any]:
     }
 
 
-def stage_blind(stage_dir: Path, assignment_file: Path, seed: int = 320) -> dict[str, Any]:
-    """Build the isolated filesystem mounted into a blind scanning run."""
+def stage_blind(
+    stage_dir: Path,
+    assignment_file: Path,
+    seed: int = 320,
+    snapshot_role: str = "candidate",
+) -> dict[str, Any]:
+    """Build one role-neutral agent mount for discovery or fixed-control scoring."""
     manifest = load_manifest()
     if seed != manifest["seed"]:
         raise BenchmarkError(f"seed must be {manifest['seed']}")
+    if snapshot_role not in ("candidate", "control"):
+        raise BenchmarkError("snapshot-role must be candidate or control")
     if stage_dir.exists():
         raise BenchmarkError(f"stage directory already exists: {stage_dir}")
     if assignment_file.resolve().is_relative_to(stage_dir.resolve()):
         raise BenchmarkError("assignment file must remain outside the agent stage")
     stage_dir.mkdir(parents=True)
-    rng = random.Random(seed)
     assignments: dict[str, Any] = {
         "benchmark_digest": LOCK_PATH.read_text(encoding="ascii").strip(),
         "cases": {},
         "seed": seed,
     }
     for case in manifest["cases"]:
-        role = rng.choice(("candidate", "control"))
+        role = snapshot_role
         filename = case["snapshots"][role]
         case_root = (BENCHMARK_ROOT / "staged" / case["id"]).resolve()
         source = (case_root / filename).resolve()
@@ -152,12 +158,13 @@ def main() -> int:
     parser.add_argument("--max-cases", type=int, default=15)
     parser.add_argument("--stage-dir", type=Path)
     parser.add_argument("--assignment-file", type=Path)
+    parser.add_argument("--snapshot-role", choices=("candidate", "control"), default="candidate")
     args = parser.parse_args()
     try:
         if args.stage_dir:
             if not args.assignment_file:
                 raise BenchmarkError("--assignment-file is required with --stage-dir")
-            result = stage_blind(args.stage_dir, args.assignment_file, args.seed)
+            result = stage_blind(args.stage_dir, args.assignment_file, args.seed, args.snapshot_role)
         else:
             if args.assignment_file:
                 raise BenchmarkError("--assignment-file requires --stage-dir")
@@ -166,7 +173,7 @@ def main() -> int:
         print(json.dumps({"error": str(error), "status": "error"}, sort_keys=True))
         return 2
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
-    return 0 if result["status"] == "pass" else 1
+    return 0 if result["status"] in ("pass", "staged") else 1
 
 
 if __name__ == "__main__":

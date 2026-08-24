@@ -142,12 +142,40 @@ class BenchmarkTests(unittest.TestCase):
             self.assertTrue(assignment.is_file())
             private_assignment = json.loads(assignment.read_text(encoding="utf-8"))
             self.assertEqual(64, len(private_assignment["selection_digest"]))
+            self.assertEqual({"candidate"}, {entry["role"] for entry in private_assignment["cases"].values()})
             for case in self.manifest["cases"]:
                 exposed = stage / case["id"]
                 self.assertEqual({"target.py", "input.json", "SPEC.md"}, {path.name for path in exposed.iterdir()})
                 self.assertFalse(any("snapshot_" in path.name for path in exposed.iterdir()))
             self.assertFalse((stage / "evaluator").exists())
             self.assertFalse((stage / ".git").exists())
+
+    def test_cli_staging_succeeds_and_fixed_controls_are_separate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stage = root / "fixed-mount"
+            assignment = root / "private" / "fixed.json"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "security-benchmark/evaluator/runner.py",
+                    "--stage-dir",
+                    str(stage),
+                    "--assignment-file",
+                    str(assignment),
+                    "--snapshot-role",
+                    "control",
+                ],
+                cwd=REPOSITORY_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertEqual("staged", json.loads(completed.stdout)["status"])
+            private = json.loads(assignment.read_text(encoding="utf-8"))
+            self.assertEqual({"control"}, {entry["role"] for entry in private["cases"].values()})
 
     def test_mutation_is_distinct_from_candidate_and_control(self):
         for case in self.manifest["cases"]:

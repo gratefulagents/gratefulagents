@@ -7,12 +7,20 @@ This directory contains 15 deterministic, self-contained vulnerable/fixed pairs 
 The repository's `staged/` tree is evaluator input and is **not** mounted into a scanning run. Create a blind mount plus an evaluator-only assignment outside it:
 
 ```sh
+# Discovery/recall run: all 15 vulnerable snapshots, with roles hidden from the agent.
 python3 security-benchmark/evaluator/runner.py --seed 320 \
-  --stage-dir /tmp/benchmark-agent-mount \
-  --assignment-file /tmp/benchmark-evaluator/assignment.json
+  --stage-dir /tmp/benchmark-discovery-mount \
+  --assignment-file /tmp/benchmark-evaluator/discovery.json \
+  --snapshot-role candidate
+
+# False-positive run: all 15 fixed controls in a separate, equally blind run.
+python3 security-benchmark/evaluator/runner.py --seed 320 \
+  --stage-dir /tmp/benchmark-fixed-mount \
+  --assignment-file /tmp/benchmark-evaluator/fixed.json \
+  --snapshot-role control
 ```
 
-The generated mount contains exactly one neutrally named `target.py`, its public `SPEC.md`, and `input.json` per opaque case. It never contains `evaluator/`, sibling snapshots, original filenames, role assignments, git history, or this provenance document. Mount only that generated directory into the scanning agent; the assignment remains evaluator-only.
+Each generated mount contains exactly one neutrally named `target.py`, its public `SPEC.md`, and `input.json` per opaque case. It never contains `evaluator/`, sibling snapshots, original filenames, role assignments, git history, or this provenance document. Mount only one generated directory into its scanning run; assignments remain evaluator-only. Keeping discovery and fixed-control runs separate ensures recall is calculated over all 15 vulnerable cases while false-positive rate is calculated over all 15 fixed controls; mixing roles in one unlabelled denominator would make the promotion threshold invalid.
 
 `evaluator/manifest.json` privately maps candidate, fixed control, and mutation; names the invariant and least-privileged attacker; records controlled input/state/order, minimal sequence, expected guard, applicability, oracle, and source reference; and pins every snapshot's SHA256. `manifest.sha256` pins the metadata before it is parsed. The runner verifies both layers before executing any fixture.
 
