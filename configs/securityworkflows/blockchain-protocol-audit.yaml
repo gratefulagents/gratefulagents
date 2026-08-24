@@ -37,13 +37,23 @@ spec:
         key-custody service, backup, or recovery component. Set a specialist flag false only when repository
         evidence establishes that its entire area is absent; uncertainty must route to review. This is inventory,
         not a vulnerability hunt, and it must not claim that builds, tests, analyzers, fuzzers, provers, or
-        network checks were executed.
+        network checks were executed. This task is the mandatory orientation gate. Before publishing it,
+        also model assets and liabilities; roles and authorities; public, peer, and privileged entry points;
+        trust boundaries and external dependencies; retry, rollback, reorg, upgrade, migration, and recovery
+        transitions; specification, source, artifact, and deployment representations; a portfolio of named
+        security properties; applicable prior art; conflicting or unresolved assumptions; and available
+        tests, fuzz targets, simulators, reference implementations, and authorized evidence sources. Never
+        infer undocumented intent. Set evidence_class to source_only unless artifact or deployment evidence
+        is actually verified, and list the conclusion limits caused by every missing item.
       outputSchema: |-
         {
           "type": "object",
-          "required": ["revision", "scope", "platforms", "specialists", "limitations"],
+          "required": ["orientation_id", "revision", "exact_target", "evidence_class", "scope", "assets_and_liabilities", "roles_and_authorities", "entry_points", "trust_boundaries", "state_transitions", "representations", "properties", "prior_art", "assumptions", "research_substrates", "platforms", "specialists", "limitations"],
           "properties": {
+            "orientation_id": {"type": "string", "minLength": 1},
             "revision": {"type": "string"},
+            "exact_target": {"type":"object","required":["source","dependencies","compiler_or_protocol"],"properties":{"source":{"type":"string","minLength":1},"dependencies":{"type":"array","items":{"type":"string"}},"compiler_or_protocol":{"type":"string","minLength":1}}},
+            "evidence_class": {"type":"string","enum":["source_only","artifact_verified","deployment_verified"]},
             "scope": {
               "type": "object",
               "required": ["in_scope", "out_of_scope", "deployment_artifacts"],
@@ -53,6 +63,16 @@ spec:
                 "deployment_artifacts": {"type": "string", "enum": ["available", "partial", "unavailable"]}
               }
             },
+            "assets_and_liabilities": {"type":"array","minItems":1,"items":{"type":"string","minLength":1}},
+            "roles_and_authorities": {"type":"array","minItems":1,"items":{"type":"string","minLength":1}},
+            "entry_points": {"type":"object","required":["public","peer","privileged"],"properties":{"public":{"type":"array","items":{"type":"string"}},"peer":{"type":"array","items":{"type":"string"}},"privileged":{"type":"array","items":{"type":"string"}}}},
+            "trust_boundaries": {"type":"array","minItems":1,"items":{"type":"string","minLength":1}},
+            "state_transitions": {"type":"array","minItems":1,"items":{"type":"object","required":["from","action","to","rollback_or_recovery"],"properties":{"from":{"type":"string"},"action":{"type":"string"},"to":{"type":"string"},"rollback_or_recovery":{"type":"string"}}}},
+            "representations": {"type":"object","required":["specification","source","artifact","deployment"],"properties":{"specification":{"type":"string"},"source":{"type":"string"},"artifact":{"type":"string"},"deployment":{"type":"string"}}},
+            "properties": {"type":"array","minItems":1,"items":{"type":"object","required":["property_id","invariant"],"properties":{"property_id":{"type":"string","minLength":1},"invariant":{"type":"string","minLength":1}}}},
+            "prior_art": {"type":"array","items":{"type":"object","required":["reference","applicability"],"properties":{"reference":{"type":"string"},"applicability":{"type":"string"}}}},
+            "assumptions": {"type":"array","items":{"type":"object","required":["statement","status"],"properties":{"statement":{"type":"string"},"status":{"type":"string","enum":["verified","unresolved","conflicting"]}}}},
+            "research_substrates": {"type":"object","required":["tests","fuzz_targets","simulators","reference_implementations","authorized_sources"],"properties":{"tests":{"type":"array","items":{"type":"string"}},"fuzz_targets":{"type":"array","items":{"type":"string"}},"simulators":{"type":"array","items":{"type":"string"}},"reference_implementations":{"type":"array","items":{"type":"string"}},"authorized_sources":{"type":"array","items":{"type":"string"}}}},
             "platforms": {
               "type": "array",
               "minItems": 10,
@@ -108,23 +128,35 @@ spec:
         token, proxy-layout, and contract access-control review to smart-contract-review. Publish the complete
         risk-ranked inventory, not findings. Sort the array by strictly ascending, unique risk_rank (one is
         highest risk); later fan-out consumes that array order and reviews every surface. Preserve the
-        inventory's platform identifier on every surface and do not map a not_detected platform.
+        inventory's platform identifier on every surface and do not map a not_detected platform. Derive each
+        unit from an orientation property or transition, never a generic checklist. State its question,
+        controlled input/state/order, production path and expected guard, manual trace or experiment,
+        falsifying observation, stopping rule, and evidence bounds.
       dependsOn: [detect-platforms-and-components]
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["surface_id", "platform", "domain", "entrypoint", "file", "attacker", "asset_or_invariant", "control", "risk_rank"],
+            "required": ["surface_id", "orientation_id", "property_id", "question", "platform", "domain", "entrypoint", "file", "attacker", "controlled_input_state_order", "asset_or_invariant", "production_path", "control", "experiment", "falsifier", "stopping_rule", "evidence_bounds", "risk_rank"],
             "properties": {
               "surface_id": {"type": "string", "description": "Stable short identifier for this review unit"},
+              "orientation_id": {"type":"string","minLength":1},
+              "property_id": {"type":"string","minLength":1},
+              "question": {"type":"string","minLength":1},
               "platform": {"type": "string", "enum": ["evm-protocol", "solana-anchor", "cosmos-cosmwasm-ibc", "substrate-polkadot-xcm", "aptos-move", "sui-move", "cairo-starknet", "ton", "algorand", "bitcoin-lightning"]},
               "domain": {"type": "string", "enum": ["consensus", "rollup", "zk", "transaction", "p2p", "bridge", "execution", "signer", "wallet", "economics", "offchain", "storage", "native", "deployment", "release"]},
               "entrypoint": {"type": "string", "description": "Production handler, message, method, hook, or build entry point"},
               "file": {"type": "string", "description": "Repository-relative implementation file"},
               "attacker": {"type": "string", "description": "Least-privileged principal able to influence this surface"},
+              "controlled_input_state_order": {"type":"string","minLength":1},
               "asset_or_invariant": {"type": "string", "description": "Funds, keys, safety, liveness, state, or release property protected here"},
+              "production_path": {"type":"array","minItems":1,"items":{"type":"string","minLength":1}},
               "control": {"type": "string", "description": "Validation or authorization expected to enforce the invariant"},
+              "experiment": {"type":"string","minLength":1},
+              "falsifier": {"type":"string","minLength":1},
+              "stopping_rule": {"type":"string","minLength":1},
+              "evidence_bounds": {"type":"string","minLength":1},
               "risk_rank": {"type": "integer", "minimum": 1, "description": "One is highest risk; ranks are unique and the array is strictly ascending by this field"}
             }
           }
@@ -164,6 +196,10 @@ spec:
         admission, replay, synchronization, estimation, tracing, recovery, and upgrade paths that perform the
         same operation. Report only a concrete path where the stated control is absent or bypassable, with
         every hop and the resulting fund, key, safety, liveness, or node-compromise impact at file:line. Return
+        Every significant tool or harness run must name this surface_id and property_id and record immutable
+        target, evidence class, oracle calibration, exact command and environment, seed/corpus, actors, states,
+        sequence depth, attempts, stopping rule, expected falsifier, observed result, semantic coverage, and
+        limitations. Clean is only not_found_under; error, timeout, or partial is inconclusive. Return
         exactly one envelope per input, preserving its absolute recordIndex, with result containing surface_id,
         status, fingerprints, and summary. Set status to reviewed when the review completes or blocked when it
         cannot complete. List every finding fingerprint returned by report_security_finding; use an empty
@@ -1091,7 +1127,7 @@ spec:
         skipped, unsupported, error, timeout, and partial targets visible.
       dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
       outputSchema: |-
-        {"type":"object","additionalProperties":false,"required":["inventory","runs","uncovered","limitations"],"properties":{"inventory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","decision","reason"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"decision":{"type":"string","enum":["selected","skipped","unsupported"]},"reason":{"type":"string"}}}},"runs":{"type":"array","maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["tool","target","revision","execution_status","tool_run","seed","duration","workers","corpus_provenance","artifacts","errors","limitations"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"revision":{"type":"string"},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"corpus_provenance":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
+        {"type":"object","additionalProperties":false,"required":["inventory","runs","uncovered","limitations"],"properties":{"inventory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","decision","reason"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"decision":{"type":"string","enum":["selected","skipped","unsupported"]},"reason":{"type":"string"}}}},"runs":{"type":"array","maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["tool","target","review_unit_id","property_id","evidence_class","revision","execution_status","tool_run","oracle_and_calibration","environment","actors_states_depth_attempts","stopping_rule","expected_falsifier","observed_result","semantic_coverage","seed","duration","workers","corpus_provenance","artifacts","errors","limitations"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"review_unit_id":{"type":"string","minLength":1},"property_id":{"type":"string","minLength":1},"evidence_class":{"type":"string","enum":["source_only","artifact_verified","deployment_verified"]},"revision":{"type":"string"},"execution_status":{"type":"string","enum":["not_found_under","findings","error","timeout","partial","unsupported"]},"tool_run":{"type":"string"},"oracle_and_calibration":{"type":"string","minLength":1},"environment":{"type":"string","minLength":1},"actors_states_depth_attempts":{"type":"string","minLength":1},"stopping_rule":{"type":"string","minLength":1},"expected_falsifier":{"type":"string","minLength":1},"observed_result":{"type":"string","minLength":1},"semantic_coverage":{"type":"string","minLength":1},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"corpus_provenance":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
 
     - name: validate-high-impact-findings
       role: exploit-validator
@@ -1191,6 +1227,71 @@ spec:
           }
         }
 
+    - name: independent-warden-challenge
+      role: security-reviewer
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      objective: >-
+        Independently challenge every confirmed critical or high-impact candidate in
+        {{tasks.validate-high-impact-findings.output}}. Work as a separate skeptic: reconstruct the production
+        path from the pinned orientation, target source, and raw local artifacts rather than summarizing the
+        reporting agent's conclusion. Attempt to disprove each of: production reachability; least-privileged
+        attacker control; guard absence or bypass; the unsafe transition; an observable invariant violation;
+        claimed impact and economic assumptions; and novelty, prior art, and program eligibility. Repeat the
+        smallest safe local experiment when possible and preserve disagreements. Emit one challenge record per
+        high-impact candidate. A candidate cannot remain confirmed when any challenge is disproved or unresolved;
+        blocked local evidence is inconclusive, never approval. Do not contact or mutate a live network.
+      dependsOn: [detect-platforms-and-components, validate-high-impact-findings]
+      outputSchema: |-
+        {
+          "type":"array",
+          "items":{
+            "type":"object","additionalProperties":false,
+            "required":["fingerprint","independent_reconstruction","production_reachability","attacker_control","guard_absence_or_bypass","unsafe_transition","observable_invariant_violation","impact_and_economics","novelty_prior_art_eligibility","verdict","limitations"],
+            "properties":{
+              "fingerprint":{"type":"string","minLength":1},
+              "independent_reconstruction":{"type":"string","minLength":1},
+              "production_reachability":{"type":"string","enum":["proven","disproved","unresolved"]},
+              "attacker_control":{"type":"string","enum":["proven","disproved","unresolved"]},
+              "guard_absence_or_bypass":{"type":"string","enum":["proven","disproved","unresolved"]},
+              "unsafe_transition":{"type":"string","enum":["proven","disproved","unresolved"]},
+              "observable_invariant_violation":{"type":"string","enum":["proven","disproved","unresolved"]},
+              "impact_and_economics":{"type":"string","enum":["proven","disproved","unresolved"]},
+              "novelty_prior_art_eligibility":{"type":"string","enum":["proven","disproved","unresolved"]},
+              "verdict":{"type":"string","enum":["upheld","disproved","inconclusive"]},
+              "limitations":{"type":"array","items":{"type":"string"}}
+            },
+            "allOf":[
+              {"if":{"properties":{"verdict":{"const":"upheld"}}},"then":{"properties":{
+                "production_reachability":{"const":"proven"},
+                "attacker_control":{"const":"proven"},
+                "guard_absence_or_bypass":{"const":"proven"},
+                "unsafe_transition":{"const":"proven"},
+                "observable_invariant_violation":{"const":"proven"},
+                "impact_and_economics":{"const":"proven"},
+                "novelty_prior_art_eligibility":{"const":"proven"}
+              }}}
+            ]
+          }
+        }
+
+    - name: merge-validation-and-warden
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+      objective: >-
+        Compactly join each disposition in {{tasks.validate-high-impact-findings.output}} with its matching
+        independent decision in {{tasks.independent-warden-challenge.output}}. Preserve every fingerprint,
+        validation verdict, warden verdict, disagreement, blocker, and limitation. Do not confirm a high-impact
+        candidate unless validation confirmed it and every warden dimension proved it.
+      dependsOn: [validate-high-impact-findings, independent-warden-challenge]
+      outputSchema: |-
+        {"type":"object","required":["dispositions","limitations"],"properties":{"dispositions":{"type":"array","items":{"type":"object","required":["fingerprint","validation_verdict","warden_verdict"],"properties":{"fingerprint":{"type":"string"},"validation_verdict":{"type":"string"},"warden_verdict":{"type":"string","enum":["upheld","disproved","inconclusive","not_required"]},"blocker":{"type":"string"}}}},"limitations":{"type":"array","items":{"type":"string"}}}}
+
     - name: account-protocol-and-validation-coverage
       role: finding-triager
       category: triage
@@ -1198,11 +1299,12 @@ spec:
         - name: blockchain-security-research-method
       objective: >-
         Compare the complete inventory in {{tasks.map-protocol-surfaces.output}} with every result in
-        {{tasks.review-critical-surface.output}} and {{tasks.validate-high-impact-findings.output}}. Produce a
+        {{tasks.review-critical-surface.output}}, and compact joined validation/warden decisions
+        {{tasks.merge-validation-and-warden.output}}. Produce a
         compact ledger naming reviewed and blocked surface ids, inventory domains with no surface, confirmed,
         disproved, and still-triaged fingerprints, and validation limitations. Do not turn a blocked review,
         missing domain, timeout, tool failure, or unresolved candidate into a pass.
-      dependsOn: [map-protocol-surfaces, review-critical-surface, validate-high-impact-findings]
+      dependsOn: [map-protocol-surfaces, review-critical-surface, merge-validation-and-warden]
       outputSchema: |-
         {"type":"object","required":["reviewed_surfaces","blocked_surfaces","absent_domains","confirmed","false_positives","triaged","limitations"],"properties":{"reviewed_surfaces":{"type":"array","items":{"type":"string"}},"blocked_surfaces":{"type":"array","items":{"type":"string"}},"absent_domains":{"type":"array","items":{"type":"string"}},"confirmed":{"type":"array","items":{"type":"string"}},"false_positives":{"type":"array","items":{"type":"string"}},"triaged":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
 
@@ -1220,7 +1322,7 @@ spec:
         work to examined.
       dependsOn: [account-protocol-and-validation-coverage, account-domain-coverage, run-upstream-fuzz-campaigns]
       outputSchema: |-
-        {"type":"object","required":["surface_validation","domains","native_fuzz"],"properties":{"surface_validation":{"type":"object"},"domains":{"type":"array","minItems":12,"maxItems":12},"native_fuzz":{"type":"object","additionalProperties":false,"required":["inventory","runs","uncovered","limitations"],"properties":{"inventory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","decision","reason"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"decision":{"type":"string","enum":["selected","skipped","unsupported"]},"reason":{"type":"string"}}}},"runs":{"type":"array","maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["tool","target","revision","execution_status","tool_run","seed","duration","workers","corpus_provenance","artifacts","errors","limitations"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"revision":{"type":"string"},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"corpus_provenance":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}}}
+        {"type":"object","required":["surface_validation","domains","native_fuzz"],"properties":{"surface_validation":{"type":"object"},"domains":{"type":"array","minItems":12,"maxItems":12},"native_fuzz":{"type":"object","additionalProperties":false,"required":["inventory","runs","uncovered","limitations"],"properties":{"inventory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","decision","reason"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"decision":{"type":"string","enum":["selected","skipped","unsupported"]},"reason":{"type":"string"}}}},"runs":{"type":"array","maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["tool","target","review_unit_id","property_id","evidence_class","revision","execution_status","tool_run","oracle_and_calibration","environment","actors_states_depth_attempts","stopping_rule","expected_falsifier","observed_result","semantic_coverage","seed","duration","workers","corpus_provenance","artifacts","errors","limitations"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"review_unit_id":{"type":"string","minLength":1},"property_id":{"type":"string","minLength":1},"evidence_class":{"type":"string","enum":["source_only","artifact_verified","deployment_verified"]},"revision":{"type":"string"},"execution_status":{"type":"string","enum":["not_found_under","findings","error","timeout","partial","unsupported"]},"tool_run":{"type":"string"},"oracle_and_calibration":{"type":"string","minLength":1},"environment":{"type":"string","minLength":1},"actors_states_depth_attempts":{"type":"string","minLength":1},"stopping_rule":{"type":"string","minLength":1},"expected_falsifier":{"type":"string","minLength":1},"observed_result":{"type":"string","minLength":1},"semantic_coverage":{"type":"string","minLength":1},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"corpus_provenance":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}}}
 
     - name: triage-and-report
       role: finding-triager
@@ -1234,9 +1336,10 @@ spec:
         Produce exactly one final report from the complete protocol/domain ledger
         {{tasks.account-complete-protocol-coverage.output}}, chain ledger
         {{tasks.account-chain-coverage.output}}, and cross-system ledger
-        {{tasks.account-cross-system-coverage.output}}. Call list_security_findings and re-read each concrete
+        {{tasks.account-cross-system-coverage.output}}. The complete protocol ledger already contains the
+        independent warden decisions. Call list_security_findings and re-read each concrete
         attacker path and file:line before keeping it. Keep as submitted findings only candidates whose verdict
-        is confirmed in the complete protocol/domain ledger; place unresolved candidates in a clearly
+        is confirmed in the complete protocol/domain ledger and upheld by the warden when high-impact; place unresolved candidates in a clearly
         non-finding appendix with conspicuous blockers. Reject claims that assume a modified binary, pre-existing operator compromise,
         impossible state, or a validation performed elsewhere, and merge duplicates sharing one root cause.
         Rank unauthenticated consensus failure or direct fund loss first, followed by persistent state
