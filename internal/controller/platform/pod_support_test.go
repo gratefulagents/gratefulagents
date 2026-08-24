@@ -1186,6 +1186,39 @@ func TestBuildCommonPodSpecDockerInDocker(t *testing.T) {
 	}
 }
 
+// TestDockerInDockerDisablesPrivateProcfsUserNamespace pins the compatibility
+// rule for rootful dockerd. A privileged container inside hostUsers=false is
+// still constrained by the pod user namespace and fails while mounting
+// securityfs and creating cgroups, leaving the worker stuck initializing.
+func TestDockerInDockerDisablesPrivateProcfsUserNamespace(t *testing.T) {
+	run := &platformv1alpha1.AgentRun{
+		Spec: platformv1alpha1.AgentRunSpec{
+			Repository:     platformv1alpha1.RepositoryContext{URL: "https://github.com/example/repo.git"},
+			Model:          "gpt-5.4",
+			DockerInDocker: true,
+		},
+	}
+	podSpec := buildCommonPodSpec(run, "sa", []string{"agent", "run"}, nil, nil, nil)
+	profile := &platformv1alpha1.RuntimeProfile{
+		Spec: platformv1alpha1.RuntimeProfileSpec{
+			Sandbox: &platformv1alpha1.RuntimeProfileSandbox{EnablePrivateProcfs: true},
+		},
+	}
+
+	applyRuntimeProfileSandboxOverrides(&podSpec, profile, "")
+
+	if podSpec.HostUsers != nil {
+		t.Fatalf("HostUsers = %v, want unset so privileged rootful dockerd uses the host user namespace", *podSpec.HostUsers)
+	}
+	workerSecurityContext := podSpec.Containers[0].SecurityContext
+	if workerSecurityContext != nil && workerSecurityContext.ProcMount != nil {
+		t.Fatalf("worker ProcMount = %q, want default when private procfs is incompatible with DinD", *workerSecurityContext.ProcMount)
+	}
+	if !podSpecHasDockerInDocker(&podSpec) {
+		t.Fatal("podSpecHasDockerInDocker = false, want true")
+	}
+}
+
 // TestBuildCommonPodSpecDockerInDockerOffByDefault pins the fail-safe default:
 // runs without the admin-gated opt-in get no privileged sidecar and no
 // DOCKER_HOST wiring.

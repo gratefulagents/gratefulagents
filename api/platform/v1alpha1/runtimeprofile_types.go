@@ -101,6 +101,9 @@ type RuntimeProfileSandbox struct {
 	// It requires node, container-runtime, and volume support for Kubernetes pod
 	// user namespaces and a Pod Security policy that permits Unmasked procMount.
 	// The worker's existing procfs is never exposed inside the command sandbox.
+	// DockerInDocker takes precedence when enabled because rootful dockerd cannot
+	// run in a pod user namespace; in that case the command sandbox remains
+	// enabled, but the pod user namespace and private-procfs setup are skipped.
 	// +optional
 	EnablePrivateProcfs bool `json:"enablePrivateProcfs,omitempty"`
 	// CommandSandbox configures the same-pod subprocess sandbox used by model-controlled commands.
