@@ -570,7 +570,7 @@ func TestBountyLaneSeverityFloorFollowsTheProgramsPublishedImpacts(t *testing.T)
 			name:         "program publishing only high and above rejects a medium finding",
 			impacts:      bountyLaneProgram(),
 			impactClause: bountyLaneCriticalImp,
-			wantMessage:  `lowest published severity "high"`,
+			wantMessage:  `effective program severity floor "high"`,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

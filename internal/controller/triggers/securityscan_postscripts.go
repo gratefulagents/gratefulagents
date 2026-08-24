@@ -723,15 +723,13 @@ func (e *securityScanExecutionEngine) loadPostScriptFinding(ctx context.Context,
 	return e.r.Findings.GetSecurityFinding(ctx, e.scan.Namespace, id)
 }
 
-// securityProgramPayableFloor returns the lowest severity the governing program
-// itself publishes, which is the only severity floor that means anything: a
-// program that publishes medium impacts pays for mediums, one that publishes
-// only high and critical does not. Without a governing program there is no
-// table to read, so the conservative high floor stands. It mirrors the floor
-// the packaging tool enforces, so a stage is never dispatched for a finding
-// the bundle gate would refuse afterwards.
+// securityProgramPayableFloor returns the effective report eligibility floor.
+// It follows the governing program's lowest published severity except that
+// critical-only programs and programs without a readable governing table use
+// the platform's medium default. It mirrors the packaging floor so a stage is
+// never dispatched for a finding the bundle gate would refuse afterwards.
 func securityProgramPayableFloor(program *triggersv1alpha1.SecurityProgramSpec) string {
-	floor := security.SeverityHigh
+	floor := security.SeverityMedium
 	if program == nil || len(program.InScopeImpacts) == 0 {
 		return floor
 	}
@@ -758,13 +756,19 @@ func securityProgramPayableFloor(program *triggersv1alpha1.SecurityProgramSpec) 
 			lowest, floor = rank, strings.TrimSpace(level)
 		}
 	}
+	// A critical-only table is too narrow to be useful as the default report
+	// threshold. Keep its published clauses intact, but let medium findings
+	// enter triage and report writing.
+	if floor == security.SeverityCritical {
+		return security.SeverityMedium
+	}
 	return floor
 }
 
 // securityScanPostScriptMatches evaluates a post-script's runOn predicate
 // against a finding, returning the reason on a non-match so the skip states
 // which status or severity failed the selector. payableFloor is the governing
-// program's own lowest published severity; actionable severity selectors never
+// effective program severity floor; actionable severity selectors never
 // dispatch below it, because two expensive AgentRuns whose result the bundle
 // gate will refuse are worse than not running them.
 func securityScanPostScriptMatches(runOn string, rec store.SecurityFindingRecord, payableFloor string) (bool, string) {
@@ -783,7 +787,7 @@ func securityScanPostScriptMatches(runOn string, rec store.SecurityFindingRecord
 			floor = payableFloor
 		}
 		if !security.SeverityAtLeast(rec.Severity, floor) {
-			return false, fmt.Sprintf("skipped: runOn %q does not match the finding's current severity %q at the governing program's lowest published severity %q (status %q)", runOn, rec.Severity, floor, rec.Status)
+			return false, fmt.Sprintf("skipped: runOn %q does not match the finding's current severity %q at the effective program severity floor %q (status %q)", runOn, rec.Severity, floor, rec.Status)
 		}
 	case "low-and-above-actionable":
 		floor := security.SeverityLow
@@ -791,7 +795,7 @@ func securityScanPostScriptMatches(runOn string, rec store.SecurityFindingRecord
 			floor = payableFloor
 		}
 		if !security.SeverityAtLeast(rec.Severity, floor) {
-			return false, fmt.Sprintf("skipped: runOn %q does not match the finding's current severity %q at the governing program's lowest published severity %q (status %q)", runOn, rec.Severity, floor, rec.Status)
+			return false, fmt.Sprintf("skipped: runOn %q does not match the finding's current severity %q at the effective program severity floor %q (status %q)", runOn, rec.Severity, floor, rec.Status)
 		}
 	}
 	return true, ""
@@ -995,11 +999,11 @@ func (e *securityScanExecutionEngine) postScriptJobsInFlight() bool {
 	return false
 }
 
-// payableSeverityFloor is the governing program's lowest published severity for
-// this execution.
+// payableSeverityFloor is the effective program severity floor for this
+// execution.
 func (e *securityScanExecutionEngine) payableSeverityFloor() string {
 	if e == nil || e.resolved == nil {
-		return security.SeverityHigh
+		return security.SeverityMedium
 	}
 	return securityProgramPayableFloor(e.resolved.program)
 }

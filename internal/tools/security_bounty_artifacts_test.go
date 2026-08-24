@@ -26,6 +26,27 @@ func TestValidatePoCFilesRejectsTraversalAndOversize(t *testing.T) {
 	}
 }
 
+func TestSecurityProgramSeverityFloorDefaultsCriticalOnlyAndMissingScopesToMedium(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		ctx  SecurityScanContext
+		want string
+	}{
+		"missing scope":     {want: "medium"},
+		"truncated scope":   {ctx: SecurityScanContext{ImpactsTruncated: true, InScopeImpacts: []SecurityProgramImpactClause{{Level: "critical"}}}, want: "medium"},
+		"critical only":     {ctx: SecurityScanContext{InScopeImpacts: []SecurityProgramImpactClause{{Level: "critical"}}}, want: "medium"},
+		"high and critical": {ctx: SecurityScanContext{InScopeImpacts: []SecurityProgramImpactClause{{Level: "critical"}, {Level: "high"}}}, want: "high"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := securityProgramSeverityFloor(tc.ctx); got != tc.want {
+				t.Fatalf("securityProgramSeverityFloor() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuildSecuritySubmissionBundleIsDeterministicAndScoped(t *testing.T) {
 	finding := &store.SecurityFindingRecord{
 		ID:          uuid.MustParse("00000000-0000-0000-0000-000000000011"),
@@ -155,9 +176,9 @@ func TestSecurityReportBundleStatusFollowsProgramPublishedLevels(t *testing.T) {
 		{name: "program publishing mediums packages a medium", severity: "medium", scanCtx: mediumProgram, want: "ready"},
 		{name: "program publishing only high and above rejects a medium", severity: "medium", scanCtx: bountyScanContextWithProgram(), wantErr: true},
 		{name: "program publishing only high and above keeps packaging highs", severity: "high", scanCtx: bountyScanContextWithProgram(), want: "ready"},
-		{name: "no program scope keeps the high floor", severity: "medium", scanCtx: noProgram, wantErr: true},
+		{name: "no program scope uses the medium default", severity: "medium", scanCtx: noProgram, want: "ready"},
 		{name: "no program scope still packages a high", severity: "high", scanCtx: noProgram, want: "ready"},
-		{name: "truncated impact list keeps the high floor", severity: "medium", scanCtx: truncatedMediumProgram, wantErr: true},
+		{name: "truncated impact list uses the medium default", severity: "medium", scanCtx: truncatedMediumProgram, want: "ready"},
 		{name: "low stays below a medium program floor", severity: "low", scanCtx: mediumProgram, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -428,17 +428,17 @@ type saveSecurityBountySubmissionTool struct {
 	deps      securityBountyArtifactDeps
 }
 
-// securityProgramSeverityFloor returns the lowest severity the governing
-// program itself publishes across its in-scope impact clauses: a program whose
-// scope lists medium clauses pays for mediums, and one that lists only
-// high and critical clauses does not. The level is the program's own, never
-// translated into another system.
+// securityProgramSeverityFloor returns the effective report eligibility floor.
+// It follows the governing program's in-scope impact clauses unless the table is
+// unavailable or critical-only, in which case the platform defaults to medium.
+// Published severity labels are never translated or rewritten.
 //
 // Without a governing scope there is no published table to read, and a
-// truncated list cannot prove which levels the program publishes, so both keep
-// the conservative high floor.
+// truncated list cannot prove which levels the program publishes, so both use
+// the platform's medium default. Critical-only programs use that default too,
+// while their published impact clauses remain unchanged.
 func securityProgramSeverityFloor(scanCtx SecurityScanContext) string {
-	floor := security.SeverityHigh
+	floor := security.SeverityMedium
 	if len(scanCtx.InScopeImpacts) == 0 || scanCtx.ImpactsTruncated {
 		return floor
 	}
@@ -452,13 +452,16 @@ func securityProgramSeverityFloor(scanCtx SecurityScanContext) string {
 			lowest, floor = rank, impact.Level
 		}
 	}
+	if floor == security.SeverityCritical {
+		return security.SeverityMedium
+	}
 	return floor
 }
 
 func securityReportBundleStatus(finding *store.SecurityFindingRecord, scanCtx SecurityScanContext) (string, error) {
 	floor := securityProgramSeverityFloor(scanCtx)
 	if finding == nil || (finding.Status != store.SecurityFindingStatusConfirmed && finding.Status != store.SecurityFindingStatusTriaged) || finding.DuplicateOf != nil || finding.SuppressedBy != "" || !security.SeverityAtLeast(finding.Severity, floor) {
-		return "", fmt.Errorf("finding is not an eligible triaged or confirmed, unsuppressed, non-duplicate report at or above the program's lowest published severity %q", floor)
+		return "", fmt.Errorf("finding is not an eligible triaged or confirmed, unsuppressed, non-duplicate report at or above the effective program severity floor %q", floor)
 	}
 	if finding.Status == store.SecurityFindingStatusConfirmed {
 		return "ready", nil

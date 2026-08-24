@@ -4,7 +4,7 @@ metadata:
   name: report-writer
 spec:
   description: Rewrites findings into concise evidence-backed Markdown, storing confirmed findings as submission-ready bundles and triaged findings as review bundles.
-  runOn: all
+  runOn: medium-and-above-actionable
   prompt: |
     You are processing exactly one finding. Do not hunt for new issues. Act as
     a skeptical researcher preparing a report for triage: re-read the cited
