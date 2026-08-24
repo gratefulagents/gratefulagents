@@ -1,0 +1,115 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-ens
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/ensdomains/ens-contracts
+      baseBranch: main
+      workflowRef: smart-contract-review
+      policyPackRef: bug-bounty
+      scanName: immunefi-ens-contracts
+      displayName: ENS deployed contracts
+      priority: 1
+      featured: true
+  provider: Immunefi
+  displayName: ENS
+  programURL: https://immunefi.com/bug-bounty/ens/scope/
+  verifiedAt: 2026-08-23T00:00:00Z
+  severitySystem: immunefi-v2.3
+  pocRequired: true
+  pocEnvironment: mainnet-fork
+  inScopeImpacts:
+    - impact: "Unintended alteration of what the NFT represents (e.g. token URI, payload, artistic content)"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Manipulation of governance voting result deviating from voted outcome and resulting in a direct change from intended effect of original results"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Direct theft of any user NFTs, whether at-rest or in-motion, other than unclaimed royalties"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Permanent freezing of funds"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Permanent freezing of NFTs"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Unauthorized minting of NFTs"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Predictable or manipulable RNG that results in abuse of the principal or NFT"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Protocol insolvency"
+      level: critical
+      assetType: Smart Contract
+  outOfScope:
+    - "Taking over broken links from sources that are no longer considered active, such as links related to meeting minutes, past events etc., as this content is left up for archival purposes and should not be changed."
+    - "Products funded or maintained by the DAO that are not on the published asset list are excluded regardless of impact"
+    - "https://ens.dev is Out of Scope of the Bug bounty program"
+    - "Impacts requiring attacks that the reporter has already exploited themselves, leading to damage"
+    - "Impacts caused by attacks requiring access to leaked keys/credentials"
+    - "Impacts caused by attacks requiring access to privileged addresses without additional modifications to the privileges attributed"
+    - "Best practice recommendations and feature requests"
+    - "Impacts on test files and configuration files unless stated otherwise in the bug bounty program"
+    - "Impacts requiring phishing or other social engineering attacks against project's employees and/or customers"
+  knownIssues:
+    - source: ENS public known issues
+      summary: Malicious DAO can steal names using an upgrade to the NameWrapper.
+      reference: https://discuss.ens.domains/t/security-advisory-a-malicious-dao-update-could-reduce-the-registration-duration-of-registered-eth-2lds/17576/12
+    - source: ENS public known issues
+      summary: Malicious DAO can reduce the expiration of names.
+      reference: https://discuss.ens.domains/t/security-advisory-a-malicious-dao-update-could-reduce-the-registration-duration-of-registered-eth-2lds/17576/12
+    - source: ENS public known issues
+      summary: Namewrapper race condition allowing fuses to be set inappropriately.
+      reference: https://discuss.ens.domains/t/front-running-vulnerability-in-namewrapper/19938
+  prohibitedTesting:
+    - "Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet"
+    - "Any testing with pricing oracles or third-party smart contracts"
+    - "Attempting phishing or other social engineering attacks against employees and/or customers"
+    - "Any denial of service attacks that are executed against project assets"
+    - "Automated testing of services that generates significant amounts of traffic"
+    - "Public disclosure of an unpatched vulnerability in an embargoed bounty"
+  scopePolicy: |-
+    Verbatim Immunefi scope excerpts (retrieved 2026-08-23; page last updated 17 June 2026).
+
+    Displayed wording is preserved; layout whitespace is normalized. This snapshot contains contract-track excerpts, and the live program page remains authoritative. Operator notes below distinguish the contract-only import boundary and ROI metrics from quoted program terms.
+
+    Maximum bounty: $250,000. Immunefi triage and a PoC are required; KYC is not required. The public vault showed approximately $112,900. Smart-contract Critical and High reports use Primacy of Impact, subject to the program's version and deployment rules.
+
+    Assets in Scope
+    - Smart Contracts: https://github.com/ensdomains/ens-contracts/wiki/ENS-Contract-Deployments
+    - app.ens.domains, metadata.ens.domains and the separately listed ENS web properties.
+
+    Import boundary
+    This catalog entry deliberately imports only the Smart Contract track. Web & App assets and impacts remain part of the live bounty but are not represented as scan targets here. Repository import is an analysis convenience, not an expansion of bounty scope. On mainnet, only the latest finalized release deployed to mainnet is eligible. Testnet and staging are out of scope by default; a testnet contract is eligible only under the program's explicit version and recognized-deployment carve-out. Reconcile source, release tag, deployed address, and the live asset table before opening a hypothesis.
+
+    Impacts in Scope
+    Critical
+    Unintended alteration of what the NFT represents (e.g. token URI, payload, artistic content)
+    Critical
+    Manipulation of governance voting result deviating from voted outcome and resulting in a direct change from intended effect of original results
+    Critical
+    Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield
+    Critical
+    Direct theft of any user NFTs, whether at-rest or in-motion, other than unclaimed royalties
+    Critical
+    Permanent freezing of funds
+    Critical
+    Permanent freezing of NFTs
+    Critical
+    Unauthorized minting of NFTs
+    Critical
+    Predictable or manipulable RNG that results in abuse of the principal or NFT
+    Critical
+    Protocol insolvency
+
+    Out of scope
+    Taking over inactive archival links; DAO-funded or maintained products absent from the published asset list; ens.dev; test and configuration-only impacts; leaked-key, privileged-role, social-engineering, best-practice, and already-exploited claims described in the typed exclusions. Published audits and known issues must be deduplicated before submission. Testing must stay on a local fork.
+
+    ROI note
+    Sourced selection factors: a deployment-indexed contract corpus, approximately $112,900 visible in the vault, no KYC requirement, and High rewards up to $100,000. Counterweights are the mature audit history and strict release/deployment eligibility rules.

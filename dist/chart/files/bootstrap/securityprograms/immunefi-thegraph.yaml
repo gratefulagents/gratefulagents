@@ -1,0 +1,147 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-thegraph
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/graphprotocol/contracts
+      baseBranch: main
+      workflowRef: smart-contract-review
+      policyPackRef: bug-bounty
+      scanName: immunefi-thegraph-contracts
+      displayName: The Graph deployed protocol contracts
+      priority: 1
+      featured: true
+  provider: Immunefi
+  displayName: The Graph
+  programURL: https://immunefi.com/bug-bounty/thegraph/scope/
+  verifiedAt: 2026-08-23T00:00:00Z
+  severitySystem: immunefi-v2.3
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: mainnet-fork
+  kycRequired: true
+  assets:
+    - chainID: "1"
+      address: "0xbE5e630383b5BAEcF0Db7b15C50d410edD5A2255"
+      displayName: GraphTokenLockWallet
+      addedOn: 10 May 2022
+    - chainID: "1"
+      address: "0xF55041E37E12cD407ad00CE2910B8269B01263b9"
+      displayName: L1Staking
+      addedOn: 13 March 2026
+    - chainID: "1"
+      address: "0xc944E90C64B2c07662A292be6244BDf05Cda44a7"
+      displayName: GraphToken
+      addedOn: 13 March 2026
+    - chainID: "1"
+      address: "0xaDcA0dd4729c8BA3aCf3E99F3A9f471EF37b6825"
+      displayName: L1GNS
+      addedOn: 13 March 2026
+    - chainID: "1"
+      address: "0x9Ac758AB77733b4150A901ebd659cbF8cB93ED66"
+      displayName: RewardsManager
+      addedOn: 13 March 2026
+    - chainID: "1"
+      address: "0x97307b963662cCA2f7eD50e38dCC555dfFc4FB0b"
+      displayName: DisputeManager
+      addedOn: 13 March 2026
+    - chainID: "1"
+      address: "0x8FE00a685Bcb3B2cc296ff6FfEaB10acA4CE1538"
+      displayName: Curation
+      addedOn: 13 March 2026
+    - chainID: "1"
+      address: "0x8017B9AF3F199CC6b08A48DA3859410F20bbea72"
+      displayName: BillingConnector
+      addedOn: 13 March 2026
+    - chainID: "1"
+      address: "0x74Db79268e63302d3FC69FB5a7627F7454a41732"
+      displayName: Governor
+      addedOn: 13 March 2026
+    - chainID: "1"
+      address: "0x4Dbd4fc535Ac27206064B68FfCf827b0A60BAB3f"
+      displayName: ArbitrumInbox
+      addedOn: 13 March 2026
+    - chainID: "1"
+      address: "0x36aFF7001294daE4C2ED4fDEfC478a00De77F090"
+      displayName: BridgeEscrow
+      addedOn: 13 March 2026
+  inScopeImpacts:
+    - impact: "A bug that could cause significant (>$1M) User funds to be lost or stolen directly from protocol smart contracts (not including slashing)"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Private information being stolen"
+      level: high
+      assetType: Smart Contract
+    - impact: "An economic attack other than a basic 51% governance attack that could cause significant (>$1M) User funds to be lost or stolen directly from the protocol smart contracts"
+      level: high
+      assetType: Smart Contract
+    - impact: "A bug that could cause network participants to be impersonated and unwanted actions being taken (eg., User funds being stolen directly from the protocol smart contracts)"
+      level: high
+      assetType: Smart Contract
+  outOfScope:
+    - "Frontrunning, including back running and sandwich attacks"
+    - "Known issues previously reported in security audits"
+    - "Natural network activity like curation whose involved mechanisms could result in unprofitable actions for the particular stakeholder"
+    - "Attacks that rely on social engineering, including requiring victim to visit an out-of-scope url"
+    - "Attacks requiring access to victim's machine"
+    - "Attacks of third-party service providers"
+    - "Best practice critiques"
+    - "Indexer port configurations not aligned with best practices"
+    - "Attacks that have the potential to impact token price"
+    - "Testnet assets"
+    - "Man in the middle attacks"
+    - "Incorrect data supplied by third party oracles"
+    - "Not to exclude oracle manipulation/flash loan attacks"
+    - "Impacts requiring basic economic and governance attacks (e.g. 51% attack)"
+    - "Lack of liquidity impacts"
+    - "Impacts from Sybil attacks"
+    - "Impacts involving centralization risks"
+    - "Impacts caused by leaked credentials or privileged addresses without additional modifications to the privileges attributed"
+    - "Impacts on test files and configuration files unless stated otherwise in the bug bounty program"
+  knownIssues:
+    - source: Protocol contract audits
+      summary: Any vulnerabilities mentioned in public audits that have not been fixed are ineligible.
+      reference: https://github.com/graphprotocol/contracts/tree/main/packages/contracts/audits
+    - source: Horizon audits
+      summary: Published Horizon upgrade audit findings are ineligible duplicates.
+      reference: https://github.com/graphprotocol/contracts/tree/main/packages/horizon/audits
+    - source: Issuance audits
+      summary: Published protocol issuance audit findings are ineligible duplicates.
+      reference: https://github.com/graphprotocol/contracts/tree/main/packages/issuance/audits
+  prohibitedTesting:
+    - "Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet"
+    - "Any testing with pricing oracles or third-party smart contracts"
+    - "Attempting phishing or other social engineering attacks against employees and/or customers"
+    - "Any denial of service attacks that are executed against project assets"
+    - "Automated testing of services that generates significant amounts of traffic"
+    - "Public disclosure of an unpatched vulnerability in an embargoed bounty"
+    - "Do not violate the privacy of network users, other bounty hunters, or The Graph"
+  scopePolicy: |-
+    Verbatim Immunefi scope excerpts (retrieved 2026-08-23; page last updated 18 August 2026).
+
+    Displayed wording is preserved; layout whitespace is normalized. This snapshot contains smart-contract excerpts, and the live program page remains authoritative. Operator notes below distinguish import boundaries and ROI metrics from quoted program terms.
+
+    Maximum bounty: $50,000. The program reports $1.5 million total paid, approximately one-day median resolution, and a public vault of approximately $42,000. Immunefi triage, KYC, and a reproducible inline PoC are required. The program uses Primacy of Rules.
+
+    Assets in Scope
+    The live table listed 36 assets, including deployed Ethereum and Arbitrum GraphToken, Staking, GNS, RewardsManager, DisputeManager, Curation, BillingConnector, Governor, ArbitrumInbox, BridgeEscrow, and GraphTokenLockWallet contracts. The repository resource is https://github.com/graphprotocol/contracts.
+
+    Import boundary
+    Importing the contracts repository does not make every package or revision eligible. A report must bind the source file and implementation to an address in the live Immunefi asset table and demonstrate one of the four published impacts. The typed addresses above are the Ethereum rows visible in the verified public page; the complete live 36-row table remains authoritative. GraphTokenLockWallet source belongs to graphprotocol/token-distribution and is not covered by this scan target. Testnet assets and protocol upgrades not yet deployed/listed are excluded. Audit directories are prior-art sources, not review targets.
+
+    Impacts in Scope
+    Critical
+    A bug that could cause significant (>$1M) User funds to be lost or stolen directly from protocol smart contracts (not including slashing)
+    High
+    Private information being stolen
+    High
+    An economic attack other than a basic 51% governance attack that could cause significant (>$1M) User funds to be lost or stolen directly from the protocol smart contracts
+    High
+    A bug that could cause network participants to be impersonated and unwanted actions being taken (eg., User funds being stolen directly from the protocol smart contracts)
+
+    Out of scope
+    Frontrunning/backrunning/sandwich attacks; published audit issues; natural curation losses; social engineering or victim-machine access; third-party providers; best practices; indexer port configuration; token-price-only effects; testnet assets; man-in-the-middle attacks; and the standard leaked-key, privileged-role, test-only, and already-exploited exclusions. Testing must remain on a local fork and must not target project or third-party infrastructure.
+
+    ROI note
+    Sourced selection factors are $1.5 million total paid, approximately one-day median resolution, and approximately $42,000 visible in the vault. Counterweights are the $50,000 cap, >$1 million critical-impact threshold, Primacy of Rules, mature audit history, and narrow four-impact gate; prioritize newly deployed address/source deltas and cross-contract upgrade or accounting variants rather than broad protocol review.
