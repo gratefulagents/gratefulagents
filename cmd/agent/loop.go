@@ -252,12 +252,15 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		// tool stays unregistered rather than failing at call time.
 		securityBlobs, securityBlobsErr := contentblob.NewS3FromEnv()
 		deps := tools.SecurityToolRunDeps{
-			Client:       crdClient,
-			BlobsErr:     securityBlobsErr,
-			Namespace:    cfg.Namespace,
-			RunName:      cfg.TaskName,
-			RunUID:       cfg.TaskUID,
-			WorkspaceDir: cfg.WorkspaceDir,
+			Client:    crdClient,
+			BlobsErr:  securityBlobsErr,
+			Namespace: cfg.Namespace,
+			RunName:   cfg.TaskName,
+			RunUID:    cfg.TaskUID,
+			// Relative paths in every agent tool are resolved from RepoDir. Using
+			// WorkspaceDir here made "." archive sibling repositories and caches,
+			// while ordinary paths such as "contracts" appeared not to exist.
+			WorkspaceDir: cfg.RepoDir,
 		}
 		if securityBlobsErr == nil {
 			deps.Blobs = securityBlobs

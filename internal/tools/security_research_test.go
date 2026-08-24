@@ -341,6 +341,38 @@ func seedResearchBounty(t *testing.T, researchStore *fakeSecurityResearchStore, 
 	return finding
 }
 
+func TestExactRevisionFindingAllowsAssignedPostScriptFindingAcrossExecutionRows(t *testing.T) {
+	researchStore := newFakeSecurityResearchStore()
+	scanCtx := bountyLaneContext("post-script", "assigned-fingerprint", bountyLaneProgram())
+	finding := store.SecurityFindingRecord{
+		ID: uuid.New(), Namespace: scanCtx.Namespace, ScanName: scanCtx.ScanName,
+		ExecutionID: "original-execution-row", Repository: scanCtx.Repository, Revision: scanCtx.Revision,
+		Fingerprint: scanCtx.PostScriptFingerprint,
+	}
+	researchStore.findings = append(researchStore.findings, &finding)
+	registry := researchToolRegistry(t, researchStore, scanCtx)
+	state := securityTestState(t, registry)
+	if _, err := state.exactRevisionFinding(context.Background(), finding.ID); err != nil {
+		t.Fatalf("assigned post-script finding was rejected: %v", err)
+	}
+	finding.Fingerprint = "different-fingerprint"
+	if _, err := state.exactRevisionFinding(context.Background(), finding.ID); err == nil {
+		t.Fatal("unassigned finding from a different execution row was accepted")
+	}
+
+	scanCtx.ExecutionID, scanCtx.PostScriptFingerprint = "", ""
+	finding.ExecutionID, finding.Fingerprint, finding.RunName = "", "", "different-run"
+	registry = researchToolRegistry(t, researchStore, scanCtx)
+	state = securityTestState(t, registry)
+	if _, err := state.exactRevisionFinding(context.Background(), finding.ID); err == nil {
+		t.Fatal("finding from another fallback run was accepted with empty fingerprints")
+	}
+	finding.RunName = scanCtx.RunName
+	if _, err := state.exactRevisionFinding(context.Background(), finding.ID); err != nil {
+		t.Fatalf("finding from the same fallback run was rejected: %v", err)
+	}
+}
+
 func researchBountyRegistry(t *testing.T, findingStore store.SecurityFindingStore, blobs SecurityBountyBlobStore, scanCtx SecurityScanContext) *Registry {
 	t.Helper()
 	registry := newSecurityTestRegistryWithCtx(t, findingStore, nil, scanCtx)

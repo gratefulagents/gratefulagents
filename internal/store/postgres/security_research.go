@@ -235,7 +235,10 @@ func (s *Store) AmendSecurityResearchDossier(ctx context.Context, namespace stri
 		return nil, false, store.ErrSecurityResearchVersionConflict
 	}
 	nextVersion := latestVersion + 1
-	if value.Version != 0 && value.Version != nextVersion {
+	// Version is the caller's optimistic expected version, not the version to
+	// assign to the new row. A caller that just read v1 sends 1 while this
+	// transaction creates v2.
+	if value.Version != 0 && value.Version != latestVersion {
 		return nil, false, store.ErrSecurityResearchVersionConflict
 	}
 	var parentID *uuid.UUID

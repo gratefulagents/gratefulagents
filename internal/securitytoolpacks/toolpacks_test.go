@@ -182,6 +182,12 @@ func TestNetworkNaabuAndBlockchainForgeFixtures(t *testing.T) {
 	if forge.Replay.Seed == nil || *forge.Replay.Seed != seed {
 		t.Fatal("forge replay omitted fuzz seed")
 	}
+	emptyForge := runnerFor(t, NativeResult{ExitCode: 0, Examined: []string{"test/InvariantVault.t.sol"}}).Run(context.Background(), RunConfig{
+		Tool: "forge-security-tests", Target: forgeTarget, Seed: &seed,
+	})
+	if emptyForge.Status != StatusError || len(emptyForge.Errors) == 0 || !strings.Contains(emptyForge.Errors[0], "junit output") {
+		t.Fatalf("empty forge report was accepted: %+v", emptyForge)
+	}
 	registry, err := NewRegistry(DefaultManifest(sha256Digest([]byte("image")), nil))
 	if err != nil {
 		t.Fatal(err)

@@ -76,15 +76,60 @@ const (
 // evidence contract used by both persistence and submission gating.
 func ValidSecurityVariantSweepCompletionEvidence(raw json.RawMessage) bool {
 	var value struct {
-		SearchedScope []string `json:"searched_scope"`
-		Methods       []string `json:"methods"`
-		Evidence      []string `json:"evidence"`
-		Summary       string   `json:"summary"`
+		SearchedScope json.RawMessage `json:"searched_scope"`
+		Methods       json.RawMessage `json:"methods"`
+		Evidence      json.RawMessage `json:"evidence"`
+		Summary       string          `json:"summary"`
 	}
 	if json.Unmarshal(raw, &value) != nil {
 		return false
 	}
-	return len(value.SearchedScope) > 0 && len(value.Methods) > 0 && len(value.Evidence) > 0 && strings.TrimSpace(value.Summary) != ""
+	return nonEmptySecurityResearchEvidence(value.SearchedScope) &&
+		nonEmptySecurityResearchEvidence(value.Methods) &&
+		nonEmptySecurityResearchEvidence(value.Evidence) &&
+		strings.TrimSpace(value.Summary) != ""
+}
+
+// nonEmptySecurityResearchEvidence accepts either concise string lists or
+// structured objects. Location/result pairs and explicit search patterns are
+// stronger evidence and must not be rejected merely because they are richer
+// than the original string-only representation.
+func nonEmptySecurityResearchEvidence(raw json.RawMessage) bool {
+	var value any
+	if len(raw) == 0 || json.Unmarshal(raw, &value) != nil {
+		return false
+	}
+	switch typed := value.(type) {
+	case []any:
+		for _, entry := range typed {
+			if meaningfulSecurityResearchEvidence(entry) {
+				return true
+			}
+		}
+	case map[string]any:
+		return meaningfulSecurityResearchEvidence(typed)
+	}
+	return false
+}
+
+func meaningfulSecurityResearchEvidence(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case []any:
+		for _, entry := range typed {
+			if meaningfulSecurityResearchEvidence(entry) {
+				return true
+			}
+		}
+	case map[string]any:
+		for key, entry := range typed {
+			if strings.TrimSpace(key) != "" && meaningfulSecurityResearchEvidence(entry) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 const (

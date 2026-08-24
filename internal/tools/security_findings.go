@@ -226,6 +226,11 @@ func RegisterSecurityScanTools(registry *Registry, findingStore store.SecurityFi
 	}
 	if researchStore, ok := findingStore.(store.SecurityResearchStore); ok {
 		state.researchStore = researchStore
+	} else if researchStore, ok := stateStore.(store.SecurityResearchStore); ok {
+		// Research persistence is a separate capability from finding storage.
+		// Some durable state-store adapters expose it without also being the
+		// configured SecurityFindingStore; do not make the tools disappear.
+		state.researchStore = researchStore
 	}
 	registry.Register(&reportSecurityFindingTool{state: state})
 	registry.Register(&listSecurityFindingsTool{state: state})

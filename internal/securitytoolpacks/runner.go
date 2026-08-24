@@ -163,7 +163,11 @@ func (r *Runner) normalizeNative(tool Tool, target Target, output []byte, redact
 	}
 	var adapted []securityRecord
 	var err error
-	if len(output) > 0 {
+	// Empty line-oriented scanner output can be a valid clean result (for
+	// example, nuclei found nothing). Structured report formats such as JUnit
+	// must still be parsed: an empty file means the runner failed to produce
+	// evidence, not that every test passed.
+	if len(output) > 0 || tool.Adapter == "junit" {
 		adapted, err = adapter.Normalize(cloneTool(tool), target, output, redactor)
 	}
 	if err != nil {
