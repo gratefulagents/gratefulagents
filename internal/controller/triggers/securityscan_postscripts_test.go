@@ -80,8 +80,8 @@ func TestSecurityScanPostScriptMatchesMediumAndAboveActionable(t *testing.T) {
 		// bundle gate would refuse the result afterwards anyway.
 		{name: "medium is not dispatched under a high-paying program", runOn: "medium-and-above-actionable", severity: "medium", floor: "high"},
 		{name: "high is still dispatched under a high-paying program", runOn: "medium-and-above-actionable", severity: "high", floor: "high", want: true},
-		// Without a governing program the floor is the conservative default.
-		{name: "medium is not dispatched without a governing program", runOn: "medium-and-above-actionable", severity: "medium", floor: securityProgramPayableFloor(nil)},
+		// Without a governing program the platform defaults to medium.
+		{name: "medium is dispatched without a governing program", runOn: "medium-and-above-actionable", severity: "medium", floor: securityProgramPayableFloor(nil), want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -121,11 +121,12 @@ func TestSecurityProgramPayableFloorFollowsPublishedLevels(t *testing.T) {
 		levels []string
 		want   string
 	}{
-		"publishes mediums":      {levels: []string{"critical", "high", "medium"}, want: "medium"},
-		"publishes only high up": {levels: []string{"critical", "high"}, want: "high"},
-		"publishes lows":         {levels: []string{"high", "low"}, want: "low"},
-		"unreadable levels only": {levels: []string{"", "spicy"}, want: "high"},
-		"no published impacts":   {levels: nil, want: "high"},
+		"publishes mediums":       {levels: []string{"critical", "high", "medium"}, want: "medium"},
+		"publishes critical only": {levels: []string{"critical"}, want: "medium"},
+		"publishes only high up":  {levels: []string{"critical", "high"}, want: "high"},
+		"publishes lows":          {levels: []string{"high", "low"}, want: "low"},
+		"unreadable levels only":  {levels: []string{"", "spicy"}, want: "medium"},
+		"no published impacts":    {levels: nil, want: "medium"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -140,7 +141,7 @@ func TestSecurityProgramPayableFloorFollowsPublishedLevels(t *testing.T) {
 			}
 		})
 	}
-	if got := securityProgramPayableFloor(nil); got != "high" {
-		t.Fatalf("a nil program floor = %q, want high", got)
+	if got := securityProgramPayableFloor(nil); got != "medium" {
+		t.Fatalf("a nil program floor = %q, want medium", got)
 	}
 }
