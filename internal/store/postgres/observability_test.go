@@ -206,3 +206,69 @@ func TestAggregateObservabilityAddsUnflaggedAnthropicCacheTokens(t *testing.T) {
 		t.Fatalf("GenerationInputTokens = %d, want 67694 (cached prompt included)", got.Totals.GenerationInputTokens)
 	}
 }
+
+// Daybreak attempts written before the SDK knew the public alias have token
+// usage but no cost. Observability prices those immutable events at read time
+// so deploying a pricing-table fix also repairs historical charts.
+func TestObservabilityAttemptEstimatesHistoricalDaybreakCost(t *testing.T) {
+	start := time.Date(2026, 8, 24, 15, 0, 0, 0, time.UTC)
+	sessionID := uuid.New()
+	sessions := []observabilitySession{{id: sessionID, created: start, metadata: json.RawMessage(`{"metrics":{"cost_usd":0}}`)}}
+	events := []observabilityEvent{{
+		id: 1, sessionID: sessionID, typ: "llm_attempt", created: start.Add(time.Minute),
+		detail: json.RawMessage(`{"tool_use_id":"attempt-1","provider":"openai","resolved_model":"gpt-daybreak-blue-latest","attempt_status":"completed","input_tokens":100000,"output_tokens":10000,"cache_read_input_tokens":40000,"cache_creation_input_tokens":20000}`),
+	}}
+
+	got := aggregateObservability(store.ObservabilityQuery{Start: start, End: start.Add(time.Hour), BucketSeconds: 300}, sessions, events)
+	if math.Abs(got.Totals.GenerationCostUSD-0.476) > 1e-9 {
+		t.Fatalf("historical Daybreak generation cost = %.10f, want 0.476", got.Totals.GenerationCostUSD)
+	}
+	if math.Abs(got.Buckets[0].Totals.GenerationCostUSD-0.476) > 1e-9 {
+		t.Fatalf("historical Daybreak bucket cost = %.10f, want 0.476", got.Buckets[0].Totals.GenerationCostUSD)
+	}
+	if len(got.Models) != 1 || got.Models[0].Name != "openai/gpt-daybreak-blue-latest" || math.Abs(got.Models[0].CostUSD-0.476) > 1e-9 {
+		t.Fatalf("historical Daybreak model breakdown = %+v", got.Models)
+	}
+
+	row := observabilityRowKey{at: start, id: 1}
+	base := map[string]any{
+		"provider":                    "openai",
+		"canonical_model":             "openai/gpt-daybreak-blue-latest",
+		"attempt_status":              "completed",
+		"input_tokens":                float64(100_000),
+		"output_tokens":               float64(10_000),
+		"cache_read_input_tokens":     float64(40_000),
+		"cache_creation_input_tokens": float64(20_000),
+	}
+
+	// Explicitly additive OpenAI records must normalize input before pricing.
+	base["input_tokens"] = float64(40_000)
+	base["input_tokens_include_cache_known"] = true
+	base["input_tokens_include_cache"] = false
+	if got := observabilityAttemptFromDetail(row, base); got.input != 100_000 || math.Abs(got.cost-0.476) > 1e-9 {
+		t.Fatalf("cache-exclusive Daybreak attempt = %+v, want input 100000 and cost 0.476", got)
+	}
+	base["input_tokens"] = float64(100_000)
+	delete(base, "input_tokens_include_cache_known")
+	delete(base, "input_tokens_include_cache")
+
+	// Producer knowledge wins even for a legitimate zero-priced attempt, and a
+	// positive producer value wins even if the knowledge flag is absent.
+	base["cost_known"] = true
+	if got := observabilityAttemptFromDetail(row, base); got.cost != 0 {
+		t.Fatalf("explicit known cost was replaced: %v", got.cost)
+	}
+	delete(base, "cost_known")
+	base["cost_usd"] = 1.25
+	if got := observabilityAttemptFromDetail(row, base); got.cost != 1.25 {
+		t.Fatalf("positive recorded cost was replaced: %v", got.cost)
+	}
+
+	// Do not apply OpenAI list prices to an unrelated provider that happens to
+	// use the same model alias, qualified or otherwise.
+	delete(base, "cost_usd")
+	base["provider"] = "custom"
+	if got := observabilityAttemptFromDetail(row, base); got.cost != 0 {
+		t.Fatalf("custom provider cost was estimated as OpenAI: %v", got.cost)
+	}
+}

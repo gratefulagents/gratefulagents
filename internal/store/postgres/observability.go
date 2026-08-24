@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
+	sdkopenai "github.com/gratefulagents/sdk/pkg/agentsdk/providers/openai"
 
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/internal/usageaccounting"
@@ -365,18 +367,43 @@ func observabilityAttemptFromDetail(row observabilityRowKey, d map[string]any) *
 		name = provider + "/" + name
 	}
 	inputTokens := int64(numberValue(firstValue(d, "input_tokens", "prompt_tokens")))
+	outputTokens := int64(numberValue(firstValue(d, "output_tokens", "completion_tokens")))
 	if !observabilityInputTokensIncludeCache(d, provider, name) {
 		inputTokens += int64(numberValue(d["cache_read_input_tokens"])) + int64(numberValue(d["cache_creation_input_tokens"]))
+	}
+	cost := numberValue(d["cost_usd"])
+	// Pricing is recorded when the attempt runs, but old SDKs did not know
+	// every model alias. Keep an explicitly known (including legitimately
+	// zero) or positive producer value; otherwise price OpenAI attempts from
+	// their persisted token usage at read time. This makes pricing-table fixes
+	// apply to historical observability without rewriting immutable activity
+	// events.
+	if !boolValue(d["cost_known"]) && cost <= 0 && observabilityIsOpenAI(provider, name) {
+		if estimated, known := sdkopenai.EstimateCost(name, agent.Usage{
+			InputTokens:       inputTokens,
+			OutputTokens:      outputTokens,
+			CacheReadTokens:   int64(numberValue(d["cache_read_input_tokens"])),
+			CacheCreateTokens: int64(numberValue(d["cache_creation_input_tokens"])),
+		}); known {
+			cost = estimated
+		}
 	}
 	return &observabilityAttemptState{
 		row:     row,
 		model:   name,
 		failed:  failed,
-		cost:    numberValue(d["cost_usd"]),
+		cost:    cost,
 		input:   inputTokens,
-		output:  int64(numberValue(firstValue(d, "output_tokens", "completion_tokens"))),
+		output:  outputTokens,
 		latency: numberValue(d["attempt_latency_ms"]),
 	}
+}
+
+func observabilityIsOpenAI(provider, model string) bool {
+	if strings.TrimSpace(provider) != "" {
+		return usageaccounting.NormalizedIdentity(provider) == "openai"
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "openai/")
 }
 
 // observabilityInputTokensIncludeCache reports whether an attempt's
