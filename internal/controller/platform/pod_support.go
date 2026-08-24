@@ -22,7 +22,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -1335,9 +1334,14 @@ func ensureDockerInDocker(podSpec *corev1.PodSpec, run *platformv1alpha1.AgentRu
 			{Name: dindDockerLibVolume, MountPath: "/var/lib/docker"},
 		},
 		// Gate the worker's start on the daemon accepting connections so the
-		// first docker command does not race dockerd's startup.
+		// first docker command does not race dockerd's startup. A tcpSocket
+		// probe cannot be used here: kubelet connects to the pod IP rather than
+		// from inside the container, while dockerd intentionally listens only
+		// on loopback to keep its unauthenticated API private to the pod.
 		StartupProbe: &corev1.Probe{
-			ProbeHandler:     corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(2375)}},
+			ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{Command: []string{
+				"docker", "--host=" + dindDockerHost, "info", "--format", "{{json .ServerVersion}}",
+			}}},
 			PeriodSeconds:    2,
 			FailureThreshold: 60,
 		},

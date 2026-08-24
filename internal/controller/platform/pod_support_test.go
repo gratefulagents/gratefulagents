@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1144,8 +1145,16 @@ func TestBuildCommonPodSpecDockerInDocker(t *testing.T) {
 	if !hostArgFound {
 		t.Fatalf("dind Args = %#v, want --host=%s", dind.Args, dindDockerHost)
 	}
-	if dind.StartupProbe == nil || dind.StartupProbe.TCPSocket == nil {
-		t.Fatalf("dind StartupProbe = %#v, want TCP gate so the worker starts after dockerd", dind.StartupProbe)
+	if dind.StartupProbe == nil || dind.StartupProbe.Exec == nil {
+		t.Fatalf("dind StartupProbe = %#v, want loopback exec gate so the worker starts after dockerd", dind.StartupProbe)
+	}
+	probeCommand := dind.StartupProbe.Exec.Command
+	wantProbeCommand := []string{"docker", "--host=" + dindDockerHost, "info", "--format", "{{json .ServerVersion}}"}
+	if !slices.Equal(probeCommand, wantProbeCommand) {
+		t.Fatalf("dind StartupProbe command = %#v, want %#v", probeCommand, wantProbeCommand)
+	}
+	if dind.StartupProbe.TCPSocket != nil {
+		t.Fatalf("dind StartupProbe = %#v, TCP probes target the pod IP and cannot reach loopback-only dockerd", dind.StartupProbe)
 	}
 	// Identical workspace/scratch paths so `docker run -v /workspace/...`
 	// bind mounts resolve inside the dind daemon.
