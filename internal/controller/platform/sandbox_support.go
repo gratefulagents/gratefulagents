@@ -213,7 +213,7 @@ func applyRuntimeProfileSandboxOverrides(podSpec *corev1.PodSpec, runtimeProfile
 		if runtimeClassName := strings.TrimSpace(runtimeProfile.Spec.Sandbox.RuntimeClassName); runtimeClassName != "" {
 			podSpec.RuntimeClassName = &runtimeClassName
 		}
-		if runtimeProfile.Spec.Sandbox.EnablePrivateProcfs {
+		if runtimeProfile.Spec.Sandbox.EnablePrivateProcfs && !podSpecHasDockerInDocker(podSpec) {
 			// Kubernetes requires an Unmasked procMount to run inside a pod user
 			// namespace. Bubblewrap then replaces this worker-level procfs with a
 			// fresh procfs for its child PID namespace, rather than exposing the
@@ -249,6 +249,24 @@ func applyRuntimeProfileSandboxOverrides(podSpec *corev1.PodSpec, runtimeProfile
 			}
 		}
 	}
+}
+
+// podSpecHasDockerInDocker reports whether buildCommonPodSpec added the
+// admin-gated rootful Docker daemon. Rootful dockerd cannot run in the pod user
+// namespace used by private procfs: even a privileged container is namespaced
+// there and cannot mount securityfs or create the host cgroups it needs. DinD
+// already grants substantially broader access, so it takes precedence and the
+// worker retains the command sandbox without the extra pod user namespace.
+func podSpecHasDockerInDocker(podSpec *corev1.PodSpec) bool {
+	if podSpec == nil {
+		return false
+	}
+	for i := range podSpec.InitContainers {
+		if podSpec.InitContainers[i].Name == dindContainerName {
+			return true
+		}
+	}
+	return false
 }
 
 func applyRuntimeProfileCommandSandboxConfig(podSpec *corev1.PodSpec, runtimeProfile *platformv1alpha1.RuntimeProfile) {
