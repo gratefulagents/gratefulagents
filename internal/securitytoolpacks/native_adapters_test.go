@@ -2,6 +2,7 @@ package securitytoolpacks
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -13,6 +14,30 @@ func TestGoFuzzAdapterPreservesFailureEvidence(t *testing.T) {
 	}
 	if len(records) != 1 || records[0].Record.RuleID != "go-fuzz-failure" || records[0].Record.Symbol != "FuzzDecode" || records[0].Record.RawEvidence != "panic: bad frame" {
 		t.Fatalf("unexpected records: %+v", records)
+	}
+}
+
+func TestGoFuzzAdapterPreservesPackageFailureDiagnostic(t *testing.T) {
+	native := []byte("{\"Action\":\"output\",\"Package\":\"example/parser\",\"Output\":\"failed to load corpus: missing seed\\n\"}\n{\"Action\":\"fail\",\"Package\":\"example/parser\"}\n")
+	records, err := DefaultAdapters()["go-test-json"].Normalize(Tool{Name: "go-fuzz-tests", Version: "go1.26"}, Target{Locator: "fixture"}, native, NewRedactor())
+	if err == nil || len(records) != 0 || !strings.Contains(err.Error(), "failed to load corpus") {
+		t.Fatalf("records=%+v err=%v, want package failure diagnostic", records, err)
+	}
+}
+
+func TestGoFuzzAdapterAcceptsCleanPackageOutput(t *testing.T) {
+	native := []byte("{\"Action\":\"output\",\"Package\":\"example/parser\",\"Output\":\"PASS\\n\"}\n{\"Action\":\"pass\",\"Package\":\"example/parser\"}\n")
+	records, err := DefaultAdapters()["go-test-json"].Normalize(Tool{Name: "go-fuzz-tests", Version: "go1.26"}, Target{Locator: "fixture"}, native, NewRedactor())
+	if err != nil || len(records) != 0 {
+		t.Fatalf("records=%+v err=%v, want clean normalization", records, err)
+	}
+}
+
+func TestGoFuzzAdapterHandlesTargetFailWithoutOutputEvent(t *testing.T) {
+	native := []byte("{\"Action\":\"fail\",\"Package\":\"example/parser\",\"Test\":\"FuzzDecode\"}\n")
+	records, err := DefaultAdapters()["go-test-json"].Normalize(Tool{Name: "go-fuzz-tests", Version: "go1.26"}, Target{Locator: "fixture"}, native, NewRedactor())
+	if err != nil || len(records) != 1 || records[0].Record.FilePath != "example/parser" || records[0].Record.Symbol != "FuzzDecode" {
+		t.Fatalf("records=%+v err=%v, want one identified target failure", records, err)
 	}
 }
 

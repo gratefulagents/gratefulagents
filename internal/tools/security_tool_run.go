@@ -687,6 +687,22 @@ func archiveWorkspaceTargetWithInjected(root string, injected map[string][]byte)
 			}
 			link = target
 		}
+		var file *os.File
+		if info.Mode().IsRegular() {
+			var openErr error
+			file, openErr = openStagedRegularFile(root, path)
+			if openErr != nil {
+				return openErr
+			}
+			defer func() { _ = file.Close() }()
+			// WalkDir metadata may already be stale for an active build. Stat the
+			// opened descriptor so the tar header and copy use one size snapshot.
+			var statErr error
+			info, statErr = file.Stat()
+			if statErr != nil {
+				return statErr
+			}
+		}
 		header, headerErr := tar.FileInfoHeader(info, link)
 		if headerErr != nil {
 			return headerErr
@@ -711,13 +727,14 @@ func archiveWorkspaceTargetWithInjected(root string, injected map[string][]byte)
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		file, openErr := os.Open(path) // #nosec G304 -- staged path is workspace content the agent already reads
-		if openErr != nil {
-			return openErr
+		if _, copyErr := io.CopyN(writer, file, info.Size()); copyErr != nil {
+			return fmt.Errorf("target changed while staging %q; retry after builds stop: %w", name, copyErr)
 		}
-		defer func() { _ = file.Close() }()
-		_, copyErr := io.Copy(writer, file)
-		return copyErr
+		var extra [1]byte
+		if count, readErr := file.Read(extra[:]); count != 0 || (readErr != nil && !errors.Is(readErr, io.EOF)) {
+			return fmt.Errorf("target changed while staging %q; retry after builds stop", name)
+		}
+		return nil
 	}
 
 	info, err := os.Lstat(root)
@@ -764,6 +781,10 @@ func archiveWorkspaceTargetWithInjected(root string, injected map[string][]byte)
 			continue
 		}
 		content := injected[name]
+		total += int64(len(content))
+		if total > maxStagedTargetBytes {
+			return nil, 0, 0, fmt.Errorf("target content exceeds the %d MiB staging limit; scan a smaller subdirectory", maxStagedTargetBytes>>20)
+		}
 		header := &tar.Header{
 			Typeflag: tar.TypeReg, Name: name, Mode: 0o600, Size: int64(len(content)),
 			ModTime: time.Unix(0, 0).UTC(),

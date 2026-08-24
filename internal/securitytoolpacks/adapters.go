@@ -74,22 +74,37 @@ func (goTestJSONAdapter) Normalize(tool Tool, target Target, native []byte, r Re
 	}
 	failures := map[string]*failure{}
 	failed := map[string]bool{}
+	packageOutput := map[string]*strings.Builder{}
+	packageFailed := map[string]bool{}
 	for scanner.Scan() {
 		var event goTestEvent
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
 			return nil, fmt.Errorf("go test JSON output: %w", err)
 		}
 		key := event.Package + "\x00" + event.Test
-		if event.Test != "" && event.Output != "" {
+		if event.Test != "" {
 			f := failures[key]
 			if f == nil {
 				f = &failure{pkg: event.Package, test: event.Test}
 				failures[key] = f
 			}
-			f.output.WriteString(event.Output)
+			if event.Output != "" {
+				f.output.WriteString(event.Output)
+			}
+		} else if event.Output != "" {
+			output := packageOutput[event.Package]
+			if output == nil {
+				output = &strings.Builder{}
+				packageOutput[event.Package] = output
+			}
+			output.WriteString(event.Output)
 		}
-		if event.Action == "fail" && event.Test != "" {
-			failed[key] = true
+		if event.Action == "fail" {
+			if event.Test != "" {
+				failed[key] = true
+			} else {
+				packageFailed[event.Package] = true
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -103,12 +118,35 @@ func (goTestJSONAdapter) Normalize(tool Tool, target Target, native []byte, r Re
 	out := make([]securityRecord, 0, len(keys))
 	for _, key := range keys {
 		f := failures[key]
-		message := r.Text(strings.TrimSpace(f.output.String()))
+		message, pkg, test := "", "", ""
+		if f != nil {
+			message = r.Text(strings.TrimSpace(f.output.String()))
+			pkg, test = f.pkg, f.test
+		}
 		if message == "" {
 			message = "fuzz target failed"
 		}
-		rec := security.ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: "go-fuzz-failure", RuleName: "Go fuzz target failed", Message: message, Severity: "high", Category: "fuzzing", FilePath: f.pkg, Symbol: f.test, RawEvidence: message}
-		out = append(out, securityRecord{Record: fromPipelineRecord(rec), Asset: f.pkg})
+		rec := security.ScannerRecord{Tool: tool.Name, ToolVersion: tool.Version, RuleID: "go-fuzz-failure", RuleName: "Go fuzz target failed", Message: message, Severity: "high", Category: "fuzzing", FilePath: pkg, Symbol: test, RawEvidence: message}
+		out = append(out, securityRecord{Record: fromPipelineRecord(rec), Asset: pkg})
+	}
+	if len(out) == 0 && len(packageFailed) > 0 {
+		packages := make([]string, 0, len(packageFailed))
+		for pkg := range packageFailed {
+			packages = append(packages, pkg)
+		}
+		sort.Strings(packages)
+		var diagnostics []string
+		for _, pkg := range packages {
+			message := ""
+			if output := packageOutput[pkg]; output != nil {
+				message = r.Text(strings.TrimSpace(output.String()))
+			}
+			if message == "" {
+				message = "package " + pkg + " failed"
+			}
+			diagnostics = append(diagnostics, message)
+		}
+		return nil, fmt.Errorf("go fuzz package failed before producing a target failure: %s", strings.Join(diagnostics, "\n"))
 	}
 	return out, nil
 }

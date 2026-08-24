@@ -246,3 +246,27 @@ func TestSecurityResearchSweepReservationsOutcomesAndPrecision(t *testing.T) {
 		t.Fatalf("decision replay: value=%#v created=%v err=%v", replay, made, err)
 	}
 }
+
+func TestAmendSecurityResearchDossierExpectedVersionIsCurrentVersion(t *testing.T) {
+	s, namespace := setupSecurityResearchTestStore(t)
+	_, revision := createSecurityResearchFixture(t, s, namespace)
+	ctx := context.Background()
+	first, created, err := s.AmendSecurityResearchDossier(ctx, namespace, &store.SecurityResearchDossier{
+		RevisionID: revision.ID, Content: json.RawMessage(`{"scope":"initial"}`), IdempotencyKey: "dossier-v1",
+	})
+	if err != nil || !created || first.Version != 1 {
+		t.Fatalf("first amendment = %+v, created=%v, err=%v", first, created, err)
+	}
+	second, created, err := s.AmendSecurityResearchDossier(ctx, namespace, &store.SecurityResearchDossier{
+		RevisionID: revision.ID, Version: 1, ParentID: &first.ID, Content: json.RawMessage(`{"scope":"expanded"}`), IdempotencyKey: "dossier-v2",
+	})
+	if err != nil || !created || second.Version != 2 {
+		t.Fatalf("second amendment = %+v, created=%v, err=%v", second, created, err)
+	}
+	_, _, err = s.AmendSecurityResearchDossier(ctx, namespace, &store.SecurityResearchDossier{
+		RevisionID: revision.ID, Version: 1, ParentID: &second.ID, Content: json.RawMessage(`{"scope":"stale"}`), IdempotencyKey: "dossier-stale",
+	})
+	if !errors.Is(err, store.ErrSecurityResearchVersionConflict) {
+		t.Fatalf("stale expected version error = %v", err)
+	}
+}

@@ -162,10 +162,20 @@ func (s *securityScanState) exactRevisionFinding(ctx context.Context, findingID 
 	if err != nil {
 		return nil, err
 	}
-	if finding == nil || strings.TrimSpace(finding.Repository) != strings.TrimSpace(s.scanCtx.Repository) ||
+	if finding == nil {
+		return nil, fmt.Errorf("finding does not belong to the trusted scan execution and exact revision")
+	}
+	assignedFingerprint := strings.TrimSpace(s.scanCtx.PostScriptFingerprint)
+	findingFingerprint := strings.TrimSpace(finding.Fingerprint)
+	assignedPostScriptFinding := assignedFingerprint != "" && findingFingerprint != "" && strings.EqualFold(findingFingerprint, assignedFingerprint)
+	sameExecution := strings.TrimSpace(finding.RunName) == strings.TrimSpace(s.scanCtx.RunName)
+	if executionID := strings.TrimSpace(s.scanCtx.ExecutionID); executionID != "" {
+		sameExecution = strings.TrimSpace(finding.ExecutionID) == executionID
+	}
+	if strings.TrimSpace(finding.Repository) != strings.TrimSpace(s.scanCtx.Repository) ||
 		strings.TrimSpace(finding.Revision) != strings.TrimSpace(s.scanCtx.Revision) ||
 		strings.TrimSpace(finding.ScanName) != strings.TrimSpace(s.scanCtx.ScanName) ||
-		(strings.TrimSpace(s.scanCtx.ExecutionID) != "" && strings.TrimSpace(finding.ExecutionID) != strings.TrimSpace(s.scanCtx.ExecutionID)) {
+		(!sameExecution && !assignedPostScriptFinding) {
 		return nil, fmt.Errorf("finding does not belong to the trusted scan execution and exact revision")
 	}
 	return finding, nil
@@ -536,7 +546,7 @@ func (t *completeSecurityVariantSweepTool) Description() string {
 	return "Complete or block a variant sweep on this run's trusted exact revision."
 }
 func (t *completeSecurityVariantSweepTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"sweep_id":{"type":"string"},"status":{"type":"string","enum":["completed","blocked"]},"result":{"type":"object"},"idempotency_key":{"type":"string"}},"required":["sweep_id","status","result","idempotency_key"],"additionalProperties":false}`)
+	return json.RawMessage(`{"type":"object","properties":{"sweep_id":{"type":"string"},"status":{"type":"string","enum":["completed","blocked"]},"result":{"type":"object","description":"Completion evidence. Completed sweeps require searched_scope, methods, evidence, and summary; evidence entries may be structured objects.","properties":{"searched_scope":{"description":"Non-empty searched paths/patterns, as an array or structured object."},"methods":{"type":"array","minItems":1,"items":{}},"evidence":{"type":"array","minItems":1,"items":{}},"summary":{"type":"string","minLength":1}}},"idempotency_key":{"type":"string"}},"required":["sweep_id","status","result","idempotency_key"],"additionalProperties":false}`)
 }
 func (t *completeSecurityVariantSweepTool) IsReadOnly() bool                      { return true }
 func (t *completeSecurityVariantSweepTool) IsEnabled(_ *agentsdk.RunContext) bool { return true }
