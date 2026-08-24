@@ -1,0 +1,491 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-filecoin
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/whyrusleeping/cbor-gen
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-cbor-gen
+      displayName: Filecoin CBOR code generator
+      priority: 53
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/boost
+      baseBranch: main
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-boost
+      displayName: Filecoin Boost
+      priority: 54
+      featured: false
+    - repositoryURL: https://github.com/ipfs/go-graphsync
+      baseBranch: main
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-graphsync
+      displayName: Filecoin GraphSync
+      priority: 55
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/lotus
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-lotus
+      displayName: Filecoin Lotus
+      priority: 56
+      featured: true
+    - repositoryURL: https://github.com/filecoin-project/rust-fil-proofs-ffi
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-rust-fil-proofs-ffi
+      displayName: Filecoin proofs FFI
+      priority: 57
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/rust-filecoin-proofs-api
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-rust-proofs-api
+      displayName: Filecoin proofs API
+      priority: 58
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/rust-fil-proofs
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-rust-fil-proofs
+      displayName: Filecoin proofs
+      priority: 59
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/bellperson
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-bellperson
+      displayName: Filecoin Bellperson
+      priority: 60
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/merkletree
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-merkletree
+      displayName: Filecoin Merkle tree
+      priority: 61
+      featured: false
+    - repositoryURL: https://github.com/lurk-lab/neptune
+      baseBranch: main
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-neptune
+      displayName: Filecoin Neptune
+      priority: 62
+      featured: false
+    - repositoryURL: https://github.com/lurk-lab/neptune-triton
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-neptune-triton
+      displayName: Filecoin Neptune Triton
+      priority: 63
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/paired
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-paired
+      displayName: Filecoin Paired
+      priority: 64
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/go-address
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-address
+      displayName: Filecoin address library
+      priority: 65
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/go-amt-ipld
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-amt-ipld
+      displayName: Filecoin IPLD AMT
+      priority: 66
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/go-bitfield
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-bitfield
+      displayName: Filecoin bitfield library
+      priority: 67
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/go-cbor-util
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-cbor-util
+      displayName: Filecoin CBOR utilities
+      priority: 68
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/go-crypto
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-crypto
+      displayName: Filecoin crypto utilities
+      priority: 69
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/go-data-transfer
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-data-transfer
+      displayName: Filecoin data transfer
+      priority: 70
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/go-fil-commcid
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-fil-commcid
+      displayName: Filecoin commitment CID utilities
+      priority: 71
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/go-padreader
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-padreader
+      displayName: Filecoin padded reader
+      priority: 72
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/go-sectorbuilder
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-sectorbuilder
+      displayName: Filecoin sector builder
+      priority: 73
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/go-statemachine
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-statemachine
+      displayName: Filecoin state machine
+      priority: 74
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/go-statestore
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-statestore
+      displayName: Filecoin state store
+      priority: 75
+      featured: false
+    - repositoryURL: https://github.com/ipfs/go-hamt-ipld
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-hamt-ipld
+      displayName: Filecoin IPLD HAMT
+      priority: 76
+      featured: false
+    - repositoryURL: https://github.com/ipfs/go-ipld-cbor
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-ipld-cbor
+      displayName: Filecoin IPLD CBOR
+      priority: 77
+      featured: false
+    - repositoryURL: https://github.com/filecoin-project/builtin-actors
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-builtin-actors
+      displayName: Filecoin built-in actors
+      priority: 78
+      featured: true
+    - repositoryURL: https://github.com/filecoin-project/ref-fvm
+      baseBranch: master
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-ref-fvm
+      displayName: Filecoin FVM
+      priority: 79
+      featured: true
+    - repositoryURL: https://github.com/filecoin-project/go-f3
+      baseBranch: main
+      workflowRef: filecoin-security-review
+      policyPackRef: bug-bounty
+      scanName: filecoin-go-f3
+      displayName: Filecoin Fast Finality
+      priority: 80
+      featured: true
+  provider: Immunefi
+  displayName: Filecoin
+  programURL: https://immunefi.com/bug-bounty/filecoin/scope/
+  verifiedAt: 2026-08-24T00:00:00Z
+  severitySystem: immunefi-v2.3
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/whyrusleeping/cbor-gen
+      displayName: Some basic utilities to generate fast path CBOR codecs for your types
+    - repositoryURL: https://github.com/filecoin-project/boost
+      displayName: Boost storage provider tooling
+    - repositoryURL: https://github.com/ipfs/go-graphsync
+      displayName: Go GraphSync implementation
+    - repositoryURL: https://github.com/filecoin-project/lotus/tree/master/miner
+      displayName: Lotus miner node (master/miner)
+    - repositoryURL: https://github.com/filecoin-project/rust-fil-proofs-ffi
+      displayName: Filecoin Proofs
+    - repositoryURL: https://github.com/filecoin-project/rust-filecoin-proofs-api
+      displayName: Filecoin Proofs API
+    - repositoryURL: https://github.com/filecoin-project/rust-fil-proofs
+      displayName: Filecoin Proofs in Rust
+    - repositoryURL: https://github.com/filecoin-project/bellperson
+      displayName: zk-SNARK library
+    - repositoryURL: https://github.com/filecoin-project/merkletree
+      displayName: Rust Merkle tree implementation
+    - repositoryURL: https://github.com/lurk-lab/neptune
+      displayName: Rust Poseidon implementation
+    - repositoryURL: https://github.com/lurk-lab/neptune-triton
+      displayName: Futhark Neptune-compatible Poseidon implementation
+    - repositoryURL: https://github.com/filecoin-project/paired
+      displayName: Pairing-friendly elliptic curves
+    - repositoryURL: https://github.com/filecoin-project/go-address
+      displayName: Filecoin address types
+    - repositoryURL: https://github.com/filecoin-project/go-amt-ipld
+      displayName: Go IPLD array mapped trie
+    - repositoryURL: https://github.com/filecoin-project/go-bitfield
+      displayName: Filecoin bitfield primitives
+    - repositoryURL: https://github.com/filecoin-project/go-cbor-util
+      displayName: Filecoin CBOR utilities
+    - repositoryURL: https://github.com/filecoin-project/go-crypto
+      displayName: Filecoin crypto utilities
+    - repositoryURL: https://github.com/filecoin-project/go-data-transfer
+      displayName: Filecoin data transfer module
+    - repositoryURL: https://github.com/filecoin-project/go-fil-commcid
+      displayName: Commitment CID conversion utilities
+    - repositoryURL: https://github.com/filecoin-project/go-padreader
+      displayName: Bit-padded stream tools
+    - repositoryURL: https://github.com/filecoin-project/go-sectorbuilder
+      displayName: Storage miner sector manager
+    - repositoryURL: https://github.com/filecoin-project/go-statemachine
+      displayName: Generic state machine
+    - repositoryURL: https://github.com/filecoin-project/go-statestore
+      displayName: CBOR key-value state store
+    - repositoryURL: https://github.com/ipfs/go-hamt-ipld
+      displayName: Filecoin IPLD HAMT implementation
+    - repositoryURL: https://github.com/ipfs/go-ipld-cbor
+      displayName: CBOR-encoded Merkle DAG implementation
+    - repositoryURL: https://github.com/filecoin-project/lotus
+      displayName: Lotus reference node implementation
+    - repositoryURL: https://github.com/filecoin-project/builtin-actors
+      displayName: Filecoin built-in actors
+    - repositoryURL: https://github.com/filecoin-project/ref-fvm
+      displayName: FVM reference implementation
+    - repositoryURL: https://github.com/filecoin-project/go-f3
+      displayName: Go implementation of Filecoin Fast Finality
+  inScopeImpacts:
+    - impact: Direct loss of funds
+      level: critical
+      assetType: Blockchain/DLT
+    - impact: DoS of greater than 10% but less than 30% of validator or miner nodes and does not shut down the network
+      level: low
+      assetType: Blockchain/DLT
+    - impact: High compute consumption by validator/mining nodes where a crash, memory exhaustion, or any other demonstrated lasting effect involving network availability is demonstrated.
+      level: medium
+      assetType: Blockchain/DLT
+    - impact: Unintended permanent chain split requiring hard fork (network partition requiring hard fork)
+      level: critical
+      assetType: Blockchain/DLT
+    - impact: Permanent freezing of funds (fix requires hardfork)
+      level: critical
+      assetType: Blockchain/DLT
+    - impact: Underpricing transaction fees relative to computation time
+      level: low
+      assetType: Blockchain/DLT
+    - impact: Contract on the platform fails to deliver promised returns, but doesn’t lose values
+      level: low
+      assetType: Blockchain/DLT
+    - impact: EVM instruction fails to execute when provided with concrete parameters
+      level: low
+      assetType: Blockchain/DLT
+    - impact: Unintended chain split (Network partition) with localized impacts (which would require hard fork but doesn’t affect the chain as whole)
+      level: high
+      assetType: Blockchain/DLT
+    - impact: Transient consensus failures (Temporary halt in transactions leading to consensus failure)
+      level: high
+      assetType: Blockchain/DLT
+    - impact: Protocol-level bug preventing contracts from using their funds
+      level: high
+      assetType: Blockchain/DLT
+    - impact: Protocol-level bug causing the inability for developers to deploy new smart contracts
+      level: high
+      assetType: Blockchain/DLT
+    - impact: Protocol-level bug rendering a single contract unusable after the exploit (i.e. contract bricked)
+      level: high
+      assetType: Blockchain/DLT
+    - impact: DoS of greater than 30% of validator or miner nodes and does not shut down the network
+      level: medium
+      assetType: Blockchain/DLT
+    - impact: EVM instruction fails to execute, in a general way
+      level: medium
+      assetType: Blockchain/DLT
+    - impact: Inability to deploy a contract under a specific circumstances
+      level: medium
+      assetType: Blockchain/DLT
+    - impact: Total Chain halt
+      level: critical
+      assetType: Blockchain/DLT
+    - impact: Protocol-level bug that causes a general breakage of all contracts deployed on the chain
+      level: critical
+      assetType: Blockchain/DLT
+    - impact: Protocol-level bug that enables tricking contracts into sending funds to arbitrary addresses
+      level: critical
+      assetType: Blockchain/DLT
+    - impact: Inability to propagate new transactions (limited to fraction of the network)
+      level: high
+      assetType: Blockchain/DLT
+  knownIssues:
+    - source: Public repository disclosures
+      summary: Issues, pull requests, and code comments already disclosed in the in-scope repositories are known and ineligible.
+    - source: Previous audits
+      summary: Unfixed vulnerabilities already identified in Filecoin audit reports linked from the Filecoin specification are ineligible.
+  outOfScope:
+    - Unit tests (_test.go, #[test], or equivalent) as the sole proof of concept
+    - Fuzzer crash outputs without a local-devnet reproduction proving external reachability
+    - Static-analysis or linter findings without demonstrated exploitability on a local devnet
+    - Theoretical writeups without runnable exploit code
+    - Screenshots or video recordings as sole evidence
+    - AI/LLM-generated reports not validated by the researcher against a running local devnet
+    - Incorrect data supplied by third-party oracles, except oracle manipulation or flash-loan attacks
+    - Impacts requiring basic economic or governance attacks, including 51% attacks
+    - Lack of liquidity, Sybil, or centralization impacts
+    - Impacts requiring leaked keys, credentials, or existing privileged-address access
+    - Best-practice recommendations and feature requests
+    - Impacts on test files and configuration files unless the program expressly includes them
+    - Impacts requiring phishing or social engineering
+  prohibitedTesting:
+    - Any testing on mainnet or public-testnet deployed code; use a local devnet
+    - Any denial-of-service attack executed against project assets
+    - Automated testing that generates significant amounts of traffic
+    - Testing with pricing oracles, third-party smart contracts, systems, applications, or websites
+    - Phishing or other social-engineering attacks against employees or customers
+    - Public disclosure of an unpatched vulnerability in an embargoed bounty
+  scopePolicy: |-
+    Verbatim Immunefi scope snapshot verified 2026-08-24; the live page reports it was last updated 21 July 2026.
+
+    Displayed wording is preserved; layout whitespace is normalized.
+
+    Blockchain/DLT
+
+    Assets in Scope
+    Target
+    https://github.com/whyrusleeping/cbor-gen
+    https://github.com/filecoin-project/boost
+    https://github.com/ipfs/go-graphsync
+    https://github.com/filecoin-project/lotus/tree/master/miner
+    https://github.com/filecoin-project/rust-fil-proofs-ffi
+    https://github.com/filecoin-project/rust-filecoin-proofs-api
+    https://github.com/filecoin-project/rust-fil-proofs
+    https://github.com/filecoin-project/bellperson
+    https://github.com/filecoin-project/merkletree
+    https://github.com/lurk-lab/neptune
+    https://github.com/lurk-lab/neptune-triton
+    https://github.com/filecoin-project/paired
+    https://github.com/filecoin-project/go-address
+    https://github.com/filecoin-project/go-amt-ipld
+    https://github.com/filecoin-project/go-bitfield
+    https://github.com/filecoin-project/go-cbor-util
+    https://github.com/filecoin-project/go-crypto
+    https://github.com/filecoin-project/go-data-transfer
+    https://github.com/filecoin-project/go-fil-commcid
+    https://github.com/filecoin-project/go-padreader
+    https://github.com/filecoin-project/go-sectorbuilder
+    https://github.com/filecoin-project/go-statemachine
+    https://github.com/filecoin-project/go-statestore
+    https://github.com/ipfs/go-hamt-ipld
+    https://github.com/ipfs/go-ipld-cbor
+    https://github.com/filecoin-project/lotus
+    https://github.com/filecoin-project/builtin-actors
+    https://github.com/filecoin-project/ref-fvm
+    https://github.com/filecoin-project/go-f3
+    https://filecoin.io    Primacy of Impact
+
+    Impacts in Scope
+    Critical
+    Direct loss of funds
+    Low
+    DoS of greater than 10% but less than 30% of validator or miner nodes and does not shut down the network
+    Medium
+    High compute consumption by validator/mining nodes where a crash, memory exhaustion, or any other demonstrated lasting effect involving network availability is demonstrated.
+    Critical
+    Unintended permanent chain split requiring hard fork (network partition requiring hard fork)
+    Critical
+    Permanent freezing of funds (fix requires hardfork)
+    Low
+    Underpricing transaction fees relative to computation time
+    Low
+    Contract on the platform fails to deliver promised returns, but doesn’t lose values
+    Low
+    EVM instruction fails to execute when provided with concrete parameters
+    High
+    Unintended chain split (Network partition) with localized impacts (which would require hard fork but doesn’t affect the chain as whole)
+    High
+    Transient consensus failures (Temporary halt in transactions leading to consensus failure)
+    High
+    Protocol-level bug preventing contracts from using their funds
+    High
+    Protocol-level bug causing the inability for developers to deploy new smart contracts
+    High
+    Protocol-level bug rendering a single contract unusable after the exploit (i.e. contract bricked)
+    Medium
+    DoS of greater than 30% of validator or miner nodes and does not shut down the network
+    Medium
+    EVM instruction fails to execute, in a general way
+    Medium
+    Inability to deploy a contract under a specific circumstances
+    Critical
+    Total Chain halt
+    Critical
+    Protocol-level bug that causes a general breakage of all contracts deployed on the chain
+    Critical
+    Protocol-level bug that enables tricking contracts into sending funds to arbitrary addresses
+    High
+    Inability to propagate new transactions (limited to fraction of the network)
+
+    This is a Primacy of Rules program. A valid bounty report must affect an itemized asset and produce an itemized impact. The published table contains 30 rows: 29 source-code assets, plus https://filecoin.io as the non-code "Primacy of Impact" marker. The 29 source rows collapse to 28 importable repositories because Lotus is listed both at the repository root and specifically at master/miner. The Lotus scan target imports the root once; bounty eligibility must still be checked against the exact published asset rows. Repository default branches were verified on 2026-08-24; Immunefi itself explicitly pins only the Lotus miner row to master/miner.
+
+    Program status and rewards
+    - Live since 14 April 2023; last updated 21 July 2026.
+    - The structured header and reward table publish a $50,000 maximum bounty: Critical $25,000-$50,000, High $7,500-$25,000, Medium $2,000-$7,500, and Low $1,000-$2,000.
+    - Critical rewards are described in the structured table as 10% of directly affected funds, capped at $50,000 with a $25,000 minimum.
+    - The same information page contains stale-looking prose stating a $150,000 cap and $100,000 minimum, which conflicts with its structured current table. This snapshot preserves the discrepancy rather than silently choosing the larger figure.
+    - Rewards are denominated in USD and paid in USDC on Ethereum. KYC is required for payout.
+
+    Out of scope
+    All submissions must include a working proof of concept demonstrated against a running local devnet.
+    The following are out of scope and will be closed without review:
+    - Unit tests (_test.go, #[test], or equivalent) as the sole PoC; unit tests do not exercise consensus, networking, or state sync, which are the layers where exploitability must be proven
+    - Fuzzer crash outputs without a devnet reproduction showing the crash is reachable from an external input on a running node
+    - Static analysis or linter findings without demonstrated exploitability on a devnet
+    - Theoretical writeups without runnable exploit code
+    - Screenshots or video recordings as sole evidence (acceptable as supplements, not replacements)
+    - AI/LLM-generated reports not validated by the researcher against a running devnet
+
+    Proof-of-concept boundary
+    Every severity requires a runnable proof of concept against a running local devnet. The program directs researchers to https://github.com/FilecoinFoundationWeb/filecoin-audit-kit and requires the Audit Kit setup and version, any source modifications as diffs, runnable exploit code, execution output, and impact evidence such as crash logs, state diffs, or chain behavior. Unit tests alone, raw fuzzer crashes, static-analysis output, theoretical reports, screenshots/video alone, and unvalidated AI/LLM output are explicitly insufficient.
+
+    Eligibility and disclosure
+    Current and former Filecoin core-development team members, and current or former employees, contractors, or others paid by Protocol Labs or Filecoin Foundation to work directly or indirectly on Filecoin, are not eligible for rewards. Reports must remain confidential and follow Immunefi rules. The official Filecoin security policy directs reports to this Immunefi program and asks researchers not to use public GitHub issues.

@@ -92,6 +92,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"immunefi-aave":      {"Smart Contract"},
 		"immunefi-arbitrum":  {"Smart Contract"},
 		"immunefi-chainlink": {"Smart Contract", "Web & App"},
+		"immunefi-filecoin":  {"Blockchain/DLT"},
 		"immunefi-jito":      {"Blockchain/DLT", "Smart Contract"},
 		"immunefi-kamino":    {"Smart Contract", "Web & App"},
 		"immunefi-lido":      {"Smart Contract", "Web & App"},
@@ -131,6 +132,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"firedancer":                      "https://bounty.firedancer.io/",
 		"hackerone-coinbase":              "https://hackerone.com/coinbase",
 		"bugcrowd-openai":                 "https://bugcrowd.com/engagements/openai",
+		"immunefi-filecoin":               "https://immunefi.com/bug-bounty/filecoin/scope/",
 	}
 	expectedVerbatimMarkers := map[string][]string{
 		"coinkite-coldcard":               {"Official Coinkite responsible-disclosure policy snapshot", "Security vulnerabilities in Coinkite hardware, firmware, and bootloaders", "Coinkite evaluates rewards case by case"},
@@ -162,6 +164,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"firedancer":                      {"Version effective: 2026-08-06", "Scope\nAny reachable code in the firedancer/fdctl", "Submission and Conduct"},
 		"hackerone-coinbase":              {"Browser-verified public scope snapshot (2026-08-15)", "In-scope asset rows captured: 16", "Out-of-scope asset rows captured: 3", "Low and Medium findings are out of scope"},
 		"bugcrowd-openai":                 {"Browser-verified program boundary (2026-08-15)", "Security Bug Bounty boundary", "Safety Bug Bounty is separate", "historical 25-row table"},
+		"immunefi-filecoin":               {"Immunefi scope snapshot verified 2026-08-24", "29 source-code assets", "running local devnet", "$50,000 maximum bounty"},
 	}
 	browserResearchedCatalogPrograms := map[string]struct{}{
 		"coinkite-coldcard":               {},
@@ -191,6 +194,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"shiftcrypto-bitbox":              {},
 		"hackerone-coinbase":              {},
 		"bugcrowd-openai":                 {},
+		"immunefi-filecoin":               {},
 	}
 	catalogProgramsWithoutImportTargets := map[string]string{
 		"bugcrowd-openai":          "authenticated Bugcrowd",
@@ -222,6 +226,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"hackenproof-vechainthor":         1,
 		"shiftcrypto-bitbox":              2,
 		"hackerone-coinbase":              2,
+		"immunefi-filecoin":               28,
 	}
 	expectedCatalogTargetWorkflows := map[string]string{
 		"coinkite-coldcard":               "wallet-security-review",
@@ -248,6 +253,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"hackenproof-vechainthor":         "blockchain-protocol-audit",
 		"shiftcrypto-bitbox":              "wallet-security-review",
 		"hackerone-coinbase":              "mpc-cryptography-security-review",
+		"immunefi-filecoin":               "filecoin-security-review",
 	}
 	// A program whose in-scope repositories span more than one execution
 	// environment cannot be reviewed by a single workflow: the Solana crates
@@ -321,6 +327,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"immunefi-arbitrum":  "cross-chain-messaging-review",
 		"immunefi-axelar":    "cross-chain-messaging-review",
 		"immunefi-chainlink": "cross-chain-messaging-review",
+		"immunefi-filecoin":  "filecoin-security-review",
 		"immunefi-hyperlane": "cross-chain-messaging-review",
 		"immunefi-kamino":    "solana-defi-program-review",
 		"immunefi-layerzero": "cross-chain-messaging-review",
