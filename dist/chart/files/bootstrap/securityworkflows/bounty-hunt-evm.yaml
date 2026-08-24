@@ -3,7 +3,7 @@ kind: SecurityWorkflow
 metadata:
   name: bounty-hunt-evm
 spec:
-  description: Harness-first EVM bounty hunt. A typed orientation contract precedes adaptive review, source review, builds, and local harnesses; an operator-authorized archive endpoint adds deployed-state and pinned-fork evidence when configured. One write-capable task builds and calibrates the oracle while hunting, an independent warden challenges every candidate before impact is measured in the program's own vocabulary, and anything that never broke an invariant is recorded as untested or refuted rather than reported.
+  description: Harness-first EVM bounty hunt. Source review, builds, and local harnesses always run; an operator-authorized archive endpoint adds deployed-state and pinned-fork evidence when configured. One write-capable task builds and calibrates the oracle while hunting, impact is measured in the program's own vocabulary, and anything that never broke an invariant is recorded as untested or refuted rather than reported.
   parameters:
     - name: fork_endpoint_alias
       description: Operator-authorized endpoint alias used to read deployed state and start the local fork. Supply an alias, never a raw credential-bearing URL.
@@ -32,26 +32,15 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-entry-point-analyzer
       objective: >-
-        Produce the complete orientation contract before anyone begins deep review. First call
-        get_security_research_context and load only records bound to this exact target revision and scope;
-        prior-revision negative evidence is stale context. Preserve uncertainty rather than inferring
-        undocumented intent. From project root {{params.project_root}}, pin the exact source revision,
-        dependencies, compiler and settings, protocol target, project layout, build system, test entry
-        points, and source-level scope. Model assets, liabilities, roles and authorities; public, peer and
-        privileged entry points; trust boundaries and external dependencies; normal state transitions and
-        retry, rollback, reorg, upgrade, migration and recovery paths; specification, source, artifact and
-        deployment representations; critical properties; applicable and inapplicable prior art and
-        incidents; unresolved and conflicting assumptions; tests, fuzz targets, simulators, reference
-        implementations and authorized evidence sources; and every missing fact with the resulting limit
-        on conclusions. Use explicit unavailable or not_applicable values where appropriate.
-
-        Deployment and archive-chain evidence is an optional enrichment lane. If
+        Pin the source target before anyone reasons about it. First call get_security_research_context and
+        load only records bound to this exact target revision and scope; prior-revision negative evidence is
+        stale context. Always record the immutable source revision,
+        project layout, build system, test entry points, and source-level scope from project root
+        {{params.project_root}}. Deployment and archive-chain evidence is an optional enrichment lane. If
         any of {{params.deployment_manifest}}, {{params.fork_endpoint_alias}}, {{params.chain_id}},
         {{params.fork_block_number}}, or {{params.fork_block_hash}} is unconfigured, set verification_status
-        to blocked, name each missing input in missing_evidence and gaps, use unavailable for its output
-        field, and cap evidence_class at source_and_local_artifact. If local artifacts are also unavailable,
-        use source_only. Still publish the orientation contract so later source review, builds, static tools,
-        and local tests can run. Otherwise,
+        to blocked, name each missing input in gaps, use unavailable for its output field, and still publish
+        the source dossier so later source review, builds, static tools, and local tests can run. Otherwise,
         read deployment manifest {{params.deployment_manifest}} and through the operator-authorized fork
         endpoint alias {{params.fork_endpoint_alias}}, verify that the endpoint
         reports required chain id {{params.chain_id}} and verifies configured block
@@ -64,38 +53,20 @@ spec:
         deployed-bytecode-diff proves the compiled artifact of the pinned revision is the code actually
         running at each address. Mark the pin verified only when the endpoint chain id and block hash match,
         the manifest addresses were read, and deployed bytecode matches the pinned source. A divergence or
-        unavailable fact blocks only deployed-state verification and is a stated gap, never an assumption.
-        Use verified_deployment evidence_class only when all deployment checks pass. Publish one structured
-        orientation dossier for every later task and report no vulnerabilities here.
+        unavailable fact blocks only deployed-state verification and is a stated gap, never an assumption. Publish one
+        structured dossier for every later task and report no vulnerabilities here.
       outputSchema: |-
         {
           "type": "object",
-          "required": ["revision", "target", "evidence_class", "chain_id", "fork_block_number", "fork_block_hash", "deployment_manifest", "verification_status", "configuration_evidence", "addresses", "assets", "liabilities", "roles_and_authorities", "entry_points", "trust_boundaries", "external_dependencies", "state_machine", "representations", "critical_properties", "prior_art_and_incidents", "unresolved_assumptions", "conflicting_assumptions", "review_resources", "authorized_evidence_sources", "missing_evidence", "conclusion_limits", "gaps"],
+          "required": ["revision", "chain_id", "fork_block_number", "fork_block_hash", "deployment_manifest", "verification_status", "addresses", "gaps"],
           "properties": {
             "revision": {"type": "string", "description": "Immutable source revision under test"},
-            "target": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["source_revision", "dependencies", "compilers", "protocol", "project_layout", "build_system", "test_entry_points", "scope"],
-              "properties": {
-                "source_revision": {"type": "string"},
-                "dependencies": {"type": "array", "items": {"type": "object", "required": ["name", "version", "source"], "properties": {"name": {"type": "string"}, "version": {"type": "string"}, "source": {"type": "string"}}}},
-                "compilers": {"type": "array", "items": {"type": "object", "required": ["name", "version", "settings"], "properties": {"name": {"type": "string"}, "version": {"type": "string"}, "settings": {"type": "string"}}}},
-                "protocol": {"type": "string", "description": "Exact protocol, version and network target, or not_applicable"},
-                "project_layout": {"type": "string"},
-                "build_system": {"type": "string"},
-                "test_entry_points": {"type": "array", "items": {"type": "string"}},
-                "scope": {"type": "array", "items": {"type": "string"}}
-              }
-            },
-            "evidence_class": {"type": "string", "enum": ["source_only", "source_and_local_artifact", "verified_deployment"], "description": "Strongest evidence class actually established; missing deployment evidence forbids verified_deployment"},
             "chain_id": {"type": "string", "description": "Chain ID returned by the authorized endpoint and checked against the required chain_id parameter"},
             "fork_block_number": {"type": "string"},
             "fork_block_hash": {"type": "string"},
             "deployment_manifest": {"type": "string", "description": "Resolved manifest path under project_root"},
             "verification_status": {"type": "string", "enum": ["verified", "blocked"], "description": "verified only when endpoint chain ID and block hash, manifest addresses, and deployed bytecode all match; otherwise blocked with every cause in gaps"},
             "upstream": {"type": "string", "description": "Upstream project and revision this codebase forked from, when applicable"},
-            "configuration_evidence": {"type": "array", "items": {"type": "object", "required": ["fact", "value", "source", "status"], "properties": {"fact": {"type": "string"}, "value": {"type": "string"}, "source": {"type": "string"}, "status": {"type": "string", "enum": ["verified", "unverified", "unavailable"]}}}},
             "addresses": {
               "type": "array",
               "items": {
@@ -112,61 +83,8 @@ spec:
                 }
               }
             },
-            "assets": {"type": "array", "items": {"type": "object", "required": ["name", "security_interest"], "properties": {"name": {"type": "string"}, "security_interest": {"type": "string"}}}},
-            "liabilities": {"type": "array", "items": {"type": "object", "required": ["name", "accounting_rule"], "properties": {"name": {"type": "string"}, "accounting_rule": {"type": "string"}}}},
-            "roles_and_authorities": {"type": "array", "items": {"type": "object", "required": ["role", "authority", "holder_evidence"], "properties": {"role": {"type": "string"}, "authority": {"type": "string"}, "holder_evidence": {"type": "string"}}}},
-            "entry_points": {"type": "array", "items": {"type": "object", "required": ["name", "access", "state_effect"], "properties": {"name": {"type": "string"}, "access": {"type": "string", "enum": ["public", "peer", "privileged"]}, "state_effect": {"type": "string"}}}},
-            "trust_boundaries": {"type": "array", "items": {"type": "object", "required": ["boundary", "trusted_side", "untrusted_side", "validation"], "properties": {"boundary": {"type": "string"}, "trusted_side": {"type": "string"}, "untrusted_side": {"type": "string"}, "validation": {"type": "string"}}}},
-            "external_dependencies": {"type": "array", "items": {"type": "object", "required": ["name", "assumption", "failure_mode"], "properties": {"name": {"type": "string"}, "assumption": {"type": "string"}, "failure_mode": {"type": "string"}}}},
-            "state_machine": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["normal", "retry", "rollback", "reorg", "upgrade", "migration", "recovery"],
-              "properties": {
-                "normal": {"type": "array", "items": {"type": "object", "required": ["from", "action", "to", "actor", "guard"], "properties": {"from": {"type": "string"}, "action": {"type": "string"}, "to": {"type": "string"}, "actor": {"type": "string"}, "guard": {"type": "string"}}}},
-                "retry": {"type": "array", "items": {"type": "object", "required": ["from", "action", "to", "actor", "guard"], "properties": {"from": {"type": "string"}, "action": {"type": "string"}, "to": {"type": "string"}, "actor": {"type": "string"}, "guard": {"type": "string"}}}},
-                "rollback": {"type": "array", "items": {"type": "object", "required": ["from", "action", "to", "actor", "guard"], "properties": {"from": {"type": "string"}, "action": {"type": "string"}, "to": {"type": "string"}, "actor": {"type": "string"}, "guard": {"type": "string"}}}},
-                "reorg": {"type": "array", "items": {"type": "object", "required": ["from", "action", "to", "actor", "guard"], "properties": {"from": {"type": "string"}, "action": {"type": "string"}, "to": {"type": "string"}, "actor": {"type": "string"}, "guard": {"type": "string"}}}},
-                "upgrade": {"type": "array", "items": {"type": "object", "required": ["from", "action", "to", "actor", "guard"], "properties": {"from": {"type": "string"}, "action": {"type": "string"}, "to": {"type": "string"}, "actor": {"type": "string"}, "guard": {"type": "string"}}}},
-                "migration": {"type": "array", "items": {"type": "object", "required": ["from", "action", "to", "actor", "guard"], "properties": {"from": {"type": "string"}, "action": {"type": "string"}, "to": {"type": "string"}, "actor": {"type": "string"}, "guard": {"type": "string"}}}},
-                "recovery": {"type": "array", "items": {"type": "object", "required": ["from", "action", "to", "actor", "guard"], "properties": {"from": {"type": "string"}, "action": {"type": "string"}, "to": {"type": "string"}, "actor": {"type": "string"}, "guard": {"type": "string"}}}}
-              }
-            },
-            "representations": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["specification", "source", "artifact", "deployment"],
-              "properties": {
-                "specification": {"type": "object", "required": ["status", "locator", "evidence"], "properties": {"status": {"type": "string", "enum": ["verified", "unverified", "unavailable", "not_applicable"]}, "locator": {"type": "string"}, "evidence": {"type": "string"}}},
-                "source": {"type": "object", "required": ["status", "locator", "evidence"], "properties": {"status": {"type": "string", "enum": ["verified", "unverified", "unavailable", "not_applicable"]}, "locator": {"type": "string"}, "evidence": {"type": "string"}}},
-                "artifact": {"type": "object", "required": ["status", "locator", "evidence"], "properties": {"status": {"type": "string", "enum": ["verified", "unverified", "unavailable", "not_applicable"]}, "locator": {"type": "string"}, "evidence": {"type": "string"}}},
-                "deployment": {"type": "object", "required": ["status", "locator", "evidence"], "properties": {"status": {"type": "string", "enum": ["verified", "unverified", "unavailable", "not_applicable"]}, "locator": {"type": "string"}, "evidence": {"type": "string"}}}
-              }
-            },
-            "critical_properties": {"type": "array", "items": {"type": "object", "required": ["id", "property", "protected_asset", "evidence"], "properties": {"id": {"type": "string"}, "property": {"type": "string"}, "protected_asset": {"type": "string"}, "evidence": {"type": "string"}}}},
-            "prior_art_and_incidents": {"type": "array", "items": {"type": "object", "required": ["reference", "applicability", "reason"], "properties": {"reference": {"type": "string"}, "applicability": {"type": "string", "enum": ["applicable", "inapplicable", "unresolved"]}, "reason": {"type": "string"}}}},
-            "unresolved_assumptions": {"type": "array", "items": {"type": "string"}},
-            "conflicting_assumptions": {"type": "array", "items": {"type": "string"}},
-            "review_resources": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["tests", "fuzz_targets", "simulators", "reference_implementations"],
-              "properties": {
-                "tests": {"type": "array", "items": {"type": "string"}},
-                "fuzz_targets": {"type": "array", "items": {"type": "string"}},
-                "simulators": {"type": "array", "items": {"type": "string"}},
-                "reference_implementations": {"type": "array", "items": {"type": "string"}}
-              }
-            },
-            "authorized_evidence_sources": {"type": "array", "items": {"type": "string"}},
-            "missing_evidence": {"type": "array", "items": {"type": "object", "required": ["fact", "reason", "required_for"], "properties": {"fact": {"type": "string"}, "reason": {"type": "string"}, "required_for": {"type": "string"}}}},
-            "conclusion_limits": {"type": "array", "items": {"type": "string"}, "description": "Claims forbidden or left unresolved because evidence is missing"},
             "gaps": {"type": "array", "items": {"type": "string"}, "description": "Facts that could not be verified and the exact missing tool, authorization, or mismatch"}
-          },
-          "allOf": [
-            {"if": {"required": ["verification_status"], "properties": {"verification_status": {"const": "blocked"}}}, "then": {"properties": {"evidence_class": {"enum": ["source_only", "source_and_local_artifact"]}}}},
-            {"if": {"required": ["evidence_class"], "properties": {"evidence_class": {"const": "verified_deployment"}}}, "then": {"properties": {"verification_status": {"const": "verified"}}}}
-          ]
+          }
         }
     - name: fork-harness-hunt
       role: exploit-validator
@@ -191,30 +109,13 @@ spec:
         state untested rather than refuted; do not discard hypotheses reproducible in project tests or a
         local devnet. Never substitute a public-chain transaction for the local fork.
 
-        Before hunting, derive explicit adaptive review units from the orientation model, target shape and
-        risk rather than generic file ranges or a universal checklist. A fork requires upstream/revision
-        differential and changed-invariant review; a bridge requires complete message and value lifecycle,
-        finality, replay, identity, retry and refund review; an upgradeable deployment requires implementation
-        initialization, storage evolution, admin and deployed-state review; lending requires solvency,
-        rounding, oracle, liquidation and callback-visible-state review; multiple implementations require
-        differential state-transition and encoding tests. Include only applicable units and explain each
-        selection. Every unit must identify its question or hypothesis, protected asset and property,
-        least-privileged attacker and controlled input, state and order, production path and expected guard,
-        required manual trace and experiment, falsifying observation, stopping rule, exact evidence bounds,
-        and strongest permitted evidence class. Source inspection is one evidence method, not a sufficient
-        review process by itself.
-
-        Then write 5 to 15 executable invariants against the strongest available local substrate:
+        Before hunting, write 5 to 15 executable invariants against the strongest available local substrate:
         a verified pinned fork when available, otherwise project tests or a local devnet. Cover
         conservation of value and
         solvency; share price or exchange rate monotonicity where claimed; accounting identities across
         deposit, withdraw and settle; the access-control matrix; encode/decode round trips for identifiers;
         and cross-domain identity binding for relayed or proved messages. Calibrate each assertion by
-        applying a temporary mutant that SHOULD make it fail. Bind every significant build, static analysis,
-        differential, harness, mutant, fuzz and reproduction run to one review-unit question and property.
-        Record its exact target and revision, evidence class, oracle and calibration method, command,
-        configuration, environment, seed, corpus, actors, states, sequence depth, attempts, stopping rule,
-        expected falsifier, observed result, semantic coverage and limitations. Count an invariant as calibrated only when it
+        applying a temporary mutant that SHOULD make it fail. Count an invariant as calibrated only when it
         is executable and kills its mutant; an assertion that survives cannot detect its own violation and
         must be fixed or dropped before it guides a finding. Record exact tool commands, deterministic or
         replayable seeds, attempts, successes, and limitations. A green harness never means the target is
@@ -255,7 +156,7 @@ spec:
       outputSchema: |-
         {
           "type": "object",
-          "required": ["fork_status", "verified_pin", "review_units", "executable_invariant_count", "calibrated_invariant_count", "invariants", "tool_runs", "hypotheses", "limitations"],
+          "required": ["fork_status", "verified_pin", "executable_invariant_count", "calibrated_invariant_count", "invariants", "tool_runs", "hypotheses", "limitations"],
           "properties": {
             "fork_status": {"type": "string", "enum": ["executed", "blocked"], "description": "executed only when a local fork ran at the verified chain ID, block number, and block hash; blocked otherwise"},
             "fork_blocker": {"type": "string", "description": "Required when fork_status is blocked; exact authorization, endpoint, chain, block, build, or deployment mismatch that prevented execution"},
@@ -274,34 +175,6 @@ spec:
             },
             "executable_invariant_count": {"type": "integer", "minimum": 0, "description": "Number of invariants that ran as assertions"},
             "calibrated_invariant_count": {"type": "integer", "minimum": 0, "description": "Number of executable invariants whose temporary mutant was killed; must not exceed executable_invariant_count"},
-            "review_units": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["id", "selection_rationale", "risk", "question_or_hypothesis", "protected_asset", "property", "attacker", "controlled_input", "controlled_state", "controlled_order", "production_path", "expected_guard", "manual_trace", "experiment", "falsifying_observation", "stopping_rule", "evidence_bounds", "evidence_class"],
-                "properties": {
-                  "id": {"type": "string"},
-                  "selection_rationale": {"type": "string", "description": "Target-model and risk reason this unit is applicable"},
-                  "risk": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
-                  "question_or_hypothesis": {"type": "string"},
-                  "protected_asset": {"type": "string"},
-                  "property": {"type": "string"},
-                  "attacker": {"type": "string"},
-                  "controlled_input": {"type": "string"},
-                  "controlled_state": {"type": "string"},
-                  "controlled_order": {"type": "string"},
-                  "production_path": {"type": "string"},
-                  "expected_guard": {"type": "string"},
-                  "manual_trace": {"type": "string"},
-                  "experiment": {"type": "string"},
-                  "falsifying_observation": {"type": "string"},
-                  "stopping_rule": {"type": "string"},
-                  "evidence_bounds": {"type": "string", "description": "Exact actors, states, orderings, depth, attempts and exclusions"},
-                  "evidence_class": {"type": "string", "enum": ["source_only", "source_and_local_artifact", "verified_deployment"]}
-                }
-              }
-            },
             "invariants": {
               "type": "array",
               "items": {
@@ -320,38 +193,17 @@ spec:
             },
             "tool_runs": {
               "type": "array",
-              "description": "Every significant build, static-analysis, harness, mutant, fuzz, differential and reproduction run, including failures, partial output, timeouts and stopping-rule attempts",
+              "description": "Every harness, mutant, fuzz, differential, and reproduction run, including failures and stopping-rule attempts",
               "items": {
                 "type": "object",
-                "additionalProperties": false,
-                "required": ["tool", "review_unit_id", "question", "property", "target", "target_revision", "evidence_class", "oracle", "calibration_method", "calibration_result", "command", "configuration", "environment", "seed", "corpus", "actors", "states", "sequence_depth", "attempts", "successes", "stopping_rule", "expected_falsifier", "observed_result", "outcome", "semantic_coverage", "limitations"],
+                "required": ["tool", "command", "seed", "attempts", "successes"],
                 "properties": {
                   "tool": {"type": "string"},
-                  "review_unit_id": {"type": "string"},
-                  "question": {"type": "string"},
-                  "property": {"type": "string"},
-                  "target": {"type": "string"},
-                  "target_revision": {"type": "string"},
-                  "evidence_class": {"type": "string", "enum": ["source_only", "source_and_local_artifact", "verified_deployment"]},
-                  "oracle": {"type": "string"},
-                  "calibration_method": {"type": "string"},
-                  "calibration_result": {"type": "string", "enum": ["calibrated", "failed", "not_applicable"]},
                   "command": {"type": "string"},
-                  "configuration": {"type": "string"},
-                  "environment": {"type": "string"},
                   "seed": {"type": "string", "description": "Exact replay seed, or not_applicable for a deterministic unseeded run"},
-                  "corpus": {"type": "string", "description": "Exact corpus path or digest, or not_applicable"},
-                  "actors": {"type": "array", "items": {"type": "string"}},
-                  "states": {"type": "array", "items": {"type": "string"}},
-                  "sequence_depth": {"type": "integer", "minimum": 0},
                   "attempts": {"type": "integer", "minimum": 0},
                   "successes": {"type": "integer", "minimum": 0},
-                  "stopping_rule": {"type": "string"},
-                  "expected_falsifier": {"type": "string"},
-                  "observed_result": {"type": "string"},
-                  "outcome": {"type": "string", "enum": ["counterexample", "not_found_under", "inconclusive"], "description": "Errors, missing dependencies, partial output and timeouts are inconclusive; a clean run is not_found_under its recorded bounds"},
-                  "semantic_coverage": {"type": "array", "items": {"type": "string"}},
-                  "limitations": {"type": "array", "items": {"type": "string"}}
+                  "stopping_rule": {"type": "string", "description": "Required for schedule-dependent, statistical, or observational campaigns"}
                 }
               }
             },
@@ -359,9 +211,8 @@ spec:
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["review_unit_id", "invariant", "priority_class", "attacker", "controlled_input", "expected_transition", "falsifier", "verdict"],
+                "required": ["invariant", "priority_class", "attacker", "controlled_input", "expected_transition", "falsifier", "verdict"],
                 "properties": {
-                  "review_unit_id": {"type": "string"},
                   "invariant": {"type": "string"},
                   "priority_class": {"type": "string", "description": "Payout-ordered class 1 through 7"},
                   "attacker": {"type": "string", "description": "Least privilege the attacker needs"},
@@ -406,76 +257,6 @@ spec:
             "limitations": {"type": "array", "items": {"type": "string"}}
           }
         }
-    - name: independent-candidate-warden
-      role: security-reviewer
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-fp-check
-        - name: bug-bounty-reporting
-        - name: evm-economic-and-mev-review
-      objective: >-
-        Independently challenge every broken candidate in {{tasks.fork-harness-hunt.output}} before impact
-        qualification or reporting. Act as a skeptic, not an editor or summarizer. Reconstruct the complete
-        attack path from the orientation dossier, pinned source and safe-local reproduction evidence, then
-        try to disprove it. For critical and high-risk review units, preserve initial independence by first
-        tracing the production path and attempting the reproduction without adopting the hunter's narrative;
-        compare reasoning only after recording that reconstruction. Never submit a public-chain transaction.
-        Missing deployment evidence limits the challenge to the orientation evidence_class and makes any
-        deployment-dependent dimension inconclusive rather than assumed.
-
-        Separately challenge all seven dimensions: (1) production reachability, including whether the tested
-        path is the production path under the established evidence class; (2) attacker control over the
-        claimed input, state, order or timing at the stated privilege; (3) absence or bypass of every expected
-        guard; (4) execution of the claimed unsafe state transition; (5) an observable violation of the named
-        invariant; (6) the maximum claimed impact and every economic, liquidity, capital, timing and mempool
-        assumption; and (7) novelty, prior art and governing-program eligibility. For each dimension record
-        an independent method, safe-local evidence, reasoning and a substantiated, disproved or inconclusive
-        verdict. An overall candidate is upheld only when all seven dimensions are substantiated; one
-        disproved dimension disproves it, and any unresolved dimension makes it inconclusive. Emit one result
-        for every broken candidate, including those disproved or inconclusive, and do not create new findings.
-      dependsOn:
-        - fork-harness-hunt
-      outputSchema: |-
-        {
-          "type": "object",
-          "required": ["candidates", "limitations"],
-          "properties": {
-            "candidates": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["fingerprint", "review_unit_id", "independent_reconstruction", "production_reachability", "attacker_control", "guard_absence_or_bypass", "unsafe_transition", "observable_invariant_violation", "impact_and_economic_assumptions", "novelty_prior_art_and_eligibility", "overall_verdict"],
-                "properties": {
-                  "fingerprint": {"type": "string"},
-                  "review_unit_id": {"type": "string"},
-                  "independent_reconstruction": {"type": "string", "description": "Attack path reconstructed before comparison with the hunter's reasoning"},
-                  "production_reachability": {"type": "object", "additionalProperties": false, "required": ["verdict", "method", "evidence", "reasoning"], "properties": {"verdict": {"type": "string", "enum": ["substantiated", "disproved", "inconclusive"]}, "method": {"type": "string"}, "evidence": {"type": "array", "items": {"type": "string"}}, "reasoning": {"type": "string"}}},
-                  "attacker_control": {"type": "object", "additionalProperties": false, "required": ["verdict", "method", "evidence", "reasoning"], "properties": {"verdict": {"type": "string", "enum": ["substantiated", "disproved", "inconclusive"]}, "method": {"type": "string"}, "evidence": {"type": "array", "items": {"type": "string"}}, "reasoning": {"type": "string"}}},
-                  "guard_absence_or_bypass": {"type": "object", "additionalProperties": false, "required": ["verdict", "method", "evidence", "reasoning"], "properties": {"verdict": {"type": "string", "enum": ["substantiated", "disproved", "inconclusive"]}, "method": {"type": "string"}, "evidence": {"type": "array", "items": {"type": "string"}}, "reasoning": {"type": "string"}}},
-                  "unsafe_transition": {"type": "object", "additionalProperties": false, "required": ["verdict", "method", "evidence", "reasoning"], "properties": {"verdict": {"type": "string", "enum": ["substantiated", "disproved", "inconclusive"]}, "method": {"type": "string"}, "evidence": {"type": "array", "items": {"type": "string"}}, "reasoning": {"type": "string"}}},
-                  "observable_invariant_violation": {"type": "object", "additionalProperties": false, "required": ["verdict", "method", "evidence", "reasoning"], "properties": {"verdict": {"type": "string", "enum": ["substantiated", "disproved", "inconclusive"]}, "method": {"type": "string"}, "evidence": {"type": "array", "items": {"type": "string"}}, "reasoning": {"type": "string"}}},
-                  "impact_and_economic_assumptions": {"type": "object", "additionalProperties": false, "required": ["verdict", "method", "evidence", "reasoning"], "properties": {"verdict": {"type": "string", "enum": ["substantiated", "disproved", "inconclusive"]}, "method": {"type": "string"}, "evidence": {"type": "array", "items": {"type": "string"}}, "reasoning": {"type": "string"}}},
-                  "novelty_prior_art_and_eligibility": {"type": "object", "additionalProperties": false, "required": ["verdict", "method", "evidence", "reasoning"], "properties": {"verdict": {"type": "string", "enum": ["substantiated", "disproved", "inconclusive"]}, "method": {"type": "string"}, "evidence": {"type": "array", "items": {"type": "string"}}, "reasoning": {"type": "string"}}},
-                  "overall_verdict": {"type": "string", "enum": ["upheld", "disproved", "inconclusive"]}
-                },
-                "allOf": [
-                  {"if": {"properties": {"overall_verdict": {"const": "upheld"}}}, "then": {"properties": {
-                    "production_reachability": {"properties": {"verdict": {"const": "substantiated"}}},
-                    "attacker_control": {"properties": {"verdict": {"const": "substantiated"}}},
-                    "guard_absence_or_bypass": {"properties": {"verdict": {"const": "substantiated"}}},
-                    "unsafe_transition": {"properties": {"verdict": {"const": "substantiated"}}},
-                    "observable_invariant_violation": {"properties": {"verdict": {"const": "substantiated"}}},
-                    "impact_and_economic_assumptions": {"properties": {"verdict": {"const": "substantiated"}}},
-                    "novelty_prior_art_and_eligibility": {"properties": {"verdict": {"const": "substantiated"}}}
-                  }}}
-                ]
-              }
-            },
-            "limitations": {"type": "array", "items": {"type": "string"}}
-          }
-        }
     - name: quantify-impact-and-eligibility
       role: finding-triager
       category: triage
@@ -484,10 +265,8 @@ spec:
         - name: bug-bounty-reporting
         - name: evm-economic-and-mev-review
       objective: >-
-        Price and qualify only hypotheses with verdict broken, a valid reproduction in
-        {{tasks.fork-harness-hunt.output}}, and overall_verdict upheld in
-        {{tasks.independent-candidate-warden.output}}. Disproved and inconclusive candidates remain internal.
-        For a pinned-fork reproduction, measure the value at risk at the
+        Price and qualify only hypotheses with verdict broken and a valid reproduction in
+        {{tasks.fork-harness-hunt.output}}. For a pinned-fork reproduction, measure the value at risk at the
         verified block and say how it was measured. For a project-test or local-devnet reproduction, qualify
         only impacts that do not rely on an unverified deployment fact, label deployed exposure and value at
         risk unknown, and confirm that the governing program permits that PoC environment; never estimate a
@@ -502,16 +281,14 @@ spec:
         at risk needs an executed fork and verified pin; source-level claims do not.
       dependsOn:
         - fork-harness-hunt
-        - independent-candidate-warden
       outputSchema: |-
         {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["fingerprint", "warden_verdict", "impact_clause", "max_achievable_impact", "eligible"],
+            "required": ["fingerprint", "impact_clause", "max_achievable_impact", "eligible"],
             "properties": {
               "fingerprint": {"type": "string"},
-              "warden_verdict": {"const": "upheld"},
               "impact_clause": {"type": "string", "description": "Copied verbatim from the program's in-scope impact list"},
               "program_severity": {"type": "string"},
               "max_achievable_impact": {"type": "string"},
@@ -532,8 +309,7 @@ spec:
         - name: trail-of-bits-fp-check
         - name: trail-of-bits-variant-analysis
       objective: >-
-        Assemble the report from {{tasks.quantify-impact-and-eligibility.output}} and independently verify it against
-        {{tasks.independent-candidate-warden.output}} under one admission rule:
+        Assemble the report from {{tasks.quantify-impact-and-eligibility.output}} under one admission rule:
         a finding survives only when a named calibrated invariant broke, a reproducible failing assertion
         on a permitted local substrate proves it, the negative control did not trigger, the oracle was shown
         capable of failing, and the impact maps to a clause the program published. Require a verified pinned
@@ -552,4 +328,3 @@ spec:
         only a successfully persisted post-script artifact may be called bundle-ready. Then submit the final report.
       dependsOn:
         - quantify-impact-and-eligibility
-        - independent-candidate-warden

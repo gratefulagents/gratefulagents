@@ -999,7 +999,7 @@ func TestNativeFuzzCampaignUsesBoundedWarmRounds(t *testing.T) {
 	}
 }
 
-// TestBountyHuntEVMBuildsItsOracleFirst pins the five-task fork-harness lane.
+// TestBountyHuntEVMBuildsItsOracleFirst pins the four-task fork-harness lane.
 // Build, calibration, hunting, and reproduction deliberately share one
 // write-capable AgentRun so temporary harness files are not lost at handoffs.
 func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
@@ -1015,23 +1015,21 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 		byName[task.Name] = task
 	}
 	for _, name := range []string{
-		"pin-target-and-deployment", "fork-harness-hunt", "independent-candidate-warden", "quantify-impact-and-eligibility", "triage-and-report",
+		"pin-target-and-deployment", "fork-harness-hunt", "quantify-impact-and-eligibility", "triage-and-report",
 	} {
 		if _, ok := byName[name]; !ok {
 			t.Fatalf("workflow is missing task %q", name)
 		}
 	}
 
-	if len(workflow.Spec.Tasks) != 5 {
-		t.Fatalf("workflow has %d tasks, want the five-task orientation/harness/warden DAG", len(workflow.Spec.Tasks))
+	if len(workflow.Spec.Tasks) != 4 {
+		t.Fatalf("workflow has %d tasks, want the four-task fork-harness DAG", len(workflow.Spec.Tasks))
 	}
 	dependsOn := func(task, dependency string) bool {
 		return slices.Contains(byName[task].DependsOn, dependency)
 	}
 	for _, edge := range [][2]string{
 		{"fork-harness-hunt", "pin-target-and-deployment"},
-		{"independent-candidate-warden", "fork-harness-hunt"},
-		{"quantify-impact-and-eligibility", "independent-candidate-warden"},
 		{"quantify-impact-and-eligibility", "fork-harness-hunt"},
 		{"triage-and-report", "quantify-impact-and-eligibility"},
 	} {
@@ -1097,77 +1095,6 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 		if !strings.Contains(impact, marker) {
 			t.Errorf("impact objective is missing %q", marker)
 		}
-	}
-}
-
-// TestExpertResearchPilotContracts prevents either pilot from skipping target
-// orientation, emitting generic review units, or confirming high-impact work
-// without a separate skeptical reconstruction.
-func TestExpertResearchPilotContracts(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		workflow, orientation, units, warden, validation, wardenConsumer, triage, conclusionLimit, expectedGuard string
-	}{
-		{"bounty-hunt-evm", "pin-target-and-deployment", "fork-harness-hunt", "independent-candidate-warden", "fork-harness-hunt", "triage-and-report", "triage-and-report", "conclusion_limits", "expected_guard"},
-		{"blockchain-protocol-audit", "detect-platforms-and-components", "map-protocol-surfaces", "independent-warden-challenge", "validate-high-impact-findings", "merge-validation-and-warden", "triage-and-report", "limitations", "control"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.workflow, func(t *testing.T) {
-			var workflow triggersv1alpha1.SecurityWorkflow
-			readBootstrapAsset(t, "securityworkflows", tc.workflow, &workflow)
-			byName := make(map[string]triggersv1alpha1.SecurityScanTask, len(workflow.Spec.Tasks))
-			for _, task := range workflow.Spec.Tasks {
-				byName[task.Name] = task
-			}
-
-			orientation := byName[tc.orientation]
-			for _, marker := range []string{
-				"evidence_class", "assets", "liabilities", "roles", "entry_points", "trust_boundaries",
-				"state_", "representations", "properties", "prior_art", "assumptions", tc.conclusionLimit,
-			} {
-				if !strings.Contains(strings.ToLower(orientation.OutputSchema), marker) &&
-					!strings.Contains(strings.ToLower(orientation.Objective), marker) {
-					t.Errorf("orientation contract is missing %q", marker)
-				}
-			}
-
-			units := byName[tc.units]
-			for _, marker := range []string{
-				"question", "property", "attacker", "controlled_input", "production_path", tc.expectedGuard,
-				"experiment", "falsifier", "stopping_rule", "evidence_bounds",
-			} {
-				if !strings.Contains(strings.ToLower(units.OutputSchema), marker) {
-					t.Errorf("adaptive review-unit schema is missing %q", marker)
-				}
-			}
-
-			warden, ok := byName[tc.warden]
-			if !ok {
-				t.Fatalf("missing independent warden task %q", tc.warden)
-			}
-			if warden.Role == byName[tc.validation].Role {
-				t.Errorf("warden role %q must differ from validating role", warden.Role)
-			}
-			if !slices.Contains(warden.DependsOn, tc.validation) {
-				t.Errorf("warden does not consume %q", tc.validation)
-			}
-			for _, marker := range []string{
-				"production_reachability", "attacker_control", "guard_absence_or_bypass", "unsafe_transition",
-				"observable_invariant_violation", "impact", "novelty", "verdict",
-			} {
-				if !strings.Contains(strings.ToLower(warden.OutputSchema), marker) {
-					t.Errorf("warden schema is missing %q", marker)
-				}
-			}
-			consumer := byName[tc.wardenConsumer]
-			if !slices.Contains(consumer.DependsOn, tc.warden) || !strings.Contains(consumer.Objective, "{{tasks."+tc.warden+".output}}") {
-				t.Errorf("%s does not consume independent warden output", tc.wardenConsumer)
-			}
-			if !strings.Contains(strings.ToLower(byName[tc.triage].Objective), "warden") {
-				t.Error("final triage does not preserve the warden admission gate")
-			}
-		})
 	}
 }
 

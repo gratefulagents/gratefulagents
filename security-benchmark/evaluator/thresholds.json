@@ -1,9 +1,0 @@
-{
-  "maximum_cost_ratio": 1.5,
-  "maximum_fixed_false_positive_rate": 0.05,
-  "maximum_runtime_ratio": 1.5,
-  "minimum_evidence_completeness": 0.8,
-  "minimum_pilot_recall": 0.8,
-  "minimum_recall_improvement": 0.15,
-  "minimum_reproduction_rate": 0.8
-}

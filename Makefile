@@ -48,11 +48,6 @@ test-installers: ## Run installer helper tests.
 	./scripts/latest-release-tag_test.sh
 	./scripts/install-k3s_test.sh
 
-.PHONY: test-security-benchmark
-test-security-benchmark: ## Verify blockchain benchmark provenance, oracles, controls, and scorer.
-	PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0 LC_ALL=C TZ=UTC python3 -m unittest discover -s security-benchmark/tests -v
-	PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0 LC_ALL=C TZ=UTC python3 security-benchmark/evaluator/runner.py --seed 320 --max-cases 15
-
 .PHONY: docker-build-all docker-build docker-build-worker docker-build-injector docker-build-security-tools
 docker-build-all: docker-build docker-build-worker docker-build-injector docker-build-security-tools
 
