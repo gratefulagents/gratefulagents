@@ -1,0 +1,188 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: filecoin-security-review
+spec:
+  description: Filecoin bug-bounty review for Lotus, F3, FVM, built-in actors, storage-provider services, IPLD/state/encoding libraries, and proofs/cryptography. It requires downstream Filecoin reachability and a Filecoin Audit Kit local-devnet reproduction before any candidate can be confirmed.
+  parallelism: 4
+  tasks:
+    - name: map-filecoin-scope-and-integration
+      role: threat-modeler
+      category: recon
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-audit-context-building
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Pin the immutable target revision and classify this repository as exactly one primary Filecoin track:
+        core-protocol (Lotus, built-in actors, ref-fvm, or go-f3), storage-market-network (Boost, GraphSync,
+        data transfer, or sector builder), state-data-encoding (CBOR, CID, address, AMT, HAMT, bitfield,
+        padreader, state machine, or state store), or proofs-crypto-native (Filecoin proofs, Bellperson,
+        Merkle tree, Neptune, Paired, or go-crypto). Map production entry points, attacker-controlled inputs,
+        trust boundaries, protected chain/storage invariants, and exact in-scope roots. For a standalone library,
+        trace concrete downstream call paths into Lotus, Boost, FVM, actors, F3, or proof verification using
+        repository dependency evidence; never assume that a repository-local bug is bounty-eligible by itself.
+        Record whether the published Filecoin Audit Kit can exercise each surface through RPC, P2P,
+        block/message, deal, state-sync, or proof ingestion. Exclude tests as impact evidence.
+      outputSchema: |-
+        {"type":"object","additionalProperties":false,"required":["revision","track","surfaces","downstream_integrations","audit_kit_plan","limitations"],"properties":{"revision":{"type":"string"},"track":{"type":"string","enum":["core-protocol","storage-market-network","state-data-encoding","proofs-crypto-native"]},"surfaces":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","entrypoint","attacker_input","invariant","files"],"properties":{"id":{"type":"string"},"entrypoint":{"type":"string"},"attacker_input":{"type":"string"},"invariant":{"type":"string"},"files":{"type":"array","items":{"type":"string"}}}}},"downstream_integrations":{"type":"array","items":{"type":"string"}},"audit_kit_plan":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
+
+    - name: review-core-protocol
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-sharp-edges
+      objective: >-
+        Use {{tasks.map-filecoin-scope-and-integration.output}}. For core-protocol targets, audit chain
+        selection and finality, F3 certificates/quorums/power tables, block and message validation, state
+        transitions and deterministic roots, actor authorization and accounting, FVM host/syscall/gas and
+        Wasm boundaries, mpool/P2P/state sync, upgrades, reorgs, miner inputs, and crash/halt paths. Check that
+        admission, proposal, replay, sync, and recovery enforce identical rules. For any other track, review
+        only directly adjacent core-protocol integration and otherwise return skipped. Return candidates, not
+        confirmed findings; each candidate must name attacker input, decisive file:line, downstream path, and
+        one verbatim Filecoin in-scope impact.
+      dependsOn: [map-filecoin-scope-and-integration]
+      outputSchema: &candidateOutput |-
+        {"type":"object","additionalProperties":false,"required":["status","examined","candidates","limitations"],"properties":{"status":{"type":"string","enum":["examined","skipped","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"candidates":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["fingerprint","impact","attack_vector","location","downstream_path","local_evidence"],"properties":{"fingerprint":{"type":"string"},"impact":{"type":"string"},"attack_vector":{"type":"string"},"location":{"type":"string"},"downstream_path":{"type":"array","items":{"type":"string"}},"local_evidence":{"type":"array","items":{"type":"string"}}}}},"limitations":{"type":"array","items":{"type":"string"}}}}
+
+    - name: review-storage-market-and-network
+      role: vulnerability-hunter
+      category: logic-flaw
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: offchain-blockchain-services-review
+        - name: trail-of-bits-property-based-testing
+      objective: >-
+        Use {{tasks.map-filecoin-scope-and-integration.output}}. For storage-market-network targets, audit deal,
+        retrieval, transfer, payment, and sector lifecycles; GraphSync and data-transfer peer inputs; retries,
+        cancellation, restart, reorg, and persistence behavior; trust boundaries between clients, providers,
+        Lotus, and external storage; resource asymmetry; and externally triggerable provider/miner crashes or
+        inconsistent state. For other tracks, examine only reachable storage-network integration. Return
+        candidates only when a concrete downstream path can produce a verbatim Filecoin Blockchain/DLT impact.
+      dependsOn: [map-filecoin-scope-and-integration]
+      outputSchema: *candidateOutput
+
+    - name: review-state-data-and-encoding
+      role: vulnerability-hunter
+      category: deserialization
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-dimensional-analysis
+      objective: >-
+        Use {{tasks.map-filecoin-scope-and-integration.output}}. For state-data-encoding targets, audit canonical
+        DAG-CBOR/CID/address encodings, generated codec parity, decode/encode round trips, duplicate or ambiguous
+        representations, AMT/HAMT/bitfield invariants, malformed-input bounds, deterministic roots, bit padding,
+        state-machine transitions, persistence and recovery. Compare alternate implementations where available.
+        A parser crash, invariant violation, or local test is only a candidate: trace attacker-controlled data
+        into Lotus, Boost, FVM, actors, F3, or proof processing and state the resulting listed chain impact.
+      dependsOn: [map-filecoin-scope-and-integration]
+      outputSchema: *candidateOutput
+
+    - name: review-proofs-crypto-and-native
+      role: vulnerability-hunter
+      category: crypto
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-constant-time-analysis
+        - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-rust-review
+      objective: >-
+        Use {{tasks.map-filecoin-scope-and-integration.output}}. For proofs-crypto-native targets, audit PoRep and
+        PoSt public-input, replica, sector, commitment, and challenge binding; prover/verifier agreement;
+        Merkle, Poseidon, pairing and field/curve validation; canonical inputs; fail-open verification;
+        determinism and architecture differences; FFI ownership, lengths, panics and memory safety; concurrency;
+        and proof acceptance paths. Vectors, unit tests, fuzz crashes, timing observations, and memory corruption
+        are candidate evidence only. Trace every candidate into Filecoin proof generation or verification and
+        identify its listed fund, chain, contract, or node-availability impact.
+      dependsOn: [map-filecoin-scope-and-integration]
+      outputSchema: *candidateOutput
+
+    - name: merge-core-and-storage-candidates
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-fp-check
+      objective: >-
+        Merge and deduplicate the candidates from {{tasks.review-core-protocol.output}} and
+        {{tasks.review-storage-market-and-network.output}} without changing their impact, attack vector,
+        location, downstream path, or evidence. Preserve every limitation and examined surface. This is a
+        bounded fan-in stage only; do not validate, reject, or promote candidates.
+      dependsOn:
+        - review-core-protocol
+        - review-storage-market-and-network
+      outputSchema: &mergedCandidates |-
+        {"type":"object","additionalProperties":false,"required":["candidates","examined","limitations"],"properties":{"candidates":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["fingerprint","impact","attack_vector","location","downstream_path","local_evidence"],"properties":{"fingerprint":{"type":"string"},"impact":{"type":"string"},"attack_vector":{"type":"string"},"location":{"type":"string"},"downstream_path":{"type":"array","items":{"type":"string"}},"local_evidence":{"type":"array","items":{"type":"string"}}}}},"examined":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
+
+    - name: merge-state-and-proofs-candidates
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-fp-check
+      objective: >-
+        Merge and deduplicate the candidates from {{tasks.review-state-data-and-encoding.output}} and
+        {{tasks.review-proofs-crypto-and-native.output}} without changing their impact, attack vector, location,
+        downstream path, or evidence. Preserve every limitation and examined surface. This is a bounded fan-in
+        stage only; do not validate, reject, or promote candidates.
+      dependsOn:
+        - review-state-data-and-encoding
+        - review-proofs-crypto-and-native
+      outputSchema: *mergedCandidates
+
+    - name: validate-on-filecoin-local-devnet
+      role: exploit-validator
+      category: other
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: exploit-poc-discipline
+        - name: bug-bounty-reporting
+        - name: trail-of-bits-fp-check
+        - name: trail-of-bits-variant-analysis
+      objective: >-
+        For each distinct candidate root cause, call create_security_variant_sweep before validation, search all
+        sibling paths, and call complete_security_variant_sweep with the checked locations and outcome before
+        finishing this task. Validate every unique candidate from
+        {{tasks.merge-core-and-storage-candidates.output}} and
+        {{tasks.merge-state-and-proofs-candidates.output}}. Confirmation is fail-closed: use a running local devnet
+        created with https://github.com/FilecoinFoundationWeb/filecoin-audit-kit and exercise the vulnerability
+        through an external RPC, P2P, block/message, deal, state-sync, or proof-ingestion trigger. Record the
+        Audit Kit revision and topology, immutable target revision, setup/start/exploit commands and complete
+        output, all source modifications as diffs, and impact evidence such as crash logs, state/root diffs,
+        chain behavior, or measured affected-node percentage. Calibrate the impact oracle by proving it can fail,
+        then run a nearby benign negative control and require it to pass; preserve both outputs. The exploit must
+        map verbatim to one typed in-scope impact. Unit tests, fuzz crashes, static analysis, local fixtures, focused tests, screenshots,
+        videos, or theoretical traces can generate or support a candidate but can never confirm it. If the Audit
+        Kit cannot integrate the target revision, the devnet cannot run, the trigger is not externally reachable,
+        or impact is not demonstrated, mark the candidate blocked or rejected, never confirmed. Do not test
+        mainnet or a public testnet.
+      dependsOn:
+        - merge-core-and-storage-candidates
+        - merge-state-and-proofs-candidates
+      outputSchema: |-
+        {"type":"object","additionalProperties":false,"required":["validated","blocked","rejected","environment","limitations"],"properties":{"validated":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["fingerprint","impact","audit_kit_revision","target_revision","external_trigger","commands","artifacts","oracle_calibrated","negative_control_passed"],"properties":{"fingerprint":{"type":"string"},"impact":{"type":"string"},"audit_kit_revision":{"type":"string"},"target_revision":{"type":"string"},"external_trigger":{"type":"string"},"commands":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"oracle_calibrated":{"type":"boolean","const":true},"negative_control_passed":{"type":"boolean","const":true}}}},"blocked":{"type":"array","items":{"type":"string"}},"rejected":{"type":"array","items":{"type":"string"}},"environment":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
+
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: bug-bounty-reporting
+        - name: trail-of-bits-fp-check
+      objective: >-
+        Call get_security_campaign_status first and reconcile all variant sweeps and validation artifacts. Triage
+        {{tasks.validate-on-filecoin-local-devnet.output}} under the attached Filecoin SecurityProgram.
+        Report only devnet-validated, non-duplicate findings that affect an exact published asset and map to an
+        exact typed Blockchain/DLT impact. Apply Immunefi v2.3 and Primacy of Rules. Preserve the Audit Kit and
+        target revisions, external trigger, commands, diffs, output, and impact artifacts. Explicitly account
+        for blocked and rejected candidates and all examined surfaces. Never promote a unit-test-only,
+        fuzzer-only, static-analysis-only, theoretical, or unvalidated AI-generated result. Reconcile the
+        post-script bundle and submit the final security scan report through the platform finding/report tools.
+      dependsOn:
+        - map-filecoin-scope-and-integration
+        - validate-on-filecoin-local-devnet
+      outputSchema: |-
+        {"type":"object","additionalProperties":false,"required":["confirmed_findings","blocked","rejected","examined","limitations"],"properties":{"confirmed_findings":{"type":"array","items":{"type":"string"}},"blocked":{"type":"array","items":{"type":"string"}},"rejected":{"type":"array","items":{"type":"string"}},"examined":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
