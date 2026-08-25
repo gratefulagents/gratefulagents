@@ -146,15 +146,35 @@ func streamVersionedSnapshots[T any](
 	}
 }
 
+// agentRunListSnapshot is the probe-cache payload shared by every
+// WatchAgentRuns stream watching the same namespace. The embedded list is
+// shared read-only across streams; consumers must not mutate it.
+type agentRunListSnapshot struct {
+	runs *platformv1alpha1.AgentRunList
+	skip bool
+}
+
 // WatchAgentRuns streams AgentRun updates. It sends the initial list immediately,
 // then polls every 2 seconds and emits updates when resource versions change.
 func (s *Server) WatchAgentRuns(ctx context.Context, req *platform.WatchAgentRunsRequest, stream *connect.ServerStream[platform.AgentRunEvent]) error {
 	versions := make(map[string]string)
 	return pollStream(ctx, 2*time.Second, func() error {
-		runs := &platformv1alpha1.AgentRunList{}
-		if skip, err := s.listNamespaced(ctx, req.Namespace, runs, "watch AgentRuns"); skip || err != nil {
+		// Every open fleet page polls the same namespace-wide AgentRun list.
+		// Listing from the manager cache deep-copies every cached run, so N
+		// concurrent streams used to allocate N full copies of the fleet per
+		// tick — a major source of controller heap and GC pressure on large
+		// clusters. Share one snapshot across all streams per TTL window.
+		// The shared list is read-only: streams must never mutate it.
+		snap, err := probeCacheDo(ctx, &s.probes, "runlist|"+req.Namespace, probeAgentRunListTTL,
+			func(ctx context.Context) (agentRunListSnapshot, error) {
+				list := &platformv1alpha1.AgentRunList{}
+				skip, err := s.listNamespaced(ctx, req.Namespace, list, "watch AgentRuns")
+				return agentRunListSnapshot{runs: list, skip: skip}, err
+			})
+		if err != nil || snap.skip {
 			return err
 		}
+		runs := snap.runs
 		visible := s.agentRunVisibilityFilter(ctx, true)
 		// Session-backed summary fields (pending input, metrics, latest
 		// activity) can change without a Kubernetes resourceVersion bump. The
