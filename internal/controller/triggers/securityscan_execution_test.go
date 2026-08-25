@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -92,6 +93,10 @@ func TestSecurityScanDeterministicExecutionSchedulesDependenciesWithinParallelis
 		t.Fatalf("LastExecution = %#v, want running execution with parallelism 1", exec)
 	}
 	assertExecutionTaskState(t, exec, "a", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
+	coverage := meta.FindStatusCondition(updated.Status.Conditions, triggersv1alpha1.ConditionSecurityScanCoverageComplete)
+	if coverage == nil || coverage.Status != metav1.ConditionUnknown || coverage.Reason != "ExecutionRunning" {
+		t.Fatalf("CoverageComplete while running = %#v, want Unknown ExecutionRunning", coverage)
+	}
 	assertExecutionTaskState(t, exec, "b", 0, triggersv1alpha1.SecurityScanTaskStatePending)
 	assertExecutionTaskState(t, exec, "c", 0, triggersv1alpha1.SecurityScanTaskStateBlocked)
 	runs := securityScanRuns(t, k8sClient, scan.Namespace)
@@ -1555,6 +1560,9 @@ func (c *staleLastExecutionClient) Get(ctx context.Context, key client.ObjectKey
 	}
 	if scan, ok := obj.(*triggersv1alpha1.SecurityScan); ok && c.armed && scan.Status.LastExecution != nil {
 		scan.Status.LastExecution = nil
+		meta.SetStatusCondition(&scan.Status.Conditions, metav1.Condition{
+			Type: triggersv1alpha1.ConditionSecurityScanCoverageComplete, Status: metav1.ConditionFalse, Reason: "PriorExecution",
+		})
 		c.armed = false
 	}
 	return nil
@@ -1576,6 +1584,11 @@ func TestSecurityScanStartDeterministicExecutionToleratesStaleCacheAfterStatusWr
 		t.Fatalf("LastExecution = %#v, want a running execution despite the stale re-read", exec)
 	}
 	assertExecutionTaskState(t, exec, "a", 0, triggersv1alpha1.SecurityScanTaskStateRunning)
+	updated := getSecurityScan(t, k8sClient, scan)
+	coverage := meta.FindStatusCondition(updated.Status.Conditions, triggersv1alpha1.ConditionSecurityScanCoverageComplete)
+	if coverage == nil || coverage.Status != metav1.ConditionUnknown || coverage.Reason != "ExecutionRunning" {
+		t.Fatalf("CoverageComplete after stale read = %#v, want Unknown ExecutionRunning", coverage)
+	}
 	if runs := securityScanRuns(t, k8sClient, scan.Namespace); len(runs) != 1 {
 		t.Fatalf("AgentRuns = %d, want the first task launched off the freshly written execution", len(runs))
 	}
@@ -2018,6 +2031,7 @@ func TestSecurityScanCoordinatorRunStampsItsOwnExecutionID(t *testing.T) {
 type postScriptFindingStore struct {
 	securityScanRecordStubStore
 	findings  []store.SecurityFindingRecord
+	events    []store.SecurityFindingEvent
 	listCalls int
 	filters   []store.SecurityFindingFilter
 }
@@ -2067,6 +2081,10 @@ func (s *postScriptFindingStore) GetSecurityFinding(_ context.Context, _ string,
 		}
 	}
 	return nil, nil
+}
+
+func (s *postScriptFindingStore) ListSecurityFindingEvents(context.Context, string, uuid.UUID, int32) ([]store.SecurityFindingEvent, error) {
+	return append([]store.SecurityFindingEvent(nil), s.events...), nil
 }
 
 func (s *postScriptFindingStore) SummarizeSecurityFindings(context.Context, string, string, string, bool) (map[string]int32, error) {
@@ -2134,6 +2152,40 @@ func postScriptRun(t *testing.T, runs []platformv1alpha1.AgentRun, scripts, fing
 	}
 	t.Fatalf("post-script run %s/%s missing from %#v", scripts, fingerprint, runs)
 	return platformv1alpha1.AgentRun{}
+}
+
+func TestSecurityScanReportWriterSkipsPolicyExcludedFinding(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{{
+		Name: "report-writer", Prompt: "Package the finding.",
+	}}, 2)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	finding := postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical")
+	finding.Status = store.SecurityFindingStatusConfirmed
+	findings := &postScriptFindingStore{findings: []store.SecurityFindingRecord{finding}}
+	reconciler.Findings = findings
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	execID := getSecurityScan(t, k8sClient, scan).Status.LastExecution.ID
+	findings.events = []store.SecurityFindingEvent{{
+		FindingID: finding.ID, EventType: "policy_disposition",
+		Detail: json.RawMessage(`{"execution_id":"` + execID + `","policy_disposition":"scope_excluded"}`),
+	}}
+	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	job := postScriptJob(t, exec, finding.Fingerprint)
+	if job.State != triggersv1alpha1.SecurityScanPostScriptStateSkipped || !strings.Contains(job.Result, "scope_excluded") {
+		t.Fatalf("report-writer job = %#v, want policy-excluded skip", job)
+	}
+	for _, run := range securityScanRuns(t, k8sClient, scan.Namespace) {
+		if run.Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] == "report-writer" {
+			t.Fatalf("report-writer AgentRun was created for policy-excluded finding: %s", run.Name)
+		}
+	}
 }
 
 func TestSecurityScanReportWriterRequiresReadyCurrentExecutionBundle(t *testing.T) {

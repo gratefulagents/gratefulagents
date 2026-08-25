@@ -199,6 +199,32 @@ type SecurityFindingEvent struct {
 	CreatedAt time.Time
 }
 
+// SecurityFindingBlockingPolicyDisposition returns the newest policy
+// disposition that blocks report packaging for executionID. Events must be
+// ordered newest first, as returned by ListSecurityFindingEvents. A newer
+// non-blocking disposition supersedes an older blocking decision.
+func SecurityFindingBlockingPolicyDisposition(events []SecurityFindingEvent, executionID string) string {
+	for _, event := range events {
+		if event.EventType != "policy_disposition" {
+			continue
+		}
+		var detail struct {
+			ExecutionID string `json:"execution_id"`
+			Disposition string `json:"policy_disposition"`
+		}
+		if json.Unmarshal(event.Detail, &detail) != nil || detail.ExecutionID != executionID {
+			continue
+		}
+		switch detail.Disposition {
+		case "scope_excluded", "known_issue", "bot_findable", "not_ready":
+			return detail.Disposition
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
 const (
 	SecurityFindingStatusOpen          = "open"
 	SecurityFindingStatusTriaged       = "triaged"
@@ -471,6 +497,12 @@ const (
 	SecurityFindingArtifactBountySubmission = "bounty_submission"
 	SecurityFindingArtifactSubmissionBundle = "submission_bundle"
 )
+
+// SecurityFindingPolicyStore is the optional capability for persisting
+// execution-scoped program-policy decisions independently of technical status.
+type SecurityFindingPolicyStore interface {
+	RecordSecurityFindingPolicyDisposition(ctx context.Context, namespace string, findingID uuid.UUID, actor, executionID, disposition, note string) (*SecurityFindingEvent, error)
+}
 
 // SecurityFindingArtifactStore is optional so existing in-memory and test
 // SecurityFindingStore implementations do not need to persist sensitive

@@ -511,6 +511,13 @@ func (t *saveSecurityBountySubmissionTool) Execute(ctx context.Context, input js
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
+	events, err := t.state.findingStore.ListSecurityFindingEvents(ctx, finding.Namespace, finding.ID, 1000)
+	if err != nil {
+		return Result{Content: "reading policy dispositions: " + err.Error(), IsError: true}, nil
+	}
+	if disposition := store.SecurityFindingBlockingPolicyDisposition(events, t.state.scanCtx.ExecutionID); disposition != "" {
+		return Result{Content: "finding is excluded from report packaging by policy disposition " + disposition, IsError: true}, nil
+	}
 	artifactStatus, err := securityReportBundleStatus(finding, t.state.scanCtx)
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil

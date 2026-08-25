@@ -73,10 +73,10 @@ func TestEVMOrderbookSettlementReviewGatesHuntLanes(t *testing.T) {
 	}
 
 	lanes := map[string]string{
-		"hunt-signatures-domain-and-replay":          "signatures-domain-and-replay",
-		"hunt-settlement-extensions-and-callbacks":   "settlement-extensions-and-callbacks",
-		"hunt-amount-fee-and-plugin-accounting":      "amount-fee-and-plugin-accounting",
-		"hunt-escrow-hashlock-and-timelocks":         "escrow-hashlock-and-timelocks",
+		"hunt-signatures-domain-and-replay":        "signatures-domain-and-replay",
+		"hunt-settlement-extensions-and-callbacks": "settlement-extensions-and-callbacks",
+		"hunt-amount-fee-and-plugin-accounting":    "amount-fee-and-plugin-accounting",
+		"hunt-escrow-hashlock-and-timelocks":       "escrow-hashlock-and-timelocks",
 	}
 	validator := byName["validate-candidates-in-harness"]
 	for taskName, lane := range lanes {

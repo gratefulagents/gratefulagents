@@ -548,6 +548,8 @@ func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context
 		fresh.Status.LastError = ""
 		fresh.Status.LastExecution = exec
 		fresh.Status.LastResolvedRefs = append([]triggersv1alpha1.SecurityScanResolvedRef(nil), resolved.refs...)
+		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ExecutionRunning", fmt.Sprintf("Deterministic execution %s is running", exec.ID))
+		setSecurityScanCoverageCondition(fresh, metav1.ConditionUnknown, "ExecutionRunning", "coverage completeness is unknown while the execution is running")
 		mutate(fresh)
 	}); err != nil {
 		return ctrl.Result{}, err
@@ -565,6 +567,11 @@ func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context
 		// is authoritative because the write succeeded.
 		fresh.Status.LastExecution = exec.DeepCopy()
 	}
+	// A cached read can also carry the prior execution's conditions. Reapply
+	// the running state to the exact object advanceDeterministicExecution will
+	// persist so stale CoverageComplete=True/False cannot leak into this run.
+	setSecurityScanCondition(fresh, metav1.ConditionTrue, "ExecutionRunning", fmt.Sprintf("Deterministic execution %s is running", exec.ID))
+	setSecurityScanCoverageCondition(fresh, metav1.ConditionUnknown, "ExecutionRunning", "coverage completeness is unknown while the execution is running")
 	return r.advanceDeterministicExecution(ctx, fresh)
 }
 

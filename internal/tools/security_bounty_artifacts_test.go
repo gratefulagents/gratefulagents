@@ -149,6 +149,28 @@ func TestBuildTriagedSecurityReviewBundleWithoutPoC(t *testing.T) {
 	}
 }
 
+func TestBlockingPolicyDispositionsExcludeCurrentExecutionPackaging(t *testing.T) {
+	for _, disposition := range []string{"scope_excluded", "known_issue", "bot_findable", "not_ready"} {
+		events := []store.SecurityFindingEvent{{
+			EventType: "policy_disposition",
+			Detail:    json.RawMessage(`{"execution_id":"exec-1","policy_disposition":"` + disposition + `"}`),
+		}}
+		if got := store.SecurityFindingBlockingPolicyDisposition(events, "exec-1"); got != disposition {
+			t.Errorf("disposition %q resolved as %q", disposition, got)
+		}
+		if got := store.SecurityFindingBlockingPolicyDisposition(events, "exec-2"); got != "" {
+			t.Errorf("prior-execution disposition %q leaked into exec-2", disposition)
+		}
+	}
+	newestFirst := []store.SecurityFindingEvent{
+		{EventType: "policy_disposition", Detail: json.RawMessage(`{"execution_id":"exec-1","policy_disposition":"scope_eligible"}`)},
+		{EventType: "policy_disposition", Detail: json.RawMessage(`{"execution_id":"exec-1","policy_disposition":"scope_excluded"}`)},
+	}
+	if got := store.SecurityFindingBlockingPolicyDisposition(newestFirst, "exec-1"); got != "" {
+		t.Errorf("newer non-blocking disposition did not supersede %q", got)
+	}
+}
+
 func TestSecurityReportBundleStatusIncludesTriaged(t *testing.T) {
 	base := store.SecurityFindingRecord{Severity: "high"}
 	for _, tc := range []struct {

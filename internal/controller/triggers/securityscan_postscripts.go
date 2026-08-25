@@ -508,6 +508,28 @@ func (e *securityScanExecutionEngine) dispatchPostScripts(ctx context.Context) {
 			appendSecurityScanCoverageGap(e.exec, securityScanPostScriptJobGapPrefix(securityScanPostScriptJobLabel(*job), job.Fingerprint)+fmt.Sprintf("post-script %q was removed from the spec mid-execution", missing))
 			continue
 		}
+		if slices.ContainsFunc(pipeline, func(script triggersv1alpha1.SecurityScanPostScript) bool { return script.Name == "report-writer" }) {
+			findingID, err := uuid.Parse(job.FindingID)
+			if err != nil {
+				job.State = triggersv1alpha1.SecurityScanPostScriptStateFailed
+				job.FinishedAt = &e.now
+				job.Result = "failed: invalid finding id"
+				continue
+			}
+			if e.r.Findings == nil {
+				continue
+			}
+			events, err := e.r.Findings.ListSecurityFindingEvents(ctx, e.scan.Namespace, findingID, 1000)
+			if err != nil {
+				continue // transient store failure; retry on the next reconcile
+			}
+			if disposition := store.SecurityFindingBlockingPolicyDisposition(events, e.exec.ID); disposition != "" {
+				job.State = triggersv1alpha1.SecurityScanPostScriptStateSkipped
+				job.FinishedAt = &e.now
+				job.Result = "skipped: policy disposition " + disposition + " excludes report packaging"
+				continue
+			}
+		}
 		if !e.postScriptRetryReady(ctx, job) {
 			continue
 		}

@@ -209,6 +209,17 @@ func (s *fakeSecurityFindingStore) SetSecurityFindingStatus(_ context.Context, n
 	return store.ErrSecurityFindingNotFound
 }
 
+func (s *fakeSecurityFindingStore) RecordSecurityFindingPolicyDisposition(_ context.Context, namespace string, id uuid.UUID, actor, executionID, disposition, note string) (*store.SecurityFindingEvent, error) {
+	for _, rec := range s.findings {
+		if rec.Namespace == namespace && rec.ID == id {
+			event := store.SecurityFindingEvent{FindingID: id, EventType: "policy_disposition", Actor: actor, Note: note, Detail: json.RawMessage(`{"execution_id":"` + executionID + `","policy_disposition":"` + disposition + `"}`)}
+			s.events = append(s.events, event)
+			return &event, nil
+		}
+	}
+	return nil, store.ErrSecurityFindingNotFound
+}
+
 func (s *fakeSecurityFindingStore) ListSecurityFindingEvents(_ context.Context, namespace string, id uuid.UUID, _ int32) ([]store.SecurityFindingEvent, error) {
 	if namespace == "" {
 		return nil, fmt.Errorf("namespace is required")
@@ -770,6 +781,14 @@ func TestUpdateSecurityFindingRejectsForeignFindings(t *testing.T) {
 	}
 	if own.Status != store.SecurityFindingStatusConfirmed {
 		t.Errorf("own finding status = %q, want confirmed", own.Status)
+	}
+	result = execTool(t, registry, "update_security_finding",
+		`{"id":"`+own.ID.String()+`","status":"confirmed","policy_disposition":"known_issue","note":"matches published audit"}`)
+	if result.IsError {
+		t.Fatalf("policy disposition update must succeed: %s", result.Content)
+	}
+	if got := store.SecurityFindingBlockingPolicyDisposition(findingStore.events, scanCtx.ExecutionID); got != "known_issue" {
+		t.Fatalf("stored blocking policy disposition = %q, want known_issue", got)
 	}
 }
 

@@ -395,6 +395,17 @@ func lifecycleTestComments(ctx context.Context, t *testing.T, s *Store, finding 
 	if events[0].EventType != "comment" || events[0].Note != "needs an exploit review" {
 		t.Errorf("newest event = %+v, want the comment", events[0])
 	}
+
+	policy, err := s.RecordSecurityFindingPolicyDisposition(ctx, "default", finding.ID, "policy-run", "exec-1", "known_issue", "matches audit A-1")
+	if err != nil {
+		t.Fatalf("RecordSecurityFindingPolicyDisposition: %v", err)
+	}
+	if policy.EventType != "policy_disposition" || policy.Actor != "policy-run" || policy.Note != "matches audit A-1" {
+		t.Errorf("policy event = %+v", policy)
+	}
+	if got := store.SecurityFindingBlockingPolicyDisposition([]store.SecurityFindingEvent{*policy}, "exec-1"); got != "known_issue" {
+		t.Errorf("blocking disposition = %q, want known_issue", got)
+	}
 }
 
 func lifecycleTestScanUpserts(ctx context.Context, t *testing.T, s *Store) *store.SecurityScanRecord {

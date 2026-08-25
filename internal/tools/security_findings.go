@@ -1028,10 +1028,17 @@ type updateSecurityFindingTool struct {
 }
 
 type updateSecurityFindingInput struct {
-	ID          string `json:"id"`
-	Fingerprint string `json:"fingerprint"`
-	Status      string `json:"status"`
-	Note        string `json:"note"`
+	ID                string `json:"id"`
+	Fingerprint       string `json:"fingerprint"`
+	Status            string `json:"status"`
+	PolicyDisposition string `json:"policy_disposition"`
+	Note              string `json:"note"`
+}
+
+var securityPolicyDispositions = map[string]bool{
+	"accepted": true, "disproved": true, "scope_excluded": true,
+	"scope_eligible": true, "known_issue": true, "bot_findable": true,
+	"fixed_release": true, "novel": true, "not_ready": true,
 }
 
 func (t *updateSecurityFindingTool) Name() string { return "update_security_finding" }
@@ -1052,6 +1059,7 @@ func (t *updateSecurityFindingTool) InputSchema() json.RawMessage {
 			"fingerprint": {"type": "string", "description": "Fingerprint of the finding to update"},
 			"id": {"type": "string", "description": "Finding UUID, as an alternative to fingerprint"},
 			"status": {"type": "string", "enum": ["open", "triaged", "confirmed", "false_positive", "fixed", "accepted_risk"], "description": "New status"},
+			"policy_disposition": {"type": "string", "enum": ["accepted", "disproved", "scope_excluded", "scope_eligible", "known_issue", "bot_findable", "fixed_release", "novel", "not_ready"], "description": "Optional machine-readable program-policy outcome, independent of technical status"},
 			"note": {"type": "string", "description": "Why the status changed, e.g. the PoC that confirmed it or the reasoning that disproved it"}
 		},
 		"required": ["status", "note"]
@@ -1088,13 +1096,30 @@ func (t *updateSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 		(rec.Status == store.SecurityFindingStatusFalsePositive || rec.Status == store.SecurityFindingStatusAcceptedRisk || rec.Status == store.SecurityFindingStatusFixed) && status != rec.Status {
 		return Result{Content: fmt.Sprintf("terminal finding status %s is preserved during finding post-processing", rec.Status), IsError: true}, nil
 	}
+	disposition := strings.ToLower(strings.TrimSpace(in.PolicyDisposition))
+	if disposition != "" {
+		if !securityPolicyDispositions[disposition] {
+			return Result{Content: fmt.Sprintf("invalid policy_disposition %q", in.PolicyDisposition), IsError: true}, nil
+		}
+		policyStore, ok := t.state.findingStore.(store.SecurityFindingPolicyStore)
+		if !ok {
+			return Result{Content: "finding store does not support durable policy dispositions", IsError: true}, nil
+		}
+		if _, err := policyStore.RecordSecurityFindingPolicyDisposition(ctx, rec.Namespace, rec.ID, t.state.scanCtx.RunName, t.state.scanCtx.ExecutionID, disposition, note); err != nil {
+			return Result{Content: fmt.Sprintf("failed to record policy disposition: %v", err), IsError: true}, nil
+		}
+	}
 	if err := t.state.setFindingStatus(ctx, rec.ID, status, note); err != nil {
 		if errors.Is(err, store.ErrSecurityFindingNotFound) {
 			return Result{Content: fmt.Sprintf("no finding with id %s in this scan (use list_security_findings to see recorded findings)", rec.ID), IsError: true}, nil
 		}
 		return Result{Content: fmt.Sprintf("failed to update finding: %v", err), IsError: true}, nil
 	}
-	return Result{Content: fmt.Sprintf("Finding %s status set to %s.", rec.ID, status)}, nil
+	result := fmt.Sprintf("Finding %s status set to %s.", rec.ID, status)
+	if disposition != "" {
+		result += " Policy disposition recorded as " + disposition + "."
+	}
+	return Result{Content: result}, nil
 }
 
 // --- ingest_scanner_results ---
