@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -72,6 +74,10 @@ const (
 	// objective: a fan-in objective can interpolate many 64KiB upstream
 	// outputs, so the assembled prompt must be bounded explicitly.
 	securityScanMaxRenderedObjectiveBytes = 256 * 1024
+
+	// securityScanMaxStructuredOutputBytes matches the AgentRun structured
+	// output contract and prevents controller-native reducers from bloating the CR.
+	securityScanMaxStructuredOutputBytes = 64 * 1024
 
 	// securityScanReasonOutputContractUnmet marks a task run that succeeded
 	// without publishing the structured output its schema requires.
@@ -580,6 +586,7 @@ func planSecurityScanExecution(workflow []triggersv1alpha1.SecurityScanTask, ext
 			DependsOn:  append([]string(nil), task.DependsOn...),
 			ForEach:    task.ForEach,
 			TargetRuns: task.TargetRuns,
+			Reduce:     task.Reduce,
 			When:       task.When.DeepCopy(),
 		})
 		instances := int32(1)
@@ -747,11 +754,10 @@ func (r *SecurityScanReconciler) advanceDeterministicExecution(ctx context.Conte
 	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
-// applySecurityScanExecutionOutcomeCondition surfaces a terminal Failed or
-// Cancelled execution on the Ready condition; a Succeeded one leaves the
-// condition set by the caller in place. A cancelled execution keeps its stop
-// reported by every later reconcile of the same execution, so the "already
-// ran for this generation" paths cannot report a stopped campaign as Ready.
+// applySecurityScanExecutionOutcomeCondition reports terminal readiness and
+// distinguishes a complete success from a success with explicit coverage gaps.
+// The execution phase remains Succeeded for compatibility; CoverageComplete is
+// the additive machine-readable warning signal.
 func applySecurityScanExecutionOutcomeCondition(fresh *triggersv1alpha1.SecurityScan) {
 	exec := fresh.Status.LastExecution
 	if exec == nil || exec.Mode != triggersv1alpha1.SecurityScanExecutionModeDeterministic {
@@ -760,6 +766,18 @@ func applySecurityScanExecutionOutcomeCondition(fresh *triggersv1alpha1.Security
 	if exec.Phase == triggersv1alpha1.SecurityScanExecutionPhaseCancelled {
 		// No LastError: a user-requested stop is not a scan error.
 		setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonCancelled, securityScanCancelMessage)
+		setSecurityScanCoverageCondition(fresh, metav1.ConditionUnknown, securityScanReasonCancelled, "coverage completeness is unknown because the execution was cancelled")
+		return
+	}
+	if exec.Phase == triggersv1alpha1.SecurityScanExecutionPhaseSucceeded {
+		if len(exec.CoverageGaps) == 0 {
+			setSecurityScanCondition(fresh, metav1.ConditionTrue, "ExecutionSucceeded", fmt.Sprintf("Deterministic execution %s succeeded", exec.ID))
+			setSecurityScanCoverageCondition(fresh, metav1.ConditionTrue, "Complete", "Execution completed without coverage gaps")
+			return
+		}
+		message := truncateSecurityScanError(fmt.Sprintf("Execution completed with %d coverage gap(s); first: %s", len(exec.CoverageGaps), exec.CoverageGaps[0]))
+		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ExecutionDegraded", message)
+		setSecurityScanCoverageCondition(fresh, metav1.ConditionFalse, "CoverageGaps", message)
 		return
 	}
 	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
@@ -771,6 +789,17 @@ func applySecurityScanExecutionOutcomeCondition(fresh *triggersv1alpha1.Security
 	}
 	fresh.Status.LastError = msg
 	setSecurityScanCondition(fresh, metav1.ConditionFalse, "ExecutionFailed", msg)
+	setSecurityScanCoverageCondition(fresh, metav1.ConditionUnknown, "ExecutionFailed", "coverage completeness is unknown because the execution failed")
+}
+
+func setSecurityScanCoverageCondition(scan *triggersv1alpha1.SecurityScan, status metav1.ConditionStatus, reason, message string) {
+	meta.SetStatusCondition(&scan.Status.Conditions, metav1.Condition{
+		Type:               triggersv1alpha1.ConditionSecurityScanCoverageComplete,
+		Status:             status,
+		ObservedGeneration: scan.Generation,
+		Reason:             reason,
+		Message:            message,
+	})
 }
 
 // failedSecurityScanExecutionDetail summarizes the first failed task of a
@@ -1074,8 +1103,16 @@ func (e *securityScanExecutionEngine) workflowDrift() string {
 		if !planned[task.Name] {
 			return fmt.Sprintf("%s (task %q was added after the execution was planned)", remedy, task.Name)
 		}
-		if node, ok := planByName[task.Name]; ok && node.ForEach != task.ForEach {
-			return fmt.Sprintf("%s (task %q changed forEach from %q to %q)", remedy, task.Name, node.ForEach, task.ForEach)
+		if node, ok := planByName[task.Name]; ok {
+			if !slices.Equal(node.DependsOn, task.DependsOn) {
+				return fmt.Sprintf("%s (task %q changed dependsOn from %q to %q)", remedy, task.Name, node.DependsOn, task.DependsOn)
+			}
+			if node.ForEach != task.ForEach {
+				return fmt.Sprintf("%s (task %q changed forEach from %q to %q)", remedy, task.Name, node.ForEach, task.ForEach)
+			}
+			if node.Reduce != task.Reduce {
+				return fmt.Sprintf("%s (task %q changed reduce from %q to %q)", remedy, task.Name, node.Reduce, task.Reduce)
+			}
 		}
 		for _, dep := range task.DependsOn {
 			if !planned[dep] {
@@ -1343,6 +1380,18 @@ func (e *securityScanExecutionEngine) plannedWhen(name string) *triggersv1alpha1
 		}
 	}
 	return nil
+}
+
+func (e *securityScanExecutionEngine) plannedReduce(name string) string {
+	for _, node := range e.exec.Plan {
+		if node.Name == name {
+			return node.Reduce
+		}
+	}
+	if len(e.exec.Plan) == 0 {
+		return e.tasks[name].Reduce
+	}
+	return ""
 }
 
 func (e *securityScanExecutionEngine) plannedForEach(name string) string {
@@ -1736,6 +1785,7 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 		}
 		task := e.tasks[entry.Name]
 		task.When = e.plannedWhen(task.Name)
+		task.Reduce = e.plannedReduce(task.Name)
 		if !e.depsSatisfied(task) {
 			entry.State = triggersv1alpha1.SecurityScanTaskStateBlocked
 			continue
@@ -1764,6 +1814,19 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 				continue
 			}
 		}
+		if task.Reduce != "" {
+			output, err := e.reduceTaskOutput(ctx, task)
+			if err != nil {
+				entry.State = triggersv1alpha1.SecurityScanTaskStateFailed
+				entry.LastError = truncateSecurityScanError("task reduction: " + err.Error())
+				entry.FinishedAt = &e.now
+				continue
+			}
+			entry.State = triggersv1alpha1.SecurityScanTaskStateSucceeded
+			entry.StructuredOutput = output
+			entry.FinishedAt = &e.now
+			continue
+		}
 		// A forEach task whose entries still form the un-started placeholder
 		// is expanded (not launched) once its source completes; expansion
 		// runs before scheduling, so reaching here with a completed source
@@ -1790,6 +1853,47 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 			running++
 		}
 	}
+}
+
+// reduceTaskOutput deterministically combines dependency outputs without an
+// AgentRun. concat flattens dependency arrays one level and appends every other
+// JSON value as one element, preserving dependsOn and instance order.
+func (e *securityScanExecutionEngine) reduceTaskOutput(ctx context.Context, task triggersv1alpha1.SecurityScanTask) (string, error) {
+	if task.Reduce != "concat" {
+		return "", fmt.Errorf("unsupported reduction %q", task.Reduce)
+	}
+	items := make([]json.RawMessage, 0)
+	for _, dependency := range task.DependsOn {
+		raw, err := e.taskOutput(ctx, dependency)
+		if err != nil {
+			return "", fmt.Errorf("read %q output: %w", dependency, err)
+		}
+		value := json.RawMessage(strings.TrimSpace(raw))
+		if !json.Valid(value) {
+			return "", fmt.Errorf("task %q output is invalid JSON", dependency)
+		}
+		if len(value) > 0 && value[0] == '[' {
+			var array []json.RawMessage
+			if err := json.Unmarshal(value, &array); err != nil {
+				return "", fmt.Errorf("decode %q output: %w", dependency, err)
+			}
+			items = append(items, array...)
+			continue
+		}
+		items = append(items, value)
+	}
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		return "", fmt.Errorf("encode reduction: %w", err)
+	}
+	output := string(encoded)
+	if len(output) > securityScanMaxStructuredOutputBytes {
+		return "", fmt.Errorf("output is too large: %d bytes, limit is %d", len(output), securityScanMaxStructuredOutputBytes)
+	}
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(task.OutputSchema, output); err != nil {
+		return "", fmt.Errorf("validate output: %w", err)
+	}
+	return output, nil
 }
 
 // taskConditionMatches evaluates a task's controller-side launch condition.

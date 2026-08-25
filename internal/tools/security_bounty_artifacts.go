@@ -311,7 +311,7 @@ func (t *getSecurityPoCTool) InputSchema() json.RawMessage {
 }
 func (t *getSecurityPoCTool) IsReadOnly() bool { return true }
 func (t *getSecurityPoCTool) IsEnabled(_ *agentsdk.RunContext) bool {
-	return bountyScriptEnabled(t.state, "poc-validator")
+	return bountyScriptEnabled(t.state, "poc-builder") || bountyScriptEnabled(t.state, "poc-validator")
 }
 func (t *getSecurityPoCTool) NeedsApproval() bool { return false }
 func (t *getSecurityPoCTool) TimeoutSeconds() int { return 0 }

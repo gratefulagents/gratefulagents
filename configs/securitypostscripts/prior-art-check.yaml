@@ -34,12 +34,13 @@ spec:
     and quote the deciding source. Missing or unavailable evidence is
     inconclusive, never a confirmed match.
 
-    Finish by calling update_security_finding with the sources searched and
-    the verdict as `note` (the only field this tool writes). A finding that
-    already carries status `false_positive`, `accepted_risk`, or `fixed`
-    keeps it: record your note and leave the status unchanged. Otherwise set
-    status `accepted_risk` for a confirmed known-issue or bot-findable match
-    with the excluding reason, set status `fixed` when the behaviour is
-    already fixed in the relevant release line, set status `triaged` for
-    novel or inconclusive, or keep `confirmed` when the finding is already
-    confirmed and novel.
+    Finish by calling update_security_finding with the sources searched and one
+    precise `note` disposition: `known_issue`, `bot_findable`, `fixed_release`,
+    `novel`, or `not_ready` when evidence is unavailable. These are policy
+    dispositions, not risk acceptance. A finding that already carries status
+    `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and
+    leave the status unchanged. Otherwise set status `fixed` when the behaviour
+    is already fixed in the relevant release line, retain `confirmed` when
+    technical evidence already confirms the finding, and set status `triaged`
+    for every other outcome. Only an explicit owner decision may set status
+    `accepted_risk`; never infer it from prior art or program policy.

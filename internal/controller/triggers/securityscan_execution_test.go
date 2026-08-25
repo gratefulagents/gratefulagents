@@ -13,6 +13,7 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -169,6 +170,69 @@ func TestSecurityScanTaskConditionOmitsAgentRunAndPublishesOutput(t *testing.T) 
 	runs := securityScanRuns(t, k8sClient, scan.Namespace)
 	if len(runs) != 2 || taskRunByTask(t, runs, "report").Name == "" {
 		t.Fatalf("AgentRuns = %#v, want detect and downstream report only", runs)
+	}
+}
+
+func TestSecurityScanSucceededWithCoverageGapsIsReadyButDegraded(t *testing.T) {
+	scan := deterministicSecurityScan(nil, 1)
+	scan.Generation = 7
+	scan.Status.LastExecution = &triggersv1alpha1.SecurityScanExecutionStatus{
+		ID:           "exec-1",
+		Mode:         triggersv1alpha1.SecurityScanExecutionModeDeterministic,
+		Phase:        triggersv1alpha1.SecurityScanExecutionPhaseSucceeded,
+		CoverageGaps: []string{"post-script validation did not complete"},
+	}
+
+	applySecurityScanExecutionOutcomeCondition(scan)
+	ready := meta.FindStatusCondition(scan.Status.Conditions, triggersv1alpha1.ConditionSecurityScanReady)
+	if ready == nil || ready.Status != metav1.ConditionTrue || ready.Reason != "ExecutionDegraded" {
+		t.Fatalf("Ready condition = %#v, want true ExecutionDegraded", ready)
+	}
+	coverage := meta.FindStatusCondition(scan.Status.Conditions, triggersv1alpha1.ConditionSecurityScanCoverageComplete)
+	if coverage == nil || coverage.Status != metav1.ConditionFalse || coverage.Reason != "CoverageGaps" || !strings.Contains(coverage.Message, "1 coverage gap") {
+		t.Fatalf("CoverageComplete condition = %#v, want false CoverageGaps", coverage)
+	}
+}
+
+func TestSecurityScanTaskConcatReductionOmitsAgentRunAndPreservesOrder(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "first", Objective: "produce an array", OutputSchema: `{"type":"array"}`},
+		{Name: "second", Objective: "produce an object", OutputSchema: `{"type":"object"}`},
+		{
+			Name:         "joined",
+			Objective:    "combine dependency outputs",
+			DependsOn:    []string{"first", "second"},
+			Reduce:       "concat",
+			OutputSchema: `{"type":"array"}`,
+		},
+		{Name: "report", Objective: "report {{tasks.joined.output}}", DependsOn: []string{"joined"}},
+	}, 2)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	planned := getSecurityScan(t, k8sClient, scan).Status.LastExecution.Plan
+	if len(planned) != 4 || planned[2].Reduce != "concat" {
+		t.Fatalf("execution plan did not snapshot reduction: %#v", planned)
+	}
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, taskRunByTask(t, runs, "first").Name,
+		platformv1alpha1.AgentRunPhaseSucceeded, `["a",{"b":2}]`, "")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, taskRunByTask(t, runs, "second").Name,
+		platformv1alpha1.AgentRunPhaseSucceeded, `{"c":3}`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	entry := executionTask(t, updated.Status.LastExecution, "joined", 0)
+	if entry.State != triggersv1alpha1.SecurityScanTaskStateSucceeded || entry.Attempts != 0 || entry.RunName != "" {
+		t.Fatalf("reducer task = %#v, want controller-completed task with no AgentRun", entry)
+	}
+	if entry.StructuredOutput != `["a",{"b":2},{"c":3}]` {
+		t.Fatalf("reducer output = %q", entry.StructuredOutput)
+	}
+	runs = securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 3 || taskRunByTask(t, runs, "report").Name == "" {
+		t.Fatalf("AgentRuns = %#v, want first, second, and downstream report only", runs)
 	}
 }
 
@@ -1364,6 +1428,30 @@ func TestSecurityScanDeterministicExecutionRejectsForEachSourceDrift(t *testing.
 	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed ||
 		!strings.Contains(final.Status.LastError, `changed forEach from "source-a" to "source-b"`) {
 		t.Fatalf("execution after forEach drift = %#v (scan error %q), want explicit terminal drift failure", exec, final.Status.LastError)
+	}
+}
+
+func TestSecurityScanDeterministicExecutionRejectsDependencyOrderDrift(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "a", Objective: "produce a", OutputSchema: `{"type":"object"}`},
+		{Name: "b", Objective: "produce b", OutputSchema: `{"type":"object"}`},
+		{Name: "join", Objective: "join", DependsOn: []string{"a", "b"}, Reduce: "concat", OutputSchema: `{"type":"array"}`},
+	}, 2)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	updated.Spec.Workflow[2].DependsOn = []string{"b", "a"}
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatalf("Update(SecurityScan) error = %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	final := getSecurityScan(t, k8sClient, scan)
+	if final.Status.LastExecution.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed ||
+		!strings.Contains(final.Status.LastError, "changed dependsOn") {
+		t.Fatalf("execution after dependency drift = %#v (scan error %q), want explicit terminal drift failure", final.Status.LastExecution, final.Status.LastError)
 	}
 }
 

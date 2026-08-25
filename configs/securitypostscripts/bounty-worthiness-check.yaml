@@ -32,16 +32,17 @@ spec:
        known issues, repository prior art, public advisories, release line — and
        reports the finding as novel. Without that record, return inconclusive; a
        confirmed known-issue or bot-findable match is out-of-scope.
-
-    State accepted, disproved, out-of-scope, or inconclusive and give one
-    evidence-backed sentence for each requirement. Use disproved only when
-    evidence shows the attacker path or impact does not hold. Use out-of-scope
-    only for a definitive scope exclusion or explicit operator risk acceptance.
-    Missing evidence or an unavailable validation environment is inconclusive.
-
+    Record one precise policy disposition in the note: `accepted`, `disproved`,
+    `scope_excluded`, `known_issue`, `bot_findable`, or `not_ready`. Use
+    `disproved` only when evidence shows the attacker path or impact does not
+    hold. Use `scope_excluded` only for a definitive scope exclusion, and
+    `not_ready` for missing evidence or an unavailable validation environment.
     Finish by calling update_security_finding with the decision as `note` (the
     only field this tool writes). A finding that already carries status
     `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and
-    leave the status unchanged. Otherwise use this exhaustive mapping: set status
-    `confirmed` for accepted, `false_positive` for disproved, `accepted_risk` for
-    out-of-scope, and `triaged` for inconclusive.
+    leave the status unchanged. Otherwise set status `false_positive` only for
+    `disproved`; set status `confirmed` for `accepted` or retain it whenever
+    technical evidence already confirms the finding; and set status `triaged`
+    when technical validation is not ready. Scope and prior-art exclusions stay
+    in the note and do not imply risk acceptance. Only an explicit owner decision
+    may set status `accepted_risk`.

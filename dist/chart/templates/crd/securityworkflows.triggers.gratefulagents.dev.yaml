@@ -187,6 +187,15 @@ spec:
                       maximum: 5
                       minimum: 0
                       type: integer
+                    reduce:
+                      description: |-
+                        reduce performs a deterministic controller-side aggregation instead of
+                        launching an AgentRun. "concat" appends dependency outputs in dependsOn
+                        order; arrays contribute their elements and other JSON values contribute
+                        one element.
+                      enum:
+                      - concat
+                      type: string
                     role:
                       default: security-reviewer
                       description: role is the RoleInstruction name assumed by this

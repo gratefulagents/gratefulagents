@@ -15,6 +15,19 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/store"
 )
 
+func TestGetSecurityPoCIsEnabledForBuilderFallbackAndValidator(t *testing.T) {
+	for _, script := range []string{"poc-builder", "poc-validator"} {
+		state := &securityScanState{scanCtx: SecurityScanContext{PostScripts: []string{script}}}
+		if !(&getSecurityPoCTool{state: state}).IsEnabled(nil) {
+			t.Errorf("get_security_poc is disabled for %s", script)
+		}
+	}
+	state := &securityScanState{scanCtx: SecurityScanContext{PostScripts: []string{"report-writer"}}}
+	if (&getSecurityPoCTool{state: state}).IsEnabled(nil) {
+		t.Error("get_security_poc is enabled outside PoC builder/validator jobs")
+	}
+}
+
 func TestValidatePoCFilesRejectsTraversalAndOversize(t *testing.T) {
 	for _, name := range []string{"../secret", "/etc/passwd", "poc/../secret", `..\\secret`, "README.md", "readme.MD"} {
 		if err := validatePoCFiles([]securityPoCFile{{Path: name, Content: "x"}}); err == nil {

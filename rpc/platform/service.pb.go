@@ -31813,7 +31813,10 @@ type SecurityScanTaskConfig struct {
 	SkillRefs []string `protobuf:"bytes,18,rep,name=skill_refs,json=skillRefs,proto3" json:"skill_refs,omitempty"`
 	// when omits the task before AgentRun creation when a dependency's
 	// structured-output value does not match.
-	When          *SecurityScanTaskCondition `protobuf:"bytes,19,opt,name=when,proto3" json:"when,omitempty"`
+	When *SecurityScanTaskCondition `protobuf:"bytes,19,opt,name=when,proto3" json:"when,omitempty"`
+	// reduce performs a controller-side deterministic aggregation instead of
+	// launching an AgentRun. Currently supported: concat.
+	Reduce        string `protobuf:"bytes,20,opt,name=reduce,proto3" json:"reduce,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -31972,6 +31975,13 @@ func (x *SecurityScanTaskConfig) GetWhen() *SecurityScanTaskCondition {
 		return x.When
 	}
 	return nil
+}
+
+func (x *SecurityScanTaskConfig) GetReduce() string {
+	if x != nil {
+		return x.Reduce
+	}
+	return ""
 }
 
 // SecurityScanTaskCondition is a controller-side launch predicate.
@@ -33288,6 +33298,7 @@ type SecurityScanExecutionPlanNode struct {
 	ForEach       string                     `protobuf:"bytes,3,opt,name=for_each,json=forEach,proto3" json:"for_each,omitempty"`           // dependency this task fans out over, when set
 	TargetRuns    int32                      `protobuf:"varint,4,opt,name=target_runs,json=targetRuns,proto3" json:"target_runs,omitempty"` // snapshotted chunk-mode setting for this execution
 	When          *SecurityScanTaskCondition `protobuf:"bytes,5,opt,name=when,proto3" json:"when,omitempty"`                                // snapshotted launch condition
+	Reduce        string                     `protobuf:"bytes,6,opt,name=reduce,proto3" json:"reduce,omitempty"`                            // snapshotted deterministic reduction operation
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -33355,6 +33366,13 @@ func (x *SecurityScanExecutionPlanNode) GetWhen() *SecurityScanTaskCondition {
 		return x.When
 	}
 	return nil
+}
+
+func (x *SecurityScanExecutionPlanNode) GetReduce() string {
+	if x != nil {
+		return x.Reduce
+	}
+	return ""
 }
 
 // SecurityScanPostScriptJobState is one durable per-finding post-script
@@ -45504,7 +45522,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\rinclude_paths\x18\x02 \x03(\tR\fincludePaths\x12#\n" +
 	"\rexclude_paths\x18\x03 \x03(\tR\fexcludePaths\x12\x1c\n" +
 	"\tlanguages\x18\x04 \x03(\tR\tlanguages\x12<\n" +
-	"\x1aauthorized_network_targets\x18\x05 \x03(\tR\x18authorizedNetworkTargets\"\x87\x05\n" +
+	"\x1aauthorized_network_targets\x18\x05 \x03(\tR\x18authorizedNetworkTargets\"\x9f\x05\n" +
 	"\x16SecurityScanTaskConfig\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
 	"\tobjective\x18\x02 \x01(\tR\tobjective\x12\x1a\n" +
@@ -45529,7 +45547,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"targetRuns\x12\x1d\n" +
 	"\n" +
 	"skill_refs\x18\x12 \x03(\tR\tskillRefs\x12:\n" +
-	"\x04when\x18\x13 \x01(\v2&.platform.v1.SecurityScanTaskConditionR\x04whenB\x0e\n" +
+	"\x04when\x18\x13 \x01(\v2&.platform.v1.SecurityScanTaskConditionR\x04when\x12\x16\n" +
+	"\x06reduce\x18\x14 \x01(\tR\x06reduceB\x0e\n" +
 	"\f_max_retriesJ\x04\b\a\x10\bR\fmax_findings\"\x86\x01\n" +
 	"\x19SecurityScanTaskCondition\x12\x12\n" +
 	"\x04task\x18\x01 \x01(\tR\x04task\x12\x12\n" +
@@ -45647,7 +45666,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x14source_output_sha256\x18\x05 \x01(\tR\x12sourceOutputSha256\x12!\n" +
 	"\frecord_count\x18\x06 \x01(\x05R\vrecordCount\x12\x1f\n" +
 	"\vchunk_count\x18\a \x01(\x05R\n" +
-	"chunkCount\"\xca\x01\n" +
+	"chunkCount\"\xe2\x01\n" +
 	"\x1dSecurityScanExecutionPlanNode\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
@@ -45655,7 +45674,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\bfor_each\x18\x03 \x01(\tR\aforEach\x12\x1f\n" +
 	"\vtarget_runs\x18\x04 \x01(\x05R\n" +
 	"targetRuns\x12:\n" +
-	"\x04when\x18\x05 \x01(\v2&.platform.v1.SecurityScanTaskConditionR\x04when\"\xff\x02\n" +
+	"\x04when\x18\x05 \x01(\v2&.platform.v1.SecurityScanTaskConditionR\x04when\x12\x16\n" +
+	"\x06reduce\x18\x06 \x01(\tR\x06reduce\"\xff\x02\n" +
 	"\x1eSecurityScanPostScriptJobState\x12\x16\n" +
 	"\x06script\x18\x01 \x01(\tR\x06script\x12\x14\n" +
 	"\x05order\x18\x02 \x01(\x05R\x05order\x12\x1d\n" +

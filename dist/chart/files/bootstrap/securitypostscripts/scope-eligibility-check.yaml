@@ -39,10 +39,10 @@ spec:
     class, or required attacker precondition. When scope or an essential
     acceptance fact is absent or ambiguous, say unknown and name the missing
     fact; absence of evidence is not an operator acceptance of the risk.
-
-    Finish by calling update_security_finding with the verdict, scope rule, and
-    reason as `note` (the only field this tool writes). A finding that already
+    Finish by calling update_security_finding with the scope rule, reason, and one
+    precise `note` disposition: `scope_eligible`, `scope_excluded`, or `not_ready`.
+    These are policy dispositions, not technical verdicts. A finding that already
     carries status `false_positive`, `accepted_risk`, or `fixed` keeps it: record
-    your note and leave the status unchanged. Otherwise set status `accepted_risk`
-    only for a definitive scope exclusion, set status `triaged` for eligible or
-    unknown, or keep `confirmed` when already confirmed and eligible.
+    your note and leave the status unchanged. Otherwise retain `confirmed` when
+    technically confirmed and set status `triaged` for every other disposition.
+    Only an explicit owner decision may set status `accepted_risk`; never infer it from a scope exclusion.
