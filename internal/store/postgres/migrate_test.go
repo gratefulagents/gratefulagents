@@ -126,3 +126,44 @@ func TestMigration050Registered(t *testing.T) {
 	}
 	t.Fatal("migration 050 is not registered in orderedMigrations and would never be applied")
 }
+
+func TestMigration056Registered(t *testing.T) {
+	for _, migration := range orderedMigrations() {
+		if migration.version != 56 {
+			continue
+		}
+		if migration.sql == "" || migration.sql != migration056Up {
+			t.Fatal("migration 056 must carry the embedded session change_seq SQL")
+		}
+		if migration.optional {
+			t.Fatal("migration 056 adds the change_seq column the fingerprint reads and must not be optional")
+		}
+		if noTxMigrations[56] {
+			t.Fatal("migration 056 creates plpgsql functions and must run transactionally")
+		}
+		return
+	}
+	t.Fatal("migration 056 is not registered in orderedMigrations and would never be applied")
+}
+
+// Every registered migration version must be unique and strictly increasing:
+// a duplicate registration would re-apply DDL on startup, and an out-of-order
+// entry silently changes the effective schema on fresh installs.
+func TestOrderedMigrationsUniqueAndSorted(t *testing.T) {
+	migrations := orderedMigrations()
+	seen := make(map[int]bool, len(migrations))
+	previous := 0
+	for _, migration := range migrations {
+		if seen[migration.version] {
+			t.Fatalf("migration %d is registered more than once", migration.version)
+		}
+		seen[migration.version] = true
+		if migration.version <= previous {
+			t.Fatalf("migration %d is registered out of order (after %d)", migration.version, previous)
+		}
+		previous = migration.version
+		if migration.sql == "" {
+			t.Fatalf("migration %d carries empty SQL", migration.version)
+		}
+	}
+}

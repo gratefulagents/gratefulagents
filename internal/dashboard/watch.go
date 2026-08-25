@@ -14,10 +14,58 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// watchTicker chooses when a version-probe poll loop ticks. Without a wake
+// channel it polls at fast (the legacy behavior). With one, Postgres NOTIFY
+// wake-up hints trigger immediate ticks and the fallback poll relaxes to slow
+// while the listener is healthy. Hints are lossy by design (dropped across
+// listener reconnects), so polling never stops entirely — the probe remains
+// authoritative and the hint only shortens latency.
+type watchTicker struct {
+	fast    time.Duration
+	slow    time.Duration
+	wake    <-chan struct{}
+	healthy func() bool
+}
+
+// sessionWakeFallbackInterval is the relaxed poll interval used while NOTIFY
+// wake-ups are flowing; it only bounds staleness across dropped hints.
+const sessionWakeFallbackInterval = 3 * time.Second
+
+func (w watchTicker) interval() time.Duration {
+	if w.wake != nil && w.healthy != nil && w.healthy() {
+		return w.slow
+	}
+	return w.fast
+}
+
+// sessionWatchTicker subscribes a stream to session-change wake-up hints when
+// the state store supports them (store.SessionChangeSubscriber). The returned
+// cancel must be called when the stream ends. Streams for runs whose session
+// does not exist yet simply keep the fast poll interval.
+func (s *Server) sessionWatchTicker(ctx context.Context, namespace, name string, fast time.Duration) (watchTicker, func()) {
+	tick := watchTicker{fast: fast, slow: sessionWakeFallbackInterval}
+	if s.stateStore == nil {
+		return tick, func() {}
+	}
+	sub, ok := s.stateStore.(store.SessionChangeSubscriber)
+	if !ok {
+		return tick, func() {}
+	}
+	sess, err := s.cachedSessionByRun(ctx, name, namespace)
+	if err != nil {
+		return tick, func() {}
+	}
+	wake, cancel := sub.SubscribeSessionChanges(sess.ID)
+	tick.wake = wake
+	tick.healthy = sub.SessionChangeListenerHealthy
+	return tick, cancel
+}
 
 func pollStream(ctx context.Context, interval time.Duration, tick func() error) error {
 	ticker := time.NewTicker(interval)
@@ -101,7 +149,7 @@ func streamSnapshots[T any](ctx context.Context, interval time.Duration, load fu
 // whether the stream should keep polling.
 func streamVersionedSnapshots[T any](
 	ctx context.Context,
-	interval time.Duration,
+	tick watchTicker,
 	probe func(context.Context) (string, error),
 	build func(context.Context) (T, bool, error),
 	send func(T) error,
@@ -117,6 +165,7 @@ func streamVersionedSnapshots[T any](
 		case <-ctx.Done():
 			return nil
 		case <-timer.C:
+		case <-tick.wake: // nil channel when wake-ups are unavailable
 		}
 
 		version, err := probe(ctx)
@@ -142,7 +191,7 @@ func streamVersionedSnapshots[T any](
 			}
 		}
 
-		timer.Reset(interval)
+		timer.Reset(tick.interval())
 	}
 }
 
@@ -289,7 +338,9 @@ func (s *Server) WatchAgentRun(ctx context.Context, req *platform.WatchAgentRunR
 		}
 		return pb, shouldContinueAgentRunWatch(run), nil
 	}
-	return streamVersionedSnapshots(ctx, 500*time.Millisecond, probe, build, stream.Send)
+	tick, cancelWake := s.sessionWatchTicker(ctx, req.Namespace, req.Name, 500*time.Millisecond)
+	defer cancelWake()
+	return streamVersionedSnapshots(ctx, tick, probe, build, stream.Send)
 }
 
 // Succeeded and failed runs normally end their detail stream, but an attached
@@ -362,7 +413,9 @@ func (s *Server) WatchActivityLog(ctx context.Context, req *platform.GetActivity
 			resp, source := s.getAgentRunActivityLogSourced(ctx, run)
 			return resp, source, nil
 		}
-		return watchActivityLogDelta(ctx, 500*time.Millisecond, req, probe, buildSourced, stream.Send)
+		tick, cancelWake := s.sessionWatchTicker(ctx, req.Namespace, req.Name, 500*time.Millisecond)
+		defer cancelWake()
+		return watchActivityLogDelta(ctx, tick, req, probe, buildSourced, stream.Send)
 	}
 	previewReq := &platform.GetActivityLogRequest{PayloadPreviewBytes: req.PayloadPreviewBytes}
 	build := func(ctx context.Context) (*platform.GetActivityLogResponse, bool, error) {
@@ -373,7 +426,9 @@ func (s *Server) WatchActivityLog(ctx context.Context, req *platform.GetActivity
 		resp := s.getAgentRunActivityLog(ctx, run)
 		return applyActivityLogRequestOptions(resp, previewReq), !resp.IsComplete, nil
 	}
-	return streamVersionedSnapshots(ctx, 500*time.Millisecond, probe, build, stream.Send)
+	tick, cancelWake := s.sessionWatchTicker(ctx, req.Namespace, req.Name, 500*time.Millisecond)
+	defer cancelWake()
+	return streamVersionedSnapshots(ctx, tick, probe, build, stream.Send)
 }
 
 // subagentGraphFingerprint cheaply fingerprints a subagent graph so delta
@@ -414,7 +469,7 @@ func subagentGraphFingerprint(g *platform.SubagentGraph) string {
 // delta-capable (Postgres) sources.
 func watchActivityLogDelta(
 	ctx context.Context,
-	interval time.Duration,
+	tick watchTicker,
 	req *platform.GetActivityLogRequest,
 	probe func(context.Context) (string, error),
 	build func(context.Context) (*platform.GetActivityLogResponse, activityLogSource, error),
@@ -436,6 +491,7 @@ func watchActivityLogDelta(
 		case <-ctx.Done():
 			return nil
 		case <-timer.C:
+		case <-tick.wake: // nil channel when wake-ups are unavailable
 		}
 
 		version, err := probe(ctx)
@@ -443,7 +499,7 @@ func watchActivityLogDelta(
 			return err
 		}
 		if sentInitial && version != "" && version == lastVersion {
-			timer.Reset(interval)
+			timer.Reset(tick.interval())
 			continue
 		}
 		resp, source, err := build(ctx)
@@ -533,7 +589,7 @@ func watchActivityLogDelta(
 			<-ctx.Done()
 			return nil
 		}
-		timer.Reset(interval)
+		timer.Reset(tick.interval())
 	}
 }
 

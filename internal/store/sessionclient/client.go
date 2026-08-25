@@ -291,15 +291,15 @@ func (c *Client) ResumeState(ctx context.Context) (session *store.Session, messa
 	return session, messages, cursor, nil
 }
 
-// PollForUserMessages blocks until any new user messages appear after afterID.
-// Returned messages are ordered by message ID.
-func (c *Client) PollForUserMessages(ctx context.Context, afterID int64, pollInterval time.Duration) ([]UserMessage, error) {
+// PollForUserMessages blocks until any pending user messages appear. Pending
+// delivery state in the store is authoritative; there is no cursor.
+func (c *Client) PollForUserMessages(ctx context.Context, pollInterval time.Duration) ([]UserMessage, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
-	msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID, afterID)
+	msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID)
 	if err != nil {
 		log.Printf("WARN: polling for user messages: %v", err)
 	} else if len(msgs) > 0 {
@@ -315,7 +315,7 @@ func (c *Client) PollForUserMessages(ctx context.Context, afterID int64, pollInt
 		case <-ticker.C:
 		}
 
-		msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID, afterID)
+		msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID)
 		if err != nil {
 			log.Printf("WARN: polling for user messages: %v", err)
 			continue
@@ -326,9 +326,9 @@ func (c *Client) PollForUserMessages(ctx context.Context, afterID int64, pollInt
 	}
 }
 
-// PeekForUserMessages does a non-blocking check for new user messages after afterID.
-func (c *Client) PeekForUserMessages(ctx context.Context, afterID int64) ([]UserMessage, error) {
-	msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID, afterID)
+// PeekForUserMessages does a non-blocking check for pending user messages.
+func (c *Client) PeekForUserMessages(ctx context.Context) ([]UserMessage, error) {
+	msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -550,15 +550,23 @@ func (c *Client) WriteMetrics(ctx context.Context, metrics SessionMetrics) error
 	})
 }
 
-// WriteResult writes the final execution result.
+// WriteResult writes the final execution result. The artifact mirror is
+// written before the terminal phase commits: if it fails, the caller can
+// retry the whole call (every statement is idempotent) instead of ending up
+// with a terminal session that permanently lost its artifact links.
 func (c *Client) WriteResult(ctx context.Context, status, prURL, lastError, activityLogURL, diffURL string) error {
 	if activityLogURL != "" || diffURL != "" {
-		meta, _ := json.Marshal(map[string]string{
+		meta, err := json.Marshal(map[string]string{
 			"activity_log_url": activityLogURL,
 			"diff_url":         diffURL,
 			"pr_url":           prURL,
 		})
-		_, _ = c.store.UpsertArtifact(ctx, c.sessionID, "activity_log", "", activityLogURL, "", meta)
+		if err != nil {
+			return fmt.Errorf("encoding result artifact metadata: %w", err)
+		}
+		if _, err := c.store.UpsertArtifact(ctx, c.sessionID, "activity_log", "", activityLogURL, "", meta); err != nil {
+			return fmt.Errorf("writing result artifact: %w", err)
+		}
 	}
 	phase := "succeeded"
 	if status == "failed" {

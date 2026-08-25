@@ -34,6 +34,28 @@ type AgentArtifact struct {
 	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
+type AgentBugReport struct {
+	ID          uuid.UUID   `json:"id"`
+	Namespace   string      `json:"namespace"`
+	RunName     string      `json:"run_name"`
+	SessionID   pgtype.UUID `json:"session_id"`
+	Category    string      `json:"category"`
+	ToolName    string      `json:"tool_name"`
+	Title       string      `json:"title"`
+	Body        string      `json:"body"`
+	Fingerprint string      `json:"fingerprint"`
+	Occurrences int32       `json:"occurrences"`
+	Status      string      `json:"status"`
+	StatusNote  string      `json:"status_note"`
+	StatusActor string      `json:"status_actor"`
+	FirstSeenAt time.Time   `json:"first_seen_at"`
+	LastSeenAt  time.Time   `json:"last_seen_at"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+	FixRunName  string      `json:"fix_run_name"`
+	FixPrUrl    string      `json:"fix_pr_url"`
+}
+
 type AgentMemory struct {
 	ID        uuid.UUID       `json:"id"`
 	Namespace string          `json:"namespace"`
@@ -69,6 +91,7 @@ type AgentSession struct {
 	PendingActions   json.RawMessage `json:"pending_actions"`
 	PendingInputType string          `json:"pending_input_type"`
 	PendingRequestID string          `json:"pending_request_id"`
+	ChangeSeq        int64           `json:"change_seq"`
 }
 
 type AuthSession struct {
@@ -101,6 +124,16 @@ type AuthUserGitIdentity struct {
 	DisableCoAuthorTrailer bool      `json:"disable_co_author_trailer"`
 }
 
+type AuthUserModelDefault struct {
+	UserID         uuid.UUID `json:"user_id"`
+	Provider       string    `json:"provider"`
+	Model          string    `json:"model"`
+	ReasoningLevel string    `json:"reasoning_level"`
+	Disabled       bool      `json:"disabled"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	AuthMode       string    `json:"auth_mode"`
+}
+
 type AuthUserNamespace struct {
 	UserID    uuid.UUID `json:"user_id"`
 	Namespace string    `json:"namespace"`
@@ -112,6 +145,12 @@ type AuthUserRoleModel struct {
 	RoleName  string    `json:"role_name"`
 	Provider  string    `json:"provider"`
 	Model     string    `json:"model"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type AuthUserRoleParentModel struct {
+	UserID    uuid.UUID `json:"user_id"`
+	RoleName  string    `json:"role_name"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -134,6 +173,27 @@ type ConversationMessage struct {
 	ClaimToken       pgtype.UUID        `json:"claim_token"`
 }
 
+type DurableEvent struct {
+	TenantID string `json:"tenant_id"`
+	RunID    string `json:"run_id"`
+	Sequence int64  `json:"sequence"`
+	Body     []byte `json:"body"`
+}
+
+type DurableRun struct {
+	TenantID      string             `json:"tenant_id"`
+	RunID         string             `json:"run_id"`
+	Revision      int64              `json:"revision"`
+	EventSequence int64              `json:"event_sequence"`
+	Snapshot      []byte             `json:"snapshot"`
+	RetainUntil   pgtype.Timestamptz `json:"retain_until"`
+	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	LeaseOwner    pgtype.Text        `json:"lease_owner"`
+	LeaseToken    pgtype.Text        `json:"lease_token"`
+	LeaseUntil    pgtype.Timestamptz `json:"lease_until"`
+}
+
 type Notification struct {
 	ID                uuid.UUID `json:"id"`
 	UserID            string    `json:"user_id"`
@@ -147,6 +207,51 @@ type Notification struct {
 	ActorName         string    `json:"actor_name"`
 	Read              bool      `json:"read"`
 	CreatedAt         time.Time `json:"created_at"`
+}
+
+type ProjectContent struct {
+	ID               uuid.UUID          `json:"id"`
+	ProjectNamespace string             `json:"project_namespace"`
+	ProjectName      string             `json:"project_name"`
+	Kind             string             `json:"kind"`
+	Path             string             `json:"path"`
+	MediaType        string             `json:"media_type"`
+	CurrentVersion   int32              `json:"current_version"`
+	Metadata         json.RawMessage    `json:"metadata"`
+	Provenance       json.RawMessage    `json:"provenance"`
+	ScanStatus       string             `json:"scan_status"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+	DeletedAt        pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type ProjectContentAudit struct {
+	ID        int64           `json:"id"`
+	ContentID uuid.UUID       `json:"content_id"`
+	Action    string          `json:"action"`
+	Actor     string          `json:"actor"`
+	Details   json.RawMessage `json:"details"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+type ProjectContentBlobDeletion struct {
+	ObjectKey     string    `json:"object_key"`
+	CreatedAt     time.Time `json:"created_at"`
+	Attempts      int32     `json:"attempts"`
+	LastError     string    `json:"last_error"`
+	NextAttemptAt time.Time `json:"next_attempt_at"`
+}
+
+type ProjectContentVersion struct {
+	ContentID uuid.UUID       `json:"content_id"`
+	Version   int32           `json:"version"`
+	Content   []byte          `json:"content"`
+	Sha256    string          `json:"sha256"`
+	Size      int64           `json:"size"`
+	Creator   string          `json:"creator"`
+	Metadata  json.RawMessage `json:"metadata"`
+	CreatedAt time.Time       `json:"created_at"`
+	ObjectKey string          `json:"object_key"`
 }
 
 type ProjectStateMemory struct {
@@ -214,6 +319,303 @@ type ResourceShare struct {
 	Permission        string    `json:"permission"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+type SecurityFinding struct {
+	ID                     uuid.UUID          `json:"id"`
+	ScanID                 uuid.UUID          `json:"scan_id"`
+	Namespace              string             `json:"namespace"`
+	ScanName               string             `json:"scan_name"`
+	RunName                string             `json:"run_name"`
+	SessionID              pgtype.UUID        `json:"session_id"`
+	Fingerprint            string             `json:"fingerprint"`
+	Title                  string             `json:"title"`
+	Category               string             `json:"category"`
+	Severity               string             `json:"severity"`
+	Confidence             string             `json:"confidence"`
+	Repository             string             `json:"repository"`
+	Revision               string             `json:"revision"`
+	FilePath               string             `json:"file_path"`
+	StartLine              int32              `json:"start_line"`
+	EndLine                int32              `json:"end_line"`
+	Symbol                 string             `json:"symbol"`
+	Cwe                    []string           `json:"cwe"`
+	Description            string             `json:"description"`
+	Impact                 string             `json:"impact"`
+	AttackVector           string             `json:"attack_vector"`
+	Remediation            string             `json:"remediation"`
+	ReferencesUrls         []string           `json:"references_urls"`
+	SourceAgent            string             `json:"source_agent"`
+	ScanStep               string             `json:"scan_step"`
+	Score                  float64            `json:"score"`
+	Status                 string             `json:"status"`
+	DuplicateOf            pgtype.UUID        `json:"duplicate_of"`
+	Occurrences            int32              `json:"occurrences"`
+	Raw                    json.RawMessage    `json:"raw"`
+	FirstSeenAt            time.Time          `json:"first_seen_at"`
+	LastSeenAt             time.Time          `json:"last_seen_at"`
+	Assignee               string             `json:"assignee"`
+	AcceptedRiskExpiresAt  pgtype.Timestamptz `json:"accepted_risk_expires_at"`
+	TicketUrl              string             `json:"ticket_url"`
+	TicketProvider         string             `json:"ticket_provider"`
+	BaselineState          pgtype.Text        `json:"baseline_state"`
+	ResolvedAt             pgtype.Timestamptz `json:"resolved_at"`
+	TriagedAt              pgtype.Timestamptz `json:"triaged_at"`
+	SuppressedBy           pgtype.Text        `json:"suppressed_by"`
+	SuppressedReason       pgtype.Text        `json:"suppressed_reason"`
+	SuppressedOwner        pgtype.Text        `json:"suppressed_owner"`
+	SuppressionExpiresAt   pgtype.Timestamptz `json:"suppression_expires_at"`
+	SuppressedAt           pgtype.Timestamptz `json:"suppressed_at"`
+	SourceKind             string             `json:"source_kind"`
+	Tool                   string             `json:"tool"`
+	ToolVersion            string             `json:"tool_version"`
+	RuleID                 string             `json:"rule_id"`
+	CorrelatedFingerprints []string           `json:"correlated_fingerprints"`
+	ExecutionID            string             `json:"execution_id"`
+	TaskName               string             `json:"task_name"`
+}
+
+type SecurityFindingArtifact struct {
+	ID          uuid.UUID       `json:"id"`
+	FindingID   uuid.UUID       `json:"finding_id"`
+	ExecutionID string          `json:"execution_id"`
+	Kind        string          `json:"kind"`
+	Content     json.RawMessage `json:"content"`
+	S3Key       string          `json:"s3_key"`
+	Sha256      string          `json:"sha256"`
+	SizeBytes   int64           `json:"size_bytes"`
+	MediaType   string          `json:"media_type"`
+	Filename    string          `json:"filename"`
+	Status      string          `json:"status"`
+	Error       string          `json:"error"`
+	ActorRun    string          `json:"actor_run"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+type SecurityFindingEvent struct {
+	ID        int64           `json:"id"`
+	FindingID uuid.UUID       `json:"finding_id"`
+	EventType string          `json:"event_type"`
+	Actor     string          `json:"actor"`
+	Note      string          `json:"note"`
+	Detail    json.RawMessage `json:"detail"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+type SecurityFindingObservation struct {
+	ID          int64     `json:"id"`
+	Namespace   string    `json:"namespace"`
+	ScanName    string    `json:"scan_name"`
+	Repository  string    `json:"repository"`
+	Fingerprint string    `json:"fingerprint"`
+	RunName     string    `json:"run_name"`
+	Revision    string    `json:"revision"`
+	Severity    string    `json:"severity"`
+	ObservedAt  time.Time `json:"observed_at"`
+}
+
+type SecurityNotificationMarker struct {
+	Namespace   string    `json:"namespace"`
+	ScanName    string    `json:"scan_name"`
+	RuleKey     string    `json:"rule_key"`
+	Fingerprint string    `json:"fingerprint"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type SecurityResearchCoverage struct {
+	ID             uuid.UUID       `json:"id"`
+	RevisionID     uuid.UUID       `json:"revision_id"`
+	HypothesisID   pgtype.UUID     `json:"hypothesis_id"`
+	Dimension      string          `json:"dimension"`
+	SubjectKey     string          `json:"subject_key"`
+	Verdict        string          `json:"verdict"`
+	Bounds         json.RawMessage `json:"bounds"`
+	Evidence       json.RawMessage `json:"evidence"`
+	Actor          string          `json:"actor"`
+	IdempotencyKey string          `json:"idempotency_key"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+type SecurityResearchDecisionSnapshot struct {
+	ID             uuid.UUID       `json:"id"`
+	RevisionID     uuid.UUID       `json:"revision_id"`
+	SubmissionID   pgtype.UUID     `json:"submission_id"`
+	Workflow       string          `json:"workflow"`
+	CandidateKey   string          `json:"candidate_key"`
+	Decision       string          `json:"decision"`
+	Reason         string          `json:"reason"`
+	Rank           int32           `json:"rank"`
+	Inputs         json.RawMessage `json:"inputs"`
+	IdempotencyKey string          `json:"idempotency_key"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+type SecurityResearchDossier struct {
+	ID             uuid.UUID       `json:"id"`
+	RevisionID     uuid.UUID       `json:"revision_id"`
+	Version        int32           `json:"version"`
+	ParentID       pgtype.UUID     `json:"parent_id"`
+	Content        json.RawMessage `json:"content"`
+	ChangeSummary  string          `json:"change_summary"`
+	Actor          string          `json:"actor"`
+	IdempotencyKey string          `json:"idempotency_key"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+type SecurityResearchHypothesis struct {
+	ID             uuid.UUID       `json:"id"`
+	RevisionID     uuid.UUID       `json:"revision_id"`
+	HypothesisKey  string          `json:"hypothesis_key"`
+	Title          string          `json:"title"`
+	Invariant      string          `json:"invariant"`
+	Status         string          `json:"status"`
+	Result         string          `json:"result"`
+	Detail         json.RawMessage `json:"detail"`
+	Version        int32           `json:"version"`
+	IdempotencyKey string          `json:"idempotency_key"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+}
+
+type SecurityResearchHypothesisEvent struct {
+	ID                int64           `json:"id"`
+	HypothesisID      uuid.UUID       `json:"hypothesis_id"`
+	EventType         string          `json:"event_type"`
+	FromStatus        string          `json:"from_status"`
+	ToStatus          string          `json:"to_status"`
+	Result            string          `json:"result"`
+	Actor             string          `json:"actor"`
+	Rationale         string          `json:"rationale"`
+	Detail            json.RawMessage `json:"detail"`
+	HypothesisVersion int32           `json:"hypothesis_version"`
+	IdempotencyKey    string          `json:"idempotency_key"`
+	CreatedAt         time.Time       `json:"created_at"`
+}
+
+type SecurityResearchHypothesisLineage struct {
+	ChildID   uuid.UUID `json:"child_id"`
+	ParentID  uuid.UUID `json:"parent_id"`
+	Relation  string    `json:"relation"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type SecurityResearchRevision struct {
+	ID        uuid.UUID       `json:"id"`
+	TargetID  uuid.UUID       `json:"target_id"`
+	Revision  string          `json:"revision"`
+	SourceUri string          `json:"source_uri"`
+	Metadata  json.RawMessage `json:"metadata"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+type SecurityResearchSubmission struct {
+	ID           uuid.UUID          `json:"id"`
+	RevisionID   uuid.UUID          `json:"revision_id"`
+	TargetID     uuid.UUID          `json:"target_id"`
+	FindingID    pgtype.UUID        `json:"finding_id"`
+	Workflow     string             `json:"workflow"`
+	CandidateKey string             `json:"candidate_key"`
+	Rank         int32              `json:"rank"`
+	Payload      json.RawMessage    `json:"payload"`
+	Status       string             `json:"status"`
+	CreatedAt    time.Time          `json:"created_at"`
+	SubmittedAt  pgtype.Timestamptz `json:"submitted_at"`
+}
+
+type SecurityResearchSubmissionOutcome struct {
+	SubmissionID      uuid.UUID `json:"submission_id"`
+	EventID           int64     `json:"event_id"`
+	Outcome           string    `json:"outcome"`
+	ExternalReference string    `json:"external_reference"`
+	RecordedAt        time.Time `json:"recorded_at"`
+}
+
+type SecurityResearchSubmissionOutcomeEvent struct {
+	ID                int64       `json:"id"`
+	SubmissionID      uuid.UUID   `json:"submission_id"`
+	Outcome           string      `json:"outcome"`
+	ExternalReference string      `json:"external_reference"`
+	Rationale         string      `json:"rationale"`
+	Actor             string      `json:"actor"`
+	CorrectionOf      pgtype.Int8 `json:"correction_of"`
+	IdempotencyKey    string      `json:"idempotency_key"`
+	CreatedAt         time.Time   `json:"created_at"`
+}
+
+type SecurityResearchSubmissionReservation struct {
+	ID             uuid.UUID          `json:"id"`
+	SubmissionID   uuid.UUID          `json:"submission_id"`
+	TargetID       uuid.UUID          `json:"target_id"`
+	Workflow       string             `json:"workflow"`
+	PeriodDays     int32              `json:"period_days"`
+	BudgetLimit    int32              `json:"budget_limit"`
+	IdempotencyKey string             `json:"idempotency_key"`
+	ReservedAt     time.Time          `json:"reserved_at"`
+	ExpiresAt      time.Time          `json:"expires_at"`
+	VoidedAt       pgtype.Timestamptz `json:"voided_at"`
+}
+
+type SecurityResearchTarget struct {
+	ID        uuid.UUID       `json:"id"`
+	Namespace string          `json:"namespace"`
+	TargetKey string          `json:"target_key"`
+	Kind      string          `json:"kind"`
+	Locator   string          `json:"locator"`
+	Metadata  json.RawMessage `json:"metadata"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+type SecurityResearchVariantSweep struct {
+	ID               uuid.UUID          `json:"id"`
+	RevisionID       uuid.UUID          `json:"revision_id"`
+	FindingID        pgtype.UUID        `json:"finding_id"`
+	RootHypothesisID pgtype.UUID        `json:"root_hypothesis_id"`
+	RootCause        string             `json:"root_cause"`
+	Scope            json.RawMessage    `json:"scope"`
+	Status           string             `json:"status"`
+	Result           json.RawMessage    `json:"result"`
+	IdempotencyKey   string             `json:"idempotency_key"`
+	CreatedAt        time.Time          `json:"created_at"`
+	CompletedAt      pgtype.Timestamptz `json:"completed_at"`
+}
+
+type SecurityResearchVariantSweepEvent struct {
+	ID             int64           `json:"id"`
+	SweepID        uuid.UUID       `json:"sweep_id"`
+	EventType      string          `json:"event_type"`
+	Actor          string          `json:"actor"`
+	Detail         json.RawMessage `json:"detail"`
+	IdempotencyKey string          `json:"idempotency_key"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
+type SecuritySavedFilter struct {
+	ID        uuid.UUID       `json:"id"`
+	Namespace string          `json:"namespace"`
+	Owner     string          `json:"owner"`
+	Name      string          `json:"name"`
+	Query     json.RawMessage `json:"query"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+type SecurityScan struct {
+	ID          uuid.UUID          `json:"id"`
+	Namespace   string             `json:"namespace"`
+	ScanName    string             `json:"scan_name"`
+	RunName     string             `json:"run_name"`
+	SessionID   pgtype.UUID        `json:"session_id"`
+	Repository  string             `json:"repository"`
+	Revision    string             `json:"revision"`
+	Status      string             `json:"status"`
+	Summary     string             `json:"summary"`
+	StartedAt   pgtype.Timestamptz `json:"started_at"`
+	CompletedAt pgtype.Timestamptz `json:"completed_at"`
+	Counts      json.RawMessage    `json:"counts"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
 }
 
 type SessionInterrupt struct {
