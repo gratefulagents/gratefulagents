@@ -899,3 +899,55 @@ func TestRecoverExpiredHeldInputResponsesKeepsNewerRequest(t *testing.T) {
 		t.Fatalf("recovery clobbered the newer request: %#v", after)
 	}
 }
+
+func TestSessionEventListenerWakesOnMessageAndInterrupt(t *testing.T) {
+	s := setupTestStore(t)
+	defer s.Close()
+	ctx := context.Background()
+	source, ok := s.(store.SessionEventSource)
+	if !ok {
+		t.Fatal("Postgres store does not implement SessionEventSource")
+	}
+	sess, err := s.CreateSession(ctx, "notify-run", "default", "running", "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := source.ListenSession(ctx, sess.ID)
+	if err != nil {
+		t.Fatalf("ListenSession: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_, _ = s.AppendMessage(ctx, sess.ID, "user", "wake", nil)
+	}()
+	if notified, err := listener.Wait(ctx, 5*time.Second); err != nil || !notified {
+		t.Fatalf("Wait(after user append) = (%v, %v), want notified", notified, err)
+	}
+
+	// Quiet periods time out without error.
+	if notified, err := listener.Wait(ctx, 200*time.Millisecond); err != nil || notified {
+		t.Fatalf("Wait(quiet) = (%v, %v), want timeout", notified, err)
+	}
+
+	// Assistant appends do not wake the agent loop.
+	if _, err := s.AppendMessage(ctx, sess.ID, "assistant", "reply", nil); err != nil {
+		t.Fatal(err)
+	}
+	if notified, err := listener.Wait(ctx, 200*time.Millisecond); err != nil || notified {
+		t.Fatalf("Wait(after assistant append) = (%v, %v), want timeout", notified, err)
+	}
+
+	interrupts, ok := s.(store.InterruptStore)
+	if !ok {
+		t.Fatal("Postgres store does not implement InterruptStore")
+	}
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_, _, _ = interrupts.AppendInterrupt(ctx, sess.ID, "user")
+	}()
+	if notified, err := listener.Wait(ctx, 5*time.Second); err != nil || !notified {
+		t.Fatalf("Wait(after interrupt) = (%v, %v), want notified", notified, err)
+	}
+}

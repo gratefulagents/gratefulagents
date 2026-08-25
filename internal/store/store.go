@@ -221,6 +221,23 @@ type HeldInputRecoverer interface {
 	RecoverExpiredHeldInputResponses(ctx context.Context, sessionID uuid.UUID, olderThan time.Duration) (recovered int, err error)
 }
 
+// SessionEventListener wakes a waiter the moment a session gains an
+// agent-relevant event (new user message, released hold, interrupt), replacing
+// poll latency. Wait returns notified=false on timeout; any error means the
+// listener is broken and must be Closed and re-established. Listeners are a
+// latency fast path only — polling remains the correctness backstop.
+type SessionEventListener interface {
+	Wait(ctx context.Context, timeout time.Duration) (notified bool, err error)
+	Close()
+}
+
+// SessionEventSource is implemented by stores that can push session wakeups
+// (Postgres LISTEN/NOTIFY). The subscription is active before ListenSession
+// returns, so listen-then-query cannot miss an event.
+type SessionEventSource interface {
+	ListenSession(ctx context.Context, sessionID uuid.UUID) (SessionEventListener, error)
+}
+
 // DurableAssistantCommitter idempotently commits one assistant response per
 // stable SDK run/pass key, including autonomous passes with no remaining claim.
 type DurableAssistantCommitter interface {

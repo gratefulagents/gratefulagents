@@ -39,24 +39,27 @@ func startTurnInterruptWatcher(ctx context.Context, sc *sessionclient.Client, ca
 		ticker := time.NewTicker(turnInterruptPollInterval)
 		defer ticker.Stop()
 		for {
+			// Subscribe before the consume check so a stop landing in between
+			// still wakes the next iteration instantly. With a push-capable
+			// store (Postgres LISTEN/NOTIFY) interrupts cancel the turn within
+			// milliseconds; the 1s ticker remains the correctness backstop.
+			wake := sc.SubscribeSessionEvents()
+			req, err := sc.ConsumeInterrupt(ctx)
+			if err != nil {
+				log.Printf("WARN: interrupt watcher poll failed: %v", err)
+			} else if req != nil {
+				log.Printf("Interrupt requested by %q — cancelling in-flight turn", req.RequestedBy)
+				w.interrupted.Store(true)
+				cancelTurn()
+				return
+			}
 			select {
 			case <-ctx.Done():
 				return
 			case <-w.stop:
 				return
 			case <-ticker.C:
-				req, err := sc.ConsumeInterrupt(ctx)
-				if err != nil {
-					log.Printf("WARN: interrupt watcher poll failed: %v", err)
-					continue
-				}
-				if req == nil {
-					continue
-				}
-				log.Printf("Interrupt requested by %q — cancelling in-flight turn", req.RequestedBy)
-				w.interrupted.Store(true)
-				cancelTurn()
-				return
+			case <-wake: // nil channel blocks forever: pure polling
 			}
 		}
 	}()

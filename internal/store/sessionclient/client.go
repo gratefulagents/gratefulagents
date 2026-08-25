@@ -11,6 +11,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,6 +35,89 @@ type Client struct {
 
 	heldRecoveryMu   sync.Mutex
 	lastHeldRecovery time.Time
+
+	eventMu        sync.Mutex
+	eventChan      chan struct{}
+	eventPumpOn    bool
+	eventListening atomic.Bool
+}
+
+const (
+	// notifiedPollFallback is the safety re-poll interval while push wakeups
+	// (LISTEN/NOTIFY) are established. LISTEN dies silently on connection loss
+	// and does not survive transaction-mode poolers, so polling remains the
+	// correctness backstop.
+	notifiedPollFallback = 30 * time.Second
+	// listenerRetryBackoff paces re-establishing a failed LISTEN connection.
+	listenerRetryBackoff = 5 * time.Second
+)
+
+// SubscribeSessionEvents returns a channel that is closed on the next pushed
+// session event (new user message, released hold, interrupt), or nil when the
+// store cannot push. Callers must grab the channel BEFORE querying the
+// database — listen-then-query cannot miss a wakeup. A nil channel blocks
+// forever in select, which degrades cleanly to pure polling.
+func (c *Client) SubscribeSessionEvents() <-chan struct{} {
+	if _, ok := c.store.(store.SessionEventSource); !ok {
+		return nil
+	}
+	c.eventMu.Lock()
+	defer c.eventMu.Unlock()
+	if c.eventChan == nil {
+		c.eventChan = make(chan struct{})
+	}
+	if !c.eventPumpOn {
+		c.eventPumpOn = true
+		go c.pumpSessionEvents()
+	}
+	return c.eventChan
+}
+
+// EventWakeupsActive reports whether the push channel is currently
+// established; pollers may relax their poll interval only while it is.
+func (c *Client) EventWakeupsActive() bool { return c.eventListening.Load() }
+
+func (c *Client) broadcastSessionEvent() {
+	c.eventMu.Lock()
+	defer c.eventMu.Unlock()
+	if c.eventChan != nil {
+		close(c.eventChan)
+	}
+	c.eventChan = make(chan struct{})
+}
+
+// pumpSessionEvents owns the single dedicated LISTEN connection for this
+// process and fans notifications out to every waiter (message loop and
+// interrupt watcher). It runs for the process lifetime: the agent pod hosts
+// exactly one session, and the pod's exit tears the connection down.
+func (c *Client) pumpSessionEvents() {
+	source := c.store.(store.SessionEventSource)
+	ctx := context.Background()
+	for {
+		listener, err := source.ListenSession(ctx, c.sessionID)
+		if err != nil {
+			log.Printf("WARN: session event listener unavailable, polling only: %v", err)
+			time.Sleep(listenerRetryBackoff)
+			continue
+		}
+		c.eventListening.Store(true)
+		// Wake current waiters once: an event may have fired between their
+		// last query and this LISTEN becoming active.
+		c.broadcastSessionEvent()
+		for {
+			notified, err := listener.Wait(ctx, time.Minute)
+			if err != nil {
+				log.Printf("WARN: session event listener failed, re-establishing: %v", err)
+				c.eventListening.Store(false)
+				listener.Close()
+				break
+			}
+			if notified {
+				c.broadcastSessionEvent()
+			}
+		}
+		time.Sleep(listenerRetryBackoff)
+	}
 }
 
 // heldRecoveryInterval throttles the expired-hold sweep that runs alongside
@@ -329,38 +413,42 @@ func (c *Client) ResumeState(ctx context.Context) (session *store.Session, messa
 }
 
 // PollForUserMessages blocks until any new user messages appear after afterID.
-// Returned messages are ordered by message ID.
+// Returned messages are ordered by message ID. With a push-capable store
+// (Postgres LISTEN/NOTIFY) new messages wake the loop within milliseconds and
+// pollInterval relaxes to a slow safety backstop; otherwise it polls at
+// pollInterval exactly as before.
 func (c *Client) PollForUserMessages(ctx context.Context, afterID int64, pollInterval time.Duration) ([]UserMessage, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-	c.maybeRecoverExpiredHolds(ctx)
-	msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID, afterID)
-	if err != nil {
-		log.Printf("WARN: polling for user messages: %v", err)
-	} else if len(msgs) > 0 {
-		return wrapUserMessages(msgs), nil
-	}
-
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-ticker.C:
+		default:
 		}
-
 		c.maybeRecoverExpiredHolds(ctx)
+		// Subscribe before querying so an event landing between the query and
+		// the wait still wakes us.
+		wake := c.SubscribeSessionEvents()
 		msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID, afterID)
 		if err != nil {
 			log.Printf("WARN: polling for user messages: %v", err)
-			continue
-		}
-		if len(msgs) > 0 {
+		} else if len(msgs) > 0 {
 			return wrapUserMessages(msgs), nil
+		}
+
+		// Relax the poll interval only while the LISTEN connection is actually
+		// established; during outages the legacy interval bounds the latency.
+		interval := pollInterval
+		if wake != nil && c.EventWakeupsActive() {
+			interval = notifiedPollFallback
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		case <-wake: // nil channel blocks forever: pure polling
+			timer.Stop()
 		}
 	}
 }

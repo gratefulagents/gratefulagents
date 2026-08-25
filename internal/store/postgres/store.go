@@ -327,6 +327,7 @@ func (s *Store) ReleasePendingInputResponse(ctx context.Context, sessionID uuid.
 	if result.RowsAffected() != 1 {
 		return fmt.Errorf("reserved pending input response not found")
 	}
+	notifySessionEvent(ctx, s.pool, sessionID, "message")
 	return nil
 }
 
@@ -457,6 +458,7 @@ func (s *Store) AnswerPendingInput(ctx context.Context, sessionID uuid.UUID, ans
 	if result.RowsAffected() != 1 {
 		return nil, false, fmt.Errorf("pending input request changed while locked")
 	}
+	notifySessionEvent(ctx, tx, sessionID, "message")
 	if err := tx.Commit(ctx); err != nil {
 		return nil, false, fmt.Errorf("committing pending input answer: %w", err)
 	}
@@ -488,6 +490,7 @@ func (s *Store) AppendUserMessageIfActive(ctx context.Context, sessionID uuid.UU
 		}
 		return nil, fmt.Errorf("appending user message to active session: %w", err)
 	}
+	notifySessionEvent(ctx, s.pool, sessionID, "message")
 	return messageFromRow(inserted), nil
 }
 
@@ -593,6 +596,7 @@ func (s *Store) RecoverExpiredHeldInputResponses(ctx context.Context, sessionID 
 		}
 	}
 
+	notifySessionEvent(ctx, tx, sessionID, "message")
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("committing held input recovery: %w", err)
 	}
@@ -633,6 +637,7 @@ func (s *Store) AppendInterrupt(ctx context.Context, sessionID uuid.UUID, reques
 	if err != nil {
 		return 0, time.Time{}, fmt.Errorf("appending interrupt: %w", err)
 	}
+	notifySessionEvent(ctx, s.pool, sessionID, "interrupt")
 	return id, requestedAt, nil
 }
 
@@ -734,6 +739,7 @@ func (s *Store) ReserveWakeIntent(ctx context.Context, sessionID uuid.UUID, idem
 	if err != nil {
 		return nil, 0, false, fmt.Errorf("recording wake intent: %w", err)
 	}
+	notifySessionEvent(ctx, tx, sessionID, "message")
 	if err := tx.Commit(ctx); err != nil {
 		return nil, 0, false, fmt.Errorf("committing wake intent: %w", err)
 	}
@@ -920,6 +926,9 @@ func (s *Store) AppendMessage(ctx context.Context, sessionID uuid.UUID, role, co
 			return nil, store.ErrMessageAlreadyExists
 		}
 		return nil, fmt.Errorf("appending message: %w", err)
+	}
+	if role == "user" {
+		notifySessionEvent(ctx, s.pool, sessionID, "message")
 	}
 	return messageFromRow(row), nil
 }
