@@ -498,6 +498,42 @@ func TestSecurityScanDeterministicExecutionRetriesRetryableFailuresUntilBudgetIs
 	}
 }
 
+func TestSecurityScanRecoversRetryWaiterWhenRunLaterSucceeds(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	one := int32(1)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect", MaxRetries: &one}}, 1)
+	scan.Spec.Execution.RetryBackoff = metav1.Duration{Duration: time.Minute}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	run := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
+	// The AgentRun controller transiently failed the run on a
+	// read-after-create sandbox race; the worker keeps executing.
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhaseFailed, "", `SandboxTemplate "secscan-template" not found`)
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	entry := executionTask(t, getSecurityScan(t, k8sClient, scan).Status.LastExecution, "a", 0)
+	if entry.State != triggersv1alpha1.SecurityScanTaskStatePending || entry.NextRetryTime == nil {
+		t.Fatalf("task after transient sandbox failure = %#v, want retry-waiting", entry)
+	}
+
+	// The worker later publishes the run's authoritative Succeeded state
+	// while the task is still waiting out its retry backoff.
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	entry = executionTask(t, exec, "a", 0)
+	if entry.State != triggersv1alpha1.SecurityScanTaskStateSucceeded || entry.NextRetryTime != nil || entry.LastError != "" {
+		t.Fatalf("task after run recovery = %#v, want Succeeded with no pending retry", entry)
+	}
+	if runs := securityScanRuns(t, k8sClient, scan.Namespace); len(runs) != 1 {
+		t.Fatalf("task runs = %d, want the recovered run only (no duplicate retry dispatch)", len(runs))
+	}
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseSucceeded {
+		t.Fatalf("execution phase = %q, want Succeeded", exec.Phase)
+	}
+}
+
 func TestSecurityScanPausedTaskDoesNotRemainRunning(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	noRetries := int32(0)
@@ -571,9 +607,17 @@ func TestClassifySecurityScanTaskFailureClassifiesTransientAndPermanentReasons(t
 		{reason: "request timed out", want: triggersv1alpha1.SecurityScanTaskFailureRetryable},
 		{reason: "rate limit 429", want: triggersv1alpha1.SecurityScanTaskFailureRetryable},
 		{reason: "service unavailable", want: triggersv1alpha1.SecurityScanTaskFailureRetryable},
+		// Read-after-create informer races: the platform created these objects
+		// moments before the failing read, so a NotFound is eventual
+		// consistency and must stay retryable.
+		{reason: `SandboxTemplate "secscan-a-b-c" not found`, want: triggersv1alpha1.SecurityScanTaskFailureRetryable},
+		{reason: "sandbox template default/secscan-a-b-c not found", want: triggersv1alpha1.SecurityScanTaskFailureRetryable},
+		{reason: `sandbox claim secscan-a-b-c disappeared`, want: triggersv1alpha1.SecurityScanTaskFailureRetryable},
+		{reason: `getting instructions ConfigMap secscan-a-b-c-instructions: configmaps "secscan-a-b-c-instructions" not found`, want: triggersv1alpha1.SecurityScanTaskFailureRetryable},
 		{reason: "unauthorized credential", want: triggersv1alpha1.SecurityScanTaskFailureNonRetryable},
 		{reason: "forbidden by policy", want: triggersv1alpha1.SecurityScanTaskFailureNonRetryable},
 		{reason: "invalid output", want: triggersv1alpha1.SecurityScanTaskFailureNonRetryable},
+		{reason: `task "a": effective role "auditor" not found: no RoleInstruction of that name exists`, want: triggersv1alpha1.SecurityScanTaskFailureNonRetryable},
 	}
 	for _, tc := range cases {
 		t.Run(tc.reason, func(t *testing.T) {

@@ -833,6 +833,77 @@ func TestClaimReadyFailureKeepsPermanentReconcilerError(t *testing.T) {
 	}
 }
 
+func TestClaimTemplateNotFoundIsTransient(t *testing.T) {
+	t.Parallel()
+
+	newClaim := func(age time.Duration) *agentsandboxextensionsv1alpha1.SandboxClaim {
+		return &agentsandboxextensionsv1alpha1.SandboxClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "run-claim",
+				Namespace:         "default",
+				CreationTimestamp: metav1.NewTime(time.Now().Add(-age)),
+			},
+			Spec: agentsandboxextensionsv1alpha1.SandboxClaimSpec{
+				TemplateRef: agentsandboxextensionsv1alpha1.SandboxTemplateRef{Name: "run-template"},
+			},
+			Status: agentsandboxextensionsv1alpha1.SandboxClaimStatus{
+				Conditions: []metav1.Condition{{
+					Type:    string(agentsandboxv1alpha1.SandboxConditionReady),
+					Status:  metav1.ConditionFalse,
+					Reason:  "TemplateNotFound",
+					Message: "SandboxTemplate \"run-template\" not found",
+				}},
+			},
+		}
+	}
+	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "run-template", Namespace: "default"},
+	}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "run", Namespace: "default"}}
+
+	cases := []struct {
+		name     string
+		claim    *agentsandboxextensionsv1alpha1.SandboxClaim
+		template *agentsandboxextensionsv1alpha1.SandboxTemplate
+		want     bool
+	}{
+		{name: "template exists so the claim controller cache is stale", claim: newClaim(10 * time.Minute), template: template, want: true},
+		{name: "template invisible but claim within the creation grace window", claim: newClaim(time.Second), want: true},
+		{name: "template truly missing past the grace window", claim: newClaim(10 * time.Minute), want: false},
+		{
+			name: "other ready failure reasons stay terminal",
+			claim: func() *agentsandboxextensionsv1alpha1.SandboxClaim {
+				claim := newClaim(time.Second)
+				claim.Status.Conditions[0].Reason = "InvalidMetadata"
+				return claim
+			}(),
+			template: template,
+			want:     false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			addAgentSandboxSchemes(t, scheme)
+			builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.claim)
+			if tc.template != nil {
+				builder = builder.WithObjects(tc.template)
+			}
+			r := &AgentRunReconciler{Client: builder.Build()}
+			got, err := r.claimTemplateNotFoundIsTransient(context.Background(), run, tc.claim)
+			if err != nil {
+				t.Fatalf("claimTemplateNotFoundIsTransient() error = %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("claimTemplateNotFoundIsTransient() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestMonitorAgentSandboxClearsLegacyClaimLifecycle(t *testing.T) {
 	t.Parallel()
 

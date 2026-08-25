@@ -11,6 +11,7 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -252,6 +253,49 @@ func TestRetainRunInstructionConfigMapTransfersOwnership(t *testing.T) {
 }
 
 func boolPtrForTest(value bool) *bool { return &value }
+
+// The instructions ConfigMap is created moments before the AgentRun, so a
+// cached read can race the informer and report NotFound although the object
+// exists on the API server. Ownership transfer must not depend on reading the
+// ConfigMap back through the (possibly stale) cache.
+func TestRetainRunInstructionConfigMapDoesNotReadThroughStaleCache(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	instructions := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "run-instructions", Namespace: "default"}, Data: map[string]string{"instructions.md": "keep me"}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(instructions).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*corev1.ConfigMap); ok {
+					return apierrors.NewNotFound(corev1.Resource("configmaps"), key.Name)
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "run", Namespace: "default", UID: "run-uid", Annotations: map[string]string{"platform.gratefulagents.dev/instructions-configmap-ref": instructions.Name}}}
+	if err := retainRunInstructionConfigMap(context.Background(), c, scheme, run); err != nil {
+		t.Fatalf("retainRunInstructionConfigMap() error = %v, want ownership transferred without a cache read", err)
+	}
+	list := &corev1.ConfigMapList{}
+	if err := c.List(context.Background(), list, client.InNamespace("default")); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("ConfigMaps = %d, want 1", len(list.Items))
+	}
+	updated := &list.Items[0]
+	controller := metav1.GetControllerOf(updated)
+	if controller == nil || controller.Kind != "AgentRun" || controller.Name != run.Name {
+		t.Fatalf("controller = %#v", controller)
+	}
+	if updated.Data["instructions.md"] != "keep me" {
+		t.Fatalf("ConfigMap data = %#v, want instructions preserved by the ownership patch", updated.Data)
+	}
+}
 
 func generatedProjectRuntimeMetadata(projectName, projectUID, triggerName, triggerType string) map[string]string {
 	return map[string]string{

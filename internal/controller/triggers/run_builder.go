@@ -13,6 +13,7 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -274,15 +275,18 @@ func retainRunInstructionConfigMap(ctx context.Context, c client.Client, scheme 
 	if name == "" {
 		return nil
 	}
-	configMap := &corev1.ConfigMap{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: name}, configMap); err != nil {
-		return fmt.Errorf("getting instructions ConfigMap %s: %w", name, err)
-	}
-	configMap.OwnerReferences = nil
+	// The ConfigMap was created by the trigger moments before this call, so a
+	// cached read here can race the informer and report NotFound even though
+	// the object exists. Patch the owner reference blindly instead of
+	// read-modify-write: the merge patch replaces metadata.ownerReferences
+	// wholesale on the API server, which is exactly the intended transfer of
+	// ownership to the run, without depending on cache freshness.
+	configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: run.Namespace, Name: name}}
+	base := configMap.DeepCopy()
 	if err := ctrl.SetControllerReference(run, configMap, scheme); err != nil {
 		return fmt.Errorf("setting AgentRun owner on instructions ConfigMap: %w", err)
 	}
-	if err := c.Update(ctx, configMap); err != nil {
+	if err := c.Patch(ctx, configMap, client.MergeFrom(base)); err != nil {
 		return fmt.Errorf("retaining instructions ConfigMap for AgentRun: %w", err)
 	}
 	return nil
