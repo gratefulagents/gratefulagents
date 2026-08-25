@@ -126,15 +126,51 @@ func (r *AgentRunOverseerReconciler) detachOverseer(ctx context.Context, primary
 			return ctrl.Result{}, fmt.Errorf("detaching overseer: AgentRun %s/%s is not controlled by the supervised run", key.Namespace, key.Name)
 		}
 
-		if strings.TrimSpace(primary.Annotations[platformv1alpha1.OverseerDetachingAnnotation]) == "" {
+		now := r.now()
+		detachingSince := now
+		if raw := strings.TrimSpace(primary.Annotations[platformv1alpha1.OverseerDetachingAnnotation]); raw == "" {
 			if err := retryAgentRunPatch(ctx, r.Client, client.ObjectKeyFromObject(primary), func(fresh *platformv1alpha1.AgentRun) {
 				if fresh.Annotations == nil {
 					fresh.Annotations = map[string]string{}
 				}
-				fresh.Annotations[platformv1alpha1.OverseerDetachingAnnotation] = "true"
+				fresh.Annotations[platformv1alpha1.OverseerDetachingAnnotation] = now.UTC().Format(time.RFC3339)
 			}); err != nil {
 				return ctrl.Result{}, err
 			}
+		} else if parsed, parseErr := time.Parse(time.RFC3339, raw); parseErr == nil {
+			detachingSince = parsed
+		} else {
+			// Legacy "true" marker: rewrite it as a timestamp so the detach
+			// deadline is measured from now instead of never.
+			if err := retryAgentRunPatch(ctx, r.Client, client.ObjectKeyFromObject(primary), func(fresh *platformv1alpha1.AgentRun) {
+				if fresh.Annotations == nil {
+					fresh.Annotations = map[string]string{}
+				}
+				fresh.Annotations[platformv1alpha1.OverseerDetachingAnnotation] = now.UTC().Format(time.RFC3339)
+			}); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		// Bounded detach: past the deadline, surface the stuck teardown as
+		// degraded instead of silently spinning every two seconds forever.
+		// The standing run's own drain escalation keeps working underneath;
+		// this state clears as soon as the run object finally disappears.
+		if r.now().Sub(detachingSince) > overseerDetachDeadline {
+			if primary.Status.OverseerSummary == nil || primary.Status.OverseerSummary.RunName != key.Name || primary.Status.OverseerSummary.State != overseerStateDegraded {
+				if err := r.updateOverseerSummary(ctx, primary, func(summary *platformv1alpha1.AgentRunOverseerStatus) {
+					summary.RunName = key.Name
+					summary.State = overseerStateDegraded
+					summary.LastSummary = fmt.Sprintf("Standing overseer run has been stuck terminating for more than %s; its compute drain keeps escalating in the background.", overseerDetachDeadline)
+				}); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+			if standing.DeletionTimestamp.IsZero() {
+				if err := r.Delete(ctx, standing); err != nil && !apierrors.IsNotFound(err) {
+					return ctrl.Result{}, fmt.Errorf("deleting detached overseer run: %w", err)
+				}
+			}
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 		if primary.Status.OverseerSummary == nil || primary.Status.OverseerSummary.RunName != key.Name || primary.Status.OverseerSummary.State != overseerStateDetaching {
 			if err := r.updateOverseerSummary(ctx, primary, func(summary *platformv1alpha1.AgentRunOverseerStatus) {

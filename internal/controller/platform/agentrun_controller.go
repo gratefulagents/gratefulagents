@@ -171,7 +171,7 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if isTerminalPhase(run.Status.Phase) {
-		return ctrl.Result{}, nil
+		return r.reconcileTerminalRun(ctx, run)
 	}
 
 	// Resume a paused run when its limits allow it again: the timeout has
@@ -460,6 +460,18 @@ func (r *AgentRunReconciler) monitorPodName(ctx context.Context, run *platformv1
 
 	switch pod.Status.Phase {
 	case corev1.PodPending:
+		// Classify startup failures instead of letting them look like normal
+		// provisioning until the run's multi-hour runtime cap: permanent
+		// config errors fail fast (after a short grace for create-order
+		// races), everything else — image pull backoff, unschedulable — fails
+		// with a diagnosis once the startup deadline passes.
+		podAge := time.Since(pod.CreationTimestamp.Time)
+		if reason, fatal := fatalPodStartupReason(pod); fatal && podAge > podVisibilityGrace {
+			return ctrl.Result{}, r.markRunFailed(ctx, run, fmt.Errorf("runner pod %s cannot start: %s", podName, reason))
+		}
+		if deadline := podStartupDeadline(); podAge > deadline {
+			return ctrl.Result{}, r.markRunFailed(ctx, run, fmt.Errorf("runner pod %s failed to start within %s: %s", podName, deadline, classifyPodFailure(pod)))
+		}
 		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	case corev1.PodRunning:
 		if run.Status.Phase == platformv1alpha1.AgentRunPhaseBlocked || run.Status.Phase == platformv1alpha1.AgentRunPhaseWaitingApproval || run.Status.Phase == platformv1alpha1.AgentRunPhaseQuestion {
@@ -479,7 +491,7 @@ func (r *AgentRunReconciler) monitorPodName(ctx context.Context, run *platformv1
 		}
 		return ctrl.Result{}, nil
 	case corev1.PodFailed:
-		return ctrl.Result{}, r.markRunFailed(ctx, run, fmt.Errorf("runner pod %s failed", podName))
+		return ctrl.Result{}, r.markRunFailed(ctx, run, fmt.Errorf("runner pod %s failed: %s", podName, classifyPodFailure(pod)))
 	default:
 		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
@@ -551,6 +563,34 @@ func (r *AgentRunReconciler) markRunPaused(ctx context.Context, run *platformv1a
 			AdmittedAt:    queueAdmittedAt(&fresh.Status),
 		}
 	})
+}
+
+// reconcileTerminalRun drains a completed run's sandbox compute after a TTL.
+// Runs that end through pod completion (patchSucceeded/markRunFailed) keep
+// their SandboxClaim, managed template, and pod object; without this sweep
+// they accumulate as zombie workers forever. The TTL keeps pod logs around
+// briefly for post-mortems; a cleared status.Sandbox marks the drain done so
+// terminal runs stop paying the discovery lists on every reconcile.
+func (r *AgentRunReconciler) reconcileTerminalRun(ctx context.Context, run *platformv1alpha1.AgentRun) (ctrl.Result, error) {
+	if run.Status.Sandbox == nil {
+		return ctrl.Result{}, nil
+	}
+	if run.Status.CompletedAt != nil {
+		if remaining := terminalSandboxTTL() - time.Since(run.Status.CompletedAt.Time); remaining > 0 {
+			return ctrl.Result{RequeueAfter: remaining}, nil
+		}
+	}
+	drained, err := r.releaseRunSandbox(ctx, run)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !drained {
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+	if err := clearRunSandboxStatus(ctx, r.Client, run); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
 }
 
 func retryAgentRunStatusPatch(ctx context.Context, c client.Client, key client.ObjectKey, mutate func(*platformv1alpha1.AgentRun)) error {
@@ -1088,6 +1128,7 @@ func (r *AgentRunReconciler) releaseRunSandbox(ctx context.Context, run *platfor
 		return false, fmt.Errorf("listing owned runner pods during drain: %w", err)
 	}
 	if len(ownedPods.Items) > 0 {
+		now := time.Now()
 		for i := range ownedPods.Items {
 			pod := &ownedPods.Items[i]
 			if pod.DeletionTimestamp.IsZero() {
@@ -1095,14 +1136,43 @@ func (r *AgentRunReconciler) releaseRunSandbox(ctx context.Context, run *platfor
 				if err := r.Delete(ctx, pod, preconditions); err != nil && !apierrors.IsNotFound(err) {
 					return false, fmt.Errorf("deleting runner pod %s/%s: %w", run.Namespace, pod.Name, err)
 				}
+				continue
+			}
+			// Bounded escalation: a pod stuck Terminating past its own
+			// deletion deadline (lost node, wedged kubelet) would otherwise
+			// hang cancellation, wake, restart, and AgentRun deletion
+			// forever. Force-delete removes it from the API; note the
+			// container may keep running on a partitioned node until its
+			// kubelet reconnects.
+			if podDrainEscalationDue(pod, now) {
+				preconditions := client.Preconditions{UID: &pod.UID}
+				if err := r.Delete(ctx, pod, preconditions, client.GracePeriodSeconds(0)); err != nil && !apierrors.IsNotFound(err) {
+					return false, fmt.Errorf("force-deleting stuck runner pod %s/%s: %w", run.Namespace, pod.Name, err)
+				}
 			}
 		}
 		return false, nil
 	}
 
 	if len(ownedClaims) > 0 {
+		now := time.Now()
 		remaining := false
 		for name, claim := range ownedClaims {
+			// Already terminating: don't re-issue the delete (it is pointless
+			// against the API server). Bounded escalation: a claim wedged
+			// Terminating behind a third-party finalizer belongs to its own
+			// controller — stop blocking the run's teardown on it after the
+			// give-up window instead of hanging forever.
+			if claim.DeletionTimestamp != nil && !claim.DeletionTimestamp.IsZero() {
+				deletedAt := claim.DeletionTimestamp.Time
+				if claimDrainAbandoned(&deletedAt, now) {
+					ctrl.LoggerFrom(ctx).Info("abandoning drain wait for sandbox claim stuck terminating",
+						"namespace", run.Namespace, "claim", name, "run", run.Name)
+					continue
+				}
+				remaining = true
+				continue
+			}
 			preconditions := client.Preconditions{UID: &claim.UID, ResourceVersion: &claim.ResourceVersion}
 			if err := r.Delete(ctx, claim, preconditions); err != nil && !apierrors.IsNotFound(err) {
 				return false, fmt.Errorf("deleting sandbox claim %s/%s: %w", run.Namespace, name, err)

@@ -164,7 +164,10 @@ func TestInterruptAgentRunWritesInterruptRequest(t *testing.T) {
 	}
 }
 
-func TestInterruptAgentRunRejectsRunWithoutSession(t *testing.T) {
+// TestInterruptAgentRunWithoutSessionFallsBackToAnnotation verifies the
+// dual-channel stop: when the session store cannot record the interrupt, the
+// request still succeeds through the CRD annotation fallback the runner polls.
+func TestInterruptAgentRunWithoutSessionFallsBackToAnnotation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme(platform): %v", err)
@@ -183,12 +186,23 @@ func TestInterruptAgentRunRejectsRunWithoutSession(t *testing.T) {
 	}
 	srv := &Server{k8sClient: c, scheme: scheme, stateStore: ms}
 
-	_, err := srv.InterruptAgentRun(actorContext("user-1", "", "", ""), &platform.InterruptAgentRunRequest{
+	if _, err := srv.InterruptAgentRun(actorContext("user-1", "", "", ""), &platform.InterruptAgentRunRequest{
 		Namespace: "default",
 		Name:      "run-interrupt-nosession",
-	})
-	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
-		t.Fatalf("connect.CodeOf(err) = %v, want FailedPrecondition (err=%v)", connect.CodeOf(err), err)
+	}); err != nil {
+		t.Fatalf("InterruptAgentRun() error = %v, want fallback-channel success", err)
+	}
+
+	updated := &platformv1alpha1.AgentRun{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "default", Name: "run-interrupt-nosession"}, updated); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	raw := updated.Annotations[platformv1alpha1.InterruptRequestedAnnotation]
+	if raw == "" {
+		t.Fatal("interrupt annotation not recorded on the AgentRun fallback channel")
+	}
+	if _, err := time.Parse(time.RFC3339, raw); err != nil {
+		t.Fatalf("interrupt annotation %q is not RFC3339: %v", raw, err)
 	}
 }
 

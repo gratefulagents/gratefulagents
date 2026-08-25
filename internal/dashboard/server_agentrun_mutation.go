@@ -16,6 +16,7 @@ import (
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
+	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
@@ -174,21 +175,49 @@ func (s *Server) InterruptAgentRun(ctx context.Context, req *platform.InterruptA
 	if isTerminalAgentRunPhase(run.Status.Phase) {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("cannot interrupt terminal run in phase %s", run.Status.Phase))
 	}
-	if s.stateStore == nil {
-		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("session store is not configured"))
-	}
-
-	sess, err := s.stateStore.GetSessionByRun(ctx, req.Name, req.Namespace)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("run has no active session to interrupt"))
-	}
 
 	actor := resolveActorLabel(ctx)
-	if err := sessionclient.RequestInterrupt(ctx, s.stateStore, sess.ID, actor); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("recording interrupt request: %w", err))
+
+	// Dual-channel stop: the Postgres session is the primary channel, and the
+	// CRD annotation is the fallback the runner also polls. Recording both
+	// means a session-store outage cannot make "Stop" a silent no-op, and the
+	// lingering annotation doubles as the acknowledgment signal — the runner
+	// deletes it when it claims the request, so an annotation that persists
+	// means the stop is unacked and the user can escalate to Cancel.
+	_, annotationErr := s.patchAgentRunWithRetry(ctx, req.Namespace, req.Name, func(fresh *platformv1alpha1.AgentRun) error {
+		if fresh.Annotations == nil {
+			fresh.Annotations = map[string]string{}
+		}
+		if _, exists := fresh.Annotations[platformv1alpha1.InterruptRequestedAnnotation]; !exists {
+			fresh.Annotations[platformv1alpha1.InterruptRequestedAnnotation] = time.Now().UTC().Format(time.RFC3339)
+		}
+		return nil
+	})
+	if annotationErr != nil {
+		log.Printf("WARN: failed to record interrupt annotation for %s/%s: %v", req.Namespace, req.Name, annotationErr)
 	}
-	if _, err := s.stateStore.WriteActivityEvent(ctx, sess.ID, "interrupt_requested", fmt.Sprintf("Stop requested by %s — interrupting the current turn", actor), nil); err != nil {
-		log.Printf("WARN: failed to write interrupt_requested activity for %s/%s: %v", req.Namespace, req.Name, err)
+
+	storeErr := func() error {
+		if s.stateStore == nil {
+			return fmt.Errorf("session store is not configured")
+		}
+		sess, err := s.stateStore.GetSessionByRun(ctx, req.Name, req.Namespace)
+		if err != nil {
+			return fmt.Errorf("run has no active session to interrupt")
+		}
+		if err := sessionclient.RequestInterrupt(ctx, s.stateStore, sess.ID, actor); err != nil {
+			return fmt.Errorf("recording interrupt request: %w", err)
+		}
+		if _, err := s.stateStore.WriteActivityEvent(ctx, sess.ID, "interrupt_requested", fmt.Sprintf("Stop requested by %s — interrupting the current turn", actor), nil); err != nil {
+			log.Printf("WARN: failed to write interrupt_requested activity for %s/%s: %v", req.Namespace, req.Name, err)
+		}
+		return nil
+	}()
+	if storeErr != nil {
+		if annotationErr != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("stop could not be recorded on any channel: %w", storeErr))
+		}
+		log.Printf("WARN: interrupt for %s/%s recorded only on the CRD fallback channel: %v", req.Namespace, req.Name, storeErr)
 	}
 	return &platform.InterruptAgentRunResponse{}, nil
 }
@@ -208,7 +237,15 @@ func (s *Server) RetryAgentRun(ctx context.Context, req *platform.RetryAgentRunR
 		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("only the owner or admin can retry this run"))
 	}
 	if run.Status.Phase != platformv1alpha1.AgentRunPhaseFailed && run.Status.Phase != platformv1alpha1.AgentRunPhaseCancelled {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("can only retry failed or stopped runs, got phase %s", run.Status.Phase))
+		// Circuit-break parked runs (provider outage, repeated turn failures)
+		// stay Blocked with a live pod waiting in its message loop. Retry
+		// resumes them by posting the retry message to the session — the same
+		// path a chat message takes — instead of bouncing healthy compute
+		// through the wake machinery.
+		if handled, resp, retryErr := s.retryCircuitBreakRun(ctx, req, run); handled {
+			return resp, retryErr
+		}
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("can only retry failed, stopped, or circuit-break blocked runs, got phase %s", run.Status.Phase))
 	}
 
 	message := strings.TrimSpace(req.GetMessage())
@@ -252,6 +289,48 @@ func (s *Server) RetryAgentRun(ctx context.Context, req *platform.RetryAgentRunR
 		return nil, mapK8sError("retry AgentRun", err)
 	}
 	return s.enrichAgentRunProto(ctx, k8sAgentRunToProto(updated))
+}
+
+// retryCircuitBreakRun resumes a run parked in the Blocked phase by a circuit
+// breaker (provider outage after the SDK exhausted its retries, repeated turn
+// failures). The pod is alive and waiting for a message, so the retry is
+// delivered as a session user message — exactly what typing in the chat does —
+// and the pending circuit-break input is cleared. Returns handled=false when
+// the run is not in a retryable circuit-break state.
+func (s *Server) retryCircuitBreakRun(ctx context.Context, req *platform.RetryAgentRunRequest, run *platformv1alpha1.AgentRun) (bool, *platform.AgentRun, error) {
+	if s.stateStore == nil || run.Status.Phase != platformv1alpha1.AgentRunPhaseBlocked {
+		return false, nil, nil
+	}
+	sess, err := s.stateStore.GetSessionByRun(ctx, req.Name, req.Namespace)
+	if err != nil {
+		return false, nil, nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(sess.PendingInputType), string(platformv1alpha1.UserInputCircuitBreak)) {
+		return false, nil, nil
+	}
+
+	message := strings.TrimSpace(req.GetMessage())
+	if message == "" {
+		message = "Retry requested — continue from where the run stopped."
+	}
+	metadata := userMessageMetadataForPendingRequest(platform.AgentRunMessageMode_AGENT_RUN_MESSAGE_MODE_UNSPECIFIED, sess.PendingRequestID)
+	if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", message, metadata); err != nil {
+		return true, nil, connect.NewError(connect.CodeInternal, fmt.Errorf("recording retry message: %w", err))
+	}
+	if clearer, ok := s.stateStore.(store.PendingInputClearer); ok && sess.PendingRequestID != "" {
+		if _, err := clearer.ClearPendingInputIfID(ctx, sess.ID, sess.PendingRequestID, "running"); err != nil {
+			log.Printf("WARN: clearing circuit-break input after retry (session %s): %v", sess.ID, err)
+		}
+	} else if err := s.stateStore.ClearPendingQuestion(ctx, sess.ID, "running"); err != nil {
+		log.Printf("WARN: clearing circuit-break question after retry (session %s): %v", sess.ID, err)
+	}
+
+	updated := &platformv1alpha1.AgentRun{}
+	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: req.Name}, updated); err != nil {
+		return true, nil, mapK8sError("get AgentRun", err)
+	}
+	pb, err := s.enrichAgentRunProto(ctx, k8sAgentRunToProto(updated))
+	return true, pb, err
 }
 
 // RenameAgentRun sets a human-readable display name on a run so users can

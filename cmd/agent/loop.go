@@ -730,7 +730,9 @@ messageLoop:
 		// Honor a stop that survived pod replacement when it was requested for
 		// this message. A stop older than this message is stale: the newer user
 		// input is an explicit request to resume, so consuming it must not cancel
-		// the new turn.
+		// the new turn. The CRD fallback annotation follows the same rule: a
+		// stale one is cleared here, a newer one is left for the in-turn watcher.
+		drainCRDInterruptThrough(ctx, crdClient, cfg.TaskName, cfg.Namespace, nextReply.CreatedAt.Add(-time.Nanosecond))
 		if interrupt, interruptErr := sc.DrainInterruptsThrough(ctx, nextReply.CreatedAt); interruptErr != nil {
 			log.Printf("WARN: failed to drain pending stop requests: %v", interruptErr)
 		} else if interruptAppliesToMessage(interrupt, nextReply.CreatedAt) {
@@ -1339,10 +1341,22 @@ messageLoop:
 			// Run the turn under its own cancellable context watched by the
 			// interrupt poller: a user stop request cancels the in-flight
 			// model call and running tools without touching the run context.
+			// The budget guard shares the same cancellation to enforce
+			// spec.limits.maxCostUsd mid-turn (soft stop at the next model
+			// call, hard stop past the overshoot margin).
 			turnCtx, cancelTurn := context.WithCancel(ctx)
-			interruptWatcher := startTurnInterruptWatcher(ctx, sc, cancelTurn)
+			interruptWatcher := startTurnInterruptWatcher(ctx, sc, crdClient, cfg.TaskName, cfg.Namespace, cancelTurn)
+			var budgetGuard *turnBudgetGuard
+			if capConfigured {
+				budgetGuard = startTurnBudgetGuard(ctx, costBaselineUSD, capUSD, tracker, cancelTurn)
+				runCfg.Hooks = agent.NewCompositeHooks(runCfg.Hooks, budgetGuard)
+			}
 			result, err := runner.Run(turnCtx, turnAgent, inputItems, runCfg)
 			turnInterrupted := interruptWatcher.Finish()
+			budgetInterrupted := false
+			if budgetGuard != nil {
+				budgetInterrupted = budgetGuard.Finish()
+			}
 			if subAgentRegistry != nil {
 				if checkpointErr := subAgentRegistry.FlushCheckpoint(); checkpointErr != nil {
 					subAgentRegistry.CancelAll()
@@ -1358,6 +1372,14 @@ messageLoop:
 				if req, cErr := sc.DrainInterruptsThrough(ctx, time.Now().UTC()); cErr == nil && req != nil {
 					turnInterrupted = true
 				}
+				if drainCRDInterruptThrough(ctx, crdClient, cfg.TaskName, cfg.Namespace, time.Now().UTC()) {
+					turnInterrupted = true
+				}
+			} else {
+				// The stop was claimed from the session channel; consume the
+				// CRD fallback copy of the same request so it cannot linger
+				// and cancel a later, innocent turn.
+				drainCRDInterruptThrough(ctx, crdClient, cfg.TaskName, cfg.Namespace, time.Now().UTC())
 			}
 			releaseFailedRun := func() {
 				if closeErr := closeSDKStoredRun(storedRun); closeErr != nil {
@@ -1399,6 +1421,40 @@ messageLoop:
 					_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputStopped, "Stopped by user.", nil)
 					releaseFailedRun()
 					break agentLoop
+				}
+				// Budget guard stop: the turn crossed spec.limits.maxCostUsd
+				// mid-flight. Preserve the accumulated progress (with the
+				// pending resume marker, so a replacement pod continues the
+				// turn instead of replaying it) and pause the run exactly
+				// like the pre-turn cost check: raising the cap resumes it
+				// via the controller.
+				if budgetInterrupted {
+					stoppedTasks := cancelActiveSubAgentTasks(subAgentRegistry)
+					notice := budgetGuard.notice()
+					log.Printf("Turn %d stopped by cost cap (cancelled %d sub-agent tasks)", turnNumber, stoppedTasks)
+					if preserved := transcriptAfterRun(result); len(preserved) > 0 {
+						sessionTranscript = preserved
+						persistInFlightTranscriptSnapshot(ctx, sc, sessionTranscript, transcriptFloor,
+							transcriptSeenMessageID, selfAssistantMessageID, currentUserMessageID)
+						activeWorkspaceSnapshotter.Load().SnapshotAsync("cost-cap")
+						log.Printf("Turn %d: preserved %d cost-capped conversation items", turnNumber, len(sessionTranscript))
+					}
+					releaseFailedRun()
+					if cfg.DelegatedChild {
+						return runResult{Status: "failed", Error: notice}
+					}
+					_ = sc.WriteActivity(ctx, "cost_cap", notice, nil)
+					_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak, notice, nil)
+					markPaused := func(fresh *platformv1alpha1.AgentRun) {
+						fresh.Status.Phase = platformv1alpha1.AgentRunPhasePaused
+						fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Paused", BlockedReason: notice}
+					}
+					if patchErr := patchAgentRunStatus(ctx, crdClient, cfg.TaskName, cfg.Namespace, markPaused); patchErr != nil {
+						log.Printf("WARN: failed to patch Paused status for mid-turn cost cap: %v", patchErr)
+					}
+					// Empty result: the deferred result writer leaves the
+					// Paused phase untouched and the pod exits cleanly.
+					return runResult{}
 				}
 				if errors.Is(err, context.Canceled) {
 					flushPodTerminationState(sc, result, transcriptFloor, transcriptSeenMessageID, selfAssistantMessageID, currentUserMessageID)
