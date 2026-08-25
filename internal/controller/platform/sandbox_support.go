@@ -539,6 +539,13 @@ func (r *AgentRunReconciler) monitorAgentSandbox(ctx context.Context, run *platf
 		return ctrl.Result{}, err
 	}
 	if claimErr := claimReadyFailure(claim); claimErr != nil {
+		transient, checkErr := r.claimTemplateNotFoundIsTransient(ctx, run, claim)
+		if checkErr != nil {
+			return ctrl.Result{}, checkErr
+		}
+		if transient {
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
+		}
 		return ctrl.Result{}, r.markRunFailed(ctx, run, claimErr)
 	}
 
@@ -606,6 +613,46 @@ func resolveSandboxPodName(ctx context.Context, c client.Client, namespace, sand
 		return podName, nil
 	}
 	return sandbox.Name, nil
+}
+
+// sandboxTemplateNotFoundGrace bounds how long a claim may report
+// TemplateNotFound before the AgentRun is terminally failed when the
+// referenced SandboxTemplate really cannot be read. The claim controller's
+// informer cache can lag the template Create by seconds; within this window
+// (and always while the template is visibly present) the condition is an
+// eventual-consistency artifact, not a deterministic failure.
+const sandboxTemplateNotFoundGrace = 2 * time.Minute
+
+// claimTemplateNotFoundIsTransient reports whether a claim's Ready=False
+// TemplateNotFound condition should be treated as transient. The AgentRun
+// controller creates the managed SandboxTemplate immediately before the
+// SandboxClaim, so the claim controller's first reconciles routinely read a
+// stale cache that has not observed the template yet; terminally failing the
+// run on that first-second condition freezes a Failed phase (and completedAt)
+// onto a run whose sandbox provisions moments later. The condition is
+// transient when the referenced template demonstrably exists, or while the
+// claim is younger than the grace window (covering this controller's own
+// cache lag right after creating the template).
+func (r *AgentRunReconciler) claimTemplateNotFoundIsTransient(ctx context.Context, run *platformv1alpha1.AgentRun, claim *extensionsv1alpha1.SandboxClaim) (bool, error) {
+	if run == nil || claim == nil {
+		return false, nil
+	}
+	ready := apimeta.FindStatusCondition(claim.Status.Conditions, string(sandboxv1alpha1.SandboxConditionReady))
+	if ready == nil || ready.Status != metav1.ConditionFalse || ready.Reason != "TemplateNotFound" {
+		return false, nil
+	}
+	templateName := strings.TrimSpace(claim.Spec.TemplateRef.Name)
+	if templateName != "" {
+		template := &extensionsv1alpha1.SandboxTemplate{}
+		err := r.Get(ctx, client.ObjectKey{Name: templateName, Namespace: claim.Namespace}, template)
+		if err == nil {
+			return true, nil
+		}
+		if !apierrors.IsNotFound(err) {
+			return false, fmt.Errorf("getting sandbox template %s/%s for claim readiness: %w", claim.Namespace, templateName, err)
+		}
+	}
+	return time.Since(claim.CreationTimestamp.Time) < sandboxTemplateNotFoundGrace, nil
 }
 
 func claimReadyFailure(claim *extensionsv1alpha1.SandboxClaim) error {

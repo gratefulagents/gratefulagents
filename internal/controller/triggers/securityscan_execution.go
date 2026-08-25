@@ -1132,6 +1132,7 @@ func (e *securityScanExecutionEngine) workflowDrift() string {
 
 // observe folds terminal task-run phases into the task entries.
 func (e *securityScanExecutionEngine) observe(ctx context.Context) {
+	e.recoverRetryWaiters(ctx)
 	for i := range e.exec.Tasks {
 		entry := &e.exec.Tasks[i]
 		if entry.State != triggersv1alpha1.SecurityScanTaskStateRunning {
@@ -1153,23 +1154,10 @@ func (e *securityScanExecutionEngine) observe(ctx context.Context) {
 		}
 		switch run.Status.Phase {
 		case platformv1alpha1.AgentRunPhaseSucceeded:
-			task := e.tasks[entry.Name]
-			plan := e.fanOutStatus(entry.Name)
-			if plan != nil && plan.Strategy == "chunk-v1" {
-				if _, outputErr := validateSecurityScanChunkOutput(run.Status.StructuredOutput, entry.RecordStart, entry.RecordEnd); outputErr != nil {
-					e.recordAttemptFailure(entry, run,
-						securityScanReasonOutputContractUnmet+": "+outputErr.Error(),
-						triggersv1alpha1.SecurityScanTaskFailureNonRetryable)
-					continue
-				}
-			} else if strings.TrimSpace(task.OutputSchema) != "" {
-				out := strings.TrimSpace(run.Status.StructuredOutput)
-				if out == "" || !json.Valid([]byte(out)) {
-					e.recordAttemptFailure(entry, run,
-						securityScanReasonOutputContractUnmet+": the run succeeded without submitting structured output conforming to the task's outputSchema",
-						triggersv1alpha1.SecurityScanTaskFailureNonRetryable)
-					continue
-				}
+			if reason := e.taskRunOutputUnmet(entry, run); reason != "" {
+				e.recordAttemptFailure(entry, run, reason,
+					triggersv1alpha1.SecurityScanTaskFailureNonRetryable)
+				continue
 			}
 			entry.State = triggersv1alpha1.SecurityScanTaskStateSucceeded
 			entry.LastError = ""
@@ -1180,6 +1168,57 @@ func (e *securityScanExecutionEngine) observe(ctx context.Context) {
 			reason := securityScanAgentRunFailureReason(run, "task")
 			e.recordAttemptFailure(entry, run, reason, classifySecurityScanTaskFailure(reason))
 		}
+	}
+}
+
+// taskRunOutputUnmet returns a non-empty failure reason when a Succeeded task
+// run did not satisfy the task's output contract (chunk fan-out record set or
+// structured output for a declared outputSchema).
+func (e *securityScanExecutionEngine) taskRunOutputUnmet(entry *triggersv1alpha1.SecurityScanTaskExecutionStatus, run *platformv1alpha1.AgentRun) string {
+	plan := e.fanOutStatus(entry.Name)
+	if plan != nil && plan.Strategy == "chunk-v1" {
+		if _, outputErr := validateSecurityScanChunkOutput(run.Status.StructuredOutput, entry.RecordStart, entry.RecordEnd); outputErr != nil {
+			return securityScanReasonOutputContractUnmet + ": " + outputErr.Error()
+		}
+		return ""
+	}
+	if strings.TrimSpace(e.tasks[entry.Name].OutputSchema) != "" {
+		out := strings.TrimSpace(run.Status.StructuredOutput)
+		if out == "" || !json.Valid([]byte(out)) {
+			return securityScanReasonOutputContractUnmet + ": the run succeeded without submitting structured output conforming to the task's outputSchema"
+		}
+	}
+	return ""
+}
+
+// recoverRetryWaiters re-checks the AgentRun behind each retry-waiting task
+// entry and folds a late success back into the task. The AgentRun controller
+// can transiently mark a run Failed (e.g. a sandbox read-after-create cache
+// race reported as "SandboxTemplate not found") while the worker keeps
+// running and later publishes Succeeded; the run's final state is
+// authoritative, so recovering here avoids dispatching a duplicate retry run
+// for work that already completed.
+func (e *securityScanExecutionEngine) recoverRetryWaiters(ctx context.Context) {
+	for i := range e.exec.Tasks {
+		entry := &e.exec.Tasks[i]
+		if entry.State != triggersv1alpha1.SecurityScanTaskStatePending ||
+			entry.NextRetryTime == nil || entry.RunName == "" {
+			continue
+		}
+		run, err := e.getRun(ctx, entry.RunName)
+		if err != nil || run == nil {
+			continue
+		}
+		if run.Status.Phase != platformv1alpha1.AgentRunPhaseSucceeded {
+			continue
+		}
+		if e.taskRunOutputUnmet(entry, run) != "" {
+			continue // let the scheduled retry produce a conforming run
+		}
+		entry.State = triggersv1alpha1.SecurityScanTaskStateSucceeded
+		entry.LastError = ""
+		entry.NextRetryTime = nil
+		entry.FinishedAt = &e.now
 	}
 }
 
@@ -2810,6 +2849,16 @@ func securityScanTaskRunName(scanName, executionID, taskName string, attempt, in
 func classifySecurityScanTaskFailure(reason string) string {
 	lower := strings.ToLower(reason)
 	for _, marker := range []string{"rate limit", "rate-limit", "ratelimit", "429", "overloaded", "timeout", "timed out", "transient", "connection", "unavailable", "temporar"} {
+		if strings.Contains(lower, marker) {
+			return triggersv1alpha1.SecurityScanTaskFailureRetryable
+		}
+	}
+	// Kubernetes eventual consistency: infrastructure objects the platform
+	// creates immediately before dispatch (sandbox templates/claims, the
+	// instructions ConfigMap) can be reported "not found" by a stale informer
+	// cache in the first seconds after creation. Retrying re-reads or
+	// re-creates them, so these NotFounds are never deterministic rejections.
+	for _, marker := range []string{"sandboxtemplate", "sandbox template", "sandboxclaim", "sandbox claim", "configmap"} {
 		if strings.Contains(lower, marker) {
 			return triggersv1alpha1.SecurityScanTaskFailureRetryable
 		}

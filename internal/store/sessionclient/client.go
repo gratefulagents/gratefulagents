@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -710,6 +711,13 @@ func (c *Client) WriteResult(ctx context.Context, status, prURL, lastError, acti
 				Name: prURL,
 			}
 		}
+		// This publish is the authoritative end of the worker's execution:
+		// stamp completedAt here so a transient controller-side terminal
+		// transition earlier in the run (e.g. a sandbox read-after-create
+		// race) cannot leave completedAt frozen at a time when the agent was
+		// still working.
+		now := metav1.Now()
+		run.Status.CompletedAt = &now
 		if status == "failed" {
 			run.Status.Phase = platformv1alpha1.AgentRunPhaseFailed
 			run.Status.CurrentStep = "failed"
