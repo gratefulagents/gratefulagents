@@ -19,6 +19,7 @@ func TestPoCBuilderIsFallbackOnly(t *testing.T) {
 		"current candidate for this exact finding and execution",
 		"reuse that canonical PoC",
 		"do not rebuild, rerun, or overwrite it",
+		"Call update_security_finding with `poc_reused` and candidate_sha256 in `note`",
 		"only when get_security_poc reports that no current exact candidate exists",
 		"On the fallback path, call save_security_poc",
 	} {
@@ -95,6 +96,32 @@ func TestPoCScriptsRequireProjectPrescribedWorkflow(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPoCBuilderRequiresReproducibleEvidence(t *testing.T) {
+	t.Parallel()
+
+	var builder triggersv1alpha1.SecurityPostScript
+	readBootstrapAsset(t, "securitypostscripts", "poc-builder", &builder)
+	prompt := strings.Join(strings.Fields(builder.Spec.Prompt), " ")
+	for _, marker := range []string{
+		"Prove real target code executed",
+		"same unchanged harness and oracle",
+		"non-attacker input as a negative control",
+		"calibration case known to make the assertion fail",
+		"capture both transcripts",
+		"Re-run the exploit against unmodified target code",
+		"successful command or assertion that cannot fail is not a reproduction",
+		"runnable from a clean checkout",
+		"prerequisites, setup, environment variables, fixtures, seeds, generated assets",
+		"Do not rely on unrecorded workspace state or prior commands",
+		"stop instead of pivoting to a weaker harness",
+		"self-contained artifact, complete transcript, and control/oracle evidence",
+	} {
+		if !strings.Contains(prompt, marker) {
+			t.Errorf("poc-builder prompt is missing reproducibility requirement %q", marker)
+		}
 	}
 }
 

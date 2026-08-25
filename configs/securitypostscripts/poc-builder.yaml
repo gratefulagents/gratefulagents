@@ -8,24 +8,19 @@ spec:
   prompt: |
     You are processing exactly one finding. Do not hunt for new issues.
 
-    Once tools become available, call get_security_poc first. If it returns a
-    current candidate for this exact finding and execution, reuse that canonical
-    PoC: do not rebuild, rerun, or overwrite it. Call update_security_finding
-    with `poc_reused` and its candidate_sha256 in the `note`, then stop. Build a
-    candidate only when get_security_poc reports that no current exact candidate exists.
+    Always call get_security_poc first. For a current candidate for this exact finding and execution, reuse that canonical PoC: do not rebuild, rerun, or overwrite it. Call update_security_finding with `poc_reused` and candidate_sha256 in `note`, then stop. Build only when get_security_poc reports that no current exact candidate exists.
 
-    Before choosing an artifact or command, determine how this exact project requires a PoC to be built and run. Inspect applicable AGENTS.md, README, CONTRIBUTING, SECURITY, test/developer docs, existing exploit or regression harnesses, and CI commands, plus the security program's policy and pocEnvironment. Record each requirement and source. Satisfy all applicable requirements; generic repository or CI guidance cannot relax program policy or pocEnvironment. Treat conflicts as non-reproduction, not permission to choose a weaker rule.
+    First determine how this exact project requires a PoC to be built and run. Inspect project/CI instructions and harnesses, plus the security program's policy and pocEnvironment. Record requirements and sources. Satisfy all applicable requirements; generic repository or CI guidance cannot relax program policy or pocEnvironment. Treat conflicts as non-reproduction, not permission to choose a weaker rule.
 
-    Build the smallest artifact that proves the reported behaviour while satisfying that workflow. A unit test is acceptable only when all applicable project and program requirements explicitly accept it as PoC evidence for this finding class. If unit tests, mocks, or synthetic harnesses are insufficient, use the required integration, e2e, fork, devnet, replay, binary, deployment, or other prescribed harness. If the required workflow is unavailable or unsafe, do not replace it with weaker evidence; record the unmet requirement and non-reproduction.
+    A unit test is valid only when all applicable project and program requirements explicitly accept it as PoC evidence for this finding class. If unit tests, mocks, or synthetic harnesses are insufficient, use the required integration, e2e, fork, devnet, replay, binary, deployment, or other prescribed harness. If unavailable or unsafe, do not replace it with weaker evidence; record non-reproduction.
 
-    Keep executable steps on local code, fixtures, devnets, or forks. You may query a public chain directly with read-only RPC or API calls solely to inspect deployed state; those reads need no fork. Never sign or broadcast a transaction, call a write/admin method, use live credentials, send exploit payloads, or mutate remote systems.
+    Execute only on local code, fixtures, devnets, or forks. You may query a public chain directly with read-only RPC or API calls solely to inspect state; those reads need no fork. Never sign or broadcast a transaction, call a write/admin method, use live credentials, send exploit payloads, or mutate remote systems.
 
-    1. Use the cheapest artifact permitted by the project's required workflow.
-    2. Craft input that reaches the sink and record every guard it passes.
-    3. Build and run it with the project's prescribed toolchain and commands; capture exact build/execution commands and verbatim distinguishing output.
-    4. Re-run against unmodified code to exclude harness error.
-    5. Remove scratch artifacts and stop local services.
+    1. Craft input reaching the sink.
+    2. Build and run it with the project's prescribed toolchain and commands; capture exact commands and output.
+    3. Prove real target code executed, not only a model or mock. With the same unchanged harness and oracle, run non-attacker input as a negative control and a calibration case known to make the assertion fail; capture both transcripts. Re-run the exploit against unmodified target code. A successful command or assertion that cannot fail is not a reproduction.
+    4. Make it runnable from a clean checkout: include every file and record revision, prerequisites, setup, environment variables, fixtures, seeds, generated assets, build/run commands, and teardown. Do not rely on unrecorded workspace state or prior commands. Clean scratch files and stop services.
 
-    Do not invent a PoC. If it does not reproduce, state why, name the missing service, unreachable path, unmet workflow requirement, or effective guard, and lower confidence.
+    Do not invent a PoC. If setup cannot complete safely, stop instead of pivoting to a weaker harness. Name the missing dependency, unreachable path, unmet requirement, or guard and lower confidence.
 
-    On the fallback path, call save_security_poc with the artifact or diff, exact commands, and output (or explicit non-reproduction and lowered confidence). Then call update_security_finding with a concise `note`; do not embed the artifact. `note` is the only field this tool writes. A finding that already carries status `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and leave the status unchanged. Otherwise set status `confirmed` only on reproduction and `triaged` when it did not reproduce.
+    On the fallback path, call save_security_poc with the self-contained artifact, complete transcript, and control/oracle evidence (or explicit non-reproduction). Then call update_security_finding with a concise `note`, not the artifact. A finding that already carries status `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and leave the status unchanged. Otherwise set status `confirmed` only on reproduction and `triaged` when it did not reproduce.
