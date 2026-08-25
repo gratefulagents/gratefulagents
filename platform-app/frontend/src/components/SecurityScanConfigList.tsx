@@ -39,6 +39,7 @@ import { ResourceListPage } from "@/components/list-page";
 import { SecurityNav } from "@/components/SecurityNav";
 import { ProgramTargetImportDialog } from "@/components/ProgramTargetImportDialog";
 import { EmptyCell, SeverityCountBadges, STATUS_PILL } from "@/components/SecurityScanList";
+import { toast } from "@/components/ui/toaster";
 import {
   scanConfigUsesSavedCredentials,
   SecurityScanFormDialog,
@@ -178,6 +179,18 @@ const BULK_LABELS: Record<BulkAction, string> = {
   delete: "Delete",
 };
 
+/**
+ * The selected configurations a bulk action can actually apply to. "Run" stays
+ * available for a row that is already running (the backend queues or rejects
+ * it per its own rules); only suspension gates it.
+ */
+function eligibleFor(action: BulkAction, configs: SecurityScanConfig[]): SecurityScanConfig[] {
+  if (action === "run" || action === "suspend") return configs.filter((config) => !isSuspended(config));
+  if (action === "stop") return configs.filter(isRunning);
+  if (action === "resume") return configs.filter(isSuspended);
+  return configs;
+}
+
 function isReady(config: SecurityScanConfig): boolean {
   return !isSuspended(config) && config.conditionReady.toLowerCase() === "true";
 }
@@ -314,7 +327,6 @@ export function SecurityScanConfigList() {
   const [stopPending, setStopPending] = useState<string | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [bulkNotice, setBulkNotice] = useState("");
   const [bulkFailures, setBulkFailures] = useState<{ key: string; name: string; error: string }[]>([]);
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
   const [selectedProgramScanTarget, setSelectedProgramScanTarget] = useState<ProgramScanTarget | null>(null);
@@ -433,7 +445,6 @@ export function SecurityScanConfigList() {
   function clearSelection() {
     setSelected(new Set());
     setBulkFailures([]);
-    setBulkNotice("");
   }
 
   function toggleSelectAllVisible() {
@@ -471,14 +482,15 @@ export function SecurityScanConfigList() {
 
   async function applyBulk(action: BulkAction) {
     // The selection survives search and filter changes, so an action applies
-    // to everything the user picked — not only the rows currently on screen.
-    const targets = selectedConfigs;
+    // to everything the user picked — not only the rows currently on screen —
+    // but only the rows it can actually apply to are sent as RPCs.
+    const targets = eligibleFor(action, selectedConfigs);
     if (!targets.length) return;
     setBulkBusy(true);
     setActionError(null);
-    setBulkNotice("");
     setBulkFailures([]);
     const failures: { key: string; name: string; error: string }[] = [];
+    const succeeded = new Set<string>();
     let applied = 0;
     try {
       for (const config of targets) {
@@ -490,6 +502,7 @@ export function SecurityScanConfigList() {
         try {
           await applyToConfig(action, config);
           applied += 1;
+          succeeded.add(configKey(config));
         } catch (e: unknown) {
           failures.push({
             key: configKey(config),
@@ -499,12 +512,18 @@ export function SecurityScanConfigList() {
         }
       }
       setBulkFailures(failures);
-      setBulkNotice(
-        `${BULK_LABELS[action]} applied to ${applied} configuration${applied === 1 ? "" : "s"}`,
-      );
-      // Rows that failed stay selected so the action can be retried on exactly
-      // those; everything that succeeded drops out of the selection.
-      setSelected(new Set(failures.map((failure) => failure.key)));
+      const summary = `${BULK_LABELS[action]} applied to ${applied} configuration${applied === 1 ? "" : "s"}`;
+      if (failures.length) {
+        toast.warning(`${summary} · ${failures.length} failed`, {
+          description: "The configurations that were not changed stay selected for a retry.",
+        });
+      } else {
+        toast.success(summary);
+      }
+      // Rows that failed — and rows the action never applied to — stay
+      // selected so it can be retried on exactly those; everything that
+      // succeeded drops out of the selection.
+      setSelected((current) => new Set([...current].filter((key) => !succeeded.has(key))));
     } finally {
       // The toolbar stays disabled until the refreshed list is in hand, so a
       // second bulk action can never run against the stale rows.
@@ -552,6 +571,21 @@ export function SecurityScanConfigList() {
   const selectedConfigs = configs.filter((config) => selected.has(configKey(config)));
   const selectedCount = selectedConfigs.length;
   const someVisibleSelected = visibleSelectedCount > 0 && visibleSelectedCount < visible.length;
+  const hiddenSelectedCount = selectedCount - visibleSelectedCount;
+  const bulkEligible: Record<BulkAction, number> = {
+    run: eligibleFor("run", selectedConfigs).length,
+    stop: eligibleFor("stop", selectedConfigs).length,
+    suspend: eligibleFor("suspend", selectedConfigs).length,
+    resume: eligibleFor("resume", selectedConfigs).length,
+    delete: selectedCount,
+  };
+  const mixedEligibility = (["run", "stop", "suspend", "resume"] as const).some(
+    (action) => bulkEligible[action] > 0 && bulkEligible[action] < selectedCount,
+  );
+  function bulkButtonLabel(action: BulkAction): string {
+    const count = bulkEligible[action];
+    return count === selectedCount ? BULK_LABELS[action] : `${BULK_LABELS[action]} (${count})`;
+  }
   // React has no `indeterminate` prop, so the checkbox's own DOM property
   // carries the mixed state for a partial selection.
   useEffect(() => {
@@ -711,24 +745,49 @@ export function SecurityScanConfigList() {
         <div
           role="toolbar"
           aria-label="Bulk actions"
-          className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2"
+          className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-background/95 px-3 py-2 shadow-sm backdrop-blur"
         >
           <span className="text-[12.5px] font-medium">{selectedCount} selected</span>
-          <Button variant="outline" size="sm" disabled={bulkBusy} onClick={() => void applyBulk("run")}>
+          {hiddenSelectedCount > 0 && (
+            <span className="text-[11px] text-muted-foreground">
+              · {hiddenSelectedCount} hidden by filters
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkBusy || bulkEligible.run === 0}
+            onClick={() => void applyBulk("run")}
+          >
             <Play />
-            Run now
+            {bulkButtonLabel("run")}
           </Button>
-          <Button variant="outline" size="sm" disabled={bulkBusy} onClick={() => void applyBulk("stop")}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkBusy || bulkEligible.stop === 0}
+            onClick={() => void applyBulk("stop")}
+          >
             <CircleStop />
-            Stop
+            {bulkButtonLabel("stop")}
           </Button>
-          <Button variant="outline" size="sm" disabled={bulkBusy} onClick={() => void applyBulk("suspend")}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkBusy || bulkEligible.suspend === 0}
+            onClick={() => void applyBulk("suspend")}
+          >
             <Pause />
-            Suspend
+            {bulkButtonLabel("suspend")}
           </Button>
-          <Button variant="outline" size="sm" disabled={bulkBusy} onClick={() => void applyBulk("resume")}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={bulkBusy || bulkEligible.resume === 0}
+            onClick={() => void applyBulk("resume")}
+          >
             <Play />
-            Resume
+            {bulkButtonLabel("resume")}
           </Button>
           <Button
             variant="destructive"
@@ -739,16 +798,16 @@ export function SecurityScanConfigList() {
             <Trash2 />
             Delete
           </Button>
+          {mixedEligibility && (
+            <span className="text-[11px] text-muted-foreground">
+              Mixed actions apply only to eligible configurations.
+            </span>
+          )}
           <Button variant="ghost" size="sm" disabled={bulkBusy} onClick={clearSelection}>
             <X />
             Clear selection
           </Button>
         </div>
-      )}
-      {bulkNotice && (
-        <p role="status" aria-live="polite" className="mb-3 text-sm text-muted-foreground">
-          {bulkNotice}
-        </p>
       )}
       {bulkFailures.length > 0 && (
         <div
@@ -781,6 +840,7 @@ export function SecurityScanConfigList() {
                 aria-checked={someVisibleSelected ? "mixed" : allVisibleSelected}
                 checked={allVisibleSelected}
                 onChange={toggleSelectAllVisible}
+                className="size-3.5 accent-primary"
               />
             </TableHead>
             {/* The name cell holds the repository, schedule and (on narrow
@@ -830,6 +890,7 @@ export function SecurityScanConfigList() {
                     aria-label={`Select ${config.name}`}
                     checked={selected.has(key)}
                     onChange={() => toggleSelected(key)}
+                    className="size-3.5 accent-primary"
                   />
                 </TableCell>
                 <TableCell className="max-w-[26rem] align-top whitespace-normal">

@@ -237,10 +237,27 @@ function ScanRow({ scan, now }: { scan: SecurityScan; now: number }) {
           >
             {scan.runName}
           </Link>
+          {/* Provenance is triage-critical, so a run that lost its
+              configuration or repository says so explicitly instead of
+              rendering a blank line that looks like a rendering bug. */}
           <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted-foreground">
-            {scan.scanName && <span className="truncate">{scan.scanName}</span>}
-            {scan.scanName && repo && <span aria-hidden>·</span>}
-            {repo && <span className="truncate font-mono">{repo}</span>}
+            {!scan.scanName && !repo ? (
+              <span className="italic">No configuration or repository recorded</span>
+            ) : (
+              <>
+                {scan.scanName ? (
+                  <span className="truncate">{scan.scanName}</span>
+                ) : (
+                  <span className="italic">No configuration recorded</span>
+                )}
+                <span aria-hidden>·</span>
+                {repo ? (
+                  <span className="truncate font-mono">{repo}</span>
+                ) : (
+                  <span className="italic">No repository recorded</span>
+                )}
+              </>
+            )}
           </span>
           {/* Below `sm` the status, findings and age columns are hidden, so a
               phone reads the whole row here instead of scrolling the table

@@ -22,7 +22,7 @@ import {
   DetailHeader, DetailSection, FactList, Fact, FactLink,
 } from "@/components/detail-page";
 import {
-  SEVERITIES, STATUS_PILL, SeverityBadge, severityTone,
+  EmptyCell, SEVERITIES, STATUS_PILL, SeverityBadge, severityTone,
 } from "@/components/SecurityScanList";
 import { SecurityScanRunPanel } from "@/components/SecurityScanRunPanel";
 import { SecurityResearchPanel } from "@/components/SecurityResearchPanel";
@@ -59,8 +59,8 @@ export function statusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }
 
-export function formatSeen(ts: Timestamp | undefined): string {
-  if (!ts) return "—";
+export function formatSeen(ts: Timestamp | undefined): ReactNode {
+  if (!ts) return <EmptyCell meaning="Not recorded" />;
   return timestampDate(ts).toLocaleString();
 }
 
@@ -762,10 +762,14 @@ export function SecurityScanDetail() {
         title={scan.runName}
         meta={<ScanStatusPill status={scan.status} />}
         subtitle={
-          <span className="font-mono text-[12.5px] text-muted-foreground">
-            {scan.repository}
-            {scan.revision && ` @ ${scan.revision.slice(0, 12)}`}
-          </span>
+          scan.repository ? (
+            <span className="font-mono text-[12.5px] text-muted-foreground">
+              {scan.repository}
+              {scan.revision && ` @ ${scan.revision.slice(0, 12)}`}
+            </span>
+          ) : (
+            <span className="text-[12.5px] text-muted-foreground">Repository not recorded</span>
+          )
         }
         actions={
           <>
@@ -1181,6 +1185,7 @@ export function SecurityScanDetail() {
                       aria-label="Select all findings"
                       checked={visibleFindings.length > 0 && selectedIds.size === visibleFindings.length}
                       onChange={toggleSelectAll}
+                      className="size-3.5 accent-primary"
                     />
                   </TableHead>
                   <TableHead>Title</TableHead>
@@ -1215,6 +1220,7 @@ export function SecurityScanDetail() {
                         aria-label={`Select ${finding.title}`}
                         checked={selectedIds.has(finding.id)}
                         onChange={() => toggleSelected(finding.id)}
+                        className="size-3.5 accent-primary"
                       />
                     </TableCell>
                     <TableCell className="max-w-[42ch]">
@@ -1245,8 +1251,8 @@ export function SecurityScanDetail() {
                       <SeverityBadge severity={finding.severity} />
                     </TableCell>
                     <TableCell className="max-w-[16ch] text-sm text-muted-foreground">
-                      <span className="block truncate" title={finding.category}>
-                        {finding.category || "—"}
+                      <span className="block truncate" title={finding.category || undefined}>
+                        {finding.category || <EmptyCell meaning="No category" />}
                       </span>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
@@ -1263,7 +1269,7 @@ export function SecurityScanDetail() {
                     </TableCell>
                     <TableCell className="max-w-[16ch] text-sm text-muted-foreground">
                       <span className="block truncate" title={finding.assignee || undefined}>
-                        {finding.assignee || "—"}
+                        {finding.assignee || <EmptyCell meaning="Unassigned" />}
                       </span>
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums whitespace-nowrap">
@@ -1362,16 +1368,10 @@ export function SecurityScanDetail() {
                 </p>
               )}
 
-              {selected.description && (
-                <FindingText label="Description" text={selected.description} />
-              )}
-              {selected.impact && <FindingText label="Impact" text={selected.impact} />}
-              {selected.attackVector && (
-                <FindingText label="Attack Vector" text={selected.attackVector} />
-              )}
-              {selected.remediation && (
-                <FindingText label="Remediation" text={selected.remediation} />
-              )}
+              <FindingText label="Description" text={selected.description} />
+              <FindingText label="Impact" text={selected.impact} />
+              <FindingText label="Attack Vector" text={selected.attackVector} />
+              <FindingText label="Remediation" text={selected.remediation} />
 
               <FactList>
                 <Fact
@@ -1380,40 +1380,51 @@ export function SecurityScanDetail() {
                   value={
                     selected.filePath
                       ? `${selected.filePath}${selected.startLine > 0 ? `:${selected.startLine}${selected.endLine > selected.startLine ? `-${selected.endLine}` : ""}` : ""}`
-                      : "—"
+                      : <EmptyCell meaning="Location not provided" />
                   }
                 />
                 {selected.symbol && <Fact label="Symbol" mono value={selected.symbol} />}
                 <Fact label="Score" mono value={selected.score.toFixed(1)} />
-                <Fact label="Confidence" value={selected.confidence || "—"} />
-                <Fact label="Source Agent" mono value={selected.sourceAgent || "—"} />
+                <Fact
+                  label="Confidence"
+                  value={selected.confidence || <EmptyCell meaning="Confidence not provided" />}
+                />
+                <Fact
+                  label="Source Agent"
+                  mono
+                  value={selected.sourceAgent || <EmptyCell meaning="Source agent not recorded" />}
+                />
                 <Fact label="Occurrences" mono value={String(selected.occurrences)} />
                 <Fact label="First Seen" value={formatSeen(selected.firstSeenAt)} />
                 <Fact label="Last Seen" value={formatSeen(selected.lastSeenAt)} />
-                {selected.cwe.length > 0 && (
-                  <Fact
-                    label="CWE"
-                    value={
+                <Fact
+                  label="CWE"
+                  value={
+                    selected.cwe.length > 0 ? (
                       <span className="flex flex-wrap gap-x-3 gap-y-1">
                         {selected.cwe.map((cwe) => (
                           <FactLink key={cwe} href={cweUrl(cwe)}>{cwe}</FactLink>
                         ))}
                       </span>
-                    }
-                  />
-                )}
-                {selected.references.length > 0 && (
-                  <Fact
-                    label="References"
-                    value={
+                    ) : (
+                      <EmptyCell meaning="No CWE assigned" />
+                    )
+                  }
+                />
+                <Fact
+                  label="References"
+                  value={
+                    selected.references.length > 0 ? (
                       <span className="flex flex-col gap-1">
                         {selected.references.map((ref) => (
                           <FactLink key={ref} href={ref}>{ref}</FactLink>
                         ))}
                       </span>
-                    }
-                  />
-                )}
+                    ) : (
+                      <EmptyCell meaning="No references provided" />
+                    )
+                  }
+                />
               </FactList>
 
               {selected.raw && (
@@ -1720,7 +1731,11 @@ function FindingText({ label, text }: { label: string; text: string }) {
       <h4 className="text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/70">
         {label}
       </h4>
-      <p className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-foreground/90">{text}</p>
+      {text ? (
+        <p className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-foreground/90">{text}</p>
+      ) : (
+        <p className="text-[12.5px] italic text-muted-foreground">Not provided</p>
+      )}
     </div>
   );
 }

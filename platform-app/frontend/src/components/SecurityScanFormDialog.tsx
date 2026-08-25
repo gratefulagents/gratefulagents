@@ -547,6 +547,27 @@ export function SecurityScanFormDialog({
       ...(selectedPolicyPack?.defaultPostScriptRefs ?? []),
     ]).size;
   const packEnforcesBudgets = selectedPolicyPack?.enforced.includes("budgets") ?? false;
+  const selectedLibraryWorkflow =
+    libraryWorkflows.find((workflow) => workflow.name === spec.workflowRef) ?? null;
+  const workflowMissingFromLibrary = spec.workflowRef !== "" && !selectedLibraryWorkflow;
+  const declaredWorkflowParameters = selectedLibraryWorkflow?.parameters ?? [];
+  const missingWorkflowParameters = declaredWorkflowParameters.filter(
+    (parameter) =>
+      parameter.required &&
+      !spec.parameterValues.some(
+        (entry) => entry.key === parameter.name && entry.value.trim() !== "",
+      ),
+  );
+
+  function addMissingWorkflowParameters() {
+    const existingKeys = new Set(spec.parameterValues.map((entry) => entry.key));
+    update("parameterValues", [
+      ...spec.parameterValues,
+      ...declaredWorkflowParameters
+        .filter((parameter) => !existingKeys.has(parameter.name))
+        .map((parameter) => ({ key: parameter.name, value: parameter.default })),
+    ]);
+  }
   const effectiveDockerInDocker =
     defaults.dockerInDocker ?? (isNewScan && isAdmin);
 
@@ -1695,12 +1716,23 @@ export function SecurityScanFormDialog({
                         {workflow.name} ({workflow.tasks.length} task{workflow.tasks.length === 1 ? "" : "s"})
                       </option>
                     ))}
-                    {spec.workflowRef !== "" &&
-                      !libraryWorkflows.some((workflow) => workflow.name === spec.workflowRef) && (
-                        <option value={spec.workflowRef}>{spec.workflowRef}</option>
-                      )}
+                    {workflowMissingFromLibrary && (
+                      <option value={spec.workflowRef}>
+                        {spec.workflowRef} (missing from library)
+                      </option>
+                    )}
                   </select>
                 </FlowField>
+                {workflowMissingFromLibrary && (
+                  <p
+                    role="note"
+                    data-testid="workflow-missing-warning"
+                    className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs"
+                  >
+                    This workflow no longer exists in the library. Runs will fail until it is
+                    restored or another workflow is selected.
+                  </p>
+                )}
                 {spec.workflowRef !== "" && (
                   <p className="text-xs text-muted-foreground">
                     This scan runs the library workflow{" "}
@@ -1887,8 +1919,35 @@ export function SecurityScanFormDialog({
                   hint="Substituted for {{params.name}} references in task objectives; accepted names come from the referenced workflow's parameters."
                 >
                   <div id="scan-parameter-values" className="space-y-2 pt-1">
+                    {missingWorkflowParameters.length > 0 && (
+                      <div
+                        role="note"
+                        data-testid="workflow-missing-parameters-warning"
+                        className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs"
+                      >
+                        <p>
+                          The workflow <span className="font-mono">{spec.workflowRef}</span>{" "}
+                          requires {missingWorkflowParameters.length === 1
+                            ? "a value for parameter"
+                            : "values for parameters"}{" "}
+                          <span className="font-mono">
+                            {missingWorkflowParameters.map((parameter) => parameter.name).join(", ")}
+                          </span>
+                          .
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={addMissingWorkflowParameters}
+                        >
+                          Add missing parameters
+                        </Button>
+                      </div>
+                    )}
                     {spec.parameterValues.map((entry, index) => (
-                      <div key={index} className="flex items-center gap-2">
+                      <div key={index} className="space-y-1">
+                        <div className="flex items-center gap-2">
                         <Input
                           aria-label={`Parameter ${index + 1} name`}
                           value={entry.key}
@@ -1930,6 +1989,17 @@ export function SecurityScanFormDialog({
                         >
                           Remove
                         </Button>
+                        </div>
+                        {declaredWorkflowParameters.length > 0 &&
+                          entry.key !== "" &&
+                          !declaredWorkflowParameters.some(
+                            (parameter) => parameter.name === entry.key,
+                          ) && (
+                            <p className="text-xs text-amber-600 dark:text-amber-400">
+                              not declared by{" "}
+                              <span className="font-mono">{spec.workflowRef}</span>
+                            </p>
+                          )}
                       </div>
                     ))}
                     <Button

@@ -55,19 +55,21 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function configFixture(overrides: { suspend?: boolean; owner?: boolean } = {}) {
+function configFixture(
+  overrides: { suspend?: boolean; owner?: boolean; repoUrl?: string; phase?: string } = {},
+) {
   return create(SecurityScanConfigSchema, {
     namespace: "user-alice",
     name: "nightly",
     spec: create(SecurityScanConfigSpecSchema, {
-      repoUrl: "https://github.com/acme/payments.git",
+      repoUrl: overrides.repoUrl ?? "https://github.com/acme/payments.git",
       schedule: "@daily",
       suspend: overrides.suspend ?? false,
     }),
     owner: overrides.owner
       ? create(ResourceOwnerSchema, { name: "Alice Chen", email: "alice@acme.test" })
       : undefined,
-    phase: "Scheduled",
+    phase: overrides.phase ?? "Scheduled",
     conditionReady: "True",
     lastRunName: "nightly-2",
   });
@@ -533,6 +535,26 @@ describe("SecurityConfigDetail", () => {
     expect(screen.getByRole("button", { name: "Copy schedule" })).toBeTruthy();
     // The avatar is no longer an unexplained badge.
     expect(screen.getByText("Owner: Alice Chen")).toBeTruthy();
+  });
+
+  it("names missing target, title, severity, location and phase explicitly", async () => {
+    getSecurityScanConfig.mockResolvedValue(configFixture({ repoUrl: "", phase: "" }));
+    getSecurityFindingSummary.mockResolvedValue({ counts: { total: 1 } });
+    listSecurityFindings.mockResolvedValue({
+      findings: [findingFixture("f-1", "nightly-1", { title: "", severity: "", filePath: "" })],
+    });
+    listSecurityScans.mockResolvedValue({ scans: [runFixture("nightly-1")] });
+    renderDetail();
+
+    // Header target: explicit words instead of a bare dash.
+    expect(await screen.findByText("No repository or target URL configured")).toBeTruthy();
+    // The finding row still links, and every gap says what is missing.
+    const link = screen.getByRole("link", { name: "Untitled finding" });
+    expect(link.getAttribute("href")).toBe("/security/user-alice/nightly-1/findings/f-1");
+    expect(screen.getByText("No severity")).toBeTruthy();
+    expect(screen.getByText("Location not provided")).toBeTruthy();
+    // The empty phase names itself rather than falling back to "Not set".
+    expect(screen.getByText("Not reported")).toBeTruthy();
   });
 
   it("states times relatively with the absolute timestamp in the tooltip", async () => {

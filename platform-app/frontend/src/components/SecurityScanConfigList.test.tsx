@@ -15,7 +15,7 @@ import {
   type SecurityScanConfig,
 } from "@/rpc/platform/service_pb";
 
-const { listSecurityScanConfigs, listSecurityPrograms, listMyCredentials, createSecurityScan, runSecurityScanNow, cancelSecurityScanRun, deleteSecurityScan, updateSecurityScan } =
+const { listSecurityScanConfigs, listSecurityPrograms, listMyCredentials, createSecurityScan, runSecurityScanNow, cancelSecurityScanRun, deleteSecurityScan, updateSecurityScan, toastSuccess, toastError, toastWarning } =
   vi.hoisted(() => ({
     listSecurityScanConfigs: vi.fn(),
     listSecurityPrograms: vi.fn().mockResolvedValue({ programs: [] }),
@@ -25,10 +25,17 @@ const { listSecurityScanConfigs, listSecurityPrograms, listMyCredentials, create
     cancelSecurityScanRun: vi.fn(),
     deleteSecurityScan: vi.fn(),
     updateSecurityScan: vi.fn(),
+    toastSuccess: vi.fn(),
+    toastError: vi.fn(),
+    toastWarning: vi.fn(),
   }));
 
 vi.mock("@/lib/client", () => ({
   client: { listSecurityScanConfigs, listSecurityPrograms, listMyCredentials, createSecurityScan, runSecurityScanNow, cancelSecurityScanRun, deleteSecurityScan, updateSecurityScan },
+}));
+
+vi.mock("@/components/ui/toaster", () => ({
+  toast: { success: toastSuccess, error: toastError, warning: toastWarning },
 }));
 
 // The full form dialog is covered by SecurityScanFormDialog.test.tsx; here a
@@ -689,7 +696,7 @@ describe("SecurityScanConfigList", () => {
       { namespace: "user-alice", name: "nightly" },
       { namespace: "user-alice", name: "weekly" },
     ]);
-    expect(screen.getByText("Run now applied to 2 configurations")).toBeTruthy();
+    expect(toastSuccess).toHaveBeenCalledWith("Run now applied to 2 configurations");
     // Everything succeeded, so the selection — and the toolbar — clears.
     await waitFor(() =>
       expect(screen.queryByRole("toolbar", { name: "Bulk actions" })).toBeNull(),
@@ -709,25 +716,76 @@ describe("SecurityScanConfigList", () => {
 
     await screen.findByText("recent");
     fireEvent.click(screen.getByLabelText("Select all configurations"));
-    fireEvent.click(
-      within(screen.getByRole("toolbar", { name: "Bulk actions" })).getByRole("button", { name: /Stop/ }),
-    );
+    const toolbar = screen.getByRole("toolbar", { name: "Bulk actions" });
+    // Only two of the three selected configurations are running; the button
+    // says so and the hint explains the mismatch.
+    expect(
+      within(toolbar).getByText("Mixed actions apply only to eligible configurations."),
+    ).toBeTruthy();
+    fireEvent.click(within(toolbar).getByRole("button", { name: "Stop (2)" }));
 
     await waitFor(() => expect(cancelSecurityScanRun).toHaveBeenCalledTimes(2));
     expect(cancelSecurityScanRun.mock.calls.map(([request]) => request.name)).toEqual([
       "nightly",
       "weekly",
     ]);
-    expect(screen.getByText("Stop applied to 2 configurations")).toBeTruthy();
-    const failure = screen.getByRole("alert");
-    expect(failure.textContent).toContain("recent");
-    expect(failure.textContent).toContain("nothing is running");
-    // The row that could not be stopped stays selected for a retry.
+    expect(toastSuccess).toHaveBeenCalledWith("Stop applied to 2 configurations");
+    // The idle row was never sent — and never fails — so no error surfaces.
+    expect(screen.queryByRole("alert")).toBeNull();
+    // The row the action could not apply to stays selected.
     expect(
       within(screen.getByRole("toolbar", { name: "Bulk actions" })).getByText("1 selected"),
     ).toBeTruthy();
     expect((screen.getByLabelText("Select recent") as HTMLInputElement).checked).toBe(true);
     expect((screen.getByLabelText("Select nightly") as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("disables Stop when no selected configuration is running", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [configFixture({ name: "nightly" }), configFixture({ name: "weekly" })],
+    });
+    renderList();
+
+    await screen.findByText("weekly");
+    fireEvent.click(screen.getByLabelText("Select all configurations"));
+    const toolbar = screen.getByRole("toolbar", { name: "Bulk actions" });
+    const stop = within(toolbar).getByRole("button", { name: "Stop (0)" }) as HTMLButtonElement;
+    expect(stop.disabled).toBe(true);
+
+    fireEvent.click(stop);
+    expect(cancelSecurityScanRun).not.toHaveBeenCalled();
+  });
+
+  it("sends Run now only to the selected configurations that are not suspended", async () => {
+    listSecurityScanConfigs.mockResolvedValue({
+      configs: [
+        configFixture({ name: "nightly" }),
+        configFixture({ name: "paused", suspend: true }),
+      ],
+    });
+    runSecurityScanNow.mockResolvedValue({});
+    renderList();
+
+    await screen.findByText("paused");
+    fireEvent.click(screen.getByLabelText("Select all configurations"));
+    const toolbar = screen.getByRole("toolbar", { name: "Bulk actions" });
+    expect(
+      within(toolbar).getByText("Mixed actions apply only to eligible configurations."),
+    ).toBeTruthy();
+    fireEvent.click(within(toolbar).getByRole("button", { name: "Run now (1)" }));
+
+    await waitFor(() => expect(runSecurityScanNow).toHaveBeenCalledTimes(1));
+    expect(runSecurityScanNow).toHaveBeenCalledWith({ namespace: "user-alice", name: "nightly" });
+    expect(toastSuccess).toHaveBeenCalledWith("Run now applied to 1 configuration");
+    // The suspended row was never sent, so no per-row failure surfaces; it
+    // stays selected because the action never applied to it.
+    expect(screen.queryByRole("alert")).toBeNull();
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("toolbar", { name: "Bulk actions" })).getByText("1 selected"),
+      ).toBeTruthy(),
+    );
+    expect((screen.getByLabelText("Select paused") as HTMLInputElement).checked).toBe(true);
   });
 
   it("lists the configuration a bulk action failed on while the others succeed", async () => {
@@ -749,7 +807,10 @@ describe("SecurityScanConfigList", () => {
     );
 
     await waitFor(() => expect(runSecurityScanNow).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("Run now applied to 1 configuration")).toBeTruthy();
+    expect(toastWarning).toHaveBeenCalledWith(
+      "Run now applied to 1 configuration · 1 failed",
+      expect.anything(),
+    );
     const failure = screen.getByRole("alert");
     expect(failure.textContent).toContain("weekly: scan is already running");
     expect(failure.textContent).not.toContain("nightly");
@@ -811,6 +872,8 @@ describe("SecurityScanConfigList", () => {
     await waitFor(() => expect(screen.queryByText("matching")).toBeNull());
     const toolbar = screen.getByRole("toolbar", { name: "Bulk actions" });
     expect(within(toolbar).getByText("2 selected")).toBeTruthy();
+    // The hidden row is still counted, and the toolbar says where it went.
+    expect(within(toolbar).getByText("· 1 hidden by filters")).toBeTruthy();
 
     fireEvent.click(within(toolbar).getByRole("button", { name: /Run now/ }));
 
@@ -819,7 +882,7 @@ describe("SecurityScanConfigList", () => {
       "matching",
       "clean-once",
     ]);
-    expect(screen.getByText("Run now applied to 2 configurations")).toBeTruthy();
+    expect(toastSuccess).toHaveBeenCalledWith("Run now applied to 2 configurations");
   });
 
   it("stops a suspended configuration whose run is still in flight", async () => {
@@ -838,7 +901,7 @@ describe("SecurityScanConfigList", () => {
     // Suspension stops future runs; it does not cancel the one already going.
     await waitFor(() => expect(cancelSecurityScanRun).toHaveBeenCalledTimes(1));
     expect(cancelSecurityScanRun).toHaveBeenCalledWith({ namespace: "user-alice", name: "paused" });
-    expect(screen.getByText("Stop applied to 1 configuration")).toBeTruthy();
+    expect(toastSuccess).toHaveBeenCalledWith("Stop applied to 1 configuration");
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -868,7 +931,7 @@ describe("SecurityScanConfigList", () => {
     await waitFor(() => expect(listSecurityScanConfigs).toHaveBeenCalledTimes(2));
   });
 
-  it("marks the select-all checkbox mixed for a partial selection and announces the result politely", async () => {
+  it("marks the select-all checkbox mixed for a partial selection and reports the result as a toast", async () => {
     listSecurityScanConfigs.mockResolvedValue({
       configs: [configFixture({ name: "nightly" }), configFixture({ name: "weekly" })],
     });
@@ -890,9 +953,9 @@ describe("SecurityScanConfigList", () => {
     fireEvent.click(
       within(screen.getByRole("toolbar", { name: "Bulk actions" })).getByRole("button", { name: /Run now/ }),
     );
-    const notice = await screen.findByText("Run now applied to 2 configurations");
-    expect(notice.getAttribute("role")).toBe("status");
-    expect(notice.getAttribute("aria-live")).toBe("polite");
+    await waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith("Run now applied to 2 configurations"),
+    );
   });
 
   it("offers Stop instead of Run now while a scan is running", async () => {

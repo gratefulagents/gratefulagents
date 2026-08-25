@@ -291,6 +291,20 @@ describe("SecurityFindingDetail", () => {
     expect(screen.queryByRole("link", { name: /CWE-/ })).toBeNull();
   });
 
+  it("names each missing security fact instead of a generic 'Not set'", async () => {
+    mockHappyPath({ finding: minimalFindingFixture(), siblings: [minimalFindingFixture()], events: [] });
+    renderDetail();
+    await screen.findByRole("heading", { name: "Weak TLS configuration" });
+
+    expect(screen.getByText("No CWE assigned")).toBeTruthy();
+    expect(screen.getByText("No category")).toBeTruthy();
+    expect(screen.getByText("Unassigned")).toBeTruthy();
+    expect(screen.getByText("No code location")).toBeTruthy();
+    expect(screen.getByText("No ticket linked")).toBeTruthy();
+    // Repository, revision, source agent and tool all read "Not recorded".
+    expect(screen.getAllByText("Not recorded")).toHaveLength(4);
+  });
+
   it("shows a clear not-found state with a way back", async () => {
     getSecurityScan.mockResolvedValue(scanFixture());
     getSecurityFinding.mockRejectedValue(
@@ -722,9 +736,11 @@ describe("SecurityFindingDetail presentation", () => {
     expect(screen.getAllByText("Open").length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText("open")).toBeNull();
 
-    // One wording for an unset value, in facts and in the assignee field.
+    // Low-value gaps keep the generic wording; the high-value security facts
+    // name what is missing instead.
     expect(screen.getAllByText("Not set").length).toBeGreaterThanOrEqual(2);
-    expect(screen.queryByText("Unassigned")).toBeNull();
+    expect(screen.getByText("Unassigned")).toBeTruthy();
+    expect(screen.getByText("No category")).toBeTruthy();
     expect((screen.getByLabelText("Assignee") as HTMLInputElement).placeholder).toBe("Not set");
 
     // Compact absolute stamp plus relative age, never "2/1/2026, 12:00:00 AM".
