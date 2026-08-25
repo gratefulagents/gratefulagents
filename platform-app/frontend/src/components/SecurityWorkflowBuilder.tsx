@@ -72,6 +72,8 @@ export interface WorkflowTaskDraft {
   maxInstances: string;
   /** Desired chunk count for complete fan-out (1-50); exclusive with maxInstances. */
   targetRuns: string;
+  /** Controller-side deterministic aggregation; empty disables it. */
+  reduce: string;
   repeats: string;
   /** Dependency-output launch condition; all fields empty disables it. */
   whenTask: string;
@@ -104,6 +106,7 @@ export function emptyWorkflowTask(): WorkflowTaskDraft {
     forEach: "",
     maxInstances: "",
     targetRuns: "",
+    reduce: "",
     repeats: "",
     whenTask: "",
     whenPath: "",
@@ -139,6 +142,7 @@ export function workflowTasksFromProto(tasks: SecurityScanTaskConfig[]): Workflo
     forEach: t.forEach,
     maxInstances: t.maxInstances ? String(t.maxInstances) : "",
     targetRuns: t.targetRuns ? String(t.targetRuns) : "",
+    reduce: t.reduce,
     repeats: t.repeats ? String(t.repeats) : "",
     whenTask: t.when?.task ?? "",
     whenPath: t.when?.path ?? "",
@@ -175,6 +179,7 @@ export function workflowTasksToProto(tasks: WorkflowTaskDraft[]): SecurityScanTa
       forEach: t.forEach.trim(),
       maxInstances: t.maxInstances.trim() ? Number(t.maxInstances) : 0,
       targetRuns: t.targetRuns.trim() ? Number(t.targetRuns) : 0,
+      reduce: t.reduce.trim(),
       repeats: t.repeats.trim() ? Number(t.repeats) : 0,
       skillRefs: t.skillRefs.map((name) => name.trim()).filter(Boolean),
       when:
@@ -382,6 +387,21 @@ export function validateWorkflowTasks(tasks: WorkflowTaskDraft[]): WorkflowField
         // The generic output-schema validation above reports malformed JSON.
       }
     }
+    const reduce = task.reduce.trim();
+    if (reduce !== "") {
+      if (reduce !== "concat") {
+        errors.push({ field: `${field}.reduce`, message: `Task "${name}" uses an unsupported reducer.` });
+      }
+      if (task.dependsOn.length === 0) {
+        errors.push({ field: `${field}.reduce`, message: `Task "${name}" reducer needs at least one dependency.` });
+      }
+      if (outputSchema === "") {
+        errors.push({ field: `${field}.reduce`, message: `Task "${name}" reducer needs an output schema.` });
+      }
+      if (conditionEnabled || forEach !== "" || Number(maxInstances) > 0 || Number(task.repeats) > 1 || Number(targetRuns) > 0) {
+        errors.push({ field: `${field}.reduce`, message: `Task "${name}" reducer cannot combine with conditions, fan-out, repeats, or target runs.` });
+      }
+    }
     const repeats = task.repeats.trim();
     if (targetRuns !== "" && Number(targetRuns) > 0 && Number(repeats) > 1) {
       errors.push({ field: `${field}.targetRuns`, message: `Task "${name}" cannot combine target runs with repeats.` });
@@ -390,6 +410,8 @@ export function validateWorkflowTasks(tasks: WorkflowTaskDraft[]): WorkflowField
       errors.push({ field: `${field}.repeats`, message: `Task "${name}" repeats must be between 0 and 5.` });
     }
   });
+  const byName = new Map<string, WorkflowTaskDraft>();
+  for (const task of tasks) byName.set(task.name.trim(), task);
   tasks.forEach((task, index) => {
     const field = `tasks[${index}].dependsOn`;
     const name = task.name.trim();
@@ -399,14 +421,15 @@ export function validateWorkflowTasks(tasks: WorkflowTaskDraft[]): WorkflowField
       } else if (!names.has(dep)) {
         errors.push({ field, message: `Task "${name}" depends on unknown task "${dep}".` });
       }
+      if (task.reduce.trim() !== "" && byName.get(dep)?.outputSchema.trim() === "") {
+        errors.push({ field: `tasks[${index}].reduce`, message: `Task "${name}" reducer dependency "${dep}" needs an output schema.` });
+      }
     }
   });
   // Mirrors the server-side multi-instance rules: a fan-out source must be a
   // single-instance task, a multi-instance task's aggregated output is a
   // JSON array so single-field access can never resolve, and only a task
   // with an output schema ever publishes structured output to interpolate.
-  const byName = new Map<string, WorkflowTaskDraft>();
-  for (const task of tasks) byName.set(task.name.trim(), task);
   const isMultiInstance = (task: WorkflowTaskDraft): boolean =>
     task.forEach.trim() !== "" || (isNonNegativeInt(task.repeats.trim()) && Number(task.repeats.trim()) > 1);
   tasks.forEach((task, index) => {
@@ -1342,6 +1365,21 @@ export function SecurityWorkflowBuilder({
                         updateTask(selectedIndex, { targetRuns: event.target.value })
                       }
                     />
+                  </FlowField>
+                  <FlowField
+                    id={`${idPrefix}-inspector-reduce`}
+                    label="Deterministic reducer"
+                    hint="Combine dependency outputs without launching an AgentRun."
+                  >
+                    <select
+                      id={`${idPrefix}-inspector-reduce`}
+                      className={selectClass}
+                      value={selected.reduce}
+                      onChange={(event) => updateTask(selectedIndex, { reduce: event.target.value })}
+                    >
+                      <option value="">Off</option>
+                      <option value="concat">Concat</option>
+                    </select>
                   </FlowField>
                   <FlowField
                     id={`${idPrefix}-inspector-repeats`}

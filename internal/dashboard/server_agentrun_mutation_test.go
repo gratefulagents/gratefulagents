@@ -298,7 +298,7 @@ func (m *mockStateStore) GetMessagesIncludingCancelled(ctx context.Context, sess
 func (m *mockStateStore) GetMessagesSince(context.Context, uuid.UUID, int64) ([]store.Message, error) {
 	return nil, nil
 }
-func (m *mockStateStore) PollNewUserMessages(context.Context, uuid.UUID, int64) ([]store.Message, error) {
+func (m *mockStateStore) PollNewUserMessages(context.Context, uuid.UUID) ([]store.Message, error) {
 	return nil, nil
 }
 func (m *mockStateStore) MarkMessagesDelivered(context.Context, uuid.UUID, []int64) error {

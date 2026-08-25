@@ -110,6 +110,18 @@ describe("workflow round-trip", () => {
     expect(roundTripped.targetRuns).toBe(12);
   });
 
+  it("round-trips controller-side reducers", () => {
+    const original = create(SecurityScanTaskConfigSchema, {
+      name: "merge",
+      objective: "combine",
+      dependsOn: ["a", "b"],
+      outputSchema: '{"type":"array"}',
+      reduce: "concat",
+    });
+    const [roundTripped] = workflowTasksToProto(workflowTasksFromProto([original]));
+    expect(roundTripped.reduce).toBe("concat");
+  });
+
   it("round-trips controller-side launch conditions", () => {
     const original = create(SecurityScanTaskConfigSchema, {
       name: "specialist",
@@ -403,6 +415,26 @@ describe("validateWorkflowTasks advanced fields", () => {
         (e) => e.field === "tasks[0].targetRuns" && e.message.includes("cannot combine"),
       ),
     ).toBe(true);
+  });
+
+  it("rejects reducers combined with fan-out controls", () => {
+    const errors = validateWorkflowTasks([
+      draft({ name: "source", outputSchema: '{"type":"array"}' }),
+      draft({
+        name: "merge",
+        dependsOn: ["source"],
+        outputSchema: '{"type":"array"}',
+        reduce: "concat",
+        maxInstances: "2",
+      }),
+    ]);
+    expect(errors.some((e) => e.field === "tasks[1].reduce" && e.message.includes("fan-out"))).toBe(true);
+
+    const missingDependencySchema = validateWorkflowTasks([
+      draft({ name: "source" }),
+      draft({ name: "merge", dependsOn: ["source"], outputSchema: '{"type":"array"}', reduce: "concat" }),
+    ]);
+    expect(missingDependencySchema.some((e) => e.field === "tasks[1].reduce" && e.message.includes("dependency"))).toBe(true);
   });
 
   it("rejects an output schema that is not a JSON object", () => {

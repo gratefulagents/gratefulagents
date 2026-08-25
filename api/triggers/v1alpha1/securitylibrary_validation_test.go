@@ -501,6 +501,35 @@ func TestValidateSecurityWorkflowTasksRequiresOutputSchemaForOutputReferences(t 
 	}
 }
 
+func TestValidateSecurityWorkflowTasksConcatReduction(t *testing.T) {
+	valid := []SecurityScanTask{
+		{Name: "a", Objective: "produce", OutputSchema: `{"type":"array"}`},
+		{Name: "b", Objective: "produce", OutputSchema: `{"type":"object"}`},
+		{Name: "join", Objective: "join", DependsOn: []string{"a", "b"}, Reduce: "concat", OutputSchema: `{"type":"array"}`},
+	}
+	if errs := ValidateSecurityWorkflowTasks(valid); len(errs) != 0 {
+		t.Fatalf("valid concat reduction rejected: %v", errs)
+	}
+
+	tests := []struct {
+		name  string
+		tasks []SecurityScanTask
+		field string
+		want  string
+	}{
+		{"unsupported", []SecurityScanTask{{Name: "join", Objective: "join", DependsOn: []string{"a"}, Reduce: "merge", OutputSchema: `{"type":"array"}`}, {Name: "a", Objective: "produce", OutputSchema: `{"type":"array"}`}}, "tasks[0].reduce", "unsupported"},
+		{"no dependencies", []SecurityScanTask{{Name: "join", Objective: "join", Reduce: "concat", OutputSchema: `{"type":"array"}`}}, "tasks[0].reduce", "at least one dependency"},
+		{"no output schema", []SecurityScanTask{{Name: "a", Objective: "produce", OutputSchema: `{"type":"array"}`}, {Name: "join", Objective: "join", DependsOn: []string{"a"}, Reduce: "concat"}}, "tasks[1].reduce", "needs outputSchema"},
+		{"schema-less dependency", []SecurityScanTask{{Name: "a", Objective: "produce"}, {Name: "join", Objective: "join", DependsOn: []string{"a"}, Reduce: "concat", OutputSchema: `{"type":"array"}`}}, "tasks[1].reduce", "must declare outputSchema"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			errs := ValidateSecurityWorkflowTasks(test.tasks)
+			requireFieldError(t, errs, test.field, test.want)
+		})
+	}
+}
+
 func TestValidateSecurityWorkflowTasksAllowsSchemaLessTargetRunsOutputReference(t *testing.T) {
 	tasks := []SecurityScanTask{
 		{Name: "inventory", Objective: "list", OutputSchema: `{"type":"array"}`},

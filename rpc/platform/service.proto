@@ -4557,6 +4557,9 @@ message SecurityScanTaskConfig {
   // when omits the task before AgentRun creation when a dependency's
   // structured-output value does not match.
   SecurityScanTaskCondition when = 19;
+  // reduce performs a controller-side deterministic aggregation instead of
+  // launching an AgentRun. Currently supported: concat.
+  string reduce = 20;
 }
 
 // SecurityScanTaskCondition is a controller-side launch predicate.
@@ -4775,6 +4778,7 @@ message SecurityScanExecutionPlanNode {
   string for_each = 3; // dependency this task fans out over, when set
   int32 target_runs = 4; // snapshotted chunk-mode setting for this execution
   SecurityScanTaskCondition when = 5; // snapshotted launch condition
+  string reduce = 6; // snapshotted deterministic reduction operation
 }
 
 // SecurityScanPostScriptJobState is one durable per-finding post-script

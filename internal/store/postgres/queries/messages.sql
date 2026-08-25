@@ -7,7 +7,7 @@ RETURNING *;
 SELECT * FROM conversation_messages
 WHERE session_id = $1
   AND NOT (COALESCE(metadata, '{}'::jsonb) ? 'overseer_held')
-  AND NOT (role = 'user' AND COALESCE(metadata, '{}'::jsonb) ? 'cancelled_at_unix')
+  AND NOT (role = 'user' AND delivery_state = 'cancelled')
 ORDER BY id ASC;
 
 -- name: GetMessagesIncludingCancelled :many
@@ -20,7 +20,7 @@ ORDER BY id ASC;
 SELECT * FROM conversation_messages
 WHERE session_id = $1 AND id > $2
   AND NOT (COALESCE(metadata, '{}'::jsonb) ? 'overseer_held')
-  AND NOT (role = 'user' AND COALESCE(metadata, '{}'::jsonb) ? 'cancelled_at_unix')
+  AND NOT (role = 'user' AND delivery_state = 'cancelled')
 ORDER BY id ASC;
 
 -- name: GetMessageCount :one
@@ -36,18 +36,19 @@ ORDER BY id DESC
 LIMIT 1;
 
 -- name: PollNewUserMessages :many
+-- Pending delivery_state is authoritative and there is deliberately no scalar
+-- cursor: exact stopped prompts are completed when interrupted, and a cursor
+-- could hide a different pending hole inserted before a later assistant reply.
+-- Candidates come off the (session_id, id) pending partial index; the held
+-- gate is one probe of the overseer_held partial index — a message at or after
+-- the earliest held row (including a held candidate itself) stays invisible
+-- until the overseer releases it.
 SELECT candidate.* FROM conversation_messages AS candidate
 WHERE candidate.session_id = $1 AND candidate.role = 'user'
   AND candidate.delivery_state = 'pending'
-  AND NOT (COALESCE(candidate.metadata, '{}'::jsonb) ? 'cancelled_at_unix')
-  -- Pending state is authoritative. Exact stopped prompts are completed when
-  -- interrupted; a scalar cursor must never hide a different pending hole.
-  AND sqlc.arg(after_id) >= 0
-  AND NOT (COALESCE(candidate.metadata, '{}'::jsonb) ? 'overseer_held')
-  AND NOT EXISTS (
-      SELECT 1 FROM conversation_messages AS held
+  AND candidate.id < COALESCE((
+      SELECT min(held.id) FROM conversation_messages AS held
       WHERE held.session_id = candidate.session_id
-        AND held.id <= candidate.id
         AND COALESCE(held.metadata, '{}'::jsonb) ? 'overseer_held'
-  )
+  ), 9223372036854775807)
 ORDER BY candidate.id ASC;

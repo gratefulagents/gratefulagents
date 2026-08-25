@@ -184,7 +184,7 @@ func TestReservePendingInputResponseIsAtomicAndReplaySafe(t *testing.T) {
 	if err != nil || !accepted || message == nil {
 		t.Fatalf("ReservePendingInputResponse() = (%#v, %v, %v)", message, accepted, err)
 	}
-	if polled, err := s.PollNewUserMessages(ctx, sess.ID, 0); err != nil || len(polled) != 0 {
+	if polled, err := s.PollNewUserMessages(ctx, sess.ID); err != nil || len(polled) != 0 {
 		t.Fatalf("held response was pollable: messages=%#v err=%v", polled, err)
 	}
 	if visible, err := s.GetMessages(ctx, sess.ID); err != nil || len(visible) != 0 {
@@ -194,7 +194,7 @@ func TestReservePendingInputResponseIsAtomicAndReplaySafe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if polled, err := s.PollNewUserMessages(ctx, sess.ID, 0); err != nil || len(polled) != 0 {
+	if polled, err := s.PollNewUserMessages(ctx, sess.ID); err != nil || len(polled) != 0 {
 		t.Fatalf("later message crossed held-response barrier: messages=%#v err=%v", polled, err)
 	}
 
@@ -215,7 +215,7 @@ func TestReservePendingInputResponseIsAtomicAndReplaySafe(t *testing.T) {
 	if err := resolver.ReleasePendingInputResponse(ctx, sess.ID, message.ID, "delivery-1"); err != nil {
 		t.Fatal(err)
 	}
-	if polled, err := s.PollNewUserMessages(ctx, sess.ID, 0); err != nil || len(polled) != 2 || polled[0].ID != message.ID || polled[1].ID != later.ID {
+	if polled, err := s.PollNewUserMessages(ctx, sess.ID); err != nil || len(polled) != 2 || polled[0].ID != message.ID || polled[1].ID != later.ID {
 		t.Fatalf("released response did not preserve message ordering: messages=%#v err=%v", polled, err)
 	}
 }
@@ -286,7 +286,7 @@ func TestConversation(t *testing.T) {
 		t.Fatalf("GetMessagesSince: got %d, want 2", len(since))
 	}
 
-	userMsgs, err := s.PollNewUserMessages(ctx, sess.ID, msg1.ID)
+	userMsgs, err := s.PollNewUserMessages(ctx, sess.ID)
 	if err != nil {
 		t.Fatalf("PollNewUserMessages: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestCancelledReservedResponseIsNotPolled(t *testing.T) {
 	if err := resolver.CancelPendingInputResponse(ctx, sess.ID, message.ID, "cancel-reserved-delivery"); err != nil {
 		t.Fatal(err)
 	}
-	polled, err := state.PollNewUserMessages(ctx, sess.ID, 0)
+	polled, err := state.PollNewUserMessages(ctx, sess.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +413,7 @@ func TestPollPendingPreservesHoleBeforeAssistantCursor(t *testing.T) {
 	}
 	hole, _ := state.AppendMessage(ctx, sess.ID, "user", "queued", json.RawMessage(`{"mode":"enqueue"}`))
 	assistant, _ := state.AppendMessage(ctx, sess.ID, "assistant", "old reply", nil)
-	polled, err := state.PollNewUserMessages(ctx, sess.ID, assistant.ID)
+	polled, err := state.PollNewUserMessages(ctx, sess.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestRecoverClaimedMessagesRespectsStoppedFloor(t *testing.T) {
 	if err := claimer.RecoverClaimedUserMessages(ctx, sess.ID, uuid.New()); err != nil {
 		t.Fatal(err)
 	}
-	pending, err := state.PollNewUserMessages(ctx, sess.ID, stopped.ID)
+	pending, err := state.PollNewUserMessages(ctx, sess.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -735,7 +735,7 @@ func TestAnswerPendingInputIsAtomicAndStaleSafe(t *testing.T) {
 		t.Fatalf("request not consumed: %#v", after)
 	}
 	// The answer is immediately visible to agent polling — no hold phase.
-	polled, err := s.PollNewUserMessages(ctx, sess.ID, 0)
+	polled, err := s.PollNewUserMessages(ctx, sess.ID)
 	if err != nil || len(polled) != 1 || polled[0].Content != "yes do it" {
 		t.Fatalf("answer not pollable: messages=%#v err=%v", polled, err)
 	}
@@ -747,7 +747,7 @@ func TestAnswerPendingInputIsAtomicAndStaleSafe(t *testing.T) {
 	if err != nil || answered {
 		t.Fatalf("stale AnswerPendingInput() = (answered=%v, err=%v), want rejected", answered, err)
 	}
-	if polled, _ := s.PollNewUserMessages(ctx, sess.ID, 0); len(polled) != 1 {
+	if polled, _ := s.PollNewUserMessages(ctx, sess.ID); len(polled) != 1 {
 		t.Fatalf("stale answer inserted a message: %#v", polled)
 	}
 
@@ -828,7 +828,7 @@ func TestRecoverExpiredHeldInputResponsesRestoresRequest(t *testing.T) {
 	if _, err := s.AppendMessage(ctx, sess.ID, "user", "after hold", nil); err != nil {
 		t.Fatal(err)
 	}
-	if polled, _ := s.PollNewUserMessages(ctx, sess.ID, 0); len(polled) != 0 {
+	if polled, _ := s.PollNewUserMessages(ctx, sess.ID); len(polled) != 0 {
 		t.Fatalf("held message did not block polling: %#v", polled)
 	}
 
@@ -851,7 +851,7 @@ func TestRecoverExpiredHeldInputResponsesRestoresRequest(t *testing.T) {
 	if restored.PendingQuestion != "Approve the plan?" || restored.PendingInputType != "plan_review" || restored.PendingRequestID == "" {
 		t.Fatalf("pending request not restored: %#v", restored)
 	}
-	polled, _ := s.PollNewUserMessages(ctx, sess.ID, 0)
+	polled, _ := s.PollNewUserMessages(ctx, sess.ID)
 	if len(polled) != 1 || polled[0].Content != "after hold" {
 		t.Fatalf("recovery must unblock later messages without delivering the hold: %#v", polled)
 	}
@@ -900,54 +900,38 @@ func TestRecoverExpiredHeldInputResponsesKeepsNewerRequest(t *testing.T) {
 	}
 }
 
-func TestSessionEventListenerWakesOnMessageAndInterrupt(t *testing.T) {
-	s := setupTestStore(t)
-	defer s.Close()
-	ctx := context.Background()
-	source, ok := s.(store.SessionEventSource)
-	if !ok {
-		t.Fatal("Postgres store does not implement SessionEventSource")
-	}
-	sess, err := s.CreateSession(ctx, "notify-run", "default", "running", "auto")
+// Migration 057 routes session_interrupts through the 056 change machinery:
+// a stop request must deliver a session_change wake-up hint so the agent's
+// in-turn interrupt watcher cancels within milliseconds instead of waiting
+// out its poll backstop.
+func TestInterruptDeliversSessionChangeWakeup(t *testing.T) {
+	s, _ := setupPGStore(t)
+	ctx := t.Context()
+
+	sess, err := s.CreateSession(ctx, "interrupt-wake-run", "default", "running", "work")
 	if err != nil {
-		t.Fatal(err)
-	}
-	listener, err := source.ListenSession(ctx, sess.ID)
-	if err != nil {
-		t.Fatalf("ListenSession: %v", err)
-	}
-	defer listener.Close()
-
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		_, _ = s.AppendMessage(ctx, sess.ID, "user", "wake", nil)
-	}()
-	if notified, err := listener.Wait(ctx, 5*time.Second); err != nil || !notified {
-		t.Fatalf("Wait(after user append) = (%v, %v), want notified", notified, err)
+		t.Fatalf("CreateSession: %v", err)
 	}
 
-	// Quiet periods time out without error.
-	if notified, err := listener.Wait(ctx, 200*time.Millisecond); err != nil || notified {
-		t.Fatalf("Wait(quiet) = (%v, %v), want timeout", notified, err)
+	s.StartSessionChangeListener(ctx)
+	deadline := time.Now().Add(5 * time.Second)
+	for !s.SessionChangeListenerHealthy() {
+		if time.Now().After(deadline) {
+			t.Fatal("listener never became healthy")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Assistant appends do not wake the agent loop.
-	if _, err := s.AppendMessage(ctx, sess.ID, "assistant", "reply", nil); err != nil {
-		t.Fatal(err)
-	}
-	if notified, err := listener.Wait(ctx, 200*time.Millisecond); err != nil || notified {
-		t.Fatalf("Wait(after assistant append) = (%v, %v), want timeout", notified, err)
+	wake, unsubscribe := s.SubscribeSessionChanges(sess.ID)
+	defer unsubscribe()
+
+	if _, _, err := s.AppendInterrupt(ctx, sess.ID, "user"); err != nil {
+		t.Fatalf("AppendInterrupt: %v", err)
 	}
 
-	interrupts, ok := s.(store.InterruptStore)
-	if !ok {
-		t.Fatal("Postgres store does not implement InterruptStore")
-	}
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		_, _, _ = interrupts.AppendInterrupt(ctx, sess.ID, "user")
-	}()
-	if notified, err := listener.Wait(ctx, 5*time.Second); err != nil || !notified {
-		t.Fatalf("Wait(after interrupt) = (%v, %v), want notified", notified, err)
+	select {
+	case <-wake:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no wake-up hint delivered after an interrupt insert")
 	}
 }

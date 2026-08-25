@@ -11,7 +11,6 @@ import (
 	"log"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,29 +35,28 @@ type Client struct {
 	heldRecoveryMu   sync.Mutex
 	lastHeldRecovery time.Time
 
-	eventMu        sync.Mutex
-	eventChan      chan struct{}
-	eventPumpOn    bool
-	eventListening atomic.Bool
+	eventMu     sync.Mutex
+	eventChan   chan struct{}
+	eventPumpOn bool
 }
 
-const (
-	// notifiedPollFallback is the safety re-poll interval while push wakeups
-	// (LISTEN/NOTIFY) are established. LISTEN dies silently on connection loss
-	// and does not survive transaction-mode poolers, so polling remains the
-	// correctness backstop.
-	notifiedPollFallback = 30 * time.Second
-	// listenerRetryBackoff paces re-establishing a failed LISTEN connection.
-	listenerRetryBackoff = 5 * time.Second
-)
+// notifiedPollFallback is the safety re-poll interval while push wakeups
+// (Postgres session_change LISTEN/NOTIFY hints) are flowing. Hints are lossy
+// by design (dropped across listener reconnects), so polling remains the
+// correctness backstop.
+const notifiedPollFallback = 30 * time.Second
+
+// eventHealthProbeInterval is how often the pump re-checks broker health to
+// detect listener (re)connects while no hints are arriving.
+const eventHealthProbeInterval = time.Second
 
 // SubscribeSessionEvents returns a channel that is closed on the next pushed
-// session event (new user message, released hold, interrupt), or nil when the
-// store cannot push. Callers must grab the channel BEFORE querying the
-// database — listen-then-query cannot miss a wakeup. A nil channel blocks
-// forever in select, which degrades cleanly to pure polling.
+// session event (any committed write to the session or its child tables), or
+// nil when the store cannot push. Callers must grab the channel BEFORE
+// querying the database — listen-then-query cannot miss a wakeup. A nil
+// channel blocks forever in select, which degrades cleanly to pure polling.
 func (c *Client) SubscribeSessionEvents() <-chan struct{} {
-	if _, ok := c.store.(store.SessionEventSource); !ok {
+	if _, ok := c.store.(store.SessionChangeSubscriber); !ok {
 		return nil
 	}
 	c.eventMu.Lock()
@@ -73,9 +71,12 @@ func (c *Client) SubscribeSessionEvents() <-chan struct{} {
 	return c.eventChan
 }
 
-// EventWakeupsActive reports whether the push channel is currently
-// established; pollers may relax their poll interval only while it is.
-func (c *Client) EventWakeupsActive() bool { return c.eventListening.Load() }
+// EventWakeupsActive reports whether push wakeups are currently being
+// delivered; pollers may relax their poll interval only while they are.
+func (c *Client) EventWakeupsActive() bool {
+	sub, ok := c.store.(store.SessionChangeSubscriber)
+	return ok && sub.SessionChangeListenerHealthy()
+}
 
 func (c *Client) broadcastSessionEvent() {
 	c.eventMu.Lock()
@@ -86,37 +87,33 @@ func (c *Client) broadcastSessionEvent() {
 	c.eventChan = make(chan struct{})
 }
 
-// pumpSessionEvents owns the single dedicated LISTEN connection for this
-// process and fans notifications out to every waiter (message loop and
-// interrupt watcher). It runs for the process lifetime: the agent pod hosts
-// exactly one session, and the pod's exit tears the connection down.
+// pumpSessionEvents forwards the store's session-change wake-up hints to
+// every in-process waiter (message loop and interrupt watcher) as a broadcast.
+// It runs for the process lifetime: the agent pod hosts exactly one session.
+//
+// The broker's hints are lossy across LISTEN reconnects and it does not emit
+// a synthetic wake when the connection is (re)established, so this pump also
+// watches the unhealthy→healthy transition and broadcasts once: any event
+// that fired while the listener was down forces one immediate re-poll instead
+// of waiting out the relaxed fallback interval.
 func (c *Client) pumpSessionEvents() {
-	source := c.store.(store.SessionEventSource)
-	ctx := context.Background()
+	sub := c.store.(store.SessionChangeSubscriber)
+	wake, cancel := sub.SubscribeSessionChanges(c.sessionID)
+	defer cancel()
+	probe := time.NewTicker(eventHealthProbeInterval)
+	defer probe.Stop()
+	wasHealthy := false
 	for {
-		listener, err := source.ListenSession(ctx, c.sessionID)
-		if err != nil {
-			log.Printf("WARN: session event listener unavailable, polling only: %v", err)
-			time.Sleep(listenerRetryBackoff)
-			continue
-		}
-		c.eventListening.Store(true)
-		// Wake current waiters once: an event may have fired between their
-		// last query and this LISTEN becoming active.
-		c.broadcastSessionEvent()
-		for {
-			notified, err := listener.Wait(ctx, time.Minute)
-			if err != nil {
-				log.Printf("WARN: session event listener failed, re-establishing: %v", err)
-				c.eventListening.Store(false)
-				listener.Close()
-				break
-			}
-			if notified {
+		select {
+		case <-wake:
+			c.broadcastSessionEvent()
+		case <-probe.C:
+			healthy := sub.SessionChangeListenerHealthy()
+			if healthy && !wasHealthy {
 				c.broadcastSessionEvent()
 			}
+			wasHealthy = healthy
 		}
-		time.Sleep(listenerRetryBackoff)
 	}
 }
 
@@ -412,12 +409,12 @@ func (c *Client) ResumeState(ctx context.Context) (session *store.Session, messa
 	return session, messages, cursor, nil
 }
 
-// PollForUserMessages blocks until any new user messages appear after afterID.
-// Returned messages are ordered by message ID. With a push-capable store
-// (Postgres LISTEN/NOTIFY) new messages wake the loop within milliseconds and
-// pollInterval relaxes to a slow safety backstop; otherwise it polls at
-// pollInterval exactly as before.
-func (c *Client) PollForUserMessages(ctx context.Context, afterID int64, pollInterval time.Duration) ([]UserMessage, error) {
+// PollForUserMessages blocks until any pending user messages appear. Pending
+// delivery state in the store is authoritative; there is no cursor. With a
+// push-capable store (Postgres LISTEN/NOTIFY session_change hints) new
+// messages wake the loop within milliseconds and pollInterval relaxes to a
+// slow safety backstop; otherwise it polls at pollInterval exactly as before.
+func (c *Client) PollForUserMessages(ctx context.Context, pollInterval time.Duration) ([]UserMessage, error) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -428,7 +425,7 @@ func (c *Client) PollForUserMessages(ctx context.Context, afterID int64, pollInt
 		// Subscribe before querying so an event landing between the query and
 		// the wait still wakes us.
 		wake := c.SubscribeSessionEvents()
-		msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID, afterID)
+		msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID)
 		if err != nil {
 			log.Printf("WARN: polling for user messages: %v", err)
 		} else if len(msgs) > 0 {
@@ -453,9 +450,9 @@ func (c *Client) PollForUserMessages(ctx context.Context, afterID int64, pollInt
 	}
 }
 
-// PeekForUserMessages does a non-blocking check for new user messages after afterID.
-func (c *Client) PeekForUserMessages(ctx context.Context, afterID int64) ([]UserMessage, error) {
-	msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID, afterID)
+// PeekForUserMessages does a non-blocking check for pending user messages.
+func (c *Client) PeekForUserMessages(ctx context.Context) ([]UserMessage, error) {
+	msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -677,15 +674,23 @@ func (c *Client) WriteMetrics(ctx context.Context, metrics SessionMetrics) error
 	})
 }
 
-// WriteResult writes the final execution result.
+// WriteResult writes the final execution result. The artifact mirror is
+// written before the terminal phase commits: if it fails, the caller can
+// retry the whole call (every statement is idempotent) instead of ending up
+// with a terminal session that permanently lost its artifact links.
 func (c *Client) WriteResult(ctx context.Context, status, prURL, lastError, activityLogURL, diffURL string) error {
 	if activityLogURL != "" || diffURL != "" {
-		meta, _ := json.Marshal(map[string]string{
+		meta, err := json.Marshal(map[string]string{
 			"activity_log_url": activityLogURL,
 			"diff_url":         diffURL,
 			"pr_url":           prURL,
 		})
-		_, _ = c.store.UpsertArtifact(ctx, c.sessionID, "activity_log", "", activityLogURL, "", meta)
+		if err != nil {
+			return fmt.Errorf("encoding result artifact metadata: %w", err)
+		}
+		if _, err := c.store.UpsertArtifact(ctx, c.sessionID, "activity_log", "", activityLogURL, "", meta); err != nil {
+			return fmt.Errorf("writing result artifact: %w", err)
+		}
 	}
 	phase := "succeeded"
 	if status == "failed" {

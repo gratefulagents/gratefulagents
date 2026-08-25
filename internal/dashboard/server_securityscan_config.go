@@ -1158,6 +1158,7 @@ func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionSt
 			DependsOn:  append([]string(nil), p.DependsOn...),
 			ForEach:    p.ForEach,
 			TargetRuns: p.TargetRuns,
+			Reduce:     p.Reduce,
 		}
 		if p.When != nil {
 			pbNode.When = &platform.SecurityScanTaskCondition{

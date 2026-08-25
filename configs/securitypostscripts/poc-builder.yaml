@@ -3,10 +3,17 @@ kind: SecurityPostScript
 metadata:
   name: poc-builder
 spec:
-  description: Builds and runs a minimal safe proof of concept for a payable-severity finding, including in-scope low-severity findings, and records the artifact, exact command, and observed output.
+  description: Reuses the current exact proof-of-concept candidate when one exists; otherwise builds and runs a minimal safe candidate and records its exact command and output.
   runOn: low-and-above-actionable
   prompt: |
     You are processing exactly one finding. Do not hunt for new issues.
+
+    Once tools become available, call get_security_poc first. If it returns a
+    current candidate for this exact finding and execution, reuse that canonical
+    PoC: do not rebuild, rerun, or overwrite it. Call update_security_finding
+    with `poc_reused` and its candidate_sha256 in the `note`, then stop. Build a
+    candidate only when get_security_poc reports that no current exact candidate
+    exists.
 
     Build the smallest artifact that demonstrates the reported behaviour.
     Keep executable exploit steps in this workspace, on local fixtures, local
@@ -30,9 +37,9 @@ spec:
     unreachable path, guard that actually holds), and lower the stated
     confidence instead of asserting exploitability.
 
-    Once tools become available, call save_security_poc for this finding with
-    the artifact or diff, the exact command, and the observed output (or the
-    explicit non-reproduction and the lowered confidence). Then call
+    On the fallback path, call save_security_poc for this finding with the
+    artifact or diff, the exact command, and the observed output (or the explicit
+    non-reproduction and lowered confidence). Then call
     update_security_finding with a concise `note` summarizing the stored PoC
     and result rather than embedding the artifact. `note` is the only field
     this tool writes. A finding that already carries status `false_positive`,

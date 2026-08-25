@@ -257,7 +257,7 @@ func TestBugBountyAcceptanceGuards(t *testing.T) {
 	var scope triggersv1alpha1.SecurityPostScript
 	readBootstrapAsset(t, "securitypostscripts", "scope-eligibility-check", &scope)
 	prompt := strings.ToLower(strings.Join(strings.Fields(scope.Spec.Prompt), " "))
-	for _, marker := range []string{"attached security program scope snapshot", "eligibility is unknown", "preserve the finding as nonterminal", "program url by itself is provenance only", "must not be fetched", "essential acceptance fact", "untrusted actor-controlled event", "attacker path that is merely unestablished is unknown", "set status `accepted_risk` only for a definitive scope exclusion", "set status `triaged` for eligible or unknown"} {
+	for _, marker := range []string{"attached security program scope snapshot", "eligibility is unknown", "preserve the finding as nonterminal", "program url by itself is provenance only", "must not be fetched", "essential acceptance fact", "untrusted actor-controlled event", "attacker path that is merely unestablished is unknown", "`scope_excluded`", "set status `triaged` for every other disposition", "only an explicit owner decision may set status `accepted_risk`"} {
 		if !strings.Contains(prompt, marker) {
 			t.Errorf("scope eligibility check must contain conservative guard %q", marker)
 		}
@@ -266,7 +266,7 @@ func TestBugBountyAcceptanceGuards(t *testing.T) {
 	var gate triggersv1alpha1.SecurityPostScript
 	readBootstrapAsset(t, "securitypostscripts", "bounty-worthiness-check", &gate)
 	gatePrompt := strings.ToLower(strings.Join(strings.Fields(gate.Spec.Prompt), " "))
-	for _, marker := range []string{"final bounty acceptance gate", "severity is low, medium, high, or critical", "severity alone is never a rejection reason", "complete code trace", "unavailable sandbox validation is inconclusive", "missing evidence", "set status `confirmed` for accepted", "`false_positive` for disproved", "`accepted_risk` for out-of-scope", "`triaged` for inconclusive"} {
+	for _, marker := range []string{"final bounty acceptance gate", "severity is low, medium, high, or critical", "severity alone is never a rejection reason", "complete code trace", "unavailable sandbox validation is inconclusive", "missing evidence", "set status `false_positive` only for `disproved`", "set status `confirmed` for `accepted`", "set status `triaged` when technical validation is not ready", "only an explicit owner decision may set status `accepted_risk`"} {
 		if !strings.Contains(gatePrompt, marker) {
 			t.Errorf("bounty worthiness check must contain final guard %q", marker)
 		}
@@ -328,10 +328,11 @@ func TestPriorArtCheckExcludesKnownAndBotFindableWork(t *testing.T) {
 		}
 	}
 	for _, mapping := range []string{
-		"set status `accepted_risk` for a confirmed known-issue or bot-findable match",
+		"`known_issue`, `bot_findable`, `fixed_release`, `novel`, or `not_ready`",
 		"set status `fixed` when the behaviour is already fixed in the relevant release line",
-		"set status `triaged` for novel or inconclusive",
-		"keep `confirmed` when the finding is already confirmed and novel",
+		"retain `confirmed` when technical evidence already confirms the finding",
+		"set status `triaged` for every other outcome",
+		"only an explicit owner decision may set status `accepted_risk`",
 	} {
 		if !strings.Contains(prompt, mapping) {
 			t.Errorf("prior-art check must state the status mapping %q", mapping)

@@ -159,6 +159,20 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 				add(field+".outputSchema", "task %q outputSchema is outside the supported JSON Schema subset: %v", name, err)
 			}
 		}
+		if task.Reduce != "" {
+			if task.Reduce != "concat" {
+				add(field+".reduce", "task %q uses unsupported reduction %q", name, task.Reduce)
+			}
+			if len(task.DependsOn) == 0 {
+				add(field+".reduce", "task %q reduction needs at least one dependency", name)
+			}
+			if strings.TrimSpace(task.OutputSchema) == "" {
+				add(field+".reduce", "task %q reduction needs outputSchema", name)
+			}
+			if task.When != nil || task.ForEach != "" || task.Repeats > 1 || task.TargetRuns > 0 {
+				add(field+".reduce", "task %q reduction cannot combine with when, forEach, repeats, or targetRuns", name)
+			}
+		}
 		if task.When != nil {
 			if strings.TrimSpace(task.When.Task) == "" {
 				add(field+".when.task", "task %q condition needs a dependency task", name)
@@ -204,6 +218,13 @@ func ValidateSecurityWorkflowTasks(tasks []SecurityScanTask) []SecurityWorkflowF
 				add(field+".dependsOn", "task %q lists dependency %q twice", task.Name, dep)
 			}
 			depSet[dep] = true
+		}
+		if task.Reduce != "" {
+			for _, dep := range task.DependsOn {
+				if ref, known := byName[dep]; known && strings.TrimSpace(ref.OutputSchema) == "" {
+					add(field+".reduce", "task %q reduction dependency %q must declare outputSchema", task.Name, dep)
+				}
+			}
 		}
 		if task.When != nil {
 			ref, known := byName[task.When.Task]

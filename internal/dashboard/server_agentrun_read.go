@@ -440,8 +440,11 @@ func conversationFromMessages(msgs []store.Message, _ string) []*platform.ChatMe
 	out := make([]*platform.ChatMessage, 0, len(msgs))
 	for _, msg := range msgs {
 		// Cancelled messages were withdrawn by the user before the agent
-		// consumed them; they are not part of the conversation.
-		if msg.Role == "user" && sessionclient.UserMessageCancelled(msg.Metadata) {
+		// consumed them; they are not part of the conversation. The typed
+		// delivery_state column is authoritative (migration 036 backfilled
+		// it and an insert trigger maintains it); the metadata check remains
+		// as belt-and-braces for non-Postgres stores.
+		if msg.Role == "user" && (msg.DeliveryState == "cancelled" || sessionclient.UserMessageCancelled(msg.Metadata)) {
 			continue
 		}
 		cm := &platform.ChatMessage{
@@ -457,6 +460,12 @@ func conversationFromMessages(msgs []store.Message, _ string) []*platform.ChatMe
 		}
 		if msg.Role == "user" {
 			mode, deliveredAt := sessionclient.UserMessageStateFromMetadata(msg.Metadata)
+			// The typed claimed_at column is the authoritative delivery
+			// stamp; the metadata mirror is a legacy fallback slated for
+			// removal once no pre-typed writers remain.
+			if msg.ClaimedAt != nil {
+				deliveredAt = msg.ClaimedAt.Unix()
+			}
 			cm.QueueMode = string(mode)
 			cm.DeliveredAtUnix = deliveredAt
 			cm.Pending = (msg.DeliveryState == "pending" || msg.DeliveryState == "" && deliveredAt == 0) && msg.ID != firstUserID

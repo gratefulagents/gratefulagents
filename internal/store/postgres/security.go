@@ -832,6 +832,36 @@ func (s *Store) AddSecurityFindingComment(ctx context.Context, namespace string,
 	return &ev, nil
 }
 
+func (s *Store) RecordSecurityFindingPolicyDisposition(ctx context.Context, namespace string, id uuid.UUID, actor, executionID, disposition, note string) (*store.SecurityFindingEvent, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	detail, err := json.Marshal(map[string]string{
+		"schema_version":     "v1",
+		"execution_id":       strings.TrimSpace(executionID),
+		"policy_disposition": strings.TrimSpace(disposition),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encoding security finding policy disposition: %w", err)
+	}
+	var ev store.SecurityFindingEvent
+	err = s.pool.QueryRow(ctx, `
+		INSERT INTO security_finding_events (finding_id, event_type, actor, note, detail)
+		SELECT f.id, 'policy_disposition', $3, $4, $5
+		FROM security_findings f
+		WHERE f.namespace = $1 AND f.id = $2
+		RETURNING id, finding_id, event_type, actor, note, detail, created_at`,
+		namespace, id, strings.TrimSpace(actor), strings.TrimSpace(note), detail).
+		Scan(&ev.ID, &ev.FindingID, &ev.EventType, &ev.Actor, &ev.Note, &ev.Detail, &ev.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, store.ErrSecurityFindingNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("recording security finding policy disposition: %w", err)
+	}
+	return &ev, nil
+}
+
 // newSecurityFindingSummary returns a summary map pre-seeded with the fixed
 // keys so callers can gate on them even when no findings match.
 func newSecurityFindingSummary() map[string]int32 {

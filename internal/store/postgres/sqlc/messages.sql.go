@@ -91,7 +91,7 @@ const getMessages = `-- name: GetMessages :many
 SELECT id, session_id, role, content, metadata, created_at, delivery_state, claimed_at, delivery_sequence, claim_token FROM conversation_messages
 WHERE session_id = $1
   AND NOT (COALESCE(metadata, '{}'::jsonb) ? 'overseer_held')
-  AND NOT (role = 'user' AND COALESCE(metadata, '{}'::jsonb) ? 'cancelled_at_unix')
+  AND NOT (role = 'user' AND delivery_state = 'cancelled')
 ORDER BY id ASC
 `
 
@@ -168,7 +168,7 @@ const getMessagesSince = `-- name: GetMessagesSince :many
 SELECT id, session_id, role, content, metadata, created_at, delivery_state, claimed_at, delivery_sequence, claim_token FROM conversation_messages
 WHERE session_id = $1 AND id > $2
   AND NOT (COALESCE(metadata, '{}'::jsonb) ? 'overseer_held')
-  AND NOT (role = 'user' AND COALESCE(metadata, '{}'::jsonb) ? 'cancelled_at_unix')
+  AND NOT (role = 'user' AND delivery_state = 'cancelled')
 ORDER BY id ASC
 `
 
@@ -212,27 +212,23 @@ const pollNewUserMessages = `-- name: PollNewUserMessages :many
 SELECT candidate.id, candidate.session_id, candidate.role, candidate.content, candidate.metadata, candidate.created_at, candidate.delivery_state, candidate.claimed_at, candidate.delivery_sequence, candidate.claim_token FROM conversation_messages AS candidate
 WHERE candidate.session_id = $1 AND candidate.role = 'user'
   AND candidate.delivery_state = 'pending'
-  AND NOT (COALESCE(candidate.metadata, '{}'::jsonb) ? 'cancelled_at_unix')
-  -- Pending state is authoritative. Exact stopped prompts are completed when
-  -- interrupted; a scalar cursor must never hide a different pending hole.
-  AND $2 >= 0
-  AND NOT (COALESCE(candidate.metadata, '{}'::jsonb) ? 'overseer_held')
-  AND NOT EXISTS (
-      SELECT 1 FROM conversation_messages AS held
+  AND candidate.id < COALESCE((
+      SELECT min(held.id) FROM conversation_messages AS held
       WHERE held.session_id = candidate.session_id
-        AND held.id <= candidate.id
         AND COALESCE(held.metadata, '{}'::jsonb) ? 'overseer_held'
-  )
+  ), 9223372036854775807)
 ORDER BY candidate.id ASC
 `
 
-type PollNewUserMessagesParams struct {
-	SessionID uuid.UUID   `json:"session_id"`
-	AfterID   interface{} `json:"after_id"`
-}
-
-func (q *Queries) PollNewUserMessages(ctx context.Context, arg PollNewUserMessagesParams) ([]ConversationMessage, error) {
-	rows, err := q.db.Query(ctx, pollNewUserMessages, arg.SessionID, arg.AfterID)
+// Pending delivery_state is authoritative and there is deliberately no scalar
+// cursor: exact stopped prompts are completed when interrupted, and a cursor
+// could hide a different pending hole inserted before a later assistant reply.
+// Candidates come off the (session_id, id) pending partial index; the held
+// gate is one probe of the overseer_held partial index — a message at or after
+// the earliest held row (including a held candidate itself) stays invisible
+// until the overseer releases it.
+func (q *Queries) PollNewUserMessages(ctx context.Context, sessionID uuid.UUID) ([]ConversationMessage, error) {
+	rows, err := q.db.Query(ctx, pollNewUserMessages, sessionID)
 	if err != nil {
 		return nil, err
 	}

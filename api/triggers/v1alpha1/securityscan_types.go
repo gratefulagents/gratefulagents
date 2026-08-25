@@ -606,6 +606,15 @@ type SecurityScanTask struct {
 	// +optional
 	OutputSchema string `json:"outputSchema,omitempty"`
 
+	// reduce performs a controller-side deterministic reduction instead of
+	// creating an AgentRun. "concat" appends dependency outputs in dependsOn
+	// order: array outputs contribute their elements and other JSON values
+	// contribute one element. It is intended only for transport/coverage
+	// tasks that add no security reasoning.
+	// +kubebuilder:validation:Enum=concat
+	// +optional
+	Reduce string `json:"reduce,omitempty"`
+
 	// when conditionally omits this task before an AgentRun is created. The
 	// condition reads a scalar value from a dependency's structured output.
 	// A false condition completes the task with otherwiseOutput, allowing
@@ -1103,6 +1112,10 @@ type SecurityScanExecutionPlanNode struct {
 	// +optional
 	TargetRuns int32 `json:"targetRuns,omitempty"`
 
+	// reduce snapshots the controller-side deterministic reduction operation.
+	// +optional
+	Reduce string `json:"reduce,omitempty"`
+
 	// when snapshots the controller-side launch condition so an in-flight
 	// execution is unaffected by edits to its referenced workflow.
 	// +optional
@@ -1438,7 +1451,8 @@ type SecurityScanBudgetStatus struct {
 
 // Condition types for SecurityScan.
 const (
-	ConditionSecurityScanReady = "Ready"
+	ConditionSecurityScanReady            = "Ready"
+	ConditionSecurityScanCoverageComplete = "CoverageComplete"
 )
 
 // SecurityScanCheckStatus records the most recent GitHub check publish

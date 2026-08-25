@@ -758,6 +758,9 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 			t.Errorf("coverage ledger task %q is missing", name)
 			continue
 		}
+		if task.Reduce != "concat" {
+			t.Errorf("coverage ledger task %q uses reduce %q, want deterministic concat", name, task.Reduce)
+		}
 		var schema struct {
 			MinItems int `json:"minItems"`
 			MaxItems int `json:"maxItems"`

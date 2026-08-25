@@ -902,6 +902,7 @@ spec:
         examined and skipped targets, limitations, and finding fingerprints exactly; do not reinterpret a
         skipped, unsupported, or inconclusive result as examined and do not add findings.
       dependsOn: [evm-protocol-specialist, solana-anchor-specialist, cosmos-cosmwasm-ibc-specialist]
+      reduce: concat
       outputSchema: &coverageLedgerSchema |-
         {"type":"array","minItems":3,"maxItems":3,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
 
@@ -915,6 +916,7 @@ spec:
         {{tasks.sui-move-specialist.output}} into one record per source, preserving every coverage status,
         examined/skipped target, limitation, and finding fingerprint without adding or upgrading findings.
       dependsOn: [substrate-polkadot-xcm-specialist, aptos-move-specialist, sui-move-specialist]
+      reduce: concat
       outputSchema: *coverageLedgerSchema
 
     - name: account-chain-coverage-c
@@ -927,6 +929,7 @@ spec:
         {{tasks.algorand-specialist.output}}, and {{tasks.bitcoin-lightning-specialist.output}} into one record per source, preserving every coverage
         status, examined/skipped target, limitation, and finding fingerprint without adding findings.
       dependsOn: [cairo-starknet-specialist, ton-specialist, algorand-specialist, bitcoin-lightning-specialist]
+      reduce: concat
       outputSchema: |-
         {"type":"array","minItems":4,"maxItems":4,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
 
@@ -940,6 +943,7 @@ spec:
         and {{tasks.economics-mev-governance-specialist.output}} into one record per source, preserving every
         coverage status, examined/skipped target, limitation, and finding fingerprint without adding findings.
       dependsOn: [bridge-l2-zk-specialist, wallet-mpc-cryptography-specialist, economics-mev-governance-specialist]
+      reduce: concat
       outputSchema: *coverageLedgerSchema
 
     - name: account-cross-system-coverage-b
@@ -951,6 +955,7 @@ spec:
         Preserve {{tasks.off-chain-services-specialist.output}} as a one-record coverage ledger. Keep its
         status, examined/skipped targets, limitations, and finding fingerprints exact.
       dependsOn: [off-chain-services-specialist]
+      reduce: concat
       outputSchema: |-
         {"type":"array","minItems":1,"maxItems":1,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
 
@@ -964,6 +969,7 @@ spec:
         {{tasks.account-chain-coverage-c.output}} into one ordered chain coverage ledger without changing any
         record or losing skipped, unsupported, inconclusive, limitation, or fingerprint data.
       dependsOn: [account-chain-coverage-a, account-chain-coverage-b, account-chain-coverage-c]
+      reduce: concat
       outputSchema: |-
         {"type":"array","minItems":10,"maxItems":10,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
 
@@ -977,6 +983,7 @@ spec:
         {{tasks.account-cross-system-coverage-b.output}} into one ordered cross-system coverage ledger without
         changing any record or losing skipped, unsupported, inconclusive, limitation, or fingerprint data.
       dependsOn: [account-cross-system-coverage-a, account-cross-system-coverage-b]
+      reduce: concat
       outputSchema: |-
         {"type":"array","minItems":4,"maxItems":4,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
 
@@ -990,6 +997,7 @@ spec:
         {{tasks.rollup-derivation-da-and-fault-proofs.output}}, and
         {{tasks.transaction-crypto-and-accounting.output}} into exactly three unchanged coverage records.
       dependsOn: [consensus-finality-and-state-transition, rollup-derivation-da-and-fault-proofs, transaction-crypto-and-accounting]
+      reduce: concat
       outputSchema: &domainCoverageSchema |-
         {"type":"array","minItems":3,"maxItems":3,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
 
@@ -1002,6 +1010,7 @@ spec:
         Compact {{tasks.p2p-sync-mempool-and-rpc.output}}, {{tasks.cross-chain-bridge-and-custody.output}},
         and {{tasks.execution-vm-and-host-boundaries.output}} into exactly three unchanged coverage records.
       dependsOn: [p2p-sync-mempool-and-rpc, cross-chain-bridge-and-custody, execution-vm-and-host-boundaries]
+      reduce: concat
       outputSchema: *domainCoverageSchema
 
     - name: account-domain-coverage-c
@@ -1013,6 +1022,7 @@ spec:
         Compact {{tasks.signer-policy-quorum-and-hsm.output}}, {{tasks.key-material-and-operator-secrets.output}},
         and {{tasks.storage-snapshot-reorg-and-concurrency.output}} into exactly three unchanged coverage records.
       dependsOn: [signer-policy-quorum-and-hsm, key-material-and-operator-secrets, storage-snapshot-reorg-and-concurrency]
+      reduce: concat
       outputSchema: *domainCoverageSchema
 
     - name: account-domain-coverage-d
@@ -1024,6 +1034,7 @@ spec:
         Compact {{tasks.native-memory-and-ffi-safety.output}}, {{tasks.genesis-deployment-and-upgrades.output}},
         and {{tasks.dependencies-build-and-release.output}} into exactly three unchanged coverage records.
       dependsOn: [native-memory-and-ffi-safety, genesis-deployment-and-upgrades, dependencies-build-and-release]
+      reduce: concat
       outputSchema: *domainCoverageSchema
 
     - name: account-domain-coverage-ab
@@ -1035,6 +1046,7 @@ spec:
         Merge {{tasks.account-domain-coverage-a.output}} and {{tasks.account-domain-coverage-b.output}} into
         exactly six records without changing statuses, limitations, targets, or fingerprints.
       dependsOn: [account-domain-coverage-a, account-domain-coverage-b]
+      reduce: concat
       outputSchema: &sixDomainCoverageSchema |-
         {"type":"array","minItems":6,"maxItems":6,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
 
@@ -1047,6 +1059,7 @@ spec:
         Merge {{tasks.account-domain-coverage-c.output}} and {{tasks.account-domain-coverage-d.output}} into
         exactly six records without changing statuses, limitations, targets, or fingerprints.
       dependsOn: [account-domain-coverage-c, account-domain-coverage-d]
+      reduce: concat
       outputSchema: *sixDomainCoverageSchema
 
     - name: account-domain-coverage
@@ -1058,6 +1071,7 @@ spec:
         Merge {{tasks.account-domain-coverage-ab.output}} and {{tasks.account-domain-coverage-cd.output}} into
         exactly twelve records without changing statuses, limitations, targets, or fingerprints.
       dependsOn: [account-domain-coverage-ab, account-domain-coverage-cd]
+      reduce: concat
       outputSchema: |-
         {"type":"array","minItems":12,"maxItems":12,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
 

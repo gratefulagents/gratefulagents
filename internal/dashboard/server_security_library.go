@@ -158,6 +158,7 @@ func securityWorkflowTasksFromProto(
 			MaxInstances: t.GetMaxInstances(),
 			TargetRuns:   t.GetTargetRuns(),
 			Repeats:      t.GetRepeats(),
+			Reduce:       strings.TrimSpace(t.GetReduce()),
 		}
 		if t.MaxRetries != nil {
 			retries := t.GetMaxRetries()
@@ -210,6 +211,7 @@ func securityScanTaskToProto(t triggersv1alpha1.SecurityScanTask) *platform.Secu
 		MaxInstances: t.MaxInstances,
 		TargetRuns:   t.TargetRuns,
 		Repeats:      t.Repeats,
+		Reduce:       t.Reduce,
 		SkillRefs:    securityScanTaskSkillRefsToProto(t.SkillRefs),
 	}
 	if t.MaxRetries != nil {

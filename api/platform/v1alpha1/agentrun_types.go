@@ -77,6 +77,14 @@ const (
 // its trigger controller has durably authorized the persisted object.
 const AuthorizationPendingAnnotation = "platform.gratefulagents.dev/authorization-pending"
 
+// InterruptRequestedAnnotation is the CRD fallback channel for a user stop
+// request, carrying the RFC3339 request time. The Postgres session is the
+// primary interrupt channel; the dashboard also writes this annotation so a
+// session-store outage cannot make "Stop" a silent no-op. The runner consumes
+// the request by deleting the annotation, which doubles as the acknowledgment
+// observable by the dashboard.
+const InterruptRequestedAnnotation = "platform.gratefulagents.dev/interrupt-requested-at"
+
 // Overseer annotations carry lifecycle state and the verdict context emitted
 // by an overseer run.
 const (

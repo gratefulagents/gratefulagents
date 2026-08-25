@@ -72,11 +72,20 @@ spec:
         and owner privileges with their holders. When {{params.fork_endpoint_alias}}, {{params.chain_id}},
         {{params.fork_block_number}} or {{params.fork_block_hash}} is unconfigured, set fork_readiness to
         blocked, name each missing input in gaps, and still publish the dossier so source review, builds and
-        the offline Hardhat lane proceed. Publish one structured dossier and report no vulnerabilities here.
+        the offline Hardhat lane proceed.
+
+        Classify the repository evidence for each of the four hunt-lane capabilities as detected,
+        not_detected or inconclusive: signed order/domain/replay lifecycle; settlement extensions,
+        interactions and callbacks; amount, fee, plugin, hook, delegation or farming accounting; and escrow
+        hashlock/timelock state. Emit one capabilities record for each lane with repository-relative evidence.
+        Populate every hunt_lanes boolean conservatively: its flag is true when the matching capability is
+        detected or inconclusive and false only when repository evidence establishes that the entire area is
+        absent. Uncertainty must route to review. Publish one structured dossier and report no vulnerabilities
+        here.
       outputSchema: |-
         {
           "type": "object",
-          "required": ["revision", "release_constraint", "toolchain", "dependency_bootstrap", "build_command", "test_command", "fork_readiness", "components", "gaps"],
+          "required": ["revision", "release_constraint", "toolchain", "dependency_bootstrap", "build_command", "test_command", "fork_readiness", "components", "capabilities", "hunt_lanes", "gaps"],
           "properties": {
             "revision": {"type": "string"},
             "release_tag": {"type": "string", "description": "Latest published tag the program judges against, and whether the revision under test equals it"},
@@ -101,6 +110,30 @@ spec:
                   "decimals": {"type": "string"},
                   "evidence": {"type": "string", "description": "file:line"}
                 }
+              }
+            },
+            "capabilities": {
+              "type": "array",
+              "minItems": 4,
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "required": ["capability", "status", "evidence"],
+                "properties": {
+                  "capability": {"type": "string", "enum": ["signatures-domain-and-replay", "settlement-extensions-and-callbacks", "amount-fee-and-plugin-accounting", "escrow-hashlock-and-timelocks"]},
+                  "status": {"type": "string", "enum": ["detected", "not_detected", "inconclusive"]},
+                  "evidence": {"type": "array", "items": {"type": "string", "description": "Repository-relative file or file:line evidence"}}
+                }
+              }
+            },
+            "hunt_lanes": {
+              "type": "object",
+              "required": ["hunt-signatures-domain-and-replay", "hunt-settlement-extensions-and-callbacks", "hunt-amount-fee-and-plugin-accounting", "hunt-escrow-hashlock-and-timelocks"],
+              "properties": {
+                "hunt-signatures-domain-and-replay": {"type": "boolean"},
+                "hunt-settlement-extensions-and-callbacks": {"type": "boolean"},
+                "hunt-amount-fee-and-plugin-accounting": {"type": "boolean"},
+                "hunt-escrow-hashlock-and-timelocks": {"type": "boolean"}
               }
             },
             "gaps": {"type": "array", "items": {"type": "string"}}
@@ -203,10 +236,18 @@ spec:
         Hunt EIP-712 domain, order-hash and field binding; EOA/ERC-1271 signature validation; nonce, epoch,
         cancellation and expiry state; partial-fill replay; and cross-chain or cross-version replay using
         {{tasks.map-order-lifecycle-and-settlement-invariants.output}}. Compare every fill entry point and report
-        concrete candidates with exact attacker-controlled fields and file:line evidence.
+        concrete candidates with exact attacker-controlled fields and file:line evidence. Return every candidate
+        fingerprint, or an empty finding_fingerprints list when none survives review.
       dependsOn:
         - pin-target-and-toolchain
         - map-order-lifecycle-and-settlement-invariants
+      when:
+        task: pin-target-and-toolchain
+        path: hunt_lanes.hunt-signatures-domain-and-replay
+        equals: "true"
+        otherwiseOutput: '{"lane":"signatures-domain-and-replay","status":"skipped","examined":[],"skipped":["capability absent according to pinned repository evidence"],"limitations":[],"finding_fingerprints":[]}'
+      outputSchema: |-
+        {"type":"object","required":["lane","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"lane":{"const":"signatures-domain-and-replay"},"status":{"type":"string","enum":["examined","skipped","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string","minLength":1}}}}
 
     - name: hunt-settlement-extensions-and-callbacks
       role: vulnerability-hunter
@@ -218,10 +259,18 @@ spec:
         Trace attacker-controlled predicate, extension, interaction, permit and callback calldata through every
         settlement path. Hunt reentrant fill/cancel state, allowance redirection, arbitrary target calls, failed
         callback rollback, maker/taker receiver confusion and resolver privilege bypass. Report only a reachable
-        path tied to the exact target and invariant map; leave PoC construction to validation.
+        path tied to the exact target and invariant map; leave PoC construction to validation. Return every
+        candidate fingerprint, or an empty finding_fingerprints list when none survives review.
       dependsOn:
         - pin-target-and-toolchain
         - map-order-lifecycle-and-settlement-invariants
+      when:
+        task: pin-target-and-toolchain
+        path: hunt_lanes.hunt-settlement-extensions-and-callbacks
+        equals: "true"
+        otherwiseOutput: '{"lane":"settlement-extensions-and-callbacks","status":"skipped","examined":[],"skipped":["capability absent according to pinned repository evidence"],"limitations":[],"finding_fingerprints":[]}'
+      outputSchema: |-
+        {"type":"object","required":["lane","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"lane":{"const":"settlement-extensions-and-callbacks"},"status":{"type":"string","enum":["examined","skipped","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string","minLength":1}}}}
 
     - name: hunt-amount-fee-and-plugin-accounting
       role: vulnerability-hunter
@@ -233,10 +282,18 @@ spec:
         Hunt maker/taker amount calculation, rounding, dust and fee paths plus target-specific plugin, hook,
         delegation and farming share accounting. Check transfer hooks, balance rebases, add/remove cycles, failed
         plugins and alternate token standards. Report concrete invariant breaks and do not force order-book
-        assumptions onto repositories whose scoped module is farming, delegation or token hooks.
+        assumptions onto repositories whose scoped module is farming, delegation or token hooks. Return every
+        candidate fingerprint, or an empty finding_fingerprints list when none survives review.
       dependsOn:
         - pin-target-and-toolchain
         - map-order-lifecycle-and-settlement-invariants
+      when:
+        task: pin-target-and-toolchain
+        path: hunt_lanes.hunt-amount-fee-and-plugin-accounting
+        equals: "true"
+        otherwiseOutput: '{"lane":"amount-fee-and-plugin-accounting","status":"skipped","examined":[],"skipped":["capability absent according to pinned repository evidence"],"limitations":[],"finding_fingerprints":[]}'
+      outputSchema: |-
+        {"type":"object","required":["lane","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"lane":{"const":"amount-fee-and-plugin-accounting"},"status":{"type":"string","enum":["examined","skipped","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string","minLength":1}}}}
 
     - name: hunt-escrow-hashlock-and-timelocks
       role: vulnerability-hunter
@@ -248,10 +305,18 @@ spec:
         For escrow targets, hunt hashlock/secret binding, partial-fill Merkle proofs, source/destination parameter
         agreement, deterministic clone addresses, withdraw/public-withdraw/cancel/rescue window ordering and safety
         deposit accounting. Prove neither party can claim both sides or both principal and deposit. For non-escrow
-        targets record the lane as not applicable rather than manufacturing a generic finding.
+        targets record the lane as not applicable rather than manufacturing a generic finding. Return every
+        candidate fingerprint, or an empty finding_fingerprints list when none survives review.
       dependsOn:
         - pin-target-and-toolchain
         - map-order-lifecycle-and-settlement-invariants
+      when:
+        task: pin-target-and-toolchain
+        path: hunt_lanes.hunt-escrow-hashlock-and-timelocks
+        equals: "true"
+        otherwiseOutput: '{"lane":"escrow-hashlock-and-timelocks","status":"skipped","examined":[],"skipped":["capability absent according to pinned repository evidence"],"limitations":[],"finding_fingerprints":[]}'
+      outputSchema: |-
+        {"type":"object","required":["lane","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"lane":{"const":"escrow-hashlock-and-timelocks"},"status":{"type":"string","enum":["examined","skipped","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string","minLength":1}}}}
 
     - name: validate-candidates-in-harness
       role: exploit-validator
@@ -265,9 +330,14 @@ spec:
         - name: trail-of-bits-variant-analysis
       objective: >-
         In one write-capable run, bootstrap the sandbox, build and calibrate the oracle, then reproduce or kill
-        the candidate findings recorded by the four discovery lanes. Do not originate new vulnerabilities. The full
-        run tool surface remains available and is intentional here: this is the only task that builds and
-        executes code. All execution is local. Never change state on any live, public or third-party
+        the candidate findings recorded by the enabled discovery lanes in
+        {{tasks.hunt-signatures-domain-and-replay.output}},
+        {{tasks.hunt-settlement-extensions-and-callbacks.output}},
+        {{tasks.hunt-amount-fee-and-plugin-accounting.output}} and
+        {{tasks.hunt-escrow-hashlock-and-timelocks.output}}. A skipped lane is an explicit coverage record with
+        no candidates to validate; do not treat it as a clean review or manufacture a verdict for it. Do not
+        originate new vulnerabilities. The full run tool surface remains available and is intentional here: this
+        is the only task that builds and executes code. All execution is local. Never change state on any live, public or third-party
         system, never send a mutating request to a deployed contract, never test against mainnet or a
         public testnet, and never touch a third-party oracle, resolver or protocol deployment; every
         governing program treats that as grounds for a permanent ban.
@@ -321,8 +391,9 @@ spec:
         configuration. A hypothesis without a failing assertion is refuted or untested and may not be
         reported.
 
-        Reconcile every discovery candidate by source and fingerprint. Return exactly one schema-valid verdict per
-        fingerprint, preserve deduplicated aliases, and require identical discovered and validated sets before final
+        Reconcile every candidate from an examined or inconclusive discovery-lane output by source and fingerprint.
+        Return exactly one schema-valid verdict per fingerprint, preserve deduplicated aliases, exclude skipped-lane
+        coverage records from the candidate set, and require identical discovered and validated sets before final
         reporting.
 
         For every broken root cause, call create_security_variant_sweep, apply the referenced variant-analysis skill,

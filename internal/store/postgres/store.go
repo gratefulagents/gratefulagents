@@ -25,6 +25,7 @@ type Store struct {
 	pool         *pgxpool.Pool
 	queries      *sqlc.Queries
 	contentBlobs store.ProjectContentBlobStore
+	changes      sessionChangeBroker
 }
 
 // SetProjectContentBlobStore routes new project-content version bodies to
@@ -36,6 +37,12 @@ func (s *Store) SetProjectContentBlobStore(blobs store.ProjectContentBlobStore) 
 
 // New creates a new Postgres-backed StateStore.
 // dsn is a Postgres connection string (e.g. "postgres://user:pass@host:5432/db").
+//
+// Pool tuning (all optional): POSTGRES_MAX_CONNS and POSTGRES_MIN_CONNS are
+// integers; POSTGRES_MAX_CONN_LIFETIME, POSTGRES_MAX_CONN_IDLE_TIME, and
+// POSTGRES_HEALTHCHECK_PERIOD are Go durations (e.g. "30m", "90s").
+// MaxConnLifetime matters behind load balancers and during failovers, where
+// long-lived connections would otherwise pin a stale backend forever.
 func New(ctx context.Context, dsn string) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -44,6 +51,26 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 	if v := os.Getenv("POSTGRES_MAX_CONNS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.MaxConns = int32(n)
+		}
+	}
+	if v := os.Getenv("POSTGRES_MIN_CONNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.MinConns = int32(n)
+		}
+	}
+	if v := os.Getenv("POSTGRES_MAX_CONN_LIFETIME"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.MaxConnLifetime = d
+		}
+	}
+	if v := os.Getenv("POSTGRES_MAX_CONN_IDLE_TIME"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.MaxConnIdleTime = d
+		}
+	}
+	if v := os.Getenv("POSTGRES_HEALTHCHECK_PERIOD"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			cfg.HealthCheckPeriod = d
 		}
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -327,7 +354,6 @@ func (s *Store) ReleasePendingInputResponse(ctx context.Context, sessionID uuid.
 	if result.RowsAffected() != 1 {
 		return fmt.Errorf("reserved pending input response not found")
 	}
-	notifySessionEvent(ctx, s.pool, sessionID, "message")
 	return nil
 }
 
@@ -458,7 +484,6 @@ func (s *Store) AnswerPendingInput(ctx context.Context, sessionID uuid.UUID, ans
 	if result.RowsAffected() != 1 {
 		return nil, false, fmt.Errorf("pending input request changed while locked")
 	}
-	notifySessionEvent(ctx, tx, sessionID, "message")
 	if err := tx.Commit(ctx); err != nil {
 		return nil, false, fmt.Errorf("committing pending input answer: %w", err)
 	}
@@ -490,7 +515,6 @@ func (s *Store) AppendUserMessageIfActive(ctx context.Context, sessionID uuid.UU
 		}
 		return nil, fmt.Errorf("appending user message to active session: %w", err)
 	}
-	notifySessionEvent(ctx, s.pool, sessionID, "message")
 	return messageFromRow(inserted), nil
 }
 
@@ -596,7 +620,6 @@ func (s *Store) RecoverExpiredHeldInputResponses(ctx context.Context, sessionID 
 		}
 	}
 
-	notifySessionEvent(ctx, tx, sessionID, "message")
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("committing held input recovery: %w", err)
 	}
@@ -627,6 +650,50 @@ func (s *Store) MergeSessionMetadata(ctx context.Context, id uuid.UUID, key stri
 	return nil
 }
 
+// UpdateSessionMetadataSection applies a read-modify-write to one top-level
+// metadata key while holding the session row lock, so two concurrent section
+// updates (for example working-state writers on different goroutines, or an
+// old and a replacement pod overlapping) serialize instead of the last write
+// silently discarding the first. Implements store.MetadataSectionUpdater.
+func (s *Store) UpdateSessionMetadataSection(ctx context.Context, id uuid.UUID, key string, mutate func(json.RawMessage) (json.RawMessage, error)) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning metadata section update: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var raw json.RawMessage
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(metadata, '{}'::jsonb) FROM agent_sessions WHERE id = $1 FOR UPDATE`,
+		id).Scan(&raw); err != nil {
+		return fmt.Errorf("locking session metadata: %w", err)
+	}
+	var metadata map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		return fmt.Errorf("decoding session metadata: %w", err)
+	}
+	encoded, err := mutate(metadata[key])
+	if err != nil {
+		return err
+	}
+	patch, err := json.Marshal(map[string]json.RawMessage{key: encoded})
+	if err != nil {
+		return fmt.Errorf("encoding metadata patch: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE agent_sessions
+		SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+		    updated_at = now()
+		WHERE id = $1`,
+		id, patch); err != nil {
+		return fmt.Errorf("merging session metadata: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing metadata section update: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) AppendInterrupt(ctx context.Context, sessionID uuid.UUID, requestedBy string) (int64, time.Time, error) {
 	var id int64
 	var requestedAt time.Time
@@ -637,7 +704,6 @@ func (s *Store) AppendInterrupt(ctx context.Context, sessionID uuid.UUID, reques
 	if err != nil {
 		return 0, time.Time{}, fmt.Errorf("appending interrupt: %w", err)
 	}
-	notifySessionEvent(ctx, s.pool, sessionID, "interrupt")
 	return id, requestedAt, nil
 }
 
@@ -739,7 +805,6 @@ func (s *Store) ReserveWakeIntent(ctx context.Context, sessionID uuid.UUID, idem
 	if err != nil {
 		return nil, 0, false, fmt.Errorf("recording wake intent: %w", err)
 	}
-	notifySessionEvent(ctx, tx, sessionID, "message")
 	if err := tx.Commit(ctx); err != nil {
 		return nil, 0, false, fmt.Errorf("committing wake intent: %w", err)
 	}
@@ -927,9 +992,6 @@ func (s *Store) AppendMessage(ctx context.Context, sessionID uuid.UUID, role, co
 		}
 		return nil, fmt.Errorf("appending message: %w", err)
 	}
-	if role == "user" {
-		notifySessionEvent(ctx, s.pool, sessionID, "message")
-	}
 	return messageFromRow(row), nil
 }
 
@@ -960,11 +1022,8 @@ func (s *Store) GetMessagesSince(ctx context.Context, sessionID uuid.UUID, after
 	return messagesFromRows(rows), nil
 }
 
-func (s *Store) PollNewUserMessages(ctx context.Context, sessionID uuid.UUID, afterID int64) ([]store.Message, error) {
-	rows, err := s.queries.PollNewUserMessages(ctx, sqlc.PollNewUserMessagesParams{
-		SessionID: sessionID,
-		AfterID:   afterID,
-	})
+func (s *Store) PollNewUserMessages(ctx context.Context, sessionID uuid.UUID) ([]store.Message, error) {
+	rows, err := s.queries.PollNewUserMessages(ctx, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("polling new user messages: %w", err)
 	}
@@ -1375,17 +1434,18 @@ func (s *Store) GetActivityEventsSince(ctx context.Context, sessionID uuid.UUID,
 // pending-input, usage-metadata, and latest-activity changes can update list
 // rows even when the Kubernetes object itself did not change.
 //
-// This runs every watch tick, so it must stay index-only: the MAX(id)
-// subquery descends the (session_id, id) index once per session, and the
-// namespace filter is an explicit SQL branch because the
-// `$1 = ” OR agentrun_ns = $1` form would force a plan that can never use
-// the agentrun_ns index.
+// This runs every watch tick, so it must stay one flat scan of
+// agent_sessions: change_seq (migration 056) is bumped by triggers on every
+// session-row update and on every child-table write, so no per-session
+// subqueries are needed. The namespace filter is an explicit SQL branch
+// because the `$1 = ” OR agentrun_ns = $1` form would force a plan that can
+// never use the agentrun_ns index.
 func (s *Store) GetAgentRunSummaryVersions(ctx context.Context, namespace string) (map[string]string, error) {
 	query := `
 SELECT s.agentrun_ns,
        s.agentrun_name,
        s.updated_at,
-       (SELECT COALESCE(MAX(id), 0) FROM activity_events WHERE session_id = s.id)
+       s.change_seq
 FROM agent_sessions s`
 	var args []any
 	if namespace != "" {
@@ -1401,11 +1461,11 @@ FROM agent_sessions s`
 	for rows.Next() {
 		var runNamespace, runName string
 		var updatedAt time.Time
-		var lastEventID int64
-		if err := rows.Scan(&runNamespace, &runName, &updatedAt, &lastEventID); err != nil {
+		var changeSeq int64
+		if err := rows.Scan(&runNamespace, &runName, &updatedAt, &changeSeq); err != nil {
 			return nil, fmt.Errorf("scanning AgentRun summary version: %w", err)
 		}
-		out[runNamespace+"/"+runName] = fmt.Sprintf("%d|%d", updatedAt.UnixNano(), lastEventID)
+		out[runNamespace+"/"+runName] = fmt.Sprintf("%d|%d", updatedAt.UnixNano(), changeSeq)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("reading AgentRun summary versions: %w", err)
@@ -1413,56 +1473,25 @@ FROM agent_sessions s`
 	return out, nil
 }
 
+// GetSessionFingerprint returns an opaque version string that changes whenever
+// any watch-visible session state changes. It is a single primary-key read:
+// change_seq (migration 056) is bumped by triggers on every agent_sessions
+// update and on every conversation_messages/activity_events/agent_artifacts
+// write — including MarkMessagesDelivered and cancellation, which mutate old
+// message rows in place — so the fingerprint no longer aggregates the
+// transcript and its cost does not grow with history.
 func (s *Store) GetSessionFingerprint(ctx context.Context, sessionID uuid.UUID) (string, error) {
 	var (
-		lastMessageID     int64
-		deliveredCount    int64
-		lastDeliveredAt   int64
-		cancelledCount    int64
-		lastEventID       int64
-		planUpdatedAt     time.Time
-		sessionUpdatedAt  time.Time
-		pendingInputType  string
-		pendingActionsLen int32
+		changeSeq        int64
+		sessionUpdatedAt time.Time
 	)
-	// The conversation component tracks MAX(id) plus the delivered-message
-	// metadata: MarkMessagesDelivered mutates conversation_messages.metadata
-	// in place (no new row, no agent_sessions touch), and watchers must still
-	// observe queued messages flipping to delivered. Cancellations likewise
-	// only touch metadata, so the cancelled count is part of the fingerprint.
-	//
-	// This runs every watch tick (sub-second), so the message aggregates are
-	// computed in one pass over the session's messages (FILTER clauses)
-	// instead of four separate correlated subqueries, and the activity MAX(id)
-	// descends the (session_id, id) index.
 	err := s.pool.QueryRow(ctx,
-		`SELECT
-			m.last_id,
-			m.delivered_count,
-			m.last_delivered_at,
-			m.cancelled_count,
-			(SELECT COALESCE(MAX(id), 0) FROM activity_events WHERE session_id = s.id),
-			(SELECT COALESCE(MAX(updated_at), 'epoch'::timestamptz) FROM agent_artifacts WHERE session_id = s.id AND kind = 'plan'),
-			s.updated_at,
-			s.pending_input_type,
-			LENGTH(s.pending_actions::text)
-		 FROM agent_sessions s
-		 CROSS JOIN LATERAL (
-			SELECT
-				COALESCE(MAX(id), 0) AS last_id,
-				COUNT(*) FILTER (WHERE metadata ? 'delivered_at_unix') AS delivered_count,
-				COALESCE(MAX((metadata->>'delivered_at_unix')::bigint) FILTER (WHERE metadata ? 'delivered_at_unix'), 0) AS last_delivered_at,
-				COUNT(*) FILTER (WHERE metadata ? 'cancelled_at_unix') AS cancelled_count
-			FROM conversation_messages
-			WHERE session_id = s.id
-		 ) m
-		 WHERE s.id = $1`,
-		sessionID).Scan(&lastMessageID, &deliveredCount, &lastDeliveredAt, &cancelledCount, &lastEventID, &planUpdatedAt, &sessionUpdatedAt, &pendingInputType, &pendingActionsLen)
+		`SELECT change_seq, updated_at FROM agent_sessions WHERE id = $1`,
+		sessionID).Scan(&changeSeq, &sessionUpdatedAt)
 	if err != nil {
 		return "", fmt.Errorf("getting session fingerprint: %w", err)
 	}
-	return fmt.Sprintf("%d|%d|%d|%d|%d|%d|%d|%s|%d",
-		lastMessageID, deliveredCount, lastDeliveredAt, cancelledCount, lastEventID, planUpdatedAt.UnixNano(), sessionUpdatedAt.UnixNano(), pendingInputType, pendingActionsLen), nil
+	return fmt.Sprintf("%d|%d", changeSeq, sessionUpdatedAt.UnixNano()), nil
 }
 
 // --- Artifacts ---
