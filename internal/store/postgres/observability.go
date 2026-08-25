@@ -192,13 +192,19 @@ type observabilityToolState struct {
 }
 
 type observabilityAttemptState struct {
-	row     observabilityRowKey
-	model   string
-	failed  bool
-	cost    float64
-	input   int64
-	output  int64
-	latency float64
+	row       observabilityRowKey
+	sessionID uuid.UUID
+	model     string
+	failed    bool
+	cost      float64
+	// repricedUSD is the portion of cost that was estimated at read time
+	// because the producing run recorded no usable price. Run snapshots from
+	// those runs are missing the same amount, so finish() folds it into the
+	// snapshot cost totals as well.
+	repricedUSD float64
+	input       int64
+	output      int64
+	latency     float64
 }
 
 type observabilitySubagentState struct {
@@ -323,6 +329,7 @@ func (a *observabilityAggregator) add(event observabilityEvent) {
 		}
 		key = event.sessionID.String() + "/" + key
 		state := observabilityAttemptFromDetail(row, d)
+		state.sessionID = event.sessionID
 		if current := a.attempts[key]; current == nil || current.row.before(state.row) {
 			a.attempts[key] = state
 		}
@@ -378,6 +385,7 @@ func observabilityAttemptFromDetail(row observabilityRowKey, d map[string]any) *
 	// their persisted token usage at read time. This makes pricing-table fixes
 	// apply to historical observability without rewriting immutable activity
 	// events.
+	var repricedUSD float64
 	if !boolValue(d["cost_known"]) && cost <= 0 && observabilityIsOpenAI(provider, name) {
 		if estimated, known := sdkopenai.EstimateCost(name, agent.Usage{
 			InputTokens:       inputTokens,
@@ -385,17 +393,19 @@ func observabilityAttemptFromDetail(row observabilityRowKey, d map[string]any) *
 			CacheReadTokens:   int64(numberValue(d["cache_read_input_tokens"])),
 			CacheCreateTokens: int64(numberValue(d["cache_creation_input_tokens"])),
 		}); known {
+			repricedUSD = estimated - cost
 			cost = estimated
 		}
 	}
 	return &observabilityAttemptState{
-		row:     row,
-		model:   name,
-		failed:  failed,
-		cost:    cost,
-		input:   inputTokens,
-		output:  outputTokens,
-		latency: numberValue(d["attempt_latency_ms"]),
+		row:         row,
+		model:       name,
+		failed:      failed,
+		cost:        cost,
+		repricedUSD: repricedUSD,
+		input:       inputTokens,
+		output:      outputTokens,
+		latency:     numberValue(d["attempt_latency_ms"]),
 	}
 }
 
@@ -453,6 +463,17 @@ func (a *observabilityAggregator) finish() *store.ObservabilityOverview {
 		b.Totals.GenerationCostUSD += state.cost
 		b.Totals.GenerationInputTokens += state.input
 		b.Totals.GenerationOutputTokens += state.output
+		// An attempt priced at read time was recorded at $0 by its run, so the
+		// run's immutable snapshot cost is missing the same amount. Fold the
+		// correction into the snapshot totals too — but only for runs counted
+		// in this range, so attempts spilling in from earlier sessions do not
+		// inflate a cost their snapshot never contributed.
+		if state.repricedUSD != 0 {
+			if _, ok := a.snapshotSessionIDs[state.sessionID]; ok {
+				a.out.Totals.CostUSD += state.repricedUSD
+				b.Totals.CostUSD += state.repricedUSD
+			}
+		}
 		acc := ensureBreakdown(models, state.model)
 		acc.value.Count++
 		if state.failed {
