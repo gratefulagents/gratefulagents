@@ -225,11 +225,6 @@ func (s *Store) ReservePendingInputResponse(ctx context.Context, sessionID uuid.
 	if deliveryID == "" {
 		return nil, false, fmt.Errorf("pending input response delivery_id is required")
 	}
-	metadata["overseer_held"] = json.RawMessage(`true`)
-	encodedMetadata, err := json.Marshal(metadata)
-	if err != nil {
-		return nil, false, fmt.Errorf("encoding pending input response metadata: %w", err)
-	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -237,8 +232,12 @@ func (s *Store) ReservePendingInputResponse(ctx context.Context, sessionID uuid.
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var currentRequestID string
-	if err := tx.QueryRow(ctx, `SELECT pending_request_id FROM agent_sessions WHERE id = $1 FOR UPDATE`, sessionID).Scan(&currentRequestID); err != nil {
+	var currentRequestID, currentQuestion, currentInputType, currentPhase string
+	var currentActions []byte
+	if err := tx.QueryRow(ctx, `
+		SELECT pending_request_id, pending_question, pending_actions, pending_input_type, phase
+		FROM agent_sessions WHERE id = $1 FOR UPDATE`, sessionID).
+		Scan(&currentRequestID, &currentQuestion, &currentActions, &currentInputType, &currentPhase); err != nil {
 		return nil, false, fmt.Errorf("locking pending input request: %w", err)
 	}
 	if currentRequestID != resolution.RequestID {
@@ -263,6 +262,26 @@ func (s *Store) ReservePendingInputResponse(ctx context.Context, sessionID uuid.
 			return nil, false, fmt.Errorf("committing replayed pending input check: %w", err)
 		}
 		return messageFromRow(existing), true, nil
+	}
+
+	// Snapshot the request being consumed so a reserve that is never released
+	// (controller crash) can be undone by RecoverExpiredHeldInputResponses:
+	// the hold is cancelled and this exact request is restored.
+	metadata["overseer_held"] = json.RawMessage(`true`)
+	snapshot, err := json.Marshal(heldRequestSnapshot{
+		RequestID: currentRequestID,
+		Question:  currentQuestion,
+		Actions:   normalizedActionsJSON(currentActions),
+		InputType: currentInputType,
+		Phase:     currentPhase,
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("encoding held request snapshot: %w", err)
+	}
+	metadata["held_request_snapshot"] = snapshot
+	encodedMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, false, fmt.Errorf("encoding pending input response metadata: %w", err)
 	}
 
 	var inserted sqlc.ConversationMessage
@@ -350,6 +369,234 @@ func (s *Store) ClearPendingInputIfID(ctx context.Context, sessionID uuid.UUID, 
 		return false, fmt.Errorf("clearing exact pending input request: %w", err)
 	}
 	return result.RowsAffected() == 1, nil
+}
+
+// heldRequestSnapshot is the pending input request consumed by a reserved
+// (held) response, embedded in the held message metadata so an expired hold
+// can be undone instead of released.
+type heldRequestSnapshot struct {
+	RequestID string          `json:"request_id"`
+	Question  string          `json:"question"`
+	Actions   json.RawMessage `json:"actions,omitempty"`
+	InputType string          `json:"input_type"`
+	Phase     string          `json:"phase"`
+}
+
+// normalizedActionsJSON returns valid JSON for the pending_actions column
+// value, defaulting to an empty array.
+func normalizedActionsJSON(raw []byte) json.RawMessage {
+	if len(raw) == 0 || !json.Valid(raw) {
+		return json.RawMessage(`[]`)
+	}
+	return json.RawMessage(raw)
+}
+
+// terminalSessionPhases are the agent_sessions.phase values written once a run
+// finishes (sessionclient.WriteResult). Intermediate phases are bootstrap
+// metadata and must not gate message writes.
+const terminalSessionPhaseSQL = `('succeeded', 'failed')`
+
+// AnswerPendingInput atomically verifies the exact pending request nonce,
+// inserts one immediately visible user answer, and consumes the request in a
+// single transaction. answered is false when the request was already consumed
+// or replaced; nothing is inserted in that case. Returns store.ErrSessionEnded
+// when the session reached a terminal phase concurrently.
+func (s *Store) AnswerPendingInput(ctx context.Context, sessionID uuid.UUID, answer store.PendingInputAnswer) (*store.Message, bool, error) {
+	answer.RequestID = strings.TrimSpace(answer.RequestID)
+	answer.Phase = strings.TrimSpace(answer.Phase)
+	answer.Content = strings.TrimSpace(answer.Content)
+	if answer.RequestID == "" || answer.Phase == "" || answer.Content == "" {
+		return nil, false, fmt.Errorf("request ID, phase, and content are required")
+	}
+	metadata := answer.Metadata
+	if len(metadata) == 0 {
+		metadata = json.RawMessage(`{}`)
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("beginning pending input answer transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var currentRequestID, currentPhase string
+	if err := tx.QueryRow(ctx, `
+		SELECT pending_request_id, phase FROM agent_sessions WHERE id = $1 FOR UPDATE`, sessionID).
+		Scan(&currentRequestID, &currentPhase); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, store.ErrSessionNotFound
+		}
+		return nil, false, fmt.Errorf("locking pending input request: %w", err)
+	}
+	if currentPhase == "succeeded" || currentPhase == "failed" {
+		return nil, false, store.ErrSessionEnded
+	}
+	if currentRequestID != answer.RequestID {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, false, fmt.Errorf("committing stale pending input answer check: %w", err)
+		}
+		return nil, false, nil
+	}
+
+	var inserted sqlc.ConversationMessage
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO conversation_messages (session_id, role, content, metadata)
+		VALUES ($1, 'user', $2, $3)
+		RETURNING id, session_id, role, content, metadata, created_at`,
+		sessionID, answer.Content, metadata,
+	).Scan(&inserted.ID, &inserted.SessionID, &inserted.Role, &inserted.Content, &inserted.Metadata, &inserted.CreatedAt); err != nil {
+		return nil, false, fmt.Errorf("recording pending input answer message: %w", err)
+	}
+	result, err := tx.Exec(ctx, `
+		UPDATE agent_sessions
+		SET pending_question = '', pending_actions = '[]', pending_input_type = '', pending_request_id = '', phase = $3
+		WHERE id = $1 AND pending_request_id = $2`, sessionID, answer.RequestID, answer.Phase)
+	if err != nil {
+		return nil, false, fmt.Errorf("consuming answered pending input request: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return nil, false, fmt.Errorf("pending input request changed while locked")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, fmt.Errorf("committing pending input answer: %w", err)
+	}
+	return messageFromRow(inserted), true, nil
+}
+
+// AppendUserMessageIfActive inserts a user message only while the session has
+// not finished, closing the readiness TOCTOU where a run completes between the
+// dashboard's readiness check and the append.
+func (s *Store) AppendUserMessageIfActive(ctx context.Context, sessionID uuid.UUID, content string, metadata json.RawMessage) (*store.Message, error) {
+	if len(metadata) == 0 {
+		metadata = json.RawMessage(`{}`)
+	}
+	var inserted sqlc.ConversationMessage
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO conversation_messages (session_id, role, content, metadata)
+		SELECT s.id, 'user', $2, $3
+		FROM agent_sessions s
+		WHERE s.id = $1 AND s.phase NOT IN `+terminalSessionPhaseSQL+`
+		RETURNING id, session_id, role, content, metadata, created_at`,
+		sessionID, content, metadata,
+	).Scan(&inserted.ID, &inserted.SessionID, &inserted.Role, &inserted.Content, &inserted.Metadata, &inserted.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, store.ErrSessionEnded
+		}
+		if isUniqueViolation(err) {
+			return nil, store.ErrMessageAlreadyExists
+		}
+		return nil, fmt.Errorf("appending user message to active session: %w", err)
+	}
+	return messageFromRow(inserted), nil
+}
+
+// HeldInputRecoveryTimeout is how long a reserved (held) pending input
+// response may stay unreleased before it is treated as abandoned. The normal
+// reserve→release window is seconds; minutes means the controller stopped
+// retrying its decision.
+const HeldInputRecoveryTimeout = 3 * time.Minute
+
+// RecoverExpiredHeldInputResponses undoes reserved pending input responses
+// that were never released nor cancelled. Each expired hold is cancelled and,
+// when the session has no newer pending request, the request consumed at
+// reserve time is restored from its snapshot so it becomes answerable again.
+// Delivering the held content instead would assert controller side effects
+// (mode switches, MCP grants) that may never have been applied.
+func (s *Store) RecoverExpiredHeldInputResponses(ctx context.Context, sessionID uuid.UUID, olderThan time.Duration) (int, error) {
+	if olderThan <= 0 {
+		olderThan = HeldInputRecoveryTimeout
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("beginning held input recovery transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Lock the session row first (matching the reserve lock order) so recovery
+	// cannot interleave with an in-flight reserve/release on the same session.
+	var currentRequestID string
+	if err := tx.QueryRow(ctx, `
+		SELECT pending_request_id FROM agent_sessions WHERE id = $1 FOR UPDATE`, sessionID).
+		Scan(&currentRequestID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, store.ErrSessionNotFound
+		}
+		return 0, fmt.Errorf("locking session for held input recovery: %w", err)
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT id, metadata FROM conversation_messages
+		WHERE session_id = $1
+		  AND COALESCE(metadata, '{}'::jsonb) ? 'overseer_held'
+		  AND created_at < now() - make_interval(secs => $2)
+		ORDER BY id ASC
+		FOR UPDATE`, sessionID, olderThan.Seconds())
+	if err != nil {
+		return 0, fmt.Errorf("finding expired held input responses: %w", err)
+	}
+	type expiredHold struct {
+		id       int64
+		metadata json.RawMessage
+	}
+	var expired []expiredHold
+	for rows.Next() {
+		var hold expiredHold
+		if err := rows.Scan(&hold.id, &hold.metadata); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scanning expired held input response: %w", err)
+		}
+		expired = append(expired, hold)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("iterating expired held input responses: %w", err)
+	}
+	if len(expired) == 0 {
+		return 0, tx.Commit(ctx)
+	}
+
+	for _, hold := range expired {
+		if _, err := tx.Exec(ctx, `
+			UPDATE conversation_messages
+			SET delivery_state = 'cancelled',
+			    metadata = (COALESCE(metadata, '{}'::jsonb) - 'overseer_held') ||
+				jsonb_build_object(
+					'cancelled_at_unix', extract(epoch FROM now())::bigint,
+					'held_expired', true)
+			WHERE id = $1 AND session_id = $2`, hold.id, sessionID); err != nil {
+			return 0, fmt.Errorf("cancelling expired held input response %d: %w", hold.id, err)
+		}
+	}
+
+	// Restore the consumed request from the newest expired hold, but only when
+	// no newer request has been issued since the reserve consumed it.
+	if currentRequestID == "" {
+		var wrapper struct {
+			Snapshot *heldRequestSnapshot `json:"held_request_snapshot"`
+		}
+		newest := expired[len(expired)-1]
+		if err := json.Unmarshal(newest.metadata, &wrapper); err == nil &&
+			wrapper.Snapshot != nil && strings.TrimSpace(wrapper.Snapshot.RequestID) != "" {
+			snap := wrapper.Snapshot
+			phase := strings.TrimSpace(snap.Phase)
+			if phase == "" {
+				phase = "waiting_input"
+			}
+			if _, err := tx.Exec(ctx, `
+				UPDATE agent_sessions
+				SET pending_question = $2, pending_actions = $3, pending_input_type = $4, pending_request_id = $5, phase = $6
+				WHERE id = $1 AND pending_request_id = ''`,
+				sessionID, snap.Question, normalizedActionsJSON(snap.Actions), snap.InputType, snap.RequestID, phase); err != nil {
+				return 0, fmt.Errorf("restoring pending input request from expired hold: %w", err)
+			}
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("committing held input recovery: %w", err)
+	}
+	return len(expired), nil
 }
 
 func (s *Store) UpdateMetadata(ctx context.Context, id uuid.UUID, metadata json.RawMessage) error {

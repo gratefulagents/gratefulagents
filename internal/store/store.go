@@ -30,6 +30,9 @@ var (
 	// referenced AgentRun, e.g. before its first runner episode created one.
 	// Callers use it to distinguish "not provisioned yet" from store outages.
 	ErrSessionNotFound = errors.New("session not found")
+	// ErrSessionEnded is returned when a user message cannot be recorded
+	// because the session reached a terminal phase concurrently.
+	ErrSessionEnded = errors.New("session has ended")
 )
 
 // Session represents a persistent agent session tied to an AgentRun.
@@ -179,6 +182,43 @@ type PendingInputResolver interface {
 // have been committed.
 type PendingInputClearer interface {
 	ClearPendingInputIfID(ctx context.Context, sessionID uuid.UUID, requestID, phase string) (cleared bool, err error)
+}
+
+// PendingInputAnswer is a request-bound user answer. Unlike
+// PendingInputResolution it has no hold phase: the answer message becomes
+// visible to the agent loop in the same transaction that consumes the exact
+// pending request, so there is no reserve/release window to recover from.
+type PendingInputAnswer struct {
+	RequestID string
+	Phase     string
+	Content   string
+	Metadata  json.RawMessage
+}
+
+// PendingInputAnswerer atomically records one user answer for one exact
+// pending input request. It fails closed: if the request nonce no longer
+// matches (already answered, or replaced by a newer question) no message is
+// inserted and answered is false. Interactive surfaces (dashboard) use this
+// so two concurrent clients can never both answer the same request.
+type PendingInputAnswerer interface {
+	AnswerPendingInput(ctx context.Context, sessionID uuid.UUID, answer PendingInputAnswer) (message *Message, answered bool, err error)
+}
+
+// ActiveUserMessageAppender inserts a user message only while the session has
+// not reached a terminal phase, closing the send-readiness TOCTOU between the
+// dashboard's readiness snapshot and the append. Returns ErrSessionEnded when
+// the session finished concurrently.
+type ActiveUserMessageAppender interface {
+	AppendUserMessageIfActive(ctx context.Context, sessionID uuid.UUID, content string, metadata json.RawMessage) (*Message, error)
+}
+
+// HeldInputRecoverer recovers reserved-but-never-released pending input
+// responses (overseer crash between reserve and release). Expired holds are
+// cancelled and, when no newer request exists, the consumed pending request is
+// restored from the snapshot captured at reserve time so the question becomes
+// answerable again instead of head-of-line blocking all later user messages.
+type HeldInputRecoverer interface {
+	RecoverExpiredHeldInputResponses(ctx context.Context, sessionID uuid.UUID, olderThan time.Duration) (recovered int, err error)
 }
 
 // DurableAssistantCommitter idempotently commits one assistant response per

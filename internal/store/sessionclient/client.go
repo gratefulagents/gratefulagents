@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +31,42 @@ type Client struct {
 	runNS       string
 	ownerUserID string // looked up from resource_ownership at init
 	claimToken  uuid.UUID
+
+	heldRecoveryMu   sync.Mutex
+	lastHeldRecovery time.Time
+}
+
+// heldRecoveryInterval throttles the expired-hold sweep that runs alongside
+// message polling. Holds are only considered expired after minutes, so the
+// sweep does not need to run on every poll.
+const heldRecoveryInterval = 30 * time.Second
+
+// maybeRecoverExpiredHolds sweeps reserved-but-abandoned overseer input
+// responses. A stuck hold head-of-line blocks every later user message from
+// PollNewUserMessages, and the agent is the party guaranteed to be alive when
+// that matters, so the recovery runs on the polling path (throttled).
+func (c *Client) maybeRecoverExpiredHolds(ctx context.Context) {
+	recoverer, ok := c.store.(store.HeldInputRecoverer)
+	if !ok {
+		return
+	}
+	c.heldRecoveryMu.Lock()
+	if time.Since(c.lastHeldRecovery) < heldRecoveryInterval {
+		c.heldRecoveryMu.Unlock()
+		return
+	}
+	c.lastHeldRecovery = time.Now()
+	c.heldRecoveryMu.Unlock()
+	recovered, err := recoverer.RecoverExpiredHeldInputResponses(ctx, c.sessionID, 0)
+	if err != nil {
+		log.Printf("WARN: recovering expired held input responses: %v", err)
+		return
+	}
+	if recovered > 0 {
+		log.Printf("Recovered %d expired held input response(s); the consumed pending request was restored", recovered)
+		_ = c.WriteActivity(ctx, "held_input_recovered",
+			fmt.Sprintf("Recovered %d stuck supervised input response(s); the pending request is answerable again", recovered), nil)
+	}
 }
 
 type UserMessageMode string
@@ -299,6 +336,7 @@ func (c *Client) PollForUserMessages(ctx context.Context, afterID int64, pollInt
 		return nil, ctx.Err()
 	default:
 	}
+	c.maybeRecoverExpiredHolds(ctx)
 	msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID, afterID)
 	if err != nil {
 		log.Printf("WARN: polling for user messages: %v", err)
@@ -315,6 +353,7 @@ func (c *Client) PollForUserMessages(ctx context.Context, afterID int64, pollInt
 		case <-ticker.C:
 		}
 
+		c.maybeRecoverExpiredHolds(ctx)
 		msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID, afterID)
 		if err != nil {
 			log.Printf("WARN: polling for user messages: %v", err)
