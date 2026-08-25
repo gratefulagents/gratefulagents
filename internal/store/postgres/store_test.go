@@ -705,7 +705,7 @@ func TestSessionTranscripts(t *testing.T) {
 
 func TestAnswerPendingInputIsAtomicAndStaleSafe(t *testing.T) {
 	s := setupTestStore(t)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	ctx := context.Background()
 	answerer, ok := s.(store.PendingInputAnswerer)
 	if !ok {
@@ -768,7 +768,7 @@ func TestAnswerPendingInputIsAtomicAndStaleSafe(t *testing.T) {
 
 func TestAppendUserMessageIfActiveRefusesEndedSession(t *testing.T) {
 	s := setupTestStore(t)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	ctx := context.Background()
 	appender, ok := s.(store.ActiveUserMessageAppender)
 	if !ok {
@@ -794,7 +794,7 @@ func TestAppendUserMessageIfActiveRefusesEndedSession(t *testing.T) {
 
 func TestRecoverExpiredHeldInputResponsesRestoresRequest(t *testing.T) {
 	s := setupTestStore(t)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	ctx := context.Background()
 	resolver := s.(store.PendingInputResolver)
 	recoverer, ok := s.(store.HeldInputRecoverer)
@@ -863,7 +863,7 @@ func TestRecoverExpiredHeldInputResponsesRestoresRequest(t *testing.T) {
 
 func TestRecoverExpiredHeldInputResponsesKeepsNewerRequest(t *testing.T) {
 	s := setupTestStore(t)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	ctx := context.Background()
 	resolver := s.(store.PendingInputResolver)
 	recoverer := s.(store.HeldInputRecoverer)

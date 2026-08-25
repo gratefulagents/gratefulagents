@@ -132,7 +132,7 @@ func stalePendingRequestError() *connect.Error {
 
 func sessionEndedError() *connect.Error {
 	return connect.NewError(connect.CodeFailedPrecondition,
-		errors.New("Run has ended. Retry the run to send another message."))
+		errors.New("run has ended; retry the run to send another message"))
 }
 
 // checkRequestedPendingID rejects answers explicitly bound (via
