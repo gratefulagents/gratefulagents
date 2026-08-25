@@ -14,6 +14,11 @@ const (
 	// probeSummaryVersionsTTL caches per-namespace AgentRun summary versions
 	// (WatchAgentRuns ticks every 2s per open fleet page).
 	probeSummaryVersionsTTL = 1 * time.Second
+	// probeAgentRunListTTL caches the per-namespace AgentRun list snapshot
+	// shared by all WatchAgentRuns streams. Listing deep-copies the entire
+	// cached fleet, so sharing one snapshot keeps allocation cost at ~one
+	// copy per TTL window instead of one per open fleet page per tick.
+	probeAgentRunListTTL = 1 * time.Second
 	// probeFingerprintTTL caches per-session fingerprints (WatchAgentRun
 	// ticks every 500ms per open run view).
 	probeFingerprintTTL = 300 * time.Millisecond

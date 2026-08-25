@@ -36,6 +36,7 @@ import (
 	agentsandboxv1alpha1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
 	agentsandboxextensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -208,6 +209,14 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "cbb5f74f.gratefulagents.dev",
+		// Strip managedFields before objects enter the shared informer
+		// cache. The controller retains every AgentRun, pod, and sandbox
+		// object in memory; managedFields routinely account for a large
+		// fraction of each object's bytes and nothing in this process reads
+		// them.
+		Cache: cache.Options{
+			DefaultTransform: cache.TransformStripManagedFields(),
+		},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
