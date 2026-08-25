@@ -196,6 +196,26 @@ type MessageClaimer interface {
 	RecoverClaimedUserMessages(ctx context.Context, sessionID uuid.UUID, activeClaimToken uuid.UUID) error
 }
 
+// MetadataSectionUpdater is an optional StateStore extension that applies a
+// read-modify-write to one top-level session metadata key under a session row
+// lock, so concurrent updates of the same section cannot lose each other's
+// writes. mutate receives the current raw JSON value of the key (nil when
+// absent) and returns the replacement value.
+type MetadataSectionUpdater interface {
+	UpdateSessionMetadataSection(ctx context.Context, id uuid.UUID, key string, mutate func(json.RawMessage) (json.RawMessage, error)) error
+}
+
+// SessionChangeSubscriber is an optional StateStore extension that delivers
+// wake-up hints when a session (or any of its child rows) changes, backed by
+// Postgres LISTEN/NOTIFY. Hints are lossy and carry no data: subscribers must
+// keep polling and treat a wake-up purely as a reason to poll sooner. When
+// the listener is unhealthy no hints arrive and pollers should use their fast
+// interval.
+type SessionChangeSubscriber interface {
+	SubscribeSessionChanges(sessionID uuid.UUID) (wake <-chan struct{}, cancel func())
+	SessionChangeListenerHealthy() bool
+}
+
 // InterruptStore persists interrupts as append-only rows so concurrent stop
 // requests cannot overwrite one another.
 type InterruptStore interface {
@@ -245,7 +265,12 @@ type StateStore interface {
 	// GetMessagesIncludingCancelled includes cancelled user messages for queue-history surfaces.
 	GetMessagesIncludingCancelled(ctx context.Context, sessionID uuid.UUID) ([]Message, error)
 	GetMessagesSince(ctx context.Context, sessionID uuid.UUID, afterID int64) ([]Message, error)
-	PollNewUserMessages(ctx context.Context, sessionID uuid.UUID, afterID int64) ([]Message, error)
+	// PollNewUserMessages returns every user message that is still pending
+	// delivery and not gated behind an overseer hold. There is deliberately
+	// no cursor parameter: pending delivery_state is authoritative, and a
+	// scalar cursor could hide a pending hole inserted before a later
+	// assistant reply.
+	PollNewUserMessages(ctx context.Context, sessionID uuid.UUID) ([]Message, error)
 	// MarkMessagesDelivered records that the agent loop consumed the given
 	// user messages, stamping delivered_at_unix into each message's metadata.
 	MarkMessagesDelivered(ctx context.Context, sessionID uuid.UUID, messageIDs []int64) error

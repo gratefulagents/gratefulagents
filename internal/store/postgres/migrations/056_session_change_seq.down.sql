@@ -1,0 +1,12 @@
+DROP INDEX IF EXISTS idx_conversation_messages_overseer_held;
+DROP TRIGGER IF EXISTS agent_artifacts_update_bump_change_seq ON agent_artifacts;
+DROP TRIGGER IF EXISTS agent_artifacts_insert_bump_change_seq ON agent_artifacts;
+DROP TRIGGER IF EXISTS activity_events_insert_bump_change_seq ON activity_events;
+DROP TRIGGER IF EXISTS conversation_messages_update_bump_change_seq ON conversation_messages;
+DROP TRIGGER IF EXISTS conversation_messages_insert_bump_change_seq ON conversation_messages;
+DROP FUNCTION IF EXISTS session_children_bump_change_seq();
+DROP TRIGGER IF EXISTS agent_sessions_notify_change_on_update ON agent_sessions;
+DROP FUNCTION IF EXISTS agent_sessions_notify_change();
+DROP TRIGGER IF EXISTS agent_sessions_bump_change_seq_on_update ON agent_sessions;
+DROP FUNCTION IF EXISTS agent_sessions_bump_change_seq();
+ALTER TABLE agent_sessions DROP COLUMN IF EXISTS change_seq;

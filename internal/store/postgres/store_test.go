@@ -167,7 +167,7 @@ func TestReservePendingInputResponseIsAtomicAndReplaySafe(t *testing.T) {
 	if err != nil || !accepted || message == nil {
 		t.Fatalf("ReservePendingInputResponse() = (%#v, %v, %v)", message, accepted, err)
 	}
-	if polled, err := s.PollNewUserMessages(ctx, sess.ID, 0); err != nil || len(polled) != 0 {
+	if polled, err := s.PollNewUserMessages(ctx, sess.ID); err != nil || len(polled) != 0 {
 		t.Fatalf("held response was pollable: messages=%#v err=%v", polled, err)
 	}
 	if visible, err := s.GetMessages(ctx, sess.ID); err != nil || len(visible) != 0 {
@@ -177,7 +177,7 @@ func TestReservePendingInputResponseIsAtomicAndReplaySafe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if polled, err := s.PollNewUserMessages(ctx, sess.ID, 0); err != nil || len(polled) != 0 {
+	if polled, err := s.PollNewUserMessages(ctx, sess.ID); err != nil || len(polled) != 0 {
 		t.Fatalf("later message crossed held-response barrier: messages=%#v err=%v", polled, err)
 	}
 
@@ -198,7 +198,7 @@ func TestReservePendingInputResponseIsAtomicAndReplaySafe(t *testing.T) {
 	if err := resolver.ReleasePendingInputResponse(ctx, sess.ID, message.ID, "delivery-1"); err != nil {
 		t.Fatal(err)
 	}
-	if polled, err := s.PollNewUserMessages(ctx, sess.ID, 0); err != nil || len(polled) != 2 || polled[0].ID != message.ID || polled[1].ID != later.ID {
+	if polled, err := s.PollNewUserMessages(ctx, sess.ID); err != nil || len(polled) != 2 || polled[0].ID != message.ID || polled[1].ID != later.ID {
 		t.Fatalf("released response did not preserve message ordering: messages=%#v err=%v", polled, err)
 	}
 }
@@ -269,7 +269,7 @@ func TestConversation(t *testing.T) {
 		t.Fatalf("GetMessagesSince: got %d, want 2", len(since))
 	}
 
-	userMsgs, err := s.PollNewUserMessages(ctx, sess.ID, msg1.ID)
+	userMsgs, err := s.PollNewUserMessages(ctx, sess.ID)
 	if err != nil {
 		t.Fatalf("PollNewUserMessages: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestCancelledReservedResponseIsNotPolled(t *testing.T) {
 	if err := resolver.CancelPendingInputResponse(ctx, sess.ID, message.ID, "cancel-reserved-delivery"); err != nil {
 		t.Fatal(err)
 	}
-	polled, err := state.PollNewUserMessages(ctx, sess.ID, 0)
+	polled, err := state.PollNewUserMessages(ctx, sess.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestPollPendingPreservesHoleBeforeAssistantCursor(t *testing.T) {
 	}
 	hole, _ := state.AppendMessage(ctx, sess.ID, "user", "queued", json.RawMessage(`{"mode":"enqueue"}`))
 	assistant, _ := state.AppendMessage(ctx, sess.ID, "assistant", "old reply", nil)
-	polled, err := state.PollNewUserMessages(ctx, sess.ID, assistant.ID)
+	polled, err := state.PollNewUserMessages(ctx, sess.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +427,7 @@ func TestRecoverClaimedMessagesRespectsStoppedFloor(t *testing.T) {
 	if err := claimer.RecoverClaimedUserMessages(ctx, sess.ID, uuid.New()); err != nil {
 		t.Fatal(err)
 	}
-	pending, err := state.PollNewUserMessages(ctx, sess.ID, stopped.ID)
+	pending, err := state.PollNewUserMessages(ctx, sess.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

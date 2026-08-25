@@ -118,7 +118,7 @@ func (s *metadataTestStore) GetMessagesSince(_ context.Context, _ uuid.UUID, aft
 	return out, nil
 }
 
-func (s *metadataTestStore) PollNewUserMessages(context.Context, uuid.UUID, int64) ([]store.Message, error) {
+func (s *metadataTestStore) PollNewUserMessages(context.Context, uuid.UUID) ([]store.Message, error) {
 	s.pollCalls++
 	return append([]store.Message(nil), s.pollMessages...), nil
 }
@@ -633,7 +633,7 @@ func TestPollForUserMessagesChecksImmediately(t *testing.T) {
 	client := &Client{store: testStore, sessionID: sessionID}
 
 	start := time.Now()
-	msgs, err := client.PollForUserMessages(context.Background(), 0, time.Hour)
+	msgs, err := client.PollForUserMessages(context.Background(), time.Hour)
 	if err != nil {
 		t.Fatalf("PollForUserMessages() error = %v", err)
 	}

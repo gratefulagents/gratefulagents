@@ -77,7 +77,7 @@ func (m *recordingStateStore) GetMessagesIncludingCancelled(context.Context, uui
 func (m *recordingStateStore) GetMessagesSince(context.Context, uuid.UUID, int64) ([]store.Message, error) {
 	panic("unexpected call")
 }
-func (m *recordingStateStore) PollNewUserMessages(context.Context, uuid.UUID, int64) ([]store.Message, error) {
+func (m *recordingStateStore) PollNewUserMessages(context.Context, uuid.UUID) ([]store.Message, error) {
 	panic("unexpected call")
 }
 func (m *recordingStateStore) MarkMessagesDelivered(context.Context, uuid.UUID, []int64) error {

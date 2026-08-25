@@ -67,7 +67,7 @@ func (s *planToolStore) GetMessagesIncludingCancelled(ctx context.Context, sessi
 func (s *planToolStore) GetMessagesSince(context.Context, uuid.UUID, int64) ([]store.Message, error) {
 	return nil, nil
 }
-func (s *planToolStore) PollNewUserMessages(context.Context, uuid.UUID, int64) ([]store.Message, error) {
+func (s *planToolStore) PollNewUserMessages(context.Context, uuid.UUID) ([]store.Message, error) {
 	return nil, nil
 }
 func (s *planToolStore) MarkMessagesDelivered(context.Context, uuid.UUID, []int64) error {

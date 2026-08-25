@@ -275,6 +275,14 @@ func main() {
 				}
 			}
 		}()
+		// Live-watch wake-up hints (LISTEN session_change): optional, lossy,
+		// and self-reconnecting. Watch streams poll faster when it is down.
+		s.StartSessionChangeListener(context.Background())
+		// Retention sweeps: expired SDK durable runs (opt-in retain_until per
+		// run) always; terminal-session activity events only when
+		// SESSION_ACTIVITY_RETENTION_DAYS is set. Batch-limited and
+		// idempotent, so running on every replica is safe.
+		s.StartSessionRetentionWorker(context.Background(), pgstore.SessionRetentionPolicyFromEnv(), 10*time.Minute, 0)
 		sharedStateStore = s
 		setupLog.Info("Connected to Postgres for message routing (migrations applied)")
 	} else {

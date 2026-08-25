@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/gratefulagents/gratefulagents/internal/store"
 )
 
 const (
@@ -226,6 +228,16 @@ func (c *Client) readMetadataObject(ctx context.Context) (map[string]json.RawMes
 }
 
 func (c *Client) updateMetadataSection(ctx context.Context, key string, mutate func(json.RawMessage) (json.RawMessage, error)) error {
+	// Prefer the locked read-modify-write: it serializes concurrent updates
+	// of the same section under the session row lock, so overlapping writers
+	// (goroutines in one pod, or an old and a replacement pod) cannot lose
+	// each other's writes.
+	if updater, ok := c.store.(store.MetadataSectionUpdater); ok {
+		if err := updater.UpdateSessionMetadataSection(ctx, c.sessionID, key, mutate); err != nil {
+			return fmt.Errorf("updating session metadata %q: %w", key, err)
+		}
+		return nil
+	}
 	metadata, err := c.readMetadataObject(ctx)
 	if err != nil {
 		return err

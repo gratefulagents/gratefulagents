@@ -619,7 +619,7 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	// runs may be preserving a question, approval, or other pending boundary.
 	// If either state cannot be inspected, fail safe by leaving the run active;
 	// the normal polling loop below will retry the queue read.
-	startupMessages, startupErr := sc.PeekForUserMessages(ctx, pgCursor)
+	startupMessages, startupErr := sc.PeekForUserMessages(ctx)
 	if shouldPublishStartupIdle(resumeSession, resumeErr, startupMessages, startupErr) {
 		if err := sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputIdle, "", nil); err != nil {
 			return runResult{Status: "failed", Error: fmt.Sprintf("writing idle status: %v", err)}
@@ -761,7 +761,7 @@ messageLoop:
 				// steering at the boundary can receive a fresh autonomous budget.
 				// Non-blocking check: has the user sent a message (including /stop)?
 				if autoLoopCount > 1 { // Skip first iteration — that's the initial prompt.
-					if peeked, peekErr := sc.PeekForUserMessages(ctx, pgCursor); peekErr == nil && len(peeked) > 0 {
+					if peeked, peekErr := sc.PeekForUserMessages(ctx); peekErr == nil && len(peeked) > 0 {
 						nextMsg, ok, skipCursor, immediate := nextPendingUserMessage(peeked, handledImmediate)
 						if skipCursor > pgCursor {
 							pgCursor = skipCursor
@@ -1840,7 +1840,7 @@ func waitForNextUserReply(
 ) (sessionclient.UserMessage, int64, error) {
 	cursor := afterID
 	for {
-		messages, err := sc.PollForUserMessages(ctx, cursor, pollInterval)
+		messages, err := sc.PollForUserMessages(ctx, pollInterval)
 		if err != nil {
 			return sessionclient.UserMessage{}, cursor, err
 		}
@@ -1882,7 +1882,7 @@ func pollImmediateInputs(
 	afterID int64,
 	handledImmediate map[int64]struct{},
 ) ([]agent.RunItem, int64, error) {
-	messages, err := sc.PeekForUserMessages(ctx, afterID)
+	messages, err := sc.PeekForUserMessages(ctx)
 	if err != nil {
 		return nil, afterID, err
 	}
