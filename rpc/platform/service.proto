@@ -1067,6 +1067,10 @@ message UserInputRequest {
   string message = 2;
   // Actions are optional structured choices/buttons.
   repeated QuickAction actions = 3;
+  // RequestID is the immutable nonce of this input request. Clients echo it
+  // back as SendAgentRunMessageRequest.pending_request_id so an answer binds
+  // to this exact question and stale answers are rejected.
+  string request_id = 4;
 }
 
 message TokenUsage {
@@ -1351,6 +1355,12 @@ message SendAgentRunMessageRequest {
   // bounded set of representative JPEG frames before delivering the message
   // to the vision model; the original video is not sent to the model.
   repeated string video_data_urls = 6;
+  // pending_request_id binds this message to the exact pending user-input
+  // request the client is answering (UserInputRequest.request_id). When set,
+  // the server rejects the message if that request was already answered or
+  // replaced, so a stale tab cannot answer a newer question. When empty the
+  // message is treated as generic input (legacy clients).
+  string pending_request_id = 7;
 }
 
 message SendAgentRunMessageResponse {}

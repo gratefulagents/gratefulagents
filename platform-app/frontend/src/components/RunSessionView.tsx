@@ -331,6 +331,15 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   const showInputBanner = isActionableInputType(pendingInputType) || pendingInputType === "circuit_breaker";
   const pendingActions: QuickAction[] = (userInputRequest?.actions ?? run?.pendingActions ?? []).map(mapPendingAction);
   const pendingBanner = pendingBannerConfig[pendingInputType] ?? pendingBannerConfig.question;
+  // The request nonce of a question/approval currently displayed to the user.
+  // Sent with answers so the server rejects them if the question was already
+  // answered elsewhere or replaced. Idle/stopped/circuit-breaker requests are
+  // not questions, so freeform replies to them stay unbound (plain steering).
+  const answerablePendingRequestId =
+    userInputRequest?.type &&
+    !["idle", "stopped", "circuit_breaker"].includes(userInputRequest.type)
+      ? userInputRequest.requestId || ""
+      : "";
   const runCostUsd = parseUsd(run?.costUsd);
   const displayCostUsd = sessionMetrics?.hasCost ? sessionMetrics.costUsd : runCostUsd;
 
@@ -587,6 +596,11 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
         messageMode: sendMode,
         imageDataUrls: attachments.dataUrls(),
         videoDataUrls: attachments.videoDataUrls(),
+        // Bind the reply to the exact question being displayed so a stale tab
+        // cannot answer a prompt that was already answered or replaced. Idle
+        // and stopped requests are not questions; replies to them are plain
+        // steering input and stay unbound.
+        pendingRequestId: answerablePendingRequestId,
       });
       setReply("");
       attachments.clear();
@@ -653,7 +667,14 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
       const message = trimmedFreeform
         ? `${messageForQuickAction(action)} ${trimmedFreeform}`
         : messageForQuickAction(action);
-      await client.sendAgentRunMessage({ namespace, name, message });
+      // Action buttons always answer the exact request that offered them; a
+      // stale tab must not resolve a newer question with an old button.
+      await client.sendAgentRunMessage({
+        namespace,
+        name,
+        message,
+        pendingRequestId: userInputRequest?.requestId || "",
+      });
     } catch (e) {
       toast.error("Couldn't send action", {
         description: e instanceof Error ? e.message : String(e),

@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,6 +41,22 @@ func setupTestStore(t *testing.T) store.StateStore {
 	}
 
 	return pgstore.NewFromPool(pool)
+}
+
+// testPool opens a raw pool for tests that need to manipulate rows directly
+// (e.g. backdating timestamps).
+func testPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set, skipping integration test")
+	}
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("connecting to test db: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
 }
 
 func TestSessionLifecycle(t *testing.T) {
@@ -683,5 +700,238 @@ func TestSessionTranscripts(t *testing.T) {
 	// Deleting an absent row is a no-op, not an error.
 	if err := s.DeleteSessionTranscript(ctx, sess.ID); err != nil {
 		t.Fatalf("DeleteSessionTranscript (absent): %v", err)
+	}
+}
+
+func TestAnswerPendingInputIsAtomicAndStaleSafe(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { _ = s.Close() }()
+	ctx := context.Background()
+	answerer, ok := s.(store.PendingInputAnswerer)
+	if !ok {
+		t.Fatal("Postgres store does not implement PendingInputAnswerer")
+	}
+	sess, err := s.CreateSession(ctx, "answer-run", "default", "running", "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPendingAction(ctx, sess.ID, "waiting_input", "Choose?", json.RawMessage(`[{"id":"approve","label":"Approve"}]`), "question"); err != nil {
+		t.Fatal(err)
+	}
+	pending, _ := s.GetSession(ctx, sess.ID)
+	if pending.PendingRequestID == "" {
+		t.Fatal("pending request ID missing")
+	}
+
+	msg, answered, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
+		RequestID: pending.PendingRequestID, Phase: "running", Content: "yes do it",
+		Metadata: json.RawMessage(`{"mode":"enqueue"}`),
+	})
+	if err != nil || !answered || msg == nil {
+		t.Fatalf("AnswerPendingInput() = (%#v, %v, %v)", msg, answered, err)
+	}
+	after, _ := s.GetSession(ctx, sess.ID)
+	if after.PendingRequestID != "" || after.PendingQuestion != "" || after.PendingInputType != "" {
+		t.Fatalf("request not consumed: %#v", after)
+	}
+	// The answer is immediately visible to agent polling — no hold phase.
+	polled, err := s.PollNewUserMessages(ctx, sess.ID)
+	if err != nil || len(polled) != 1 || polled[0].Content != "yes do it" {
+		t.Fatalf("answer not pollable: messages=%#v err=%v", polled, err)
+	}
+
+	// A second answer bound to the same (now consumed) request inserts nothing.
+	_, answered, err = answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
+		RequestID: pending.PendingRequestID, Phase: "running", Content: "me too",
+	})
+	if err != nil || answered {
+		t.Fatalf("stale AnswerPendingInput() = (answered=%v, err=%v), want rejected", answered, err)
+	}
+	if polled, _ := s.PollNewUserMessages(ctx, sess.ID); len(polled) != 1 {
+		t.Fatalf("stale answer inserted a message: %#v", polled)
+	}
+
+	// A terminal session refuses answers entirely.
+	if err := s.SetPendingAction(ctx, sess.ID, "waiting_input", "Again?", json.RawMessage(`[]`), "question"); err != nil {
+		t.Fatal(err)
+	}
+	replaced, _ := s.GetSession(ctx, sess.ID)
+	if err := s.UpdatePhase(ctx, sess.ID, "succeeded", "done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
+		RequestID: replaced.PendingRequestID, Phase: "running", Content: "late",
+	}); !errors.Is(err, store.ErrSessionEnded) {
+		t.Fatalf("terminal AnswerPendingInput() err = %v, want ErrSessionEnded", err)
+	}
+}
+
+func TestAppendUserMessageIfActiveRefusesEndedSession(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { _ = s.Close() }()
+	ctx := context.Background()
+	appender, ok := s.(store.ActiveUserMessageAppender)
+	if !ok {
+		t.Fatal("Postgres store does not implement ActiveUserMessageAppender")
+	}
+	sess, err := s.CreateSession(ctx, "active-append-run", "default", "running", "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appender.AppendUserMessageIfActive(ctx, sess.ID, "steering", nil); err != nil {
+		t.Fatalf("AppendUserMessageIfActive(active) = %v", err)
+	}
+	if err := s.UpdatePhase(ctx, sess.ID, "failed", "failed"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appender.AppendUserMessageIfActive(ctx, sess.ID, "too late", nil); !errors.Is(err, store.ErrSessionEnded) {
+		t.Fatalf("AppendUserMessageIfActive(ended) err = %v, want ErrSessionEnded", err)
+	}
+	if msgs, _ := s.GetMessages(ctx, sess.ID); len(msgs) != 1 {
+		t.Fatalf("messages = %#v, want only the pre-terminal one", msgs)
+	}
+}
+
+func TestRecoverExpiredHeldInputResponsesRestoresRequest(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { _ = s.Close() }()
+	ctx := context.Background()
+	resolver := s.(store.PendingInputResolver)
+	recoverer, ok := s.(store.HeldInputRecoverer)
+	if !ok {
+		t.Fatal("Postgres store does not implement HeldInputRecoverer")
+	}
+	pool := testPool(t)
+
+	sess, err := s.CreateSession(ctx, "held-recover-run", "default", "running", "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPendingAction(ctx, sess.ID, "waiting_input", "Approve the plan?", json.RawMessage(`[{"id":"accept_plan","label":"Approve"}]`), "plan_review"); err != nil {
+		t.Fatal(err)
+	}
+	pending, _ := s.GetSession(ctx, sess.ID)
+	metadata := json.RawMessage(`{"mode":"enqueue","delivery_id":"held-recover-1","overseer_resolution":{"request_id":"public-1"}}`)
+	reserved, accepted, err := resolver.ReservePendingInputResponse(ctx, sess.ID, store.PendingInputResolution{
+		RequestID: pending.PendingRequestID, Phase: "running", Role: "user", Content: "Plan approved.", Metadata: metadata,
+	})
+	if err != nil || !accepted {
+		t.Fatalf("ReservePendingInputResponse() = (%v, %v)", accepted, err)
+	}
+	var meta map[string]json.RawMessage
+	if err := json.Unmarshal(reserved.Metadata, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := meta["held_request_snapshot"]; !ok {
+		t.Fatalf("reserved message missing held_request_snapshot: %s", reserved.Metadata)
+	}
+	if _, err := s.AppendMessage(ctx, sess.ID, "user", "after hold", nil); err != nil {
+		t.Fatal(err)
+	}
+	if polled, _ := s.PollNewUserMessages(ctx, sess.ID); len(polled) != 0 {
+		t.Fatalf("held message did not block polling: %#v", polled)
+	}
+
+	// A fresh hold is not expired.
+	if n, err := recoverer.RecoverExpiredHeldInputResponses(ctx, sess.ID, time.Minute); err != nil || n != 0 {
+		t.Fatalf("premature recovery = (%d, %v)", n, err)
+	}
+
+	// Backdate the hold past the timeout and recover: the hold is cancelled
+	// (its content asserts side effects that never happened) and the consumed
+	// request is restored so it becomes answerable again.
+	if _, err := pool.Exec(ctx, `UPDATE conversation_messages SET created_at = now() - interval '10 minutes' WHERE id = $1`, reserved.ID); err != nil {
+		t.Fatal(err)
+	}
+	n, err := recoverer.RecoverExpiredHeldInputResponses(ctx, sess.ID, 3*time.Minute)
+	if err != nil || n != 1 {
+		t.Fatalf("RecoverExpiredHeldInputResponses() = (%d, %v)", n, err)
+	}
+	restored, _ := s.GetSession(ctx, sess.ID)
+	if restored.PendingQuestion != "Approve the plan?" || restored.PendingInputType != "plan_review" || restored.PendingRequestID == "" {
+		t.Fatalf("pending request not restored: %#v", restored)
+	}
+	polled, _ := s.PollNewUserMessages(ctx, sess.ID)
+	if len(polled) != 1 || polled[0].Content != "after hold" {
+		t.Fatalf("recovery must unblock later messages without delivering the hold: %#v", polled)
+	}
+	// Idempotent.
+	if n, err := recoverer.RecoverExpiredHeldInputResponses(ctx, sess.ID, 3*time.Minute); err != nil || n != 0 {
+		t.Fatalf("second recovery = (%d, %v)", n, err)
+	}
+}
+
+func TestRecoverExpiredHeldInputResponsesKeepsNewerRequest(t *testing.T) {
+	s := setupTestStore(t)
+	defer func() { _ = s.Close() }()
+	ctx := context.Background()
+	resolver := s.(store.PendingInputResolver)
+	recoverer := s.(store.HeldInputRecoverer)
+	pool := testPool(t)
+
+	sess, err := s.CreateSession(ctx, "held-newer-run", "default", "running", "auto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPendingAction(ctx, sess.ID, "waiting_input", "Q1?", json.RawMessage(`[]`), "question"); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := s.GetSession(ctx, sess.ID)
+	metadata := json.RawMessage(`{"mode":"enqueue","delivery_id":"held-newer-1","overseer_resolution":{"request_id":"public-2"}}`)
+	reserved, accepted, err := resolver.ReservePendingInputResponse(ctx, sess.ID, store.PendingInputResolution{
+		RequestID: first.PendingRequestID, Phase: "running", Role: "user", Content: "auto-answer", Metadata: metadata,
+	})
+	if err != nil || !accepted {
+		t.Fatalf("ReservePendingInputResponse() = (%v, %v)", accepted, err)
+	}
+	// A newer question appears while the hold is stuck.
+	if err := s.SetPendingAction(ctx, sess.ID, "waiting_input", "Q2?", json.RawMessage(`[]`), "question"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE conversation_messages SET created_at = now() - interval '10 minutes' WHERE id = $1`, reserved.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := recoverer.RecoverExpiredHeldInputResponses(ctx, sess.ID, 3*time.Minute); err != nil || n != 1 {
+		t.Fatalf("RecoverExpiredHeldInputResponses() = (%d, %v)", n, err)
+	}
+	after, _ := s.GetSession(ctx, sess.ID)
+	if after.PendingQuestion != "Q2?" {
+		t.Fatalf("recovery clobbered the newer request: %#v", after)
+	}
+}
+
+// Migration 057 routes session_interrupts through the 056 change machinery:
+// a stop request must deliver a session_change wake-up hint so the agent's
+// in-turn interrupt watcher cancels within milliseconds instead of waiting
+// out its poll backstop.
+func TestInterruptDeliversSessionChangeWakeup(t *testing.T) {
+	s, _ := setupPGStore(t)
+	ctx := t.Context()
+
+	sess, err := s.CreateSession(ctx, "interrupt-wake-run", "default", "running", "work")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	s.StartSessionChangeListener(ctx)
+	deadline := time.Now().Add(5 * time.Second)
+	for !s.SessionChangeListenerHealthy() {
+		if time.Now().After(deadline) {
+			t.Fatal("listener never became healthy")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	wake, unsubscribe := s.SubscribeSessionChanges(sess.ID)
+	defer unsubscribe()
+
+	if _, _, err := s.AppendInterrupt(ctx, sess.ID, "user"); err != nil {
+		t.Fatalf("AppendInterrupt: %v", err)
+	}
+
+	select {
+	case <-wake:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no wake-up hint delivered after an interrupt insert")
 	}
 }

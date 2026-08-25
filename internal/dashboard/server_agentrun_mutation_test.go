@@ -195,6 +195,55 @@ func (m *mockStateStore) ClearPendingInputIfID(_ context.Context, id uuid.UUID, 
 	}
 	return false, nil
 }
+
+// AnswerPendingInput mirrors the Postgres atomic answer: insert-and-consume
+// only when the exact request nonce is still current.
+func (m *mockStateStore) AnswerPendingInput(_ context.Context, sessionID uuid.UUID, answer store.PendingInputAnswer) (*store.Message, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.appendMessageErr != nil {
+		return nil, false, m.appendMessageErr
+	}
+	s, ok := m.sessions[sessionID]
+	if !ok {
+		return nil, false, store.ErrSessionNotFound
+	}
+	if s.Phase == "succeeded" || s.Phase == "failed" {
+		return nil, false, store.ErrSessionEnded
+	}
+	if s.PendingRequestID == "" || s.PendingRequestID != answer.RequestID {
+		return nil, false, nil
+	}
+	m.msgSeq++
+	msg := store.Message{ID: m.msgSeq, SessionID: sessionID, Role: "user", Content: answer.Content, Metadata: answer.Metadata, CreatedAt: time.Now()}
+	m.messages[sessionID] = append(m.messages[sessionID], msg)
+	s.Phase = answer.Phase
+	s.PendingQuestion = ""
+	s.PendingInputType = ""
+	s.PendingRequestID = ""
+	s.PendingActions = json.RawMessage(`[]`)
+	return &msg, true, nil
+}
+
+// AppendUserMessageIfActive mirrors the Postgres phase-guarded append.
+func (m *mockStateStore) AppendUserMessageIfActive(_ context.Context, sessionID uuid.UUID, content string, metadata json.RawMessage) (*store.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.appendMessageErr != nil {
+		return nil, m.appendMessageErr
+	}
+	s, ok := m.sessions[sessionID]
+	if !ok {
+		return nil, store.ErrSessionNotFound
+	}
+	if s.Phase == "succeeded" || s.Phase == "failed" {
+		return nil, store.ErrSessionEnded
+	}
+	m.msgSeq++
+	msg := store.Message{ID: m.msgSeq, SessionID: sessionID, Role: "user", Content: content, Metadata: metadata, CreatedAt: time.Now()}
+	m.messages[sessionID] = append(m.messages[sessionID], msg)
+	return &msg, nil
+}
 func (m *mockStateStore) UpdateMetadata(context.Context, uuid.UUID, json.RawMessage) error {
 	return nil
 }
@@ -2736,5 +2785,166 @@ func TestCancelAgentRunMessageDeniedForStranger(t *testing.T) {
 	})
 	if connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("connect.CodeOf(err) = %v, want PermissionDenied (err=%v)", connect.CodeOf(err), err)
+	}
+}
+
+// newMessageTestServer builds a run in Question phase with a pending
+// question/request and returns the server, session, and namespace/name.
+func newMessageTestServer(t *testing.T, actions string) (*Server, *mockStateStore, *store.Session) {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(platform): %v", err)
+	}
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "run-msg", Namespace: "default"},
+		Spec:       platformv1alpha1.AgentRunSpec{WorkflowMode: platformv1alpha1.WorkflowModeChat},
+		Status:     platformv1alpha1.AgentRunStatus{Phase: platformv1alpha1.AgentRunPhaseQuestion},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&platformv1alpha1.AgentRun{}).WithObjects(run).Build()
+	ms := newMockStateStore()
+	sess, _ := ms.CreateSession(context.Background(), "run-msg", "default", "waiting_input", "awaiting-user")
+	sess.PendingRequestID = "request-1"
+	sess.PendingQuestion = "Which option?"
+	sess.PendingInputType = "question"
+	sess.PendingActions = json.RawMessage(actions)
+	return &Server{k8sClient: c, scheme: scheme, stateStore: ms}, ms, sess
+}
+
+func TestSendAgentRunMessageRejectsUnknownActionID(t *testing.T) {
+	srv, ms, sess := newMessageTestServer(t, `[{"id":"option_a","label":"Option A"}]`)
+
+	_, err := srv.SendAgentRunMessage(actorContext("member-1", "member", "", ""), &platform.SendAgentRunMessageRequest{
+		Namespace: "default",
+		Name:      "run-msg",
+		Message:   "__action:forged_or_stale",
+	})
+	if err == nil {
+		t.Fatal("SendAgentRunMessage() accepted an unknown action ID")
+	}
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("error code = %v, want FailedPrecondition", connect.CodeOf(err))
+	}
+	// The forged action must neither enter the conversation nor clear the prompt.
+	if msgs := ms.messagesFor(sess.ID); len(msgs) != 0 {
+		t.Fatalf("messages = %#v, want none", msgs)
+	}
+	if sess.PendingRequestID != "request-1" || sess.PendingQuestion == "" {
+		t.Fatalf("pending request was consumed by a rejected action: %#v", sess)
+	}
+}
+
+func TestSendAgentRunMessageRejectsDecisionActionWithoutPendingRequest(t *testing.T) {
+	srv, ms, sess := newMessageTestServer(t, `[]`)
+	sess.PendingRequestID = ""
+	sess.PendingQuestion = ""
+	sess.PendingInputType = ""
+
+	_, err := srv.SendAgentRunMessage(actorContext("member-1", "member", "", ""), &platform.SendAgentRunMessageRequest{
+		Namespace: "default",
+		Name:      "run-msg",
+		Message:   "__action:approve",
+	})
+	if err == nil {
+		t.Fatal("SendAgentRunMessage() accepted approve with nothing pending")
+	}
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("error code = %v, want FailedPrecondition", connect.CodeOf(err))
+	}
+	if msgs := ms.messagesFor(sess.ID); len(msgs) != 0 {
+		t.Fatalf("messages = %#v, want none", msgs)
+	}
+}
+
+func TestSendAgentRunMessageRejectsStaleExplicitRequestID(t *testing.T) {
+	srv, ms, sess := newMessageTestServer(t, `[{"id":"approve","label":"Approve"}]`)
+
+	// An action click bound to a request that was replaced must be rejected.
+	_, err := srv.SendAgentRunMessage(actorContext("member-1", "member", "", ""), &platform.SendAgentRunMessageRequest{
+		Namespace:        "default",
+		Name:             "run-msg",
+		Message:          "__action:approve",
+		PendingRequestId: "request-0-replaced",
+	})
+	if err == nil {
+		t.Fatal("SendAgentRunMessage() accepted an answer for a replaced request")
+	}
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("error code = %v, want FailedPrecondition", connect.CodeOf(err))
+	}
+	if msgs := ms.messagesFor(sess.ID); len(msgs) != 0 {
+		t.Fatalf("messages = %#v, want none", msgs)
+	}
+	if sess.PendingRequestID != "request-1" {
+		t.Fatalf("stale answer consumed the current request: %#v", sess)
+	}
+
+	// A freeform message bound to the replaced request is rejected too.
+	_, err = srv.SendAgentRunMessage(actorContext("member-1", "member", "", ""), &platform.SendAgentRunMessageRequest{
+		Namespace:        "default",
+		Name:             "run-msg",
+		Message:          "my stale answer",
+		PendingRequestId: "request-0-replaced",
+	})
+	if err == nil || connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("freeform stale answer error = %v, want FailedPrecondition", err)
+	}
+	if msgs := ms.messagesFor(sess.ID); len(msgs) != 0 {
+		t.Fatalf("messages = %#v, want none", msgs)
+	}
+}
+
+func TestSendAgentRunMessageAnswerConsumesExactRequestAtomically(t *testing.T) {
+	srv, ms, sess := newMessageTestServer(t, `[{"id":"approve","label":"Approve"}]`)
+
+	if _, err := srv.SendAgentRunMessage(actorContext("member-1", "member", "", ""), &platform.SendAgentRunMessageRequest{
+		Namespace:        "default",
+		Name:             "run-msg",
+		Message:          "the answer",
+		PendingRequestId: "request-1",
+	}); err != nil {
+		t.Fatalf("SendAgentRunMessage() error = %v", err)
+	}
+	msgs := ms.messagesFor(sess.ID)
+	if len(msgs) != 1 || msgs[0].Role != "user" || msgs[0].Content != "the answer" {
+		t.Fatalf("messages = %#v, want one user answer", msgs)
+	}
+	if !strings.Contains(string(msgs[0].Metadata), `"pending_request_id":"request-1"`) {
+		t.Fatalf("answer metadata missing request binding: %s", msgs[0].Metadata)
+	}
+	if sess.PendingRequestID != "" || sess.PendingQuestion != "" {
+		t.Fatalf("request not consumed: %#v", sess)
+	}
+
+	// Replaying the same answer (second tab) is rejected and inserts nothing.
+	_, err := srv.SendAgentRunMessage(actorContext("member-2", "member", "", ""), &platform.SendAgentRunMessageRequest{
+		Namespace:        "default",
+		Name:             "run-msg",
+		Message:          "the answer again",
+		PendingRequestId: "request-1",
+	})
+	if err == nil || connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("second answer error = %v, want FailedPrecondition", err)
+	}
+	if msgs := ms.messagesFor(sess.ID); len(msgs) != 1 {
+		t.Fatalf("second answer inserted a message: %#v", msgs)
+	}
+}
+
+func TestSendAgentRunMessageFailedAnswerPersistKeepsPrompt(t *testing.T) {
+	srv, ms, sess := newMessageTestServer(t, `[{"id":"approve","label":"Approve"}]`)
+	ms.appendMessageErr = fmt.Errorf("db down")
+
+	_, err := srv.SendAgentRunMessage(actorContext("member-1", "member", "", ""), &platform.SendAgentRunMessageRequest{
+		Namespace: "default",
+		Name:      "run-msg",
+		Message:   "__action:approve",
+	})
+	if err == nil {
+		t.Fatal("SendAgentRunMessage() succeeded despite persist failure")
+	}
+	// The prompt must survive a failed continuation persist so the user can retry.
+	if sess.PendingRequestID != "request-1" || sess.PendingQuestion == "" {
+		t.Fatalf("pending prompt cleared despite failed persist: %#v", sess)
 	}
 }

@@ -705,6 +705,7 @@ func (s *Server) enrichAgentRunProtoMode(ctx context.Context, pb *platform.Agent
 				}
 				pb.UserInputRequest.Type = pendingInputType
 				pb.UserInputRequest.Message = sess.PendingQuestion
+				pb.UserInputRequest.RequestId = sess.PendingRequestID
 				pb.UserInputRequest.Actions = nil
 				for _, qa := range pb.PendingActions {
 					pb.UserInputRequest.Actions = append(pb.UserInputRequest.Actions, &platform.QuickAction{

@@ -4835,7 +4835,11 @@ type UserInputRequest struct {
 	// Message is the human-readable prompt displayed to the user.
 	Message string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	// Actions are optional structured choices/buttons.
-	Actions       []*QuickAction `protobuf:"bytes,3,rep,name=actions,proto3" json:"actions,omitempty"`
+	Actions []*QuickAction `protobuf:"bytes,3,rep,name=actions,proto3" json:"actions,omitempty"`
+	// RequestID is the immutable nonce of this input request. Clients echo it
+	// back as SendAgentRunMessageRequest.pending_request_id so an answer binds
+	// to this exact question and stale answers are rejected.
+	RequestId     string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4889,6 +4893,13 @@ func (x *UserInputRequest) GetActions() []*QuickAction {
 		return x.Actions
 	}
 	return nil
+}
+
+func (x *UserInputRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
 }
 
 type TokenUsage struct {
@@ -6714,8 +6725,14 @@ type SendAgentRunMessageRequest struct {
 	// bounded set of representative JPEG frames before delivering the message
 	// to the vision model; the original video is not sent to the model.
 	VideoDataUrls []string `protobuf:"bytes,6,rep,name=video_data_urls,json=videoDataUrls,proto3" json:"video_data_urls,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// pending_request_id binds this message to the exact pending user-input
+	// request the client is answering (UserInputRequest.request_id). When set,
+	// the server rejects the message if that request was already answered or
+	// replaced, so a stale tab cannot answer a newer question. When empty the
+	// message is treated as generic input (legacy clients).
+	PendingRequestId string `protobuf:"bytes,7,opt,name=pending_request_id,json=pendingRequestId,proto3" json:"pending_request_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SendAgentRunMessageRequest) Reset() {
@@ -6788,6 +6805,13 @@ func (x *SendAgentRunMessageRequest) GetVideoDataUrls() []string {
 		return x.VideoDataUrls
 	}
 	return nil
+}
+
+func (x *SendAgentRunMessageRequest) GetPendingRequestId() string {
+	if x != nil {
+		return x.PendingRequestId
+	}
+	return ""
 }
 
 type SendAgentRunMessageResponse struct {
@@ -43087,11 +43111,13 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x12\n" +
 	"\x04mode\x18\x03 \x01(\tR\x04mode\x12\x14\n" +
-	"\x05style\x18\x04 \x01(\tR\x05style\"t\n" +
+	"\x05style\x18\x04 \x01(\tR\x05style\"\x93\x01\n" +
 	"\x10UserInputRequest\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x122\n" +
-	"\aactions\x18\x03 \x03(\v2\x18.platform.v1.QuickActionR\aactions\"\xca\x01\n" +
+	"\aactions\x18\x03 \x03(\v2\x18.platform.v1.QuickActionR\aactions\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x04 \x01(\tR\trequestId\"\xca\x01\n" +
 	"\n" +
 	"TokenUsage\x12!\n" +
 	"\finput_tokens\x18\x01 \x01(\x03R\vinputTokens\x12#\n" +
@@ -43287,14 +43313,15 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x02id\x18\b \x01(\x03R\x02id\x12+\n" +
 	"\x11delivery_sequence\x18\t \x01(\x03R\x10deliverySequence\x12%\n" +
 	"\x0edelivery_state\x18\n" +
-	" \x01(\tR\rdeliveryState\"\xfd\x01\n" +
+	" \x01(\tR\rdeliveryState\"\xab\x02\n" +
 	"\x1aSendAgentRunMessageRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12C\n" +
 	"\fmessage_mode\x18\x04 \x01(\x0e2 .platform.v1.AgentRunMessageModeR\vmessageMode\x12&\n" +
 	"\x0fimage_data_urls\x18\x05 \x03(\tR\rimageDataUrls\x12&\n" +
-	"\x0fvideo_data_urls\x18\x06 \x03(\tR\rvideoDataUrls\"\x1d\n" +
+	"\x0fvideo_data_urls\x18\x06 \x03(\tR\rvideoDataUrls\x12,\n" +
+	"\x12pending_request_id\x18\a \x01(\tR\x10pendingRequestId\"\x1d\n" +
 	"\x1bSendAgentRunMessageResponse\"o\n" +
 	"\x1cCancelAgentRunMessageRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +

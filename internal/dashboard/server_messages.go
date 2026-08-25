@@ -122,6 +122,89 @@ type pendingAction struct {
 	Mode  string
 }
 
+// stalePendingRequestError is returned when a client answers a pending input
+// request that was already answered by another client or replaced by a newer
+// question. The caller's snapshot is stale; it must refresh before acting.
+func stalePendingRequestError() *connect.Error {
+	return connect.NewError(connect.CodeFailedPrecondition,
+		errors.New("this request was already answered or replaced by a newer one; refresh and try again"))
+}
+
+func sessionEndedError() *connect.Error {
+	return connect.NewError(connect.CodeFailedPrecondition,
+		errors.New("run has ended; retry the run to send another message"))
+}
+
+// checkRequestedPendingID rejects answers explicitly bound (via
+// SendAgentRunMessageRequest.pending_request_id) to a request that is no
+// longer the session's current one, so a stale tab cannot answer a question
+// it never displayed. An empty requested ID (legacy client) passes.
+func checkRequestedPendingID(requestedID string, sess *store.Session) error {
+	requestedID = strings.TrimSpace(requestedID)
+	if requestedID == "" || requestedID == sess.PendingRequestID {
+		return nil
+	}
+	return stalePendingRequestError()
+}
+
+// recordPendingAnswer records one user answer bound to the session's current
+// pending input request. With a PendingInputAnswerer store the insert and the
+// request consumption are one transaction, so concurrent clients can never
+// both answer the same request. Returns stalePendingRequestError when the
+// request was consumed or replaced concurrently — nothing is inserted then.
+func (s *Server) recordPendingAnswer(ctx context.Context, sess *store.Session, content string, metadata json.RawMessage) error {
+	if answerer, ok := s.stateStore.(store.PendingInputAnswerer); ok && sess.PendingRequestID != "" {
+		_, answered, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
+			RequestID: sess.PendingRequestID,
+			Phase:     "running",
+			Content:   content,
+			Metadata:  metadata,
+		})
+		if err != nil {
+			if errors.Is(err, store.ErrSessionEnded) {
+				return sessionEndedError()
+			}
+			return connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording answer message: %w", err))
+		}
+		if !answered {
+			return stalePendingRequestError()
+		}
+		return nil
+	}
+	// Legacy stores: append, then consume only the exact request. Not atomic,
+	// but the nonce-checked clear still never touches a replacement request.
+	if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", content, metadata); err != nil {
+		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording answer message: %w", err))
+	}
+	if clearer, ok := s.stateStore.(store.PendingInputClearer); ok && sess.PendingRequestID != "" {
+		if _, err := clearer.ClearPendingInputIfID(ctx, sess.ID, sess.PendingRequestID, "running"); err != nil {
+			log.Printf("WARN: clearing exact pending input after answer (session %s): %v", sess.ID, err)
+		}
+	} else if err := s.stateStore.ClearPendingAction(ctx, sess.ID, "running"); err != nil {
+		log.Printf("WARN: clearing pending action after answer (session %s): %v", sess.ID, err)
+	}
+	return nil
+}
+
+// appendActiveUserMessage inserts a plain (non-answer) user message, refusing
+// when the session finished concurrently so the message cannot become
+// undeliverable.
+func (s *Server) appendActiveUserMessage(ctx context.Context, sess *store.Session, content string, metadata json.RawMessage) error {
+	if appender, ok := s.stateStore.(store.ActiveUserMessageAppender); ok {
+		if _, err := appender.AppendUserMessageIfActive(ctx, sess.ID, content, metadata); err != nil {
+			if errors.Is(err, store.ErrSessionEnded) {
+				return sessionEndedError()
+			}
+			return connect.NewError(connect.CodeInternal, fmt.Errorf("writing message to Postgres: %w", err))
+		}
+		return nil
+	}
+	if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", content, metadata); err != nil {
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("writing message to Postgres: %w", err))
+	}
+	return nil
+}
+
 const (
 	planAcceptActionID            = "accept_plan"
 	legacyAcceptBuildActionID     = "accept_build"
@@ -160,6 +243,32 @@ func isPlanAcceptAction(inputType, id string) bool {
 		// action on a plan-review request approves in place; its mode is ignored.
 		return strings.EqualFold(strings.TrimSpace(inputType), string(platformv1alpha1.UserInputPlanReview))
 	}
+}
+
+// validateQuickAction reports whether an __action:<id> click is acceptable in
+// the session's current state. Unknown or out-of-context IDs are rejected so a
+// forged or stale action message can neither enter the conversation as a user
+// turn nor consume a pending prompt it never belonged to.
+func validateQuickAction(actionID string, sess *store.Session) error {
+	if findPendingAction(sess.PendingActions, actionID) != nil {
+		return nil
+	}
+	switch actionID {
+	case planAcceptActionID, legacyAcceptBuildActionID, legacyAcceptBuildAutoActionID:
+		// Inline plan approval is valid without a pending request; its handler
+		// separately requires plan mode and a saved plan.
+		return nil
+	case "approve", "reject", "request_changes":
+		// Generic decision buttons are only meaningful while some input request
+		// is actually pending.
+		if strings.TrimSpace(sess.PendingRequestID) != "" || strings.TrimSpace(sess.PendingInputType) != "" {
+			return nil
+		}
+		return connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("no pending request accepts action %q", actionID))
+	}
+	return connect.NewError(connect.CodeFailedPrecondition,
+		fmt.Errorf("unknown action %q for the current pending request", actionID))
 }
 
 // runInPlanMode reports whether the run's active mode template is the plan
@@ -203,10 +312,14 @@ func (s *Server) handlePlanAcceptAction(ctx context.Context, req *platform.SendA
 		resumeMessage = fmt.Sprintf("%s Notes: %s", resumeMessage, trimmed)
 	}
 	metadata := userMessageMetadataForPendingRequest(req.GetMessageMode(), sess.PendingRequestID)
-	if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", resumeMessage, metadata); err != nil {
-		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording plan acceptance message: %w", err))
+	if sess.PendingRequestID != "" {
+		// Atomic: record the continuation and consume the exact request in one
+		// transaction, so a failed persist never leaves the prompt cleared and a
+		// concurrent answer never double-approves.
+		return s.recordPendingAnswer(ctx, sess, resumeMessage, metadata)
 	}
-	return nil
+	// Inline plan approval with no pending request: nothing to consume.
+	return s.appendActiveUserMessage(ctx, sess, resumeMessage, metadata)
 }
 
 // SendAgentRunMessage routes a public run-surface message to the current compatibility adapter.
@@ -293,6 +406,11 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 		if action != nil {
 			label = action.Label
 		}
+		// A client that displayed a specific question must not answer a newer
+		// one it never saw.
+		if err := checkRequestedPendingID(req.GetPendingRequestId(), sess); err != nil {
+			return nil, err
+		}
 		pendingMCPRequest, err := mcppolicy.PendingRequest(run)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("decoding pending MCP break-glass request: %w", err))
@@ -313,6 +431,12 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 			// The MCP handler conditionally consumes the exact Postgres request;
 			// never clear here because a replacement may have raced the decision.
 			return &platform.SendAgentRunMessageResponse{}, nil
+		}
+
+		// Reject forged or stale action IDs before they can enter the
+		// conversation as a user turn or consume the pending prompt.
+		if err := validateQuickAction(actionID, sess); err != nil {
+			return nil, err
 		}
 
 		answerMetadata := userMessageMetadataForPendingRequest(req.GetMessageMode(), sess.PendingRequestID)
@@ -357,22 +481,50 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 			if freeform != "" {
 				msg += ": " + freeform
 			}
-			_, _ = s.stateStore.AppendMessage(ctx, sess.ID, "user", msg, answerMetadata)
+			// Atomic: the continuation message and the request consumption are
+			// one transaction. If persisting fails the prompt stays pending, and
+			// a retry is safe because the mode switch becomes a no-op.
+			if sess.PendingRequestID != "" {
+				if err := s.recordPendingAnswer(ctx, sess, msg, answerMetadata); err != nil {
+					return nil, err
+				}
+			} else if err := s.appendActiveUserMessage(ctx, sess, msg, answerMetadata); err != nil {
+				return nil, err
+			}
 			if switchResp.Result == "applied" {
-				_, _ = s.stateStore.AppendMessage(ctx, sess.ID, "assistant",
-					fmt.Sprintf("Mode switched to **%s**.", switchResp.NewMode), nil)
+				if _, appendErr := s.stateStore.AppendMessage(ctx, sess.ID, "assistant",
+					fmt.Sprintf("Mode switched to **%s**.", switchResp.NewMode), nil); appendErr != nil {
+					log.Printf("WARN: recording mode-switch notice (session %s): %v", sess.ID, appendErr)
+				}
 			}
 
 		case actionID == "reject":
 			// Reject — stay paused, don't auto-continue.
-			// Record the decision without enqueueing a new user message, otherwise
-			// the agent loop treats the reject click itself as fresh turn input.
+			// Consume the exact request first so a concurrent approval and this
+			// rejection cannot both take effect, then record the decision as a
+			// system message: a user message would make the agent loop treat the
+			// reject click itself as fresh turn input.
+			if sess.PendingRequestID != "" {
+				if clearer, ok := s.stateStore.(store.PendingInputClearer); ok {
+					cleared, err := clearer.ClearPendingInputIfID(ctx, sess.ID, sess.PendingRequestID, "running")
+					if err != nil {
+						return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording rejection: %w", err))
+					}
+					if !cleared {
+						return nil, stalePendingRequestError()
+					}
+				} else if err := s.stateStore.ClearPendingAction(ctx, sess.ID, "running"); err != nil {
+					log.Printf("WARN: clearing pending action after rejection (session %s): %v", sess.ID, err)
+				}
+			}
 			msg := "Plan rejected. Waiting for your next message."
 			if freeform != "" {
 				msg = fmt.Sprintf("Plan rejected: %s\nWaiting for your next message.", freeform)
 			}
 			if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "system", msg, nil); err != nil {
-				return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording rejection: %w", err))
+				// The request is already consumed; losing the note keeps the run
+				// paused, which is what reject means. Don't fail the call.
+				log.Printf("WARN: recording rejection note (session %s): %v", sess.ID, err)
 			}
 
 		case actionID == "approve":
@@ -383,8 +535,8 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 			if freeform != "" {
 				msg += ": " + freeform
 			}
-			if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", msg, answerMetadata); err != nil {
-				return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording approval message: %w", err))
+			if err := s.recordPendingAnswer(ctx, sess, msg, answerMetadata); err != nil {
+				return nil, err
 			}
 
 		case actionID == "request_changes":
@@ -395,8 +547,8 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 			if freeform != "" {
 				msg = fmt.Sprintf("Please revise and continue. Feedback: %s", freeform)
 			}
-			if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", msg, answerMetadata); err != nil {
-				return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording change-request message: %w", err))
+			if err := s.recordPendingAnswer(ctx, sess, msg, answerMetadata); err != nil {
+				return nil, err
 			}
 
 		default:
@@ -405,19 +557,20 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 			if freeform != "" {
 				msg += ": " + freeform
 			}
-			if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", msg, answerMetadata); err != nil {
-				return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording action message: %w", err))
+			if err := s.recordPendingAnswer(ctx, sess, msg, answerMetadata); err != nil {
+				return nil, err
 			}
 		}
 
-		// Clear only the request that the action answered; a replacement request
-		// created concurrently must remain visible.
-		if clearer, ok := s.stateStore.(store.PendingInputClearer); ok && sess.PendingRequestID != "" {
-			if _, err := clearer.ClearPendingInputIfID(ctx, sess.ID, sess.PendingRequestID, "running"); err != nil {
-				log.Printf("WARN: clearing exact pending action after quick action (session %s): %v", sess.ID, err)
+		// Each branch above consumes the exact request it answered inside its
+		// own write, so a replacement request created concurrently always
+		// remains visible and a failed write never clears the prompt. Legacy
+		// sessions without a request nonce cannot be consumed atomically;
+		// clear their pending action state now that the answer is recorded.
+		if sess.PendingRequestID == "" {
+			if err := s.stateStore.ClearPendingAction(ctx, sess.ID, "running"); err != nil {
+				log.Printf("WARN: clearing pending action after quick action (session %s): %v", sess.ID, err)
 			}
-		} else if err := s.stateStore.ClearPendingAction(ctx, sess.ID, "running"); err != nil {
-			log.Printf("WARN: clearing pending action after quick action (session %s): %v", sess.ID, err)
 		}
 		return &platform.SendAgentRunMessageResponse{}, nil
 	}
@@ -437,6 +590,12 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("decoding pending MCP break-glass request: %w", err))
 	} else if pendingMCPRequest != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("MCP break-glass approval is pending. Use the approve or reject action to continue."))
+	}
+	// A message explicitly bound to a request the session no longer has is a
+	// stale tab answering a replaced question. Reject before persisting assets.
+	explicitAnswer := strings.TrimSpace(req.GetPendingRequestId()) != ""
+	if err := checkRequestedPendingID(req.GetPendingRequestId(), sess); err != nil {
+		return nil, err
 	}
 	images, err := sessionclient.ParseImageDataURLs(req.GetImageDataUrls())
 	if err != nil {
@@ -458,21 +617,60 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 		payload["pending_request_id"] = sess.PendingRequestID
 		metadata, _ = json.Marshal(payload)
 	}
-	if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", req.Message, metadata); err != nil {
-		s.deleteMessageImageAssets(ctx, images)
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("writing message to Postgres: %w", err))
+
+	if answerer, ok := s.stateStore.(store.PendingInputAnswerer); ok && sess.PendingRequestID != "" {
+		// Atomic: the message becomes visible and the exact request is consumed
+		// in one transaction, so two clients can never both answer it.
+		_, answered, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
+			RequestID: sess.PendingRequestID,
+			Phase:     "running",
+			Content:   req.Message,
+			Metadata:  metadata,
+		})
+		switch {
+		case errors.Is(err, store.ErrSessionEnded):
+			s.deleteMessageImageAssets(ctx, images)
+			return nil, sessionEndedError()
+		case err != nil:
+			s.deleteMessageImageAssets(ctx, images)
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("writing message to Postgres: %w", err))
+		case answered:
+			return &platform.SendAgentRunMessageResponse{}, nil
+		case explicitAnswer:
+			// The exact question this client answered is gone.
+			s.deleteMessageImageAssets(ctx, images)
+			return nil, stalePendingRequestError()
+		}
+		// The request was consumed or replaced between the session snapshot and
+		// the answer. A legacy freeform message is still valid steering input;
+		// deliver it without consuming the newer request.
+		metadata = userMessageMetadataWithImages(req.GetMessageMode(), images)
+		if err := s.appendActiveUserMessage(ctx, sess, req.Message, metadata); err != nil {
+			s.deleteMessageImageAssets(ctx, images)
+			return nil, err
+		}
+		return &platform.SendAgentRunMessageResponse{}, nil
 	}
 
+	if err := s.appendActiveUserMessage(ctx, sess, req.Message, metadata); err != nil {
+		s.deleteMessageImageAssets(ctx, images)
+		return nil, err
+	}
+
+	// Legacy stores without the atomic answer extension: consume only the
+	// exact request the message answered, never a replacement.
 	if clearer, ok := s.stateStore.(store.PendingInputClearer); ok && sess.PendingRequestID != "" {
 		if _, err := clearer.ClearPendingInputIfID(ctx, sess.ID, sess.PendingRequestID, "running"); err != nil {
 			log.Printf("WARN: clearing exact pending input after user message (session %s): %v", sess.ID, err)
 		}
-	} else if strings.EqualFold(strings.TrimSpace(sess.PendingInputType), string(platformv1alpha1.UserInputApproval)) {
-		if err := s.stateStore.ClearPendingAction(ctx, sess.ID, "running"); err != nil {
-			log.Printf("WARN: clearing pending action after user message (session %s): %v", sess.ID, err)
+	} else if sess.PendingRequestID != "" || strings.TrimSpace(sess.PendingInputType) != "" {
+		if strings.EqualFold(strings.TrimSpace(sess.PendingInputType), string(platformv1alpha1.UserInputApproval)) {
+			if err := s.stateStore.ClearPendingAction(ctx, sess.ID, "running"); err != nil {
+				log.Printf("WARN: clearing pending action after user message (session %s): %v", sess.ID, err)
+			}
+		} else if err := s.stateStore.ClearPendingQuestion(ctx, sess.ID, "running"); err != nil {
+			log.Printf("WARN: clearing pending question after user message (session %s): %v", sess.ID, err)
 		}
-	} else if err := s.stateStore.ClearPendingQuestion(ctx, sess.ID, "running"); err != nil {
-		log.Printf("WARN: clearing pending question after user message (session %s): %v", sess.ID, err)
 	}
 
 	return &platform.SendAgentRunMessageResponse{}, nil

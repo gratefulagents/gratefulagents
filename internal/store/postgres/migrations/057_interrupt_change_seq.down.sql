@@ -1,0 +1,1 @@
+DROP TRIGGER IF EXISTS session_interrupts_insert_bump_change_seq ON session_interrupts;

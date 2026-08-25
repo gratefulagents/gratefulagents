@@ -18,11 +18,12 @@ import (
 // session for a user stop request while a turn is in flight.
 const turnInterruptPollInterval = time.Second
 
-// crdInterruptPollEvery is how many session polls pass between checks of the
-// CRD fallback interrupt annotation. The annotation is the degraded-mode
-// channel for a session-store outage, so it is polled at a fraction of the
-// primary channel's rate.
-const crdInterruptPollEvery = 5
+// crdInterruptFallbackInterval is the minimum time between checks of the CRD
+// fallback interrupt annotation. The annotation is the degraded-mode channel
+// for a session-store outage, so it is checked at a fraction of the primary
+// channel's rate. The pacing is time-based rather than tick-count-based
+// because push wake-ups make loop iterations track session chatter.
+const crdInterruptFallbackInterval = 5 * time.Second
 
 // turnInterruptWatcher polls the Postgres session (primary) and the AgentRun
 // interrupt annotation (CRD fallback) for a user interrupt request while a
@@ -51,30 +52,32 @@ func startTurnInterruptWatcher(
 		defer close(w.done)
 		ticker := time.NewTicker(turnInterruptPollInterval)
 		defer ticker.Stop()
-		polls := 0
+		// Start the CRD-fallback clock now so the degraded-mode channel keeps
+		// its fraction-of-the-primary-rate pacing from the first iteration.
+		lastCRDCheck := time.Now()
 		for {
-			select {
-			case <-ctx.Done():
+			// Subscribe before the consume check so a stop landing in between
+			// still wakes the next iteration instantly. With a push-capable
+			// store (Postgres LISTEN/NOTIFY) interrupts cancel the turn within
+			// milliseconds; the 1s ticker remains the correctness backstop.
+			wake := sc.SubscribeSessionEvents()
+			req, err := sc.ConsumeInterrupt(ctx)
+			if err != nil {
+				log.Printf("WARN: interrupt watcher poll failed: %v", err)
+			} else if req != nil {
+				log.Printf("Interrupt requested by %q — cancelling in-flight turn", req.RequestedBy)
+				w.interrupted.Store(true)
+				cancelTurn()
 				return
-			case <-w.stop:
-				return
-			case <-ticker.C:
-				req, err := sc.ConsumeInterrupt(ctx)
-				if err != nil {
-					log.Printf("WARN: interrupt watcher poll failed: %v", err)
-				} else if req != nil {
-					log.Printf("Interrupt requested by %q — cancelling in-flight turn", req.RequestedBy)
-					w.interrupted.Store(true)
-					cancelTurn()
-					return
-				}
-				polls++
-				if crdClient == nil || polls%crdInterruptPollEvery != 0 {
-					continue
-				}
-				// CRD fallback: a stop recorded on the AgentRun because the
-				// session store was unreachable. Deleting the annotation is
-				// the consume-and-acknowledge step.
+			}
+			// CRD fallback: a stop recorded on the AgentRun because the
+			// session store was unreachable. Deleting the annotation is the
+			// consume-and-acknowledge step. The pacing is time-based, not
+			// tick-count-based: push wake-ups make iteration frequency track
+			// session chatter, and a chatty session must not hammer the API
+			// server with CRD reads.
+			if crdClient != nil && time.Since(lastCRDCheck) >= crdInterruptFallbackInterval {
+				lastCRDCheck = time.Now()
 				if _, found, crdErr := consumeCRDInterrupt(ctx, crdClient, runName, namespace); crdErr != nil {
 					log.Printf("WARN: CRD interrupt watcher poll failed: %v", crdErr)
 				} else if found {
@@ -83,6 +86,14 @@ func startTurnInterruptWatcher(
 					cancelTurn()
 					return
 				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-w.stop:
+				return
+			case <-ticker.C:
+			case <-wake: // nil channel blocks forever: pure polling
 			}
 		}
 	}()
