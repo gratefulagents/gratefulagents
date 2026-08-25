@@ -226,8 +226,33 @@ func TestObservabilityAttemptEstimatesHistoricalDaybreakCost(t *testing.T) {
 	if math.Abs(got.Buckets[0].Totals.GenerationCostUSD-0.476) > 1e-9 {
 		t.Fatalf("historical Daybreak bucket cost = %.10f, want 0.476", got.Buckets[0].Totals.GenerationCostUSD)
 	}
+	// The run snapshotted $0 for the same unpriced attempt, so the read-time
+	// correction must reach the run snapshot cost too; otherwise the headline
+	// generation spend and the snapshot cost drift apart by the entire
+	// repriced amount.
+	if math.Abs(got.Totals.CostUSD-0.476) > 1e-9 {
+		t.Fatalf("historical Daybreak run snapshot cost = %.10f, want 0.476 (read-time repricing applied)", got.Totals.CostUSD)
+	}
+	if math.Abs(got.Buckets[0].Totals.CostUSD-0.476) > 1e-9 {
+		t.Fatalf("historical Daybreak run snapshot bucket cost = %.10f, want 0.476", got.Buckets[0].Totals.CostUSD)
+	}
 	if len(got.Models) != 1 || got.Models[0].Name != "openai/gpt-daybreak-blue-latest" || math.Abs(got.Models[0].CostUSD-0.476) > 1e-9 {
 		t.Fatalf("historical Daybreak model breakdown = %+v", got.Models)
+	}
+
+	// An attempt from a session outside the snapshot window contributes to
+	// generation spend but must not add a correction to snapshot cost its
+	// snapshot never contributed.
+	strayEvents := append(events, observabilityEvent{
+		id: 2, sessionID: uuid.New(), typ: "llm_attempt", created: start.Add(2 * time.Minute),
+		detail: json.RawMessage(`{"tool_use_id":"attempt-2","provider":"openai","resolved_model":"gpt-daybreak-blue-latest","attempt_status":"completed","input_tokens":100000,"output_tokens":10000,"cache_read_input_tokens":40000,"cache_creation_input_tokens":20000}`),
+	})
+	stray := aggregateObservability(store.ObservabilityQuery{Start: start, End: start.Add(time.Hour), BucketSeconds: 300}, sessions, strayEvents)
+	if math.Abs(stray.Totals.GenerationCostUSD-2*0.476) > 1e-9 {
+		t.Fatalf("stray-session generation cost = %.10f, want %.3f", stray.Totals.GenerationCostUSD, 2*0.476)
+	}
+	if math.Abs(stray.Totals.CostUSD-0.476) > 1e-9 {
+		t.Fatalf("stray-session run snapshot cost = %.10f, want 0.476 (no correction for uncounted runs)", stray.Totals.CostUSD)
 	}
 
 	row := observabilityRowKey{at: start, id: 1}
