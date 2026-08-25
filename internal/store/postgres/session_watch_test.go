@@ -130,11 +130,9 @@ func TestUpdateSessionMetadataSectionSerializes(t *testing.T) {
 	const writers = 8
 	const perWriter = 5
 	var wg sync.WaitGroup
-	for w := 0; w < writers; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < perWriter; i++ {
+	for range writers {
+		wg.Go(func() {
+			for range perWriter {
 				err := s.UpdateSessionMetadataSection(ctx, sess.ID, "counter", func(raw json.RawMessage) (json.RawMessage, error) {
 					n := 0
 					if len(raw) > 0 {
@@ -149,7 +147,7 @@ func TestUpdateSessionMetadataSectionSerializes(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -171,8 +169,7 @@ func TestUpdateSessionMetadataSectionSerializes(t *testing.T) {
 // A committed write to a watched session must produce a LISTEN wake-up hint.
 func TestSessionChangeListenerDeliversWakeups(t *testing.T) {
 	s, _ := setupPGStore(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	sess, err := s.CreateSession(ctx, "listen-run", "default", "running", "work")
 	if err != nil {
