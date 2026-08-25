@@ -61,6 +61,7 @@ import {
 import { SecurityProgramDialog } from "@/components/SecurityProgramDialog";
 import { SecurityCatalogDialog } from "@/components/SecurityCatalogDialog";
 import { client } from "@/lib/client";
+import { toast } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import {
   CreateSecurityPostScriptRequestSchema,
@@ -211,6 +212,16 @@ function WorkflowEditorDialog({
           create(CreateSecurityWorkflowRequestSchema, { workflow: resource }),
         );
       }
+      if (isEdit) {
+        const count = source?.usageCount ?? 0;
+        toast.success(
+          count > 0
+            ? `Workflow "${resource.name}" updated — ${count} configuration${count === 1 ? "" : "s"} will use the new definition on their next run.`
+            : `Workflow "${resource.name}" updated.`,
+        );
+      } else {
+        toast.success(`Workflow "${resource.name}" created.`);
+      }
       setOpen(false);
       reset();
       onSaved();
@@ -247,6 +258,26 @@ function WorkflowEditorDialog({
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-5">
             {notice}
+            {isEdit && source && source.usageCount > 0 && (
+              <div
+                data-testid="workflow-impact-banner"
+                className="rounded-md border border-border/60 bg-muted/30 p-2.5 text-sm"
+              >
+                <p className="font-medium">
+                  Used by {source.usageCount} scan configuration
+                  {source.usageCount === 1 ? "" : "s"}:{" "}
+                  <span title={source.referencingScans.join(", ")}>
+                    {source.referencingScans.slice(0, 3).join(", ")}
+                    {source.referencingScans.length > 3 &&
+                      ` +${source.referencingScans.length - 3} more`}
+                  </span>
+                </p>
+                <p className="text-muted-foreground">
+                  Saving changes affects the next run of each of these configurations; past runs
+                  keep the definition they ran with.
+                </p>
+              </div>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <FlowField id="wf-name" label="Name" required>
                 <Input

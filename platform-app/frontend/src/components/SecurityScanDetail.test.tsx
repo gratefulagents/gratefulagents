@@ -242,6 +242,55 @@ describe("SecurityScanDetail", () => {
     expect(screen.queryByText("Full database read access.")).toBeNull();
   });
 
+  it("spells out missing repository in the header instead of an empty subtitle", async () => {
+    const scan = scanFixture();
+    scan.repository = "";
+    scan.revision = "";
+    getSecurityScan.mockResolvedValue(scan);
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+
+    renderDetail();
+
+    expect(await screen.findByRole("heading", { name: "nightly-1" })).toBeTruthy();
+    expect(screen.getByText("Repository not recorded")).toBeTruthy();
+  });
+
+  it("names every missing field explicitly in the finding panel", async () => {
+    const empty = create(SecurityFindingSchema, {
+      id: FINDING_ID,
+      namespace: "user-alice",
+      scanName: "nightly",
+      runName: "nightly-1",
+      title: "Bare finding",
+      severity: "low",
+      status: "open",
+      score: 1.0,
+      occurrences: 1,
+    });
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [empty] });
+    getSecurityFinding.mockResolvedValue({ finding: empty, events: [] });
+
+    renderDetail();
+
+    await screen.findByText("Bare finding");
+    openFinding("Bare finding");
+
+    const panel = screen.getByRole("complementary", { name: "Finding details" });
+    // Description, Impact, Attack Vector, and Remediation stay visible with an
+    // explicit placeholder instead of vanishing.
+    expect(within(panel).getByText("Remediation")).toBeTruthy();
+    expect(within(panel).getAllByText("Not provided")).toHaveLength(4);
+    expect(within(panel).getByText("Location not provided")).toBeTruthy();
+    expect(within(panel).getByText("Confidence not provided")).toBeTruthy();
+    expect(within(panel).getByText("Source agent not recorded")).toBeTruthy();
+    expect(within(panel).getAllByText("Not recorded")).toHaveLength(2);
+    expect(within(panel).getByText("No CWE assigned")).toBeTruthy();
+    expect(within(panel).getByText("No references provided")).toBeTruthy();
+  });
+
   it("re-queries findings when a filter changes", async () => {
     getSecurityScan.mockResolvedValue(scanFixture());
     getSecurityFindingSummary.mockResolvedValue({ counts: {} });

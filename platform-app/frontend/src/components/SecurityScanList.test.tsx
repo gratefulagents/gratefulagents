@@ -168,6 +168,32 @@ describe("SecurityScanList", () => {
     expect(screen.getAllByText("Never scanned")).toHaveLength(2);
   });
 
+  it("names missing configuration and repository in the metadata row", async () => {
+    listSecurityScans.mockResolvedValue({
+      scans: [
+        scanFixture({ id: "44444444-4444-4444-4444-444444444444", runName: "no-config", scanName: "" }),
+        scanFixture({
+          id: "55555555-5555-5555-5555-555555555555",
+          runName: "no-repo",
+          repository: "",
+        }),
+        scanFixture({
+          id: "66666666-6666-6666-6666-666666666666",
+          runName: "no-both",
+          scanName: "",
+          repository: "",
+        }),
+      ],
+    });
+    setup();
+
+    await screen.findByText("no-config");
+    expect(screen.getByText("No configuration recorded")).toBeTruthy();
+    expect(screen.getByText("No repository recorded")).toBeTruthy();
+    // Both missing collapses to one combined line, not two labels or a blank.
+    expect(screen.getByText("No configuration or repository recorded")).toBeTruthy();
+  });
+
   it("shows the empty state when there are no scans", async () => {
     listSecurityScans.mockResolvedValue({ scans: [] });
     setup();

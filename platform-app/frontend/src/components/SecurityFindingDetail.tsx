@@ -249,6 +249,14 @@ function NavStep({
   );
 }
 
+/**
+ * Domain-specific stand-in for an absent fact value, styled like the generic
+ * "Not set" fallback the Fact component renders on its own.
+ */
+function Missing({ text }: { text: string }) {
+  return <span className="text-muted-foreground/50">{text}</span>;
+}
+
 /** Bordered, headed group of related facts; several sit side by side. */
 function FactGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -1214,7 +1222,7 @@ export function SecurityFindingDetail() {
           <FactGroup title="Classification">
             <Fact label="Status" value={statusText} />
             <Fact label="Confidence" value={finding.confidence || ""} />
-            <Fact label="Category" value={finding.category || ""} />
+            <Fact label="Category" value={finding.category || <Missing text="No category" />} />
             <Fact
               label="CWE"
               value={
@@ -1230,7 +1238,7 @@ export function SecurityFindingDetail() {
                     })}
                   </span>
                 ) : (
-                  ""
+                  <Missing text="No CWE assigned" />
                 )
               }
             />
@@ -1259,19 +1267,29 @@ export function SecurityFindingDetail() {
                 finding.repository ? (
                   <CopyValue value={finding.repository} label="Repository" />
                 ) : (
-                  ""
+                  <Missing text="Not recorded" />
                 )
               }
             />
             <Fact
               label="Revision"
               value={
-                finding.revision ? <CopyValue value={finding.revision} label="Revision" /> : ""
+                finding.revision ? (
+                  <CopyValue value={finding.revision} label="Revision" />
+                ) : (
+                  <Missing text="Not recorded" />
+                )
               }
             />
             <Fact
               label="File"
-              value={location ? <CopyValue value={location} label="File path" /> : ""}
+              value={
+                location ? (
+                  <CopyValue value={location} label="File path" />
+                ) : (
+                  <Missing text="No code location" />
+                )
+              }
             />
             <Fact label="Symbol" mono value={finding.symbol || ""} />
           </FactGroup>
@@ -1285,7 +1303,11 @@ export function SecurityFindingDetail() {
                 </Badge>
               }
             />
-            <Fact label="Source agent" mono value={finding.sourceAgent || ""} />
+            <Fact
+              label="Source agent"
+              mono
+              value={finding.sourceAgent || <Missing text="Not recorded" />}
+            />
             <Fact label="Scan step" mono value={finding.scanStep || ""} />
             <Fact
               label="Tool"
@@ -1296,7 +1318,7 @@ export function SecurityFindingDetail() {
                     label="Tool"
                   />
                 ) : (
-                  ""
+                  <Missing text="Not recorded" />
                 )
               }
             />
@@ -1351,7 +1373,7 @@ export function SecurityFindingDetail() {
           </FactGroup>
 
           <FactGroup title="Triage state">
-            <Fact label="Assignee" value={finding.assignee || ""} />
+            <Fact label="Assignee" value={finding.assignee || <Missing text="Unassigned" />} />
             <Fact
               label="Baseline"
               value={finding.baselineState ? <BaselineBadge state={finding.baselineState} /> : ""}
@@ -1365,7 +1387,7 @@ export function SecurityFindingDetail() {
                     {finding.ticketUrl}
                   </FactLink>
                 ) : (
-                  ""
+                  <Missing text="No ticket linked" />
                 )
               }
             />

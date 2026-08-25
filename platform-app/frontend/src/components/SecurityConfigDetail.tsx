@@ -673,9 +673,13 @@ export function SecurityConfigDetail() {
         subtitle={
           <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-muted-foreground">
             <HeaderMeta label="Repo">
-              <span className="max-w-[40ch] truncate font-mono" title={target || undefined}>
-                {targetText || "—"}
-              </span>
+              {targetText ? (
+                <span className="max-w-[40ch] truncate font-mono" title={target}>
+                  {targetText}
+                </span>
+              ) : (
+                <span className="italic">No repository or target URL configured</span>
+              )}
             </HeaderMeta>
             <HeaderMeta label="Namespace">
               <span className="truncate font-mono">{config.namespace}</span>
@@ -965,13 +969,13 @@ export function SecurityConfigDetail() {
                             <TableCell className="max-w-[24ch] lg:max-w-[30ch] 2xl:max-w-[40ch]">
                               <Link
                                 to={href}
-                                title={finding.title}
+                                title={finding.title || "Untitled finding"}
                                 className="block truncate font-medium text-primary hover:underline"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                {finding.title}
+                                {finding.title || <span className="italic">Untitled finding</span>}
                               </Link>
-                              {finding.filePath && (
+                              {finding.filePath ? (
                                 <div
                                   className="mt-0.5 truncate font-mono text-[11.5px] text-muted-foreground"
                                   title={finding.filePath}
@@ -979,10 +983,25 @@ export function SecurityConfigDetail() {
                                   {finding.filePath}
                                   {finding.startLine > 0 && `:${finding.startLine}`}
                                 </div>
+                              ) : (
+                                <div className="mt-0.5 text-[11.5px] italic text-muted-foreground">
+                                  Location not provided
+                                </div>
                               )}
                             </TableCell>
                             <TableCell>
-                              <SeverityBadge severity={finding.severity} />
+                              {finding.severity ? (
+                                <SeverityBadge severity={finding.severity} />
+                              ) : (
+                                <span
+                                  className={cn(
+                                    STATUS_PILL,
+                                    "bg-muted/70 tracking-tight text-muted-foreground",
+                                  )}
+                                >
+                                  No severity
+                                </span>
+                              )}
                             </TableCell>
                             <TableCell
                               className="hidden max-w-[16ch] truncate text-muted-foreground 2xl:table-cell"
@@ -1091,7 +1110,10 @@ export function SecurityConfigDetail() {
                 }
               />
               <Fact label="Last run" value={<TimeAgo ms={lastScanMs} now={now} />} />
-              <Fact label="Phase" value={config.phase || ""} />
+              <Fact
+                label="Phase"
+                value={config.phase || <span className="text-muted-foreground/50">Not reported</span>}
+              />
             </FactList>
           </DetailSection>
 

@@ -34,6 +34,8 @@ const {
   updateSecurityPolicyPack,
   deleteSecurityPolicyPack,
   deleteSecurityProgram,
+  toastSuccess,
+  toastError,
 } = vi.hoisted(() => ({
   listSecurityWorkflows: vi.fn(),
   listSecurityRankers: vi.fn(),
@@ -54,6 +56,8 @@ const {
   updateSecurityPolicyPack: vi.fn(),
   deleteSecurityPolicyPack: vi.fn(),
   deleteSecurityProgram: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@/lib/client", () => ({
@@ -78,6 +82,10 @@ vi.mock("@/lib/client", () => ({
     deleteSecurityPolicyPack,
     deleteSecurityProgram,
   },
+}));
+
+vi.mock("@/components/ui/toaster", () => ({
+  toast: { success: toastSuccess, error: toastError },
 }));
 
 afterEach(() => {
@@ -313,6 +321,57 @@ describe("SecurityLibraryPage", () => {
     expect(updateSecurityWorkflow.mock.calls[0][0].workflow.parameters).toMatchObject([
       { name: "target_service", default: "payments-api", required: false },
     ]);
+  });
+
+  it("shows the impact banner when editing a workflow scans reference", async () => {
+    seedLists();
+    renderPage();
+    await screen.findByTestId("workflow-row-payments-workflow");
+    fireEvent.click(screen.getByRole("button", { name: "Edit payments-workflow" }));
+    const banner = await screen.findByTestId("workflow-impact-banner");
+    expect(banner.textContent).toContain("Used by 2 scan configurations: scan-a, scan-b");
+    expect(banner.textContent).toContain(
+      "Saving changes affects the next run of each of these configurations",
+    );
+    expect(banner.textContent).toContain("past runs keep the definition they ran with");
+  });
+
+  it("shows no impact banner when editing an unused workflow", async () => {
+    seedLists();
+    listSecurityWorkflows.mockResolvedValue({
+      workflows: [
+        create(SecurityWorkflowResourceSchema, {
+          name: "orphan-flow",
+          usageCount: 0,
+          tasks: [{ name: "recon", objective: "map the surface", role: "vulnerability-hunter" }],
+        }),
+      ],
+    });
+    validateSecurityWorkflow.mockResolvedValue({ valid: true, errors: [] });
+    updateSecurityWorkflow.mockResolvedValue({});
+    renderPage();
+    await screen.findByTestId("workflow-row-orphan-flow");
+    fireEvent.click(screen.getByRole("button", { name: "Edit orphan-flow" }));
+    const save = await screen.findByRole("button", { name: "Save workflow" });
+    expect(screen.queryByTestId("workflow-impact-banner")).toBeNull();
+
+    fireEvent.click(save);
+    await waitFor(() => expect(updateSecurityWorkflow).toHaveBeenCalledTimes(1));
+    expect(toastSuccess).toHaveBeenCalledWith('Workflow "orphan-flow" updated.');
+  });
+
+  it("toasts the downstream impact after saving a workflow scans reference", async () => {
+    seedLists();
+    validateSecurityWorkflow.mockResolvedValue({ valid: true, errors: [] });
+    updateSecurityWorkflow.mockResolvedValue({});
+    renderPage();
+    await screen.findByTestId("workflow-row-payments-workflow");
+    fireEvent.click(screen.getByRole("button", { name: "Edit payments-workflow" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save workflow" }));
+    await waitFor(() => expect(updateSecurityWorkflow).toHaveBeenCalledTimes(1));
+    expect(toastSuccess).toHaveBeenCalledWith(
+      'Workflow "payments-workflow" updated — 2 configurations will use the new definition on their next run.',
+    );
   });
 
   it("duplicating a workflow prefills tasks but clears the name", async () => {

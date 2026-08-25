@@ -8,6 +8,7 @@ import {
 } from "@/components/SecurityScanFormDialog";
 import { client } from "@/lib/client";
 import {
+  ListSecurityWorkflowsResponseSchema,
   SecurityScanConfigSchema,
   SecurityScanConfigSpecSchema,
   type SecurityScanConfig,
@@ -1042,5 +1043,97 @@ describe("SecurityScanFormDialog execution & parameter values", () => {
     fireEvent.submit(document.querySelector("form") as HTMLFormElement);
     await waitFor(() => expect(client.updateSecurityScan).toHaveBeenCalledTimes(1));
     expect(vi.mocked(client.updateSecurityScan).mock.calls[0][0].useSavedCredentials).toBe(true);
+  });
+
+  it("flags missing required workflow parameters and prefills rows on demand", async () => {
+    vi.mocked(client.listSecurityWorkflows).mockResolvedValueOnce(
+      create(ListSecurityWorkflowsResponseSchema, {
+        workflows: [
+          {
+            name: "payments-workflow",
+            tasks: [{ name: "a" }],
+            parameters: [
+              { name: "target_service", default: "payments-api", required: true },
+              { name: "depth", default: "quick", required: false },
+            ],
+          },
+        ],
+      }),
+    );
+    const config = create(SecurityScanConfigSchema, {
+      namespace: "user-alice",
+      name: "nightly",
+      spec: create(SecurityScanConfigSpecSchema, {
+        repoUrl: "https://github.com/acme/payments.git",
+        workflowRef: "payments-workflow",
+      }),
+    });
+    render(<SecurityScanFormDialog config={config} trigger={<button>Edit</button>} defaultOpen />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Execution/ }));
+    const warning = await screen.findByTestId("workflow-missing-parameters-warning");
+    expect(warning.textContent).toContain("target_service");
+    expect(warning.textContent).not.toContain("depth");
+
+    fireEvent.click(screen.getByRole("button", { name: "Add missing parameters" }));
+    expect((screen.getByLabelText("Parameter 1 name") as HTMLInputElement).value).toBe(
+      "target_service",
+    );
+    expect((screen.getByLabelText("Parameter 1 value") as HTMLInputElement).value).toBe(
+      "payments-api",
+    );
+    expect((screen.getByLabelText("Parameter 2 name") as HTMLInputElement).value).toBe("depth");
+    expect((screen.getByLabelText("Parameter 2 value") as HTMLInputElement).value).toBe("quick");
+    // The required parameter now has a value, so the warning clears.
+    expect(screen.queryByTestId("workflow-missing-parameters-warning")).toBeNull();
+  });
+
+  it("marks parameter rows whose keys the referenced workflow does not declare", async () => {
+    vi.mocked(client.listSecurityWorkflows).mockResolvedValueOnce(
+      create(ListSecurityWorkflowsResponseSchema, {
+        workflows: [
+          {
+            name: "payments-workflow",
+            tasks: [{ name: "a" }],
+            parameters: [{ name: "depth", default: "quick", required: false }],
+          },
+        ],
+      }),
+    );
+    const config = create(SecurityScanConfigSchema, {
+      namespace: "user-alice",
+      name: "nightly",
+      spec: create(SecurityScanConfigSpecSchema, {
+        repoUrl: "https://github.com/acme/payments.git",
+        workflowRef: "payments-workflow",
+        parameterValues: { stale_key: "x" },
+      }),
+    });
+    render(<SecurityScanFormDialog config={config} trigger={<button>Edit</button>} defaultOpen />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Execution/ }));
+    const note = await screen.findByText(/not declared by/);
+    expect(note.textContent).toContain("payments-workflow");
+    // No required parameters are missing, so only the stale-key marker shows.
+    expect(screen.queryByTestId("workflow-missing-parameters-warning")).toBeNull();
+  });
+
+  it("warns when the referenced workflow no longer exists in the library", async () => {
+    const config = create(SecurityScanConfigSchema, {
+      namespace: "user-alice",
+      name: "nightly",
+      spec: create(SecurityScanConfigSpecSchema, {
+        repoUrl: "https://github.com/acme/payments.git",
+        workflowRef: "ghost-workflow",
+      }),
+    });
+    render(<SecurityScanFormDialog config={config} trigger={<button>Edit</button>} defaultOpen />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Workflow tasks/ }));
+    const warning = await screen.findByTestId("workflow-missing-warning");
+    expect(warning.textContent).toMatch(/no longer exists in the library/);
+    expect(
+      screen.getByRole("option", { name: "ghost-workflow (missing from library)" }),
+    ).toBeTruthy();
   });
 });
