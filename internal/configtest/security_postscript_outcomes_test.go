@@ -43,6 +43,61 @@ func TestPoCBuilderIsFallbackOnly(t *testing.T) {
 	}
 }
 
+func TestPoCScriptsRequireProjectPrescribedWorkflow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		markers []string
+	}{
+		{
+			name: "poc-builder",
+			markers: []string{
+				"determine how this exact project requires a PoC to be built and run",
+				"security program's policy and pocEnvironment",
+				"Satisfy all applicable requirements",
+				"generic repository or CI guidance cannot relax program policy or pocEnvironment",
+				"Treat conflicts as non-reproduction, not permission to choose a weaker rule",
+				"all applicable project and program requirements explicitly accept it as PoC evidence",
+				"unit tests, mocks, or synthetic harnesses are insufficient",
+				"use the required integration, e2e, fork, devnet, replay, binary, deployment",
+				"project's prescribed toolchain and commands",
+				"do not replace it with weaker evidence",
+			},
+		},
+		{
+			name: "poc-validator",
+			markers: []string{
+				"Independently determine how this exact project requires a PoC to be built and validated",
+				"security program's policy and pocEnvironment",
+				"Satisfy all applicable requirements",
+				"generic repository or CI guidance cannot relax program policy or pocEnvironment",
+				"Treat conflicts as non-reproduction, not permission to choose a weaker rule",
+				"all applicable project and program requirements explicitly accept unit tests as PoC evidence",
+				"Do not assume the stored command or harness is sufficient",
+				"unit tests, mocks, or synthetic harnesses are insufficient",
+				"validation must use the required integration, e2e, fork, devnet, replay, binary, deployment",
+				"fail validation honestly",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var script triggersv1alpha1.SecurityPostScript
+			readBootstrapAsset(t, "securitypostscripts", tc.name, &script)
+			prompt := strings.Join(strings.Fields(script.Spec.Prompt), " ")
+			for _, marker := range tc.markers {
+				if !strings.Contains(prompt, marker) {
+					t.Errorf("%s prompt is missing project-workflow requirement %q", tc.name, marker)
+				}
+			}
+		})
+	}
+}
+
 func TestPolicyDispositionsPreserveTechnicalStatus(t *testing.T) {
 	t.Parallel()
 

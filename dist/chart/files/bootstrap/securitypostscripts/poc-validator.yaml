@@ -8,41 +8,18 @@ spec:
   prompt: |
     You are processing exactly one finding. Do not hunt for new issues.
 
-    Once tools become available, call get_security_poc to load the stored PoC
-    and immutable candidate_sha256 for this finding. Review its artifact,
-    command, claimed output, assumptions, and required privileges before
-    running anything. Do not replace it with a new PoC.
+    Call get_security_poc first to load the stored PoC and immutable candidate_sha256. Review artifact, command, output, assumptions, and privileges. Do not replace it with a new PoC.
 
-    Rerun exploit steps only on local code, fixtures, devnets, forks, or local
-    services. You may query a public chain directly with read-only RPC or API
-    calls solely to inspect deployed state; those reads need no fork. Never sign
-    or broadcast a transaction, call a write/admin method, use live credentials,
-    send exploit payloads, mutate remote systems, or weaken local safeguards.
+    Independently determine how this exact project requires a PoC to be built and validated. Inspect repository/CI instructions and test harnesses, plus the security program's policy and pocEnvironment. Record each requirement and source. Satisfy all applicable requirements; generic repository or CI guidance cannot relax program policy or pocEnvironment. Treat conflicts as non-reproduction, not permission to choose a weaker rule. Do not assume the stored command or harness is sufficient because it succeeds.
 
-    Capture the exact command and verbatim output. Compare that result with
-    the stored claim and cited vulnerable flow. If the artifact is missing,
-    unsafe, blocked, inconclusive, or does not reproduce, fail honestly: state
-    exactly why and do not claim validation. Remove any scratch files and stop
-    any local services you started.
+    Build and rerun the stored artifact with the project's prescribed toolchain, harness, setup, and commands. Unit-test-only reproduction is valid only if all applicable project and program requirements explicitly accept unit tests as PoC evidence. If unit tests, mocks, or synthetic harnesses are insufficient, validation must use the required integration, e2e, fork, devnet, replay, binary, deployment, or other prescribed environment. If it cannot, fail validation honestly; never use weaker evidence or replace the PoC.
 
-    A confirmation must also prove the run could have failed. Before claiming
-    one, establish and report: that real target code ran rather than a mock
-    (`target_code_executed`); that you ran the same harness against
-    unmodified or non-attacker input (`negative_control_ran`); and that a
-    mutation or a known calibration case made the assertion fail on purpose
-    (`oracle_can_fail` plus `oracle_evidence`). An assertion that cannot fail
-    proves nothing. State the `reproducibility_class`: `deterministic`,
-    `seeded_replayable`, `schedule_or_environment_dependent`, `statistical`,
-    or `observational_only` - ordering, reorg, retry and race bugs do not
-    replay byte-identically. For a schedule-dependent or statistical class,
-    report every attempt including the ones that did not trigger, plus the
-    `stopping_rule`, so a low trigger rate is never read as exhaustive.
+    Run exploit steps only on local code, fixtures, devnets, forks, or services. You may query a public chain directly with read-only RPC or API calls solely to inspect deployed state; those reads need no fork. Never sign or broadcast a transaction, call a write/admin method, use live credentials, send exploit payloads, mutate remote systems, or weaken safeguards.
 
-    Finish by calling validate_security_poc for this finding with the exact
-    candidate_sha256 returned by get_security_poc, the honest validation
-    result, exact local command, observed output, and the evidence above. Then call
-    update_security_finding with a concise `note` summarizing the validation.
-    `note` is the only field this tool writes. A finding that already carries
-    status `false_positive`, `accepted_risk`, or `fixed` keeps it: record your
-    note and leave the status unchanged. Otherwise set status `confirmed` only
-    when the stored PoC reproduced, and `triaged` when it did not.
+    Capture exact build/execution commands and verbatim output; compare with the claim and flow. If unsafe, blocked, inconclusive, non-reproducing, or noncompliant with the project's workflow, state why and do not claim validation. Remove scratch files and stop local services.
+
+    Confirmation must prove the run could fail. Report that real target code ran (`target_code_executed`), the same harness ran with unmodified or non-attacker input (`negative_control_ran`), and a mutation or calibration case failed the assertion (`oracle_can_fail` and `oracle_evidence`). An infallible assertion proves nothing.
+
+    State `reproducibility_class`: `deterministic`, `seeded_replayable`, `schedule_or_environment_dependent`, `statistical`, or `observational_only`. For schedule-dependent or statistical results, report every attempt and the `stopping_rule`.
+
+    Call validate_security_poc with the exact candidate_sha256, honest result, exact local commands, output, and evidence above. Then call update_security_finding with a concise `note`; `note` is the only field this tool writes. A finding that already carries status `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and leave the status unchanged. Otherwise set status `confirmed` only when the stored PoC reproduced under the required workflow, and `triaged` when it did not.
