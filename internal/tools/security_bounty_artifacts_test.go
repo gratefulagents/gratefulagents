@@ -15,6 +15,19 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/store"
 )
 
+func TestGetSecurityPoCIsEnabledForBuilderFallbackAndValidator(t *testing.T) {
+	for _, script := range []string{"poc-builder", "poc-validator"} {
+		state := &securityScanState{scanCtx: SecurityScanContext{PostScripts: []string{script}}}
+		if !(&getSecurityPoCTool{state: state}).IsEnabled(nil) {
+			t.Errorf("get_security_poc is disabled for %s", script)
+		}
+	}
+	state := &securityScanState{scanCtx: SecurityScanContext{PostScripts: []string{"report-writer"}}}
+	if (&getSecurityPoCTool{state: state}).IsEnabled(nil) {
+		t.Error("get_security_poc is enabled outside PoC builder/validator jobs")
+	}
+}
+
 func TestValidatePoCFilesRejectsTraversalAndOversize(t *testing.T) {
 	for _, name := range []string{"../secret", "/etc/passwd", "poc/../secret", `..\\secret`, "README.md", "readme.MD"} {
 		if err := validatePoCFiles([]securityPoCFile{{Path: name, Content: "x"}}); err == nil {
@@ -133,6 +146,28 @@ func TestBuildTriagedSecurityReviewBundleWithoutPoC(t *testing.T) {
 	want := []string{"manifest.json", "submission.md"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("triaged bundle entries = %v, want %v", names, want)
+	}
+}
+
+func TestBlockingPolicyDispositionsExcludeCurrentExecutionPackaging(t *testing.T) {
+	for _, disposition := range []string{"scope_excluded", "known_issue", "bot_findable", "not_ready"} {
+		events := []store.SecurityFindingEvent{{
+			EventType: "policy_disposition",
+			Detail:    json.RawMessage(`{"execution_id":"exec-1","policy_disposition":"` + disposition + `"}`),
+		}}
+		if got := store.SecurityFindingBlockingPolicyDisposition(events, "exec-1"); got != disposition {
+			t.Errorf("disposition %q resolved as %q", disposition, got)
+		}
+		if got := store.SecurityFindingBlockingPolicyDisposition(events, "exec-2"); got != "" {
+			t.Errorf("prior-execution disposition %q leaked into exec-2", disposition)
+		}
+	}
+	newestFirst := []store.SecurityFindingEvent{
+		{EventType: "policy_disposition", Detail: json.RawMessage(`{"execution_id":"exec-1","policy_disposition":"scope_eligible"}`)},
+		{EventType: "policy_disposition", Detail: json.RawMessage(`{"execution_id":"exec-1","policy_disposition":"scope_excluded"}`)},
+	}
+	if got := store.SecurityFindingBlockingPolicyDisposition(newestFirst, "exec-1"); got != "" {
+		t.Errorf("newer non-blocking disposition did not supersede %q", got)
 	}
 }
 

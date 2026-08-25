@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store"
@@ -477,6 +478,10 @@ func (s securityScanRecordStubStore) ApplySecuritySuppressions(context.Context, 
 }
 
 func (s securityScanRecordStubStore) ListSecurityFindings(context.Context, store.SecurityFindingFilter) ([]store.SecurityFindingRecord, error) {
+	return nil, nil
+}
+
+func (s securityScanRecordStubStore) ListSecurityFindingEvents(context.Context, string, uuid.UUID, int32) ([]store.SecurityFindingEvent, error) {
 	return nil, nil
 }
 
