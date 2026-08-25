@@ -55,11 +55,16 @@ type turnBudgetGuard struct {
 // which must also be registered as a run hook for the soft stop. ctx must be
 // the run's root context so the watcher survives the turn cancellation it
 // triggers.
-func startTurnBudgetGuard(ctx context.Context, baselineUSD, capUSD float64, tracker *agent.RunProgress, cancelTurn context.CancelFunc) *turnBudgetGuard {
+func startTurnBudgetGuard(
+	ctx context.Context, baselineUSD, capUSD float64, tracker *agent.RunProgress, cancelTurn context.CancelFunc,
+) *turnBudgetGuard {
 	return startTurnBudgetGuardWithInterval(ctx, baselineUSD, capUSD, tracker, cancelTurn, budgetWatchInterval)
 }
 
-func startTurnBudgetGuardWithInterval(ctx context.Context, baselineUSD, capUSD float64, tracker *agent.RunProgress, cancelTurn context.CancelFunc, interval time.Duration) *turnBudgetGuard {
+func startTurnBudgetGuardWithInterval(
+	ctx context.Context, baselineUSD, capUSD float64, tracker *agent.RunProgress,
+	cancelTurn context.CancelFunc, interval time.Duration,
+) *turnBudgetGuard {
 	g := &turnBudgetGuard{
 		baselineUSD: baselineUSD,
 		capUSD:      capUSD,
@@ -100,7 +105,8 @@ func (g *turnBudgetGuard) spent() float64 {
 func (g *turnBudgetGuard) trip(spentUSD float64, layer string) {
 	if g.tripped.CompareAndSwap(false, true) {
 		g.spentUSD.Store(spentUSD)
-		log.Printf("Cost cap exceeded mid-turn ($%.4f spent of the $%.2f limit, %s stop) — cancelling in-flight turn", spentUSD, g.capUSD, layer)
+		log.Printf("Cost cap exceeded mid-turn ($%.4f spent of the $%.2f limit, %s stop) — cancelling in-flight turn",
+			spentUSD, g.capUSD, layer)
 		g.cancelTurn()
 	}
 }
@@ -130,5 +136,6 @@ func (g *turnBudgetGuard) notice() string {
 	if v, ok := g.spentUSD.Load().(float64); ok {
 		spent = v
 	}
-	return fmt.Sprintf("Cost cap reached mid-turn: $%.4f spent of the $%.2f limit — the turn was stopped and its progress preserved. Increase spec.limits.maxCostUsd to resume.", spent, g.capUSD)
+	return fmt.Sprintf("Cost cap reached mid-turn: $%.4f spent of the $%.2f limit — "+
+		"the turn was stopped and its progress preserved. Increase spec.limits.maxCostUsd to resume.", spent, g.capUSD)
 }

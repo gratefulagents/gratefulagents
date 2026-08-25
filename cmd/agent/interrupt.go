@@ -39,7 +39,10 @@ type turnInterruptWatcher struct {
 // run's root context (pod lifetime), not the turn context, so polling
 // survives the turn cancellation it triggers. crdClient may be nil, which
 // disables the CRD fallback channel.
-func startTurnInterruptWatcher(ctx context.Context, sc *sessionclient.Client, crdClient client.Client, runName, namespace string, cancelTurn context.CancelFunc) *turnInterruptWatcher {
+func startTurnInterruptWatcher(
+	ctx context.Context, sc *sessionclient.Client, crdClient client.Client,
+	runName, namespace string, cancelTurn context.CancelFunc,
+) *turnInterruptWatcher {
 	w := &turnInterruptWatcher{
 		stop: make(chan struct{}),
 		done: make(chan struct{}),

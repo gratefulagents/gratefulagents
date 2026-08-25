@@ -1434,7 +1434,8 @@ messageLoop:
 					log.Printf("Turn %d stopped by cost cap (cancelled %d sub-agent tasks)", turnNumber, stoppedTasks)
 					if preserved := transcriptAfterRun(result); len(preserved) > 0 {
 						sessionTranscript = preserved
-						persistInFlightTranscriptSnapshot(ctx, sc, sessionTranscript, transcriptFloor, transcriptSeenMessageID, selfAssistantMessageID, currentUserMessageID)
+						persistInFlightTranscriptSnapshot(ctx, sc, sessionTranscript, transcriptFloor,
+							transcriptSeenMessageID, selfAssistantMessageID, currentUserMessageID)
 						activeWorkspaceSnapshotter.Load().SnapshotAsync("cost-cap")
 						log.Printf("Turn %d: preserved %d cost-capped conversation items", turnNumber, len(sessionTranscript))
 					}
@@ -1444,10 +1445,11 @@ messageLoop:
 					}
 					_ = sc.WriteActivity(ctx, "cost_cap", notice, nil)
 					_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak, notice, nil)
-					if patchErr := patchAgentRunStatus(ctx, crdClient, cfg.TaskName, cfg.Namespace, func(fresh *platformv1alpha1.AgentRun) {
+					markPaused := func(fresh *platformv1alpha1.AgentRun) {
 						fresh.Status.Phase = platformv1alpha1.AgentRunPhasePaused
 						fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Paused", BlockedReason: notice}
-					}); patchErr != nil {
+					}
+					if patchErr := patchAgentRunStatus(ctx, crdClient, cfg.TaskName, cfg.Namespace, markPaused); patchErr != nil {
 						log.Printf("WARN: failed to patch Paused status for mid-turn cost cap: %v", patchErr)
 					}
 					// Empty result: the deferred result writer leaves the

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -11,8 +10,7 @@ import (
 func TestBudgetGuardSoftStopsAtCapOnLLMStart(t *testing.T) {
 	t.Parallel()
 	var cancelled atomic.Bool
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	g := startTurnBudgetGuardWithInterval(ctx, 5.0, 5.0, nil, func() { cancelled.Store(true) }, time.Hour)
 	defer g.Finish()
 
@@ -31,8 +29,7 @@ func TestBudgetGuardSoftStopsAtCapOnLLMStart(t *testing.T) {
 func TestBudgetGuardUnderCapDoesNotTrip(t *testing.T) {
 	t.Parallel()
 	var cancelled atomic.Bool
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	g := startTurnBudgetGuardWithInterval(ctx, 1.0, 5.0, nil, func() { cancelled.Store(true) }, time.Hour)
 
 	g.OnLLMStart(nil, nil)
@@ -47,8 +44,7 @@ func TestBudgetGuardUnderCapDoesNotTrip(t *testing.T) {
 func TestBudgetGuardHardStopsPastOvershootMargin(t *testing.T) {
 	t.Parallel()
 	cancelledCh := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	// Baseline 10 vs cap 5: well past cap*(1+margin); the watcher alone must
 	// trip without any LLM-start boundary.
 	g := startTurnBudgetGuardWithInterval(ctx, 10.0, 5.0, nil, func() { close(cancelledCh) }, 5*time.Millisecond)
@@ -66,8 +62,7 @@ func TestBudgetGuardHardStopsPastOvershootMargin(t *testing.T) {
 func TestBudgetGuardWatcherStaysQuietWithinMargin(t *testing.T) {
 	t.Parallel()
 	var cancelled atomic.Bool
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	// Spend is exactly at the cap: soft-stop territory, but below the hard
 	// threshold — the watcher must not fire.
 	g := startTurnBudgetGuardWithInterval(ctx, 5.0, 5.0, nil, func() { cancelled.Store(true) }, time.Millisecond)

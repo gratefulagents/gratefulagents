@@ -345,7 +345,7 @@ func TestReconcileTerminalRunDrainsSandboxAfterTTL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile() second pass error = %v", err)
 	}
-	if result.RequeueAfter != 0 || result.Requeue {
+	if result.RequeueAfter != 0 {
 		t.Fatalf("result = %#v, want steady state after drain", result)
 	}
 	updated := &platformv1alpha1.AgentRun{}
