@@ -209,10 +209,10 @@ func (s *fakeSecurityFindingStore) SetSecurityFindingStatus(_ context.Context, n
 	return store.ErrSecurityFindingNotFound
 }
 
-func (s *fakeSecurityFindingStore) RecordSecurityFindingPolicyDisposition(_ context.Context, namespace string, id uuid.UUID, actor, executionID, disposition, note string) (*store.SecurityFindingEvent, error) {
+func (s *fakeSecurityFindingStore) RecordSecurityFindingPolicyDisposition(_ context.Context, namespace string, id uuid.UUID, actor, executionID, check, disposition, note string) (*store.SecurityFindingEvent, error) {
 	for _, rec := range s.findings {
 		if rec.Namespace == namespace && rec.ID == id {
-			event := store.SecurityFindingEvent{FindingID: id, EventType: "policy_disposition", Actor: actor, Note: note, Detail: json.RawMessage(`{"execution_id":"` + executionID + `","policy_disposition":"` + disposition + `"}`)}
+			event := store.SecurityFindingEvent{FindingID: id, EventType: "policy_disposition", Actor: actor, Note: note, Detail: json.RawMessage(`{"execution_id":"` + executionID + `","policy_check":"` + check + `","policy_disposition":"` + disposition + `"}`)}
 			s.events = append(s.events, event)
 			return &event, nil
 		}
@@ -794,7 +794,17 @@ func TestUpdateSecurityFindingRejectsForeignFindings(t *testing.T) {
 		t.Errorf("risk acceptance left status at %q", own.Status)
 	}
 	result = execTool(t, registry, "update_security_finding",
-		`{"id":"`+own.ID.String()+`","status":"confirmed","policy_disposition":"known_issue","note":"matches published audit"}`)
+		`{"id":"`+own.ID.String()+`","status":"confirmed","policy_disposition":"known_issue","note":"missing provenance"}`)
+	if !result.IsError || !strings.Contains(result.Content, "policy_check") {
+		t.Fatalf("policy disposition without its check must fail: %s", result.Content)
+	}
+	result = execTool(t, registry, "update_security_finding",
+		`{"id":"`+own.ID.String()+`","status":"confirmed","policy_check":"bounty","policy_disposition":"novel","note":"invalid pair"}`)
+	if !result.IsError || !strings.Contains(result.Content, "not valid") {
+		t.Fatalf("mismatched policy check and disposition must fail: %s", result.Content)
+	}
+	result = execTool(t, registry, "update_security_finding",
+		`{"id":"`+own.ID.String()+`","status":"confirmed","policy_check":"prior_art","policy_disposition":"known_issue","note":"matches published audit"}`)
 	if result.IsError {
 		t.Fatalf("policy disposition update must succeed: %s", result.Content)
 	}

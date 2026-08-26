@@ -34,8 +34,8 @@ spec:
     and quote the deciding source. Missing or unavailable evidence is
     inconclusive, never a confirmed match.
 
-    Finish by calling update_security_finding with the sources searched in `note`
-    and set `policy_disposition` to exactly `known_issue`, `bot_findable`,
+    Finish by calling update_security_finding with the sources searched in `note`,
+    set `policy_check` to `prior_art`, and set `policy_disposition` to exactly `known_issue`, `bot_findable`,
     `fixed_release`, `novel`, or `not_ready` when evidence is unavailable. These
     are policy dispositions, not risk acceptance. A finding that already carries status
     `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and

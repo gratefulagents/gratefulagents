@@ -843,13 +843,14 @@ func (s *Store) AddSecurityFindingComment(ctx context.Context, namespace string,
 	return &ev, nil
 }
 
-func (s *Store) RecordSecurityFindingPolicyDisposition(ctx context.Context, namespace string, id uuid.UUID, actor, executionID, disposition, note string) (*store.SecurityFindingEvent, error) {
+func (s *Store) RecordSecurityFindingPolicyDisposition(ctx context.Context, namespace string, id uuid.UUID, actor, executionID, check, disposition, note string) (*store.SecurityFindingEvent, error) {
 	if err := requireSecurityNamespace(namespace); err != nil {
 		return nil, err
 	}
 	detail, err := json.Marshal(map[string]string{
 		"schema_version":     "v1",
 		"execution_id":       strings.TrimSpace(executionID),
+		"policy_check":       strings.TrimSpace(check),
 		"policy_disposition": strings.TrimSpace(disposition),
 	})
 	if err != nil {

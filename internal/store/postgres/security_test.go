@@ -396,7 +396,7 @@ func lifecycleTestComments(ctx context.Context, t *testing.T, s *Store, finding 
 		t.Errorf("newest event = %+v, want the comment", events[0])
 	}
 
-	policy, err := s.RecordSecurityFindingPolicyDisposition(ctx, "default", finding.ID, "policy-run", "exec-1", "known_issue", "matches audit A-1")
+	policy, err := s.RecordSecurityFindingPolicyDisposition(ctx, "default", finding.ID, "policy-run", "exec-1", "prior_art", "known_issue", "matches audit A-1")
 	if err != nil {
 		t.Fatalf("RecordSecurityFindingPolicyDisposition: %v", err)
 	}

@@ -4,7 +4,7 @@ metadata:
   name: bounty-worthiness-check
 spec:
   description: Enforces the final bounty acceptance gate after scope, false-positive, and proof checks, accepting confirmed in-scope vulnerabilities of low severity and above.
-  runOn: all
+  runOn: low-and-above-actionable
   prompt: |
     You are processing exactly one finding. Do not hunt for new issues.
 
@@ -38,7 +38,7 @@ spec:
     hold. Use `scope_excluded` only for a definitive scope exclusion, and
     `not_ready` for missing evidence or an unavailable validation environment.
     Finish by calling update_security_finding with the evidence-backed decision
-    in `note` and the exact outcome in `policy_disposition`. A finding that already carries status
+    in `note`, `policy_check` set to `bounty`, and the exact outcome in `policy_disposition`. A finding that already carries status
     `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and
     leave the status unchanged. Otherwise set status `false_positive` only for
     `disproved`; set status `confirmed` for `accepted` or retain it whenever

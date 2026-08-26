@@ -199,30 +199,133 @@ type SecurityFindingEvent struct {
 	CreatedAt time.Time
 }
 
-// SecurityFindingBlockingPolicyDisposition returns the newest policy
-// disposition that blocks report packaging for executionID. Events must be
-// ordered newest first, as returned by ListSecurityFindingEvents. A newer
-// non-blocking disposition supersedes an older blocking decision.
+// SecurityFindingBlockingPolicyDisposition returns the policy disposition
+// that blocks report packaging for executionID. Only an explicit final bounty
+// acceptance supersedes its input checks; without one, independent scope and
+// prior-art dimensions are resolved separately. Events must be newest first.
 func SecurityFindingBlockingPolicyDisposition(events []SecurityFindingEvent, executionID string) string {
 	for _, event := range events {
-		if event.EventType != "policy_disposition" {
+		decision, ok := securityFindingPolicyDecisionFromEvent(event, executionID)
+		if !ok {
 			continue
 		}
-		var detail struct {
-			ExecutionID string `json:"execution_id"`
-			Disposition string `json:"policy_disposition"`
+		if decision.Check == "bounty" {
+			if !ValidSecurityFindingPolicyDecision(decision.Check, decision.Disposition) {
+				return "invalid_policy_decision"
+			}
+			if decision.Disposition == "accepted" {
+				return ""
+			}
+			return decision.Disposition
 		}
-		if json.Unmarshal(event.Detail, &detail) != nil || detail.ExecutionID != executionID {
+		if decision.Check == "" {
+			// Legacy accepted/disproved outcomes were unique to the final gate.
+			if decision.Disposition == "accepted" {
+				return ""
+			}
+			if decision.Disposition == "disproved" || decision.Disposition == "not_ready" {
+				return decision.Disposition
+			}
+		}
+	}
+	return securityFindingPreBountyPolicyBlock(events, executionID, true)
+}
+
+// SecurityFindingDefinitivePreBountyExclusion returns a durable scope or
+// prior-art decision that makes final bounty evaluation unnecessary. Scope
+// and prior-art are independent dimensions, so a newer decision in one does
+// not erase an exclusion in the other. Within a dimension, the newest event
+// wins. Inconclusive not_ready decisions deliberately do not block review.
+// Events must be ordered newest first.
+func SecurityFindingDefinitivePreBountyExclusion(events []SecurityFindingEvent, executionID string) string {
+	return securityFindingPreBountyPolicyBlock(events, executionID, false)
+}
+
+func securityFindingPreBountyPolicyBlock(events []SecurityFindingEvent, executionID string, blockNotReady bool) string {
+	var seenScope, seenPriorArt bool
+	for _, event := range events {
+		decision, ok := securityFindingPolicyDecisionFromEvent(event, executionID)
+		if !ok {
 			continue
 		}
-		switch detail.Disposition {
-		case "scope_excluded", "known_issue", "bot_findable", "not_ready":
-			return detail.Disposition
-		default:
+		if decision.Disposition == "not_ready" && decision.Check == "" {
+			if blockNotReady {
+				return decision.Disposition
+			}
+			// A legacy inconclusive event has no dimension. Run the final gate
+			// rather than letting an older, possibly superseded exclusion skip it.
 			return ""
+		}
+		if decision.Check != "" && !ValidSecurityFindingPolicyDecision(decision.Check, decision.Disposition) {
+			if blockNotReady {
+				return "invalid_policy_decision"
+			}
+			return ""
+		}
+		switch decision.Check {
+		case "scope":
+			if seenScope {
+				continue
+			}
+			seenScope = true
+			if decision.Disposition == "scope_excluded" || blockNotReady && decision.Disposition == "not_ready" {
+				return decision.Disposition
+			}
+		case "prior_art":
+			if seenPriorArt {
+				continue
+			}
+			seenPriorArt = true
+			if decision.Disposition == "known_issue" || decision.Disposition == "bot_findable" || decision.Disposition == "fixed_release" || blockNotReady && decision.Disposition == "not_ready" {
+				return decision.Disposition
+			}
 		}
 	}
 	return ""
+}
+
+// ValidSecurityFindingPolicyDecision reports whether disposition is a valid
+// outcome for check. Keeping this contract shared prevents malformed policy
+// provenance from overriding an independent exclusion.
+func ValidSecurityFindingPolicyDecision(check, disposition string) bool {
+	switch check {
+	case "scope":
+		return disposition == "scope_eligible" || disposition == "scope_excluded" || disposition == "not_ready"
+	case "prior_art":
+		return disposition == "known_issue" || disposition == "bot_findable" || disposition == "fixed_release" || disposition == "novel" || disposition == "not_ready"
+	case "bounty":
+		return disposition == "accepted" || disposition == "disproved" || disposition == "scope_excluded" || disposition == "known_issue" || disposition == "bot_findable" || disposition == "not_ready"
+	default:
+		return false
+	}
+}
+
+type securityFindingPolicyDecision struct {
+	Disposition string
+	Check       string
+}
+
+func securityFindingPolicyDecisionFromEvent(event SecurityFindingEvent, executionID string) (securityFindingPolicyDecision, bool) {
+	if event.EventType != "policy_disposition" {
+		return securityFindingPolicyDecision{}, false
+	}
+	var detail struct {
+		ExecutionID string `json:"execution_id"`
+		Disposition string `json:"policy_disposition"`
+		Check       string `json:"policy_check"`
+	}
+	if json.Unmarshal(event.Detail, &detail) != nil || detail.ExecutionID != executionID {
+		return securityFindingPolicyDecision{}, false
+	}
+	if detail.Check == "" {
+		switch detail.Disposition {
+		case "scope_excluded", "scope_eligible":
+			detail.Check = "scope"
+		case "known_issue", "bot_findable", "fixed_release", "novel":
+			detail.Check = "prior_art"
+		}
+	}
+	return securityFindingPolicyDecision{Disposition: detail.Disposition, Check: detail.Check}, true
 }
 
 const (
@@ -501,7 +604,7 @@ const (
 // SecurityFindingPolicyStore is the optional capability for persisting
 // execution-scoped program-policy decisions independently of technical status.
 type SecurityFindingPolicyStore interface {
-	RecordSecurityFindingPolicyDisposition(ctx context.Context, namespace string, findingID uuid.UUID, actor, executionID, disposition, note string) (*SecurityFindingEvent, error)
+	RecordSecurityFindingPolicyDisposition(ctx context.Context, namespace string, findingID uuid.UUID, actor, executionID, check, disposition, note string) (*SecurityFindingEvent, error)
 }
 
 // SecurityFindingArtifactStore is optional so existing in-memory and test

@@ -2211,10 +2211,16 @@ func TestSecurityScanReportWriterSkipsPolicyExcludedFinding(t *testing.T) {
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 	execID := getSecurityScan(t, k8sClient, scan).Status.LastExecution.ID
-	findings.events = []store.SecurityFindingEvent{{
-		FindingID: finding.ID, EventType: "policy_disposition",
-		Detail: json.RawMessage(`{"execution_id":"` + execID + `","policy_disposition":"scope_excluded"}`),
-	}}
+	findings.events = []store.SecurityFindingEvent{
+		{
+			FindingID: finding.ID, EventType: "policy_disposition",
+			Detail: json.RawMessage(`{"execution_id":"` + execID + `","policy_check":"prior_art","policy_disposition":"novel"}`),
+		},
+		{
+			FindingID: finding.ID, EventType: "policy_disposition",
+			Detail: json.RawMessage(`{"execution_id":"` + execID + `","policy_check":"scope","policy_disposition":"scope_excluded"}`),
+		},
+	}
 	research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
@@ -2229,6 +2235,57 @@ func TestSecurityScanReportWriterSkipsPolicyExcludedFinding(t *testing.T) {
 		if run.Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] == "report-writer" {
 			t.Fatalf("report-writer AgentRun was created for policy-excluded finding: %s", run.Name)
 		}
+	}
+}
+
+func TestSecurityScanBountyWorthinessSkipsDefinitivePolicyExclusion(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		check       string
+		disposition string
+		wantSkip    bool
+	}{
+		{name: "scope excluded", check: "scope", disposition: "scope_excluded", wantSkip: true},
+		{name: "known issue", check: "prior_art", disposition: "known_issue", wantSkip: true},
+		{name: "inconclusive remains reviewable", check: "scope", disposition: "not_ready", wantSkip: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			scan := postScriptSecurityScan([]triggersv1alpha1.SecurityScanPostScript{{
+				Name: "bounty-worthiness-check", Prompt: "Apply the final bounty gate.", RunOn: "low-and-above-actionable",
+			}}, 2)
+			reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+			finding := postScriptTestFinding("00000000-0000-0000-0000-0000000000a1", "fp-alpha", "critical")
+			finding.Status = store.SecurityFindingStatusConfirmed
+			findings := &postScriptFindingStore{findings: []store.SecurityFindingRecord{finding}}
+			reconciler.Findings = findings
+
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+			execID := getSecurityScan(t, k8sClient, scan).Status.LastExecution.ID
+			findings.events = []store.SecurityFindingEvent{{
+				FindingID: finding.ID, EventType: "policy_disposition",
+				Detail: json.RawMessage(`{"execution_id":"` + execID + `","policy_check":"` + tc.check + `","policy_disposition":"` + tc.disposition + `"}`),
+			}}
+			research := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "research")
+			markSecurityScanTaskRun(t, k8sClient, scan.Namespace, research.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+			reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+			exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+			job := postScriptJob(t, exec, finding.Fingerprint)
+			if tc.wantSkip {
+				if job.State != triggersv1alpha1.SecurityScanPostScriptStateSkipped || !strings.Contains(job.Result, tc.disposition) {
+					t.Fatalf("bounty-worthiness job = %#v, want policy-excluded skip", job)
+				}
+			} else if job.State != triggersv1alpha1.SecurityScanPostScriptStateRunning {
+				t.Fatalf("bounty-worthiness job = %#v, want inconclusive finding dispatched", job)
+			}
+			for _, run := range securityScanRuns(t, k8sClient, scan.Namespace) {
+				if run.Annotations[triggersv1alpha1.SecurityScanPostScriptAnnotation] == "bounty-worthiness-check" && tc.wantSkip {
+					t.Fatalf("bounty-worthiness AgentRun was created for policy-excluded finding: %s", run.Name)
+				}
+			}
+		})
 	}
 }
 

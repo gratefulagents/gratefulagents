@@ -169,6 +169,90 @@ func TestBlockingPolicyDispositionsExcludeCurrentExecutionPackaging(t *testing.T
 	if got := store.SecurityFindingBlockingPolicyDisposition(newestFirst, "exec-1"); got != "" {
 		t.Errorf("newer non-blocking disposition did not supersede %q", got)
 	}
+	independent := []store.SecurityFindingEvent{
+		{EventType: "policy_disposition", Detail: json.RawMessage(`{"execution_id":"exec-1","policy_check":"prior_art","policy_disposition":"novel"}`)},
+		{EventType: "policy_disposition", Detail: json.RawMessage(`{"execution_id":"exec-1","policy_check":"scope","policy_disposition":"scope_excluded"}`)},
+	}
+	if got := store.SecurityFindingBlockingPolicyDisposition(independent, "exec-1"); got != "scope_excluded" {
+		t.Errorf("independent scope exclusion resolved as %q", got)
+	}
+	finalAccepted := append([]store.SecurityFindingEvent{{
+		EventType: "policy_disposition", Detail: json.RawMessage(`{"execution_id":"exec-1","policy_check":"bounty","policy_disposition":"accepted"}`),
+	}}, independent...)
+	if got := store.SecurityFindingBlockingPolicyDisposition(finalAccepted, "exec-1"); got != "" {
+		t.Errorf("final accepted decision did not supersede %q", got)
+	}
+	for _, check := range []string{"scope", "prior_art"} {
+		events := []store.SecurityFindingEvent{{
+			EventType: "policy_disposition", Detail: json.RawMessage(`{"execution_id":"exec-1","policy_check":"` + check + `","policy_disposition":"not_ready"}`),
+		}}
+		if got := store.SecurityFindingBlockingPolicyDisposition(events, "exec-1"); got != "not_ready" {
+			t.Errorf("%s not_ready resolved as %q", check, got)
+		}
+	}
+	finalDisproved := []store.SecurityFindingEvent{{
+		EventType: "policy_disposition", Detail: json.RawMessage(`{"execution_id":"exec-1","policy_check":"bounty","policy_disposition":"disproved"}`),
+	}}
+	if got := store.SecurityFindingBlockingPolicyDisposition(finalDisproved, "exec-1"); got != "disproved" {
+		t.Errorf("final disproved decision resolved as %q", got)
+	}
+	invalidFinal := []store.SecurityFindingEvent{{
+		EventType: "policy_disposition", Detail: json.RawMessage(`{"execution_id":"exec-1","policy_check":"bounty","policy_disposition":"novel"}`),
+	}}
+	if got := store.SecurityFindingBlockingPolicyDisposition(invalidFinal, "exec-1"); got != "invalid_policy_decision" {
+		t.Errorf("invalid final decision resolved as %q", got)
+	}
+}
+
+func TestDefinitivePreBountyExclusionsPreserveIndependentPolicyDimensions(t *testing.T) {
+	event := func(executionID, check, disposition string) store.SecurityFindingEvent {
+		return store.SecurityFindingEvent{
+			EventType: "policy_disposition",
+			Detail:    json.RawMessage(`{"execution_id":"` + executionID + `","policy_check":"` + check + `","policy_disposition":"` + disposition + `"}`),
+		}
+	}
+	for _, tc := range []struct{ check, disposition string }{
+		{check: "scope", disposition: "scope_excluded"},
+		{check: "prior_art", disposition: "known_issue"},
+		{check: "prior_art", disposition: "bot_findable"},
+		{check: "prior_art", disposition: "fixed_release"},
+	} {
+		if got := store.SecurityFindingDefinitivePreBountyExclusion([]store.SecurityFindingEvent{event("exec-1", tc.check, tc.disposition)}, "exec-1"); got != tc.disposition {
+			t.Errorf("definitive disposition %q resolved as %q", tc.disposition, got)
+		}
+	}
+	for _, tc := range []struct{ check, disposition string }{
+		{check: "scope", disposition: "scope_eligible"},
+		{check: "prior_art", disposition: "novel"},
+		{check: "scope", disposition: "not_ready"},
+		{check: "prior_art", disposition: "not_ready"},
+	} {
+		if got := store.SecurityFindingDefinitivePreBountyExclusion([]store.SecurityFindingEvent{event("exec-1", tc.check, tc.disposition)}, "exec-1"); got != "" {
+			t.Errorf("non-blocking %s disposition %q resolved as %q", tc.check, tc.disposition, got)
+		}
+	}
+
+	// A later prior-art outcome must not erase an independent scope exclusion.
+	independent := []store.SecurityFindingEvent{event("exec-1", "prior_art", "not_ready"), event("exec-1", "scope", "scope_excluded")}
+	if got := store.SecurityFindingDefinitivePreBountyExclusion(independent, "exec-1"); got != "scope_excluded" {
+		t.Errorf("independent scope exclusion resolved as %q", got)
+	}
+	for _, superseded := range [][]store.SecurityFindingEvent{
+		{event("exec-1", "scope", "not_ready"), event("exec-1", "scope", "scope_excluded")},
+		{event("exec-1", "prior_art", "not_ready"), event("exec-1", "prior_art", "known_issue")},
+	} {
+		if got := store.SecurityFindingDefinitivePreBountyExclusion(superseded, "exec-1"); got != "" {
+			t.Errorf("superseded exclusion resolved as %q", got)
+		}
+	}
+	// A legacy inconclusive event has no dimension, so skipping is unsafe.
+	legacyNotReady := store.SecurityFindingEvent{EventType: "policy_disposition", Detail: json.RawMessage(`{"execution_id":"exec-1","policy_disposition":"not_ready"}`)}
+	if got := store.SecurityFindingDefinitivePreBountyExclusion([]store.SecurityFindingEvent{legacyNotReady, event("exec-1", "scope", "scope_excluded")}, "exec-1"); got != "" {
+		t.Errorf("legacy inconclusive event did not fail open for review: %q", got)
+	}
+	if got := store.SecurityFindingDefinitivePreBountyExclusion([]store.SecurityFindingEvent{event("exec-1", "prior_art", "known_issue")}, "exec-2"); got != "" {
+		t.Errorf("prior-execution exclusion leaked into exec-2 as %q", got)
+	}
 }
 
 func TestSecurityReportBundleStatusIncludesTriaged(t *testing.T) {

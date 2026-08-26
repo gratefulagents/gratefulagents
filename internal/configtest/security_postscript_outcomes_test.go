@@ -132,9 +132,9 @@ func TestPolicyDispositionsPreserveTechnicalStatus(t *testing.T) {
 		name    string
 		markers []string
 	}{
-		{"prior-art-check", []string{"`known_issue`", "`bot_findable`", "`not_ready`", "retain `confirmed`", "set status `triaged`"}},
-		{"scope-eligibility-check", []string{"`scope_excluded`", "`not_ready`", "retain `confirmed`", "set status `triaged`"}},
-		{"bounty-worthiness-check", []string{"`scope_excluded`", "`known_issue`", "`not_ready`", "set status `confirmed`", "set status `triaged`"}},
+		{"prior-art-check", []string{"`policy_check` to `prior_art`", "`known_issue`", "`bot_findable`", "`not_ready`", "retain `confirmed`", "set status `triaged`"}},
+		{"scope-eligibility-check", []string{"`policy_check` to `scope`", "`scope_excluded`", "`not_ready`", "retain `confirmed`", "set status `triaged`"}},
+		{"bounty-worthiness-check", []string{"`policy_check` set to `bounty`", "`scope_excluded`", "`known_issue`", "`not_ready`", "set status `confirmed`", "set status `triaged`"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

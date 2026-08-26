@@ -40,7 +40,7 @@ spec:
     acceptance fact is absent or ambiguous, say unknown and name the missing
     fact; absence of evidence is not an operator acceptance of the risk.
     Finish by calling update_security_finding with the scope rule and reason in
-    `note`, and set `policy_disposition` to exactly `scope_eligible`,
+    `note`, set `policy_check` to `scope`, and set `policy_disposition` to exactly `scope_eligible`,
     `scope_excluded`, or `not_ready`. These are policy dispositions, not technical verdicts. A finding that already
     carries status `false_positive`, `accepted_risk`, or `fixed` keeps it: record
     your note and leave the status unchanged. Otherwise retain `confirmed` when

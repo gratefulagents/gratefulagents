@@ -508,7 +508,13 @@ func (e *securityScanExecutionEngine) dispatchPostScripts(ctx context.Context) {
 			appendSecurityScanCoverageGap(e.exec, securityScanPostScriptJobGapPrefix(securityScanPostScriptJobLabel(*job), job.Fingerprint)+fmt.Sprintf("post-script %q was removed from the spec mid-execution", missing))
 			continue
 		}
-		if slices.ContainsFunc(pipeline, func(script triggersv1alpha1.SecurityScanPostScript) bool { return script.Name == "report-writer" }) {
+		isBountyWorthiness := slices.ContainsFunc(pipeline, func(script triggersv1alpha1.SecurityScanPostScript) bool {
+			return script.Name == "bounty-worthiness-check"
+		})
+		isReportWriter := slices.ContainsFunc(pipeline, func(script triggersv1alpha1.SecurityScanPostScript) bool {
+			return script.Name == "report-writer"
+		})
+		if isBountyWorthiness || isReportWriter {
 			findingID, err := uuid.Parse(job.FindingID)
 			if err != nil {
 				job.State = triggersv1alpha1.SecurityScanPostScriptStateFailed
@@ -523,7 +529,15 @@ func (e *securityScanExecutionEngine) dispatchPostScripts(ctx context.Context) {
 			if err != nil {
 				continue // transient store failure; retry on the next reconcile
 			}
-			if disposition := store.SecurityFindingBlockingPolicyDisposition(events, e.exec.ID); disposition != "" {
+			if isBountyWorthiness {
+				if disposition := store.SecurityFindingDefinitivePreBountyExclusion(events, e.exec.ID); disposition != "" {
+					job.State = triggersv1alpha1.SecurityScanPostScriptStateSkipped
+					job.FinishedAt = &e.now
+					job.Result = "skipped: policy disposition " + disposition + " makes bounty evaluation unnecessary"
+					continue
+				}
+			}
+			if disposition := store.SecurityFindingBlockingPolicyDisposition(events, e.exec.ID); isReportWriter && disposition != "" {
 				job.State = triggersv1alpha1.SecurityScanPostScriptStateSkipped
 				job.FinishedAt = &e.now
 				job.Result = "skipped: policy disposition " + disposition + " excludes report packaging"
