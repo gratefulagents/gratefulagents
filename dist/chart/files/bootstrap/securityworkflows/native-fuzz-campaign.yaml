@@ -57,6 +57,34 @@ spec:
       outputSchema: |-
         {"type":"object","additionalProperties":false,"required":["status","rounds","stopped","artifacts","limitations"],"properties":{"status":{"type":"string","enum":["completed","findings","not_applicable","partial","error","timeout"]},"rounds":{"type":"array","maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["tool","target","round","execution_status","tool_run","revision","seed","duration","workers","harness_digest","manifest_digest","corpus_provenance","coverage","artifacts","errors","tool_version","corpus"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"round":{"type":"integer","minimum":1,"maximum":4},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"revision":{"type":"string"},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"harness_digest":{"type":"string"},"manifest_digest":{"type":"string"},"corpus_provenance":{"type":"array","items":{"type":"string"}},"coverage":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"tool_version":{"type":"string"},"corpus":{"type":"object","additionalProperties":false,"required":["restored","restored_revision","parent_digest","snapshot_digest","input_entries","input_bytes","output_entries","output_bytes"],"properties":{"restored":{"type":"boolean"},"restored_revision":{"type":"string"},"parent_digest":{"type":"string"},"snapshot_digest":{"type":"string"},"input_entries":{"type":"integer","minimum":0},"input_bytes":{"type":"integer","minimum":0},"output_entries":{"type":"integer","minimum":0},"output_bytes":{"type":"integer","minimum":0}}}}}},"stopped":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
 
+    - name: red-team-bounty-worthiness
+      role: exploit-validator
+      category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+        - name: exploit-poc-discipline
+      objective: >-
+        Adversarially review every recorded finding from a skeptical bounty-triager perspective before final
+        reporting. Call list_security_findings, then call get_security_finding for every fingerprint and
+        read its complete evidence and audit trail before deciding it. Use all available tools, including the
+        full run tool surface, to attempt safe local reproduction and disproof. Challenge each
+        finding's reachability, least-privileged attacker control, claimed impact, preconditions, program
+        scope, novelty, duplicates, and exclusions. Use only disposable local fixtures and dummy assets for
+        reproduction. Do not hunt for new vulnerabilities or submit the final report. Never send state-changing requests to production
+        or live systems, perform destructive testing, expand scope, attack or guess credentials, or perform
+        denial-of-service or load testing. Preserve an existing false_positive, accepted_risk, or fixed
+        terminal status and add only an audit note. For every other finding, call update_security_finding with
+        an evidence-backed disposition: a proven bounty-worthy finding remains status confirmed; a technically
+        real but not bounty-eligible finding must become status accepted_risk with the exact evidence-backed
+        reason and the matching policy_disposition (scope_excluded, known_issue, or bot_findable when
+        applicable); a technically disproved or unreachable finding must become status false_positive with
+        policy_disposition disproved and the disproof; and a finding with missing evidence or unavailable
+        validation must remain status triaged with policy_disposition not_ready. Never use accepted_risk or
+        false_positive merely because evidence is missing or validation is unavailable. Stop after every
+        recorded finding has an evidence-backed disposition.
+      dependsOn: [select-upstream-fuzz-targets, run-bounded-warm-rounds]
+
     - name: triage-and-report
       role: finding-triager
       category: triage
@@ -71,6 +99,6 @@ spec:
         not-applicable targets separately. For every clean target state only `not_found_under` with exact rounds,
         seeds, durations, workers, harness/manifest digests, and corpus lineage. Preserve uncovered targets and
         limitations, and provide the exact replay command and minimized artifact for every retained crash.
-      dependsOn: [select-upstream-fuzz-targets, run-bounded-warm-rounds]
+      dependsOn: [select-upstream-fuzz-targets, run-bounded-warm-rounds, red-team-bounty-worthiness]
       outputSchema: |-
         {"type":"object","additionalProperties":false,"required":["findings","not_found_under","examined","skipped","unsupported","errors","timeouts","partial","uncovered","limitations"],"properties":{"findings":{"type":"array","items":{"type":"string"}},"not_found_under":{"type":"array","items":{"type":"string"}},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"unsupported":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"timeouts":{"type":"array","items":{"type":"string"}},"partial":{"type":"array","items":{"type":"string"}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}

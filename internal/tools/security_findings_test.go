@@ -359,7 +359,7 @@ func newSecurityTestRegistryWithCtx(t *testing.T, findingStore store.SecurityFin
 	t.Helper()
 	registry := &Registry{tools: map[string]Tool{}}
 	RegisterSecurityScanTools(registry, findingStore, stateStore, scanCtx)
-	for _, name := range []string{"report_security_finding", "list_security_findings", "update_security_finding", "ingest_scanner_results", "submit_security_scan_report"} {
+	for _, name := range []string{"report_security_finding", "list_security_findings", "get_security_finding", "update_security_finding", "ingest_scanner_results", "submit_security_scan_report"} {
 		if registry.Get(name) == nil {
 			t.Fatalf("tool %s not registered", name)
 		}
@@ -870,6 +870,16 @@ func TestSecurityFindingInMemoryFallback(t *testing.T) {
 		t.Fatalf("unexpected error: %s", update.Content)
 	}
 
+	detail := execTool(t, registry, "get_security_finding", `{"fingerprint":"`+fingerprint+`"}`)
+	if detail.IsError {
+		t.Fatalf("unexpected get error: %s", detail.Content)
+	}
+	for _, want := range []string{`"status": "false_positive"`, `"description": "bad"`, `"type": "status_changed"`, `"note": "input is parameterized upstream"`} {
+		if !strings.Contains(detail.Content, want) {
+			t.Errorf("full finding detail missing %s: %s", want, detail.Content)
+		}
+	}
+
 	filtered := execTool(t, registry, "list_security_findings", `{"status":"false_positive"}`)
 	if !strings.Contains(filtered.Content, fingerprint) {
 		t.Errorf("status filter should match updated finding: %s", filtered.Content)
@@ -888,6 +898,62 @@ func TestSecurityFindingInMemoryFallback(t *testing.T) {
 		`{"fingerprint":"`+fingerprint+`","status":"bogus","note":"n"}`)
 	if !badStatus.IsError || !strings.Contains(badStatus.Content, "invalid status") {
 		t.Errorf("invalid status must fail: %s", badStatus.Content)
+	}
+}
+
+func TestSecurityFindingIDLookupEnforcesExecutionScope(t *testing.T) {
+	tests := []struct {
+		name  string
+		owner SecurityScanContext
+		other SecurityScanContext
+	}{
+		{
+			name: "legacy run fallback",
+			owner: func() SecurityScanContext {
+				ctx := testScanContext()
+				ctx.RunName = "legacy-owner"
+				return ctx
+			}(),
+			other: func() SecurityScanContext {
+				ctx := testScanContext()
+				ctx.RunName = "legacy-other"
+				return ctx
+			}(),
+		},
+		{
+			name:  "different deterministic execution",
+			owner: executionScanContext("execution-owner", "exec-owner", "hunt"),
+			other: executionScanContext("execution-other", "exec-other", "triage"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findingStore := newFakeSecurityFindingStore()
+			owner := newSecurityTestRegistryWithCtx(t, findingStore, nil, tt.owner)
+			other := newSecurityTestRegistryWithCtx(t, findingStore, nil, tt.other)
+			if result := execTool(t, owner, "report_security_finding",
+				`{"title":"Scoped issue","category":"authz","severity":"high","description":"private evidence","file_path":"a.go"}`); result.IsError {
+				t.Fatalf("report failed: %s", result.Content)
+			}
+			id := findingStore.findings[0].ID.String()
+
+			for _, call := range []struct {
+				tool  string
+				input string
+			}{
+				{tool: "get_security_finding", input: `{"id":"` + id + `"}`},
+				{tool: "update_security_finding", input: `{"id":"` + id + `","status":"accepted_risk","note":"wrong execution"}`},
+			} {
+				result := execTool(t, other, call.tool, call.input)
+				if !result.IsError || !strings.Contains(result.Content, "does not belong") {
+					t.Errorf("%s cross-scope result = %+v, want ownership error", call.tool, result)
+				}
+			}
+			if result := execTool(t, owner, "get_security_finding", `{"id":"`+id+`"}`); result.IsError || !strings.Contains(result.Content, "private evidence") {
+				t.Errorf("owner get result = %+v, want full finding", result)
+			}
+		})
 	}
 }
 

@@ -155,6 +155,86 @@ func TestSecurityWorkflowLibraryInventory(t *testing.T) {
 	}
 }
 
+// TestSecurityWorkflowsRedTeamBountyWorthiness prevents a candidate from
+// flowing directly from discovery or validation into the final report. The
+// intervening task is deliberately adversarial: it must try to disprove the
+// claim and separately decide whether a technically real issue is eligible for
+// a bounty.
+func TestSecurityWorkflowsRedTeamBountyWorthiness(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range securityWorkflowLibrary {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var workflow triggersv1alpha1.SecurityWorkflow
+			readBootstrapAsset(t, "securityworkflows", name, &workflow)
+
+			byName := make(map[string]triggersv1alpha1.SecurityScanTask, len(workflow.Spec.Tasks))
+			order := make(map[string]int, len(workflow.Spec.Tasks))
+			for index, task := range workflow.Spec.Tasks {
+				byName[task.Name] = task
+				order[task.Name] = index
+			}
+
+			gate, ok := byName["red-team-bounty-worthiness"]
+			if !ok {
+				t.Fatal("workflow is missing red-team-bounty-worthiness")
+			}
+			triage, ok := byName["triage-and-report"]
+			if !ok {
+				t.Fatal("workflow is missing triage-and-report")
+			}
+			if order[gate.Name] >= order[triage.Name] {
+				t.Error("red-team-bounty-worthiness must be declared before triage-and-report")
+			}
+			if gate.Role != "exploit-validator" {
+				t.Errorf("red-team-bounty-worthiness role = %q, want exploit-validator", gate.Role)
+			}
+			if gate.Category != "triage" {
+				t.Errorf("red-team-bounty-worthiness category = %q, want triage", gate.Category)
+			}
+			for _, skill := range []string{"trail-of-bits-fp-check", "bug-bounty-reporting", "exploit-poc-discipline"} {
+				if !slices.ContainsFunc(gate.SkillRefs, func(ref platformv1alpha1.NamedRef) bool {
+					return ref.Name == skill
+				}) {
+					t.Errorf("red-team-bounty-worthiness is missing skill %q", skill)
+				}
+			}
+
+			objective := strings.ToLower(gate.Objective)
+			for _, marker := range []string{
+				"skeptical bounty-triager", "list_security_findings", "get_security_finding",
+				"complete evidence and audit trail", "all available tools", "update_security_finding",
+				"confirmed", "accepted_risk", "false_positive", "triaged", "fixed",
+				"policy_disposition", "scope_excluded", "known_issue", "bot_findable", "not_ready",
+				"technically real", "missing evidence", "do not hunt for new",
+				"state-changing", "destructive testing", "expand scope", "credentials", "denial-of-service",
+			} {
+				if !strings.Contains(objective, marker) {
+					t.Errorf("red-team-bounty-worthiness objective is missing %q", marker)
+				}
+			}
+
+			if !slices.Contains(triage.DependsOn, gate.Name) {
+				t.Error("triage-and-report must depend on red-team-bounty-worthiness")
+			}
+			if len(gate.DependsOn) == 0 {
+				t.Error("red-team-bounty-worthiness must wait for finding-producing prerequisites")
+			}
+			triagePrerequisites := slices.DeleteFunc(slices.Clone(triage.DependsOn), func(name string) bool {
+				return name == gate.Name
+			})
+			gatePrerequisites := slices.Clone(gate.DependsOn)
+			slices.Sort(triagePrerequisites)
+			slices.Sort(gatePrerequisites)
+			if !slices.Equal(gatePrerequisites, triagePrerequisites) {
+				t.Errorf("red-team prerequisites = %v, want original triage prerequisites %v", gatePrerequisites, triagePrerequisites)
+			}
+		})
+	}
+}
+
 func TestFullAccessWebWorkflowsUsePromptOnlyLiveSafety(t *testing.T) {
 	t.Parallel()
 
@@ -1002,9 +1082,10 @@ func TestNativeFuzzCampaignUsesBoundedWarmRounds(t *testing.T) {
 	}
 }
 
-// TestBountyHuntEVMBuildsItsOracleFirst pins the four-task fork-harness lane.
-// Build, calibration, hunting, and reproduction deliberately share one
-// write-capable AgentRun so temporary harness files are not lost at handoffs.
+// TestBountyHuntEVMBuildsItsOracleFirst pins the fork-harness lane and its
+// adversarial bounty gate. Build, calibration, hunting, and reproduction
+// deliberately share one write-capable AgentRun so temporary harness files are
+// not lost at handoffs.
 func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 	t.Parallel()
 
@@ -1018,15 +1099,16 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 		byName[task.Name] = task
 	}
 	for _, name := range []string{
-		"pin-target-and-deployment", "fork-harness-hunt", "quantify-impact-and-eligibility", "triage-and-report",
+		"pin-target-and-deployment", "fork-harness-hunt", "quantify-impact-and-eligibility",
+		"red-team-bounty-worthiness", "triage-and-report",
 	} {
 		if _, ok := byName[name]; !ok {
 			t.Fatalf("workflow is missing task %q", name)
 		}
 	}
 
-	if len(workflow.Spec.Tasks) != 4 {
-		t.Fatalf("workflow has %d tasks, want the four-task fork-harness DAG", len(workflow.Spec.Tasks))
+	if len(workflow.Spec.Tasks) != 5 {
+		t.Fatalf("workflow has %d tasks, want the five-task fork-harness DAG", len(workflow.Spec.Tasks))
 	}
 	dependsOn := func(task, dependency string) bool {
 		return slices.Contains(byName[task].DependsOn, dependency)
@@ -1034,6 +1116,8 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 	for _, edge := range [][2]string{
 		{"fork-harness-hunt", "pin-target-and-deployment"},
 		{"quantify-impact-and-eligibility", "fork-harness-hunt"},
+		{"red-team-bounty-worthiness", "quantify-impact-and-eligibility"},
+		{"triage-and-report", "red-team-bounty-worthiness"},
 		{"triage-and-report", "quantify-impact-and-eligibility"},
 	} {
 		if !dependsOn(edge[0], edge[1]) {

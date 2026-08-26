@@ -234,6 +234,7 @@ func RegisterSecurityScanTools(registry *Registry, findingStore store.SecurityFi
 	}
 	registry.Register(&reportSecurityFindingTool{state: state})
 	registry.Register(&listSecurityFindingsTool{state: state})
+	registry.Register(&getSecurityFindingTool{state: state})
 	registry.Register(&updateSecurityFindingTool{state: state})
 	registry.Register(&ingestScannerResultsTool{state: state})
 	registry.Register(&submitSecurityScanReportTool{state: state})
@@ -564,6 +565,26 @@ func (s *securityScanState) getFinding(ctx context.Context, id uuid.UUID) (*stor
 	return nil, nil
 }
 
+// listFindingEvents returns one finding's audit trail newest first from either
+// the durable store or the in-memory fallback.
+func (s *securityScanState) listFindingEvents(ctx context.Context, id uuid.UUID, limit int32) ([]store.SecurityFindingEvent, error) {
+	if s.findingStore != nil {
+		return s.findingStore.ListSecurityFindingEvents(ctx, s.scanCtx.Namespace, id, limit)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	events := make([]store.SecurityFindingEvent, 0, limit)
+	for i := len(s.memEvents) - 1; i >= 0 && int32(len(events)) < limit; i-- {
+		if s.memEvents[i].FindingID == id {
+			events = append(events, s.memEvents[i])
+		}
+	}
+	return events, nil
+}
+
 // setFindingStatus updates the status of a finding in this scan's namespace.
 // The audit actor is always this run's name; the model cannot supply it.
 func (s *securityScanState) setFindingStatus(ctx context.Context, id uuid.UUID, status, note string) error {
@@ -727,12 +748,13 @@ func (s *securityScanState) resolveFinding(ctx context.Context, id, fingerprint 
 		// Ownership is checked against namespace, scan, and — once the
 		// controller stamps one — the execution, so a model-supplied id can
 		// never re-triage findings of another namespace, scan, or an earlier
-		// execution whose findings this run cannot even see. Run name is
-		// deliberately not required: post-script and sibling runs of the same
-		// scan legitimately triage findings they did not report.
+		// execution whose findings this run cannot even see. Sibling run names
+		// are allowed only when a shared execution id binds them; legacy and
+		// coordinator scans fall back to exact run-name scoping.
 		scope := s.scopeFilter()
 		if rec.Namespace != scope.Namespace || rec.ScanName != scope.ScanName ||
-			(scope.ExecutionID != "" && rec.ExecutionID != scope.ExecutionID) {
+			(scope.ExecutionID != "" && rec.ExecutionID != scope.ExecutionID) ||
+			(scope.ExecutionID == "" && rec.RunName != scope.RunName) {
 			return nil, fmt.Errorf("finding %s does not belong to security scan %q's current execution; this run can only update findings of its own execution", parsed, s.scanCtx.ScanName)
 		}
 		return rec, nil
@@ -1019,6 +1041,93 @@ func (t *listSecurityFindingsTool) Execute(ctx context.Context, input json.RawMe
 			rec.Fingerprint, rec.Severity, rec.Category, rec.Status, location, title)
 	}
 	return Result{Content: strings.TrimRight(b.String(), "\n")}, nil
+}
+
+// --- get_security_finding ---
+
+type getSecurityFindingTool struct {
+	state *securityScanState
+}
+
+type getSecurityFindingInput struct {
+	ID          string `json:"id"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+type getSecurityFindingOutput struct {
+	ID          string                          `json:"id"`
+	Status      string                          `json:"status"`
+	Occurrences int32                           `json:"occurrences"`
+	Finding     security.Finding                `json:"finding"`
+	Events      []getSecurityFindingEventOutput `json:"events"`
+}
+
+type getSecurityFindingEventOutput struct {
+	Type      string          `json:"type"`
+	Actor     string          `json:"actor"`
+	Note      string          `json:"note"`
+	Detail    json.RawMessage `json:"detail,omitempty"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+func (t *getSecurityFindingTool) Name() string { return "get_security_finding" }
+
+func (t *getSecurityFindingTool) Description() string {
+	return "Get one security finding from the current scan by fingerprint or id, including its full " +
+		"description, evidence, attack path, impact, remediation, provenance, status, and audit events. Read-only."
+}
+
+func (t *getSecurityFindingTool) InputSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"fingerprint": {"type": "string", "description": "Fingerprint returned by report_security_finding or list_security_findings"},
+			"id": {"type": "string", "description": "Finding UUID, as an alternative to fingerprint"}
+		},
+		"oneOf": [
+			{"required": ["fingerprint"]},
+			{"required": ["id"]}
+		]
+	}`)
+}
+
+func (t *getSecurityFindingTool) IsReadOnly() bool                      { return true }
+func (t *getSecurityFindingTool) IsEnabled(_ *agentsdk.RunContext) bool { return true }
+func (t *getSecurityFindingTool) NeedsApproval() bool                   { return false }
+func (t *getSecurityFindingTool) TimeoutSeconds() int                   { return 0 }
+
+func (t *getSecurityFindingTool) Execute(ctx context.Context, input json.RawMessage, _ string) (Result, error) {
+	var in getSecurityFindingInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return Result{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}, nil
+	}
+	rec, err := t.state.resolveFinding(ctx, strings.TrimSpace(in.ID), strings.TrimSpace(in.Fingerprint))
+	if err != nil {
+		return Result{Content: err.Error(), IsError: true}, nil
+	}
+
+	events, err := t.state.listFindingEvents(ctx, rec.ID, 1000)
+	if err != nil {
+		return Result{Content: fmt.Sprintf("failed to list finding audit events: %v", err), IsError: true}, nil
+	}
+	out := getSecurityFindingOutput{
+		ID:          rec.ID.String(),
+		Status:      rec.Status,
+		Occurrences: rec.Occurrences,
+		Finding:     securityFindingFromRecord(*rec),
+		Events:      make([]getSecurityFindingEventOutput, 0, len(events)),
+	}
+	for _, event := range events {
+		out.Events = append(out.Events, getSecurityFindingEventOutput{
+			Type: event.EventType, Actor: event.Actor, Note: event.Note,
+			Detail: event.Detail, CreatedAt: event.CreatedAt,
+		})
+	}
+	encoded, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return Result{Content: fmt.Sprintf("failed to encode finding: %v", err), IsError: true}, nil
+	}
+	return Result{Content: string(encoded)}, nil
 }
 
 // --- update_security_finding ---
