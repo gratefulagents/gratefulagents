@@ -591,7 +591,9 @@ spec:
         full run tool surface, to attempt safe local reproduction and disproof. Challenge each
         finding's reachability, least-privileged attacker control, claimed impact, preconditions, program
         scope, novelty, duplicates, and exclusions. Use only disposable local fixtures and dummy assets for
-        reproduction. Do not hunt for new vulnerabilities or submit the final report. Never send state-changing requests to production
+        reproduction. Read-only calls to explicitly in-scope live targets are allowed when they are minimally
+        invasive and do not access real-user data. Do not hunt for new vulnerabilities or submit the final
+        report. Never send state-changing requests to production
         or live systems, perform destructive testing, expand scope, attack or guess credentials, or perform
         denial-of-service or load testing. Preserve an existing false_positive, accepted_risk, or fixed
         terminal status and add only an audit note. For every other finding, call update_security_finding with

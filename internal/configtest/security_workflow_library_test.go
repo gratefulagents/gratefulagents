@@ -209,6 +209,7 @@ func TestSecurityWorkflowsRedTeamBountyWorthiness(t *testing.T) {
 				"confirmed", "accepted_risk", "false_positive", "triaged", "fixed",
 				"policy_disposition", "scope_excluded", "known_issue", "bot_findable", "not_ready",
 				"technically real", "missing evidence", "do not hunt for new",
+				"read-only calls", "in-scope live targets", "minimally invasive", "real-user data",
 				"state-changing", "destructive testing", "expand scope", "credentials", "denial-of-service",
 			} {
 				if !strings.Contains(objective, marker) {
