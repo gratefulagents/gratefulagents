@@ -140,6 +140,14 @@ function minimalFindingFixture() {
 function eventsFixture() {
   return [
     create(SecurityFindingEventSchema, {
+      id: 3n,
+      eventType: "status_reviewed",
+      actor: "validator",
+      note: "still reproducible",
+      detail: '{"from":"confirmed","to":"confirmed"}',
+      createdAt: timestampFromDate(new Date("2026-02-04T10:00:00Z")),
+    }),
+    create(SecurityFindingEventSchema, {
       id: 2n,
       eventType: "status_changed",
       actor: "alice",
@@ -241,6 +249,8 @@ describe("SecurityFindingDetail", () => {
     // History entries with from→to provenance.
     expect(screen.getByText("confirmed exploitable")).toBeTruthy();
     expect(screen.getByText("Open → Confirmed")).toBeTruthy();
+    expect(screen.getByText("Status reviewed")).toBeTruthy();
+    expect(screen.getByText("still reproducible")).toBeTruthy();
     expect(screen.getByText("needs a second look")).toBeTruthy();
 
     // Source agent run link.

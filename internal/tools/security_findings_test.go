@@ -714,6 +714,9 @@ func TestReportSecurityFindingSchemaOmitsScanIdentity(t *testing.T) {
 	if strings.Contains(updateSchema, `"actor"`) {
 		t.Errorf("update_security_finding must not accept a model-supplied actor: %s", updateSchema)
 	}
+	if strings.Contains(updateSchema, `"accepted_risk"`) {
+		t.Errorf("update_security_finding must reserve accepted_risk for an authenticated owner: %s", updateSchema)
+	}
 }
 
 func TestUpdateSecurityFindingRejectsForeignFindings(t *testing.T) {
@@ -781,6 +784,14 @@ func TestUpdateSecurityFindingRejectsForeignFindings(t *testing.T) {
 	}
 	if own.Status != store.SecurityFindingStatusConfirmed {
 		t.Errorf("own finding status = %q, want confirmed", own.Status)
+	}
+	result = execTool(t, registry, "update_security_finding",
+		`{"id":"`+own.ID.String()+`","status":"accepted_risk","note":"agent chose to accept it"}`)
+	if !result.IsError || !strings.Contains(result.Content, "authenticated owner") {
+		t.Errorf("scan agent must not accept risk: %s", result.Content)
+	}
+	if own.Status != store.SecurityFindingStatusConfirmed {
+		t.Errorf("rejected risk acceptance changed status to %q", own.Status)
 	}
 	result = execTool(t, registry, "update_security_finding",
 		`{"id":"`+own.ID.String()+`","status":"confirmed","policy_disposition":"known_issue","note":"matches published audit"}`)
@@ -960,11 +971,16 @@ func TestSecurityFindingInMemoryMatchesPostgresSemantics(t *testing.T) {
 	if update.IsError {
 		t.Fatalf("update failed: %s", update.Content)
 	}
+	review := execTool(t, registry, "update_security_finding",
+		`{"fingerprint":"`+all[2].Fingerprint+`","status":"false_positive","note":"rechecked against the proxy"}`)
+	if review.IsError {
+		t.Fatalf("same-status review failed: %s", review.Content)
+	}
 	state.mu.Lock()
 	events := append([]store.SecurityFindingEvent(nil), state.memEvents...)
 	counts := state.summarizeMemLocked()
 	state.mu.Unlock()
-	if len(events) != 1 || events[0].EventType != "status_changed" || events[0].Actor != scanCtx.RunName {
+	if len(events) != 2 || events[0].EventType != "status_changed" || events[1].EventType != "status_reviewed" || events[1].Actor != scanCtx.RunName {
 		t.Errorf("in-memory fallback must record status events with the run as actor: %+v", events)
 	}
 	want := map[string]int32{"critical": 1, "medium": 1, "info": 1, "total": 3, "open": 2, "open_critical": 1, "open_medium": 1}
@@ -1926,6 +1942,12 @@ func TestSubmitSecurityScanReportExcludesIneligibleFindings(t *testing.T) {
 			t.Fatalf("report %q failed: %s", f.title, result.Content)
 		}
 		if f.status == store.SecurityFindingStatusOpen {
+			continue
+		}
+		if f.status == store.SecurityFindingStatusAcceptedRisk {
+			// Risk acceptance is an authenticated owner action, not an action
+			// available through the scan-agent tool under test.
+			findingStore.findings[i].Status = f.status
 			continue
 		}
 		update := execTool(t, registry, "update_security_finding",

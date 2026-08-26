@@ -68,6 +68,39 @@ func createResearchHypothesis(t *testing.T, s *Store, namespace string, revision
 	return value
 }
 
+func TestConfirmSecurityFindingRecordsSameStatusAsReview(t *testing.T) {
+	s, namespace := setupSecurityResearchTestStore(t)
+	ctx := context.Background()
+	_, revision := createSecurityResearchFixture(t, s, namespace)
+	t.Cleanup(func() {
+		_, _ = s.pool.Exec(context.Background(), `DELETE FROM security_scans WHERE namespace = $1`, namespace)
+	})
+
+	scan, err := s.UpsertSecurityScan(ctx, &store.SecurityScanRecord{
+		Namespace: namespace, ScanName: "target", RunName: "target-run", Repository: "org/repo", Revision: revision.Revision,
+	})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	finding, _, err := s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
+		ScanID: scan.ID, Namespace: namespace, ScanName: "target", RunName: "target-run",
+		Repository: "org/repo", Revision: revision.Revision, Fingerprint: "confirm-review", Title: "Candidate", Severity: "high",
+	})
+	if err != nil {
+		t.Fatalf("finding: %v", err)
+	}
+	if err := s.ConfirmSecurityFindingWithVariantSweep(ctx, namespace, finding.ID, "alice", "proved"); err != nil {
+		t.Fatalf("initial confirmation: %v", err)
+	}
+	if err := s.ConfirmSecurityFindingWithVariantSweep(ctx, namespace, finding.ID, "bob", "rechecked"); err != nil {
+		t.Fatalf("confirmation review: %v", err)
+	}
+	events, err := s.ListSecurityFindingEvents(ctx, namespace, finding.ID, 0)
+	if err != nil || len(events) < 2 || events[0].EventType != "status_reviewed" || events[1].EventType != "status_changed" {
+		t.Fatalf("confirmation events = %v, %v, want review then change", events, err)
+	}
+}
+
 func TestSecurityResearchHypothesisIsolationTransitionsAndLineage(t *testing.T) {
 	s, namespace := setupSecurityResearchTestStore(t)
 	ctx := context.Background()

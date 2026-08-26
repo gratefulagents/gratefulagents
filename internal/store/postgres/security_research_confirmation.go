@@ -52,7 +52,7 @@ func (s *Store) ConfirmSecurityFindingWithVariantSweep(ctx context.Context, name
 	detail, _ := json.Marshal(map[string]string{"from": previous, "to": store.SecurityFindingStatusConfirmed})
 	if _, err := tx.Exec(ctx, `INSERT INTO security_finding_events
 		(finding_id, event_type, actor, note, detail)
-		VALUES ($1, 'status_changed', $2, $3, $4)`, findingID, actor, note, detail); err != nil {
+		VALUES ($1, $2, $3, $4, $5)`, findingID, securityFindingStatusEventType(previous, store.SecurityFindingStatusConfirmed), actor, note, detail); err != nil {
 		return fmt.Errorf("recording confirmation event: %w", err)
 	}
 	scope, _ := json.Marshal(map[string]any{
