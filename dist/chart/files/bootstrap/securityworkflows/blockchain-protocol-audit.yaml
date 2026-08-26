@@ -1236,6 +1236,37 @@ spec:
       outputSchema: |-
         {"type":"object","required":["surface_validation","domains","native_fuzz"],"properties":{"surface_validation":{"type":"object"},"domains":{"type":"array","minItems":12,"maxItems":12},"native_fuzz":{"type":"object","additionalProperties":false,"required":["inventory","runs","uncovered","limitations"],"properties":{"inventory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","decision","reason"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"decision":{"type":"string","enum":["selected","skipped","unsupported"]},"reason":{"type":"string"}}}},"runs":{"type":"array","maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["tool","target","revision","execution_status","tool_run","seed","duration","workers","corpus_provenance","artifacts","errors","limitations"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"revision":{"type":"string"},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"corpus_provenance":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}}}
 
+    - name: red-team-bounty-worthiness
+      role: exploit-validator
+      category: triage
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+        - name: exploit-poc-discipline
+      objective: >-
+        Adversarially review every recorded finding from a skeptical bounty-triager perspective before final
+        reporting. Call list_security_findings, then call get_security_finding for every fingerprint and
+        read its complete evidence and audit trail before deciding it. Use all available tools, including the
+        full run tool surface, to attempt safe local reproduction and disproof. Challenge each
+        finding's reachability, least-privileged attacker control, claimed impact, preconditions, program
+        scope, novelty, duplicates, and exclusions. Use only disposable local fixtures and dummy assets for
+        reproduction. Read-only calls to explicitly in-scope live targets are allowed when they are minimally
+        invasive and do not access real-user data. Do not hunt for new vulnerabilities or submit the final
+        report. Never send state-changing requests to production
+        or live systems, perform destructive testing, expand scope, attack or guess credentials, or perform
+        denial-of-service or load testing. Preserve an existing false_positive, accepted_risk, or fixed
+        terminal status and add only an audit note. For every other finding, call update_security_finding with
+        an evidence-backed disposition: a proven bounty-worthy finding remains status confirmed; a technically
+        real but not bounty-eligible finding must become status accepted_risk with the exact evidence-backed
+        reason and the matching policy_disposition (scope_excluded, known_issue, or bot_findable when
+        applicable); a technically disproved or unreachable finding must become status false_positive with
+        policy_disposition disproved and the disproof; and a finding with missing evidence or unavailable
+        validation must remain status triaged with policy_disposition not_ready. Never use accepted_risk or
+        false_positive merely because evidence is missing or validation is unavailable. Stop after every
+        recorded finding has an evidence-backed disposition.
+      dependsOn: [account-complete-protocol-coverage, account-chain-coverage, account-cross-system-coverage]
+
     - name: triage-and-report
       role: finding-triager
       category: triage
@@ -1275,3 +1306,4 @@ spec:
         - account-complete-protocol-coverage
         - account-chain-coverage
         - account-cross-system-coverage
+        - red-team-bounty-worthiness
