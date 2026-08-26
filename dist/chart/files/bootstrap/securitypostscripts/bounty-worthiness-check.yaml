@@ -44,5 +44,5 @@ spec:
     `disproved`; set status `confirmed` for `accepted` or retain it whenever
     technical evidence already confirms the finding; and set status `triaged`
     when technical validation is not ready. Scope and prior-art exclusions stay
-    machine-readable in `policy_disposition` and do not imply risk acceptance. Only an explicit owner decision
-    may set status `accepted_risk`.
+    machine-readable in `policy_disposition` and do not imply risk acceptance. Set status `accepted_risk`
+    only when the workflow explicitly reaches a risk-acceptance decision.

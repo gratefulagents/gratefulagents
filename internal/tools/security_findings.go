@@ -1051,8 +1051,7 @@ func (t *updateSecurityFindingTool) Name() string { return "update_security_find
 func (t *updateSecurityFindingTool) Description() string {
 	return "Set the status of a security finding recorded by this scan with an audit note: " +
 		"confirmed (you built a PoC or proved exploitability), false_positive (you disproved " +
-		"it), triaged, fixed, or open. Risk acceptance is an owner decision and cannot be " +
-		"performed by a scan agent. Identify the finding by the fingerprint " +
+		"it), triaged, fixed, accepted_risk, or open. Identify the finding by the fingerprint " +
 		"returned from report_security_finding / list_security_findings (or its id). Only " +
 		"findings belonging to this scan can be updated; the audit trail records this run as " +
 		"the actor. Only updates platform scan state; safe on read-only scan runs."
@@ -1064,7 +1063,7 @@ func (t *updateSecurityFindingTool) InputSchema() json.RawMessage {
 		"properties": {
 			"fingerprint": {"type": "string", "description": "Fingerprint of the finding to update"},
 			"id": {"type": "string", "description": "Finding UUID, as an alternative to fingerprint"},
-			"status": {"type": "string", "enum": ["open", "triaged", "confirmed", "false_positive", "fixed"], "description": "New status; accepted_risk is reserved for an authenticated owner"},
+			"status": {"type": "string", "enum": ["open", "triaged", "confirmed", "false_positive", "fixed", "accepted_risk"], "description": "New status"},
 			"policy_disposition": {"type": "string", "enum": ["accepted", "disproved", "scope_excluded", "scope_eligible", "known_issue", "bot_findable", "fixed_release", "novel", "not_ready"], "description": "Optional machine-readable program-policy outcome, independent of technical status"},
 			"note": {"type": "string", "description": "Why the status changed, e.g. the PoC that confirmed it or the reasoning that disproved it"}
 		},
@@ -1083,15 +1082,12 @@ func (t *updateSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 		return Result{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}, nil
 	}
 	status := strings.ToLower(strings.TrimSpace(in.Status))
-	if status == store.SecurityFindingStatusAcceptedRisk {
-		return Result{Content: "accepted_risk is reserved for an authenticated owner and cannot be set by a scan agent", IsError: true}, nil
-	}
 	if !store.ValidSecurityFindingStatus(status) {
-		return Result{Content: fmt.Sprintf("invalid status %q (valid: %s, %s, %s, %s, %s)",
+		return Result{Content: fmt.Sprintf("invalid status %q (valid: %s, %s, %s, %s, %s, %s)",
 			in.Status,
 			store.SecurityFindingStatusOpen, store.SecurityFindingStatusTriaged,
 			store.SecurityFindingStatusConfirmed, store.SecurityFindingStatusFalsePositive,
-			store.SecurityFindingStatusFixed), IsError: true}, nil
+			store.SecurityFindingStatusFixed, store.SecurityFindingStatusAcceptedRisk), IsError: true}, nil
 	}
 	note := strings.TrimSpace(in.Note)
 	if note == "" {

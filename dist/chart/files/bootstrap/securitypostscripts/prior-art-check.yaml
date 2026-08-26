@@ -42,5 +42,5 @@ spec:
     leave the status unchanged. Otherwise set status `fixed` when the behaviour
     is already fixed in the relevant release line, retain `confirmed` when
     technical evidence already confirms the finding, and set status `triaged`
-    for every other outcome. Only an explicit owner decision may set status
-    `accepted_risk`; never infer it from prior art or program policy.
+    for every other outcome. Set status `accepted_risk` only when the workflow
+    explicitly reaches a risk-acceptance decision; never infer it from prior art or program policy.

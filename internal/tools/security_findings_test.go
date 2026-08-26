@@ -714,8 +714,8 @@ func TestReportSecurityFindingSchemaOmitsScanIdentity(t *testing.T) {
 	if strings.Contains(updateSchema, `"actor"`) {
 		t.Errorf("update_security_finding must not accept a model-supplied actor: %s", updateSchema)
 	}
-	if strings.Contains(updateSchema, `"accepted_risk"`) {
-		t.Errorf("update_security_finding must reserve accepted_risk for an authenticated owner: %s", updateSchema)
+	if !strings.Contains(updateSchema, `"accepted_risk"`) {
+		t.Errorf("update_security_finding must allow agents to record accepted risk: %s", updateSchema)
 	}
 }
 
@@ -787,11 +787,11 @@ func TestUpdateSecurityFindingRejectsForeignFindings(t *testing.T) {
 	}
 	result = execTool(t, registry, "update_security_finding",
 		`{"id":"`+own.ID.String()+`","status":"accepted_risk","note":"agent chose to accept it"}`)
-	if !result.IsError || !strings.Contains(result.Content, "authenticated owner") {
-		t.Errorf("scan agent must not accept risk: %s", result.Content)
+	if result.IsError {
+		t.Errorf("scan agent risk acceptance must be allowed: %s", result.Content)
 	}
-	if own.Status != store.SecurityFindingStatusConfirmed {
-		t.Errorf("rejected risk acceptance changed status to %q", own.Status)
+	if own.Status != store.SecurityFindingStatusAcceptedRisk {
+		t.Errorf("risk acceptance left status at %q", own.Status)
 	}
 	result = execTool(t, registry, "update_security_finding",
 		`{"id":"`+own.ID.String()+`","status":"confirmed","policy_disposition":"known_issue","note":"matches published audit"}`)
@@ -1942,12 +1942,6 @@ func TestSubmitSecurityScanReportExcludesIneligibleFindings(t *testing.T) {
 			t.Fatalf("report %q failed: %s", f.title, result.Content)
 		}
 		if f.status == store.SecurityFindingStatusOpen {
-			continue
-		}
-		if f.status == store.SecurityFindingStatusAcceptedRisk {
-			// Risk acceptance is an authenticated owner action, not an action
-			// available through the scan-agent tool under test.
-			findingStore.findings[i].Status = f.status
 			continue
 		}
 		update := execTool(t, registry, "update_security_finding",

@@ -148,8 +148,8 @@ func TestPolicyDispositionsPreserveTechnicalStatus(t *testing.T) {
 					t.Errorf("prompt is missing %q", marker)
 				}
 			}
-			if !strings.Contains(prompt, "Only an explicit owner decision may set status `accepted_risk`") {
-				t.Error("prompt must reserve accepted_risk for an explicit owner decision")
+			if !strings.Contains(prompt, "Set status `accepted_risk` only when the workflow explicitly reaches a risk-acceptance decision") {
+				t.Error("prompt must require an explicit workflow risk-acceptance decision")
 			}
 			for _, forbidden := range []string{
 				"set status `accepted_risk` for a confirmed known-issue",
