@@ -783,6 +783,13 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 	if _, ok := byName["detect-platforms-and-components"]; !ok {
 		t.Fatal("blockchain protocol workflow must begin with platform detection")
 	}
+	criticalSurfaceReview, ok := byName["review-critical-surface"]
+	if !ok {
+		t.Fatal("blockchain protocol workflow must review every mapped critical surface")
+	}
+	if criticalSurfaceReview.ForEach != "map-protocol-surfaces" || criticalSurfaceReview.TargetRuns != 12 {
+		t.Errorf("critical surface review fan-out = forEach %q across %d runs, want complete map-protocol-surfaces input across 12 runs", criticalSurfaceReview.ForEach, criticalSurfaceReview.TargetRuns)
+	}
 	requiredSkills := map[string][]string{
 		"solana-anchor-specialist":            {"trail-of-bits-solana-vulnerability-scanner"},
 		"cosmos-cosmwasm-ibc-specialist":      {"trail-of-bits-cosmos-vulnerability-scanner"},

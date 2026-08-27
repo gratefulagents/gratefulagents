@@ -209,10 +209,10 @@ func (s *fakeSecurityFindingStore) SetSecurityFindingStatus(_ context.Context, n
 	return store.ErrSecurityFindingNotFound
 }
 
-func (s *fakeSecurityFindingStore) RecordSecurityFindingPolicyDisposition(_ context.Context, namespace string, id uuid.UUID, actor, executionID, disposition, note string) (*store.SecurityFindingEvent, error) {
+func (s *fakeSecurityFindingStore) RecordSecurityFindingPolicyDisposition(_ context.Context, namespace string, id uuid.UUID, actor, executionID, check, disposition, note string) (*store.SecurityFindingEvent, error) {
 	for _, rec := range s.findings {
 		if rec.Namespace == namespace && rec.ID == id {
-			event := store.SecurityFindingEvent{FindingID: id, EventType: "policy_disposition", Actor: actor, Note: note, Detail: json.RawMessage(`{"execution_id":"` + executionID + `","policy_disposition":"` + disposition + `"}`)}
+			event := store.SecurityFindingEvent{FindingID: id, EventType: "policy_disposition", Actor: actor, Note: note, Detail: json.RawMessage(`{"execution_id":"` + executionID + `","policy_check":"` + check + `","policy_disposition":"` + disposition + `"}`)}
 			s.events = append(s.events, event)
 			return &event, nil
 		}
@@ -714,6 +714,9 @@ func TestReportSecurityFindingSchemaOmitsScanIdentity(t *testing.T) {
 	if strings.Contains(updateSchema, `"actor"`) {
 		t.Errorf("update_security_finding must not accept a model-supplied actor: %s", updateSchema)
 	}
+	if !strings.Contains(updateSchema, `"accepted_risk"`) {
+		t.Errorf("update_security_finding must allow agents to record accepted risk: %s", updateSchema)
+	}
 }
 
 func TestUpdateSecurityFindingRejectsForeignFindings(t *testing.T) {
@@ -783,7 +786,25 @@ func TestUpdateSecurityFindingRejectsForeignFindings(t *testing.T) {
 		t.Errorf("own finding status = %q, want confirmed", own.Status)
 	}
 	result = execTool(t, registry, "update_security_finding",
-		`{"id":"`+own.ID.String()+`","status":"confirmed","policy_disposition":"known_issue","note":"matches published audit"}`)
+		`{"id":"`+own.ID.String()+`","status":"accepted_risk","note":"agent chose to accept it"}`)
+	if result.IsError {
+		t.Errorf("scan agent risk acceptance must be allowed: %s", result.Content)
+	}
+	if own.Status != store.SecurityFindingStatusAcceptedRisk {
+		t.Errorf("risk acceptance left status at %q", own.Status)
+	}
+	result = execTool(t, registry, "update_security_finding",
+		`{"id":"`+own.ID.String()+`","status":"confirmed","policy_disposition":"known_issue","note":"missing provenance"}`)
+	if !result.IsError || !strings.Contains(result.Content, "policy_check") {
+		t.Fatalf("policy disposition without its check must fail: %s", result.Content)
+	}
+	result = execTool(t, registry, "update_security_finding",
+		`{"id":"`+own.ID.String()+`","status":"confirmed","policy_check":"bounty","policy_disposition":"novel","note":"invalid pair"}`)
+	if !result.IsError || !strings.Contains(result.Content, "not valid") {
+		t.Fatalf("mismatched policy check and disposition must fail: %s", result.Content)
+	}
+	result = execTool(t, registry, "update_security_finding",
+		`{"id":"`+own.ID.String()+`","status":"confirmed","policy_check":"prior_art","policy_disposition":"known_issue","note":"matches published audit"}`)
 	if result.IsError {
 		t.Fatalf("policy disposition update must succeed: %s", result.Content)
 	}
@@ -1026,11 +1047,16 @@ func TestSecurityFindingInMemoryMatchesPostgresSemantics(t *testing.T) {
 	if update.IsError {
 		t.Fatalf("update failed: %s", update.Content)
 	}
+	review := execTool(t, registry, "update_security_finding",
+		`{"fingerprint":"`+all[2].Fingerprint+`","status":"false_positive","note":"rechecked against the proxy"}`)
+	if review.IsError {
+		t.Fatalf("same-status review failed: %s", review.Content)
+	}
 	state.mu.Lock()
 	events := append([]store.SecurityFindingEvent(nil), state.memEvents...)
 	counts := state.summarizeMemLocked()
 	state.mu.Unlock()
-	if len(events) != 1 || events[0].EventType != "status_changed" || events[0].Actor != scanCtx.RunName {
+	if len(events) != 2 || events[0].EventType != "status_changed" || events[1].EventType != "status_reviewed" || events[1].Actor != scanCtx.RunName {
 		t.Errorf("in-memory fallback must record status events with the run as actor: %+v", events)
 	}
 	want := map[string]int32{"critical": 1, "medium": 1, "info": 1, "total": 3, "open": 2, "open_critical": 1, "open_medium": 1}

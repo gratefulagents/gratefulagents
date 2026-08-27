@@ -243,7 +243,7 @@ func (s *Store) bulkUpdateSecurityFindingTx(ctx context.Context, tx pgx.Tx, name
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO security_finding_events (finding_id, event_type, actor, note, detail)
-			VALUES ($1, 'status_changed', $2, $3, $4)`, id, upd.Actor, upd.Note, detail); err != nil {
+			VALUES ($1, $2, $3, $4, $5)`, id, securityFindingStatusEventType(prevStatus, *upd.Status), upd.Actor, upd.Note, detail); err != nil {
 			return fmt.Errorf("recording status event: %w", err)
 		}
 	}

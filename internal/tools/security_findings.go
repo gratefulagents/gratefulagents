@@ -609,11 +609,16 @@ func (s *securityScanState) setFindingStatus(ctx context.Context, id uuid.UUID, 
 		if rec.ID != id {
 			continue
 		}
-		detail, _ := json.Marshal(map[string]string{"from": rec.Status, "to": status})
+		previous := rec.Status
+		detail, _ := json.Marshal(map[string]string{"from": previous, "to": status})
 		rec.Status = status
+		eventType := "status_changed"
+		if previous == status {
+			eventType = "status_reviewed"
+		}
 		s.memEvents = append(s.memEvents, store.SecurityFindingEvent{
 			FindingID: id,
-			EventType: "status_changed",
+			EventType: eventType,
 			Actor:     actor,
 			Note:      note,
 			Detail:    detail,
@@ -1140,6 +1145,7 @@ type updateSecurityFindingInput struct {
 	ID                string `json:"id"`
 	Fingerprint       string `json:"fingerprint"`
 	Status            string `json:"status"`
+	PolicyCheck       string `json:"policy_check"`
 	PolicyDisposition string `json:"policy_disposition"`
 	Note              string `json:"note"`
 }
@@ -1148,6 +1154,10 @@ var securityPolicyDispositions = map[string]bool{
 	"accepted": true, "disproved": true, "scope_excluded": true,
 	"scope_eligible": true, "known_issue": true, "bot_findable": true,
 	"fixed_release": true, "novel": true, "not_ready": true,
+}
+
+var securityPolicyChecks = map[string]bool{
+	"scope": true, "prior_art": true, "bounty": true,
 }
 
 func (t *updateSecurityFindingTool) Name() string { return "update_security_finding" }
@@ -1168,6 +1178,7 @@ func (t *updateSecurityFindingTool) InputSchema() json.RawMessage {
 			"fingerprint": {"type": "string", "description": "Fingerprint of the finding to update"},
 			"id": {"type": "string", "description": "Finding UUID, as an alternative to fingerprint"},
 			"status": {"type": "string", "enum": ["open", "triaged", "confirmed", "false_positive", "fixed", "accepted_risk"], "description": "New status"},
+			"policy_check": {"type": "string", "enum": ["scope", "prior_art", "bounty"], "description": "Policy check that produced policy_disposition; required with a disposition so independent decisions can be resolved safely"},
 			"policy_disposition": {"type": "string", "enum": ["accepted", "disproved", "scope_excluded", "scope_eligible", "known_issue", "bot_findable", "fixed_release", "novel", "not_ready"], "description": "Optional machine-readable program-policy outcome, independent of technical status"},
 			"note": {"type": "string", "description": "Why the status changed, e.g. the PoC that confirmed it or the reasoning that disproved it"}
 		},
@@ -1210,11 +1221,18 @@ func (t *updateSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 		if !securityPolicyDispositions[disposition] {
 			return Result{Content: fmt.Sprintf("invalid policy_disposition %q", in.PolicyDisposition), IsError: true}, nil
 		}
+		check := strings.ToLower(strings.TrimSpace(in.PolicyCheck))
+		if !securityPolicyChecks[check] {
+			return Result{Content: "policy_check must be scope, prior_art, or bounty when policy_disposition is set", IsError: true}, nil
+		}
+		if !store.ValidSecurityFindingPolicyDecision(check, disposition) {
+			return Result{Content: fmt.Sprintf("policy_disposition %q is not valid for policy_check %q", disposition, check), IsError: true}, nil
+		}
 		policyStore, ok := t.state.findingStore.(store.SecurityFindingPolicyStore)
 		if !ok {
 			return Result{Content: "finding store does not support durable policy dispositions", IsError: true}, nil
 		}
-		if _, err := policyStore.RecordSecurityFindingPolicyDisposition(ctx, rec.Namespace, rec.ID, t.state.scanCtx.RunName, t.state.scanCtx.ExecutionID, disposition, note); err != nil {
+		if _, err := policyStore.RecordSecurityFindingPolicyDisposition(ctx, rec.Namespace, rec.ID, t.state.scanCtx.RunName, t.state.scanCtx.ExecutionID, check, disposition, note); err != nil {
 			return Result{Content: fmt.Sprintf("failed to record policy disposition: %v", err), IsError: true}, nil
 		}
 	}

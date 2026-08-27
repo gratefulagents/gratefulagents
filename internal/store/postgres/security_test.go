@@ -396,7 +396,7 @@ func lifecycleTestComments(ctx context.Context, t *testing.T, s *Store, finding 
 		t.Errorf("newest event = %+v, want the comment", events[0])
 	}
 
-	policy, err := s.RecordSecurityFindingPolicyDisposition(ctx, "default", finding.ID, "policy-run", "exec-1", "known_issue", "matches audit A-1")
+	policy, err := s.RecordSecurityFindingPolicyDisposition(ctx, "default", finding.ID, "policy-run", "exec-1", "prior_art", "known_issue", "matches audit A-1")
 	if err != nil {
 		t.Fatalf("RecordSecurityFindingPolicyDisposition: %v", err)
 	}
@@ -566,6 +566,13 @@ func lifecycleTestQueriesAndSummaries(ctx context.Context, t *testing.T, s *Stor
 	events, err := s.ListSecurityFindingEvents(ctx, "default", finding.ID, 0)
 	if err != nil || len(events) != 3 || events[1].EventType != "status_changed" || events[1].Actor != "alice" {
 		t.Fatalf("events after status = %v, %v, want status_changed second-newest", events, err)
+	}
+	if err := s.SetSecurityFindingStatus(ctx, "default", finding.ID, store.SecurityFindingStatusConfirmed, "reviewer", "still reproducible", nil); err != nil {
+		t.Fatalf("SetSecurityFindingStatus(no-op review): %v", err)
+	}
+	events, err = s.ListSecurityFindingEvents(ctx, "default", finding.ID, 0)
+	if err != nil || len(events) != 4 || events[0].EventType != "status_reviewed" || events[0].Actor != "reviewer" {
+		t.Fatalf("events after no-op review = %v, %v, want status_reviewed newest", events, err)
 	}
 
 	listed, err := s.ListSecurityFindings(ctx, store.SecurityFindingFilter{Namespace: "default", ScanName: "nightly", Severity: "high", Search: "injection"})

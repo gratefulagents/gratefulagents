@@ -170,7 +170,10 @@ spec:
         fingerprints array when the surface holds.
       dependsOn: [map-protocol-surfaces]
       forEach: map-protocol-surfaces
-      targetRuns: 16
+      # Chunk the complete surface inventory across a bounded number of agents.
+      # Twelve preserves one result per surface while reducing repeated repository
+      # discovery and prompt context compared with the previous sixteen-run fan-out.
+      targetRuns: 12
       outputSchema: |-
         {
           "type": "array",

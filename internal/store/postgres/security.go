@@ -764,15 +764,26 @@ func (s *Store) SetSecurityFindingStatus(ctx context.Context, namespace string, 
 	if err != nil {
 		return fmt.Errorf("encoding status detail: %w", err)
 	}
+	eventType := securityFindingStatusEventType(previous, status)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO security_finding_events (finding_id, event_type, actor, note, detail)
-		VALUES ($1, 'status_changed', $2, $3, $4)`, id, actor, note, detail); err != nil {
+		VALUES ($1, $2, $3, $4, $5)`, id, eventType, actor, note, detail); err != nil {
 		return fmt.Errorf("recording status event: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("committing status update: %w", err)
 	}
 	return nil
+}
+
+func securityFindingStatusEventType(previous, next string) string {
+	if previous == next {
+		// Post-scan validation steps deliberately retain terminal states while
+		// attaching fresh evidence in note. Calling those reviews a status
+		// change produces misleading "confirmed -> confirmed" audit entries.
+		return "status_reviewed"
+	}
+	return "status_changed"
 }
 
 const listSecurityFindingEventsSQL = `
@@ -832,13 +843,14 @@ func (s *Store) AddSecurityFindingComment(ctx context.Context, namespace string,
 	return &ev, nil
 }
 
-func (s *Store) RecordSecurityFindingPolicyDisposition(ctx context.Context, namespace string, id uuid.UUID, actor, executionID, disposition, note string) (*store.SecurityFindingEvent, error) {
+func (s *Store) RecordSecurityFindingPolicyDisposition(ctx context.Context, namespace string, id uuid.UUID, actor, executionID, check, disposition, note string) (*store.SecurityFindingEvent, error) {
 	if err := requireSecurityNamespace(namespace); err != nil {
 		return nil, err
 	}
 	detail, err := json.Marshal(map[string]string{
 		"schema_version":     "v1",
 		"execution_id":       strings.TrimSpace(executionID),
+		"policy_check":       strings.TrimSpace(check),
 		"policy_disposition": strings.TrimSpace(disposition),
 	})
 	if err != nil {

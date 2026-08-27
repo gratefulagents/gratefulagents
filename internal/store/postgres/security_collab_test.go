@@ -483,6 +483,17 @@ func TestBulkUpdateSecurityFindings(t *testing.T) {
 			t.Errorf("finding %s events = %v, want status_changed and assignee_changed", id, types)
 		}
 	}
+	// Reapplying the same status preserves the review note without claiming
+	// that the finding changed state again.
+	err = s.BulkUpdateSecurityFindings(ctx, "default", "nightly", []uuid.UUID{f1.ID},
+		store.SecurityFindingBulkUpdate{Status: &status, Note: "reviewed again", Actor: "carol"})
+	if err != nil {
+		t.Fatalf("bulk same-status review: %v", err)
+	}
+	events := findingEvents(ctx, t, s, f1.ID)
+	if len(events) == 0 || events[0].EventType != "status_reviewed" || events[0].Actor != "carol" {
+		t.Fatalf("bulk same-status events = %v, want status_reviewed newest", events)
+	}
 
 	// Atomicity: a missing id aborts the whole batch.
 	open := store.SecurityFindingStatusOpen

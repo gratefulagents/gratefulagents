@@ -432,12 +432,15 @@ const FAILURE_COPY: Record<DetailErrorKind, { title: string; description: string
 };
 
 function statusChangeSummary(event: SecurityFindingEvent): string | null {
-  if (event.eventType !== "status_changed" || !event.detail) return null;
+  if ((event.eventType !== "status_changed" && event.eventType !== "status_reviewed") || !event.detail) return null;
   try {
     const detail = JSON.parse(event.detail) as Record<string, unknown>;
     const from = typeof detail.from === "string" ? detail.from : "";
     const to = typeof detail.to === "string" ? detail.to : "";
     if (!from && !to) return null;
+    if (event.eventType === "status_reviewed") {
+      return findingStatusLabel(to || from || "?");
+    }
     return `${findingStatusLabel(from || "?")} → ${findingStatusLabel(to || "?")}`;
   } catch {
     return null;
