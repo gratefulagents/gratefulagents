@@ -1,0 +1,120 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: hackenproof-scallop
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/scallop-io/sui-lending-protocol
+      baseBranch: main
+      workflowRef: sui-move-security-review
+      policyPackRef: bug-bounty
+      scanName: hackenproof-scallop
+      displayName: Scallop Protocol Move sources
+      priority: 27
+      featured: true
+  provider: HackenProof
+  displayName: Scallop Protocol Smart Contracts
+  programURL: https://hackenproof.com/programs/scallop-protocol-smart-contract
+  verifiedAt: 2026-08-29T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  assets:
+    - repositoryURL: https://github.com/scallop-io/sui-lending-protocol
+      displayName: Scallop core smart contract protocol (Smart Contract, Critical)
+  inScopeImpacts:
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Take over the capability to manipulate the protocol, that caused major damage on the protocol"
+      level: critical
+      assetType: "Smart Contract"
+    - impact: "Theft unclaimed yield"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Direct theft of any funds the Scallop Treasury"
+      level: high
+      assetType: "Smart Contract"
+    - impact: "Fee payment bypass"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Block stuffing for profit"
+      level: medium
+      assetType: "Smart Contract"
+    - impact: "Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)"
+      level: low
+      assetType: "Smart Contract"
+  outOfScope:
+    - "Impacts requiring attacks that the reporter has already exploited themselves, leading to damage."
+    - "Impacts caused by attacks requiring access to leaked keys/credentials."
+    - "Attacks requiring access to privileged addresses (governance, strategist)."
+    - "Theoretical vulnerabilities without any proof or demonstration."
+    - "Vulnerabilities in imported contracts."
+    - "Code style guide violations."
+    - "Redundant code."
+    - "Gas optimizations."
+    - "Best practice issues."
+    - "Vulnerabilities that can be exploited through front-run attacks only."
+    - "Impact involving Centralization Risk."
+    - "Lack of liquidity Impact."
+    - "Impact from sybil attack."
+  knownIssues:
+    - source: Scallop Protocol known issues wiki
+      summary: "The program directs researchers to this continuously updated list of known issues and warns that it may not cover every aspect; researchers must check it and do their own research before reporting."
+      reference: https://github.com/scallop-io/sui-lending-protocol/wiki/Known-Issues
+  prohibitedTesting:
+    - "Any testing with mainnet or public testnet contracts; all testing should be done on private testnets"
+    - "Any testing with pricing oracles or third party smart contracts"
+    - "Attempting phishing or other social engineering attacks against our employees and/or customers"
+    - "Any testing with third party systems and applications (e.g. browser extensions) as well as websites (e.g. SSO providers, advertising networks)"
+    - "Any denial of service attacks"
+    - "Automated testing of services that generates significant amounts of traffic"
+    - "Public disclosure of an unpatched vulnerability in an embargoed bounty"
+    - "Avoid using web application scanners for automatic vulnerability searching which generates massive traffic"
+    - "Make every effort not to damage or restrict the availability of products, services, or infrastructure"
+    - "Avoid compromising any personal data, interruption, or degradation of any service"
+    - "Don’t access or modify other user data, localize all tests to your accounts"
+    - "Perform testing only within the scope"
+    - "Don’t exploit any DoS/DDoS vulnerabilities, social engineering attacks, or spam"
+    - "Don’t spam forms or account creation flows using automated scanners"
+    - "In case you find chain vulnerabilities we’ll pay only for vulnerability with the highest severity."
+    - "Don’t break any law and stay in the defined scope"
+    - "Any details of found vulnerabilities must not be communicated to anyone who is not a HackenProof Team or an authorized employee of this Company without appropriate permission"
+  scopePolicy: |-
+    Public HackenProof scope snapshot verified 2026-08-29.
+
+    Live Program is active now.
+    Range of bounty: $30 - $300,000.
+    Critical: $30,000 - $300,000; High: $3,000 - $30,000; Medium: $300 - $3,000; Low: $30 - $300.
+    Exceptional critical cases may receive up to 20% of the protocol's loss amount depending on the specifics of the case. Rewards are paid in SUI, USDC, or SCA to the reporter-provided wallet and cannot be converted to another cryptocurrency or fiat through the program.
+    The program requires 100 reputation points and a proof of concept. The listing does not mark KYC as required.
+
+    Exact source scope and import boundary
+    - https://github.com/scallop-io/sui-lending-protocol (Smart Contract, Critical) - Core Smart contract protocol.
+
+    The published target is the repository root, so the whole repository is the formal program scope and is imported. For this automated review, prioritize Move production source files matching contracts/**/sources. That focus is review prioritization only: it does not narrow the formal repository-root scope or make other repository paths ineligible when they satisfy the program's rules and a listed impact.
+
+    Mutable-main caveat
+    The scan target follows the mutable main branch because that is the requested source ref, not an immutable release or commit. Its contents may change after this verification snapshot. Every scan must record the resolved full commit SHA, and report eligibility must be checked against the live program, current deployed protocol behavior, and current main revision before submission. Do not represent a finding from an older resolved revision as affecting current code without reproducing it against the current eligible revision.
+
+    Published impact clauses represented in typed scope
+    - Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield (Critical).
+    - Take over the capability to manipulate the protocol, that caused major damage on the protocol (Critical).
+    - Theft unclaimed yield (High).
+    - Direct theft of any funds the Scallop Treasury (High).
+    - Fee payment bypass (Medium).
+    - Block stuffing for profit (Medium).
+    - Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol) (Low).
+
+    Known issues
+    Before submitting, check https://github.com/scallop-io/sui-lending-protocol/wiki/Known-Issues. Scallop states that it will continue updating the list but cannot guarantee that it covers every aspect, so researchers must also do their own research.
+
+    Testing rules
+    Do not test mainnet or public-testnet contracts; all testing must use private testnets. Do not test pricing oracles, third-party smart contracts, third-party systems or applications, browser extensions, websites, SSO providers, or advertising networks. Phishing and other social engineering against employees or customers are prohibited. Do not perform denial-of-service attacks, DoS/DDoS exploitation, spam, automated service testing that generates significant traffic, web-application scanning that generates massive traffic, or automated form and account-creation spam. Test only within scope and only with researcher-owned accounts; do not access or modify another user's data. Avoid personal-data compromise, service interruption or degradation, and any damage or availability restriction. Do not break any law. For a chain of vulnerabilities, only the vulnerability with the highest severity is paid.
+
+    Eligibility and reporting
+    The reporter must be the first to report a qualifying vulnerability. Any vulnerability found must be reported exclusively through hackenproof.com no later than 24 hours after discovery. Use only the email address registered to the reporter's HackenProof account; violating this rule makes the report ineligible for a bounty. The report must provide a clear textual description and detailed but to-the-point reproduction steps, with screenshots, proof-of-concept code, or other attachments as necessary. Current or former Scallop employees and contractors are ineligible.
+
+    Disclosure rules
+    Do not discuss this program or any vulnerability, including a resolved vulnerability, outside the program without the organization's express consent. No full or partial vulnerability disclosure is currently allowed, and bugs must not be published or discussed. Details must not be communicated to anyone other than the HackenProof team or an authorized company employee without appropriate permission. Public disclosure of an unpatched vulnerability in an embargoed bounty is prohibited.

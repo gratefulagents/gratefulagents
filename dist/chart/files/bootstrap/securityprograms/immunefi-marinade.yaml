@@ -1,0 +1,105 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-marinade
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/marinade-finance/liquid-staking-program
+      baseBranch: mainnet
+      workflowRef: solana-defi-program-review
+      policyPackRef: bug-bounty
+      scanName: immunefi-marinade-liquid-staking-program
+      displayName: Marinade Liquid Staking Program
+      priority: 26
+      featured: true
+  provider: Immunefi
+  displayName: Marinade
+  programURL: https://immunefi.com/bug-bounty/marinade/scope/
+  verifiedAt: 2026-08-29T00:00:00Z
+  severitySystem: immunefi-v2.3
+  primacy: impact
+  pocRequired: true
+  pocEnvironment: mainnet-fork
+  kycRequired: false
+  assets:
+    - repositoryURL: https://github.com/marinade-finance/liquid-staking-program
+      displayName: Official Immunefi scope repository; mainnet selected for production relevance although Immunefi does not pin a ref
+  inScopeImpacts:
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Permanent freezing of funds"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Protocol insolvency"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Theft of unclaimed yield"
+      level: high
+      assetType: Smart Contract
+    - impact: "Permanent freezing of unclaimed yield"
+      level: high
+      assetType: Smart Contract
+    - impact: "Temporary freezing of funds excluding DOS attacks"
+      level: high
+      assetType: Smart Contract
+  outOfScope:
+    - "Best practice critiques"
+    - "Incorrect data supplied by third party oracles"
+    - "Impacts requiring basic economic and governance attacks (e.g. 51% attack)"
+    - "Lack of liquidity impacts"
+    - "Impacts from Sybil attacks"
+    - "Impacts involving centralization risks"
+    - "Impacts requiring attacks that the reporter has already exploited themselves, leading to damage"
+    - "Impacts caused by attacks requiring access to leaked keys/credentials"
+    - "Impacts caused by attacks requiring access to privileged addresses (including, but not limited to: governance and strategist contracts) without additional modifications to the privileges attributed"
+    - "Impacts relying on attacks involving the depegging of an external stablecoin where the attacker does not directly cause the depegging due to a bug in code"
+    - "Mentions of secrets, access tokens, API keys, private keys, etc. in Github will be considered out of scope without proof that they are in-use in production"
+    - "Best practice recommendations"
+    - "Feature requests"
+    - "Impacts on test files and configuration files unless stated otherwise in the bug bounty program"
+    - "Impacts requiring phishing or other social engineering attacks against project's employees and/or customers"
+  prohibitedTesting:
+    - "Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet"
+    - "Any testing with pricing oracles or third-party smart contracts"
+    - "Attempting phishing or other social engineering attacks against our employees and/or customers"
+    - "Any testing with third-party systems and applications (e.g. browser extensions) as well as websites (e.g. SSO providers, advertising networks)"
+    - "Any denial of service attacks that are executed against project assets"
+    - "Automated testing of services that generates significant amounts of traffic"
+    - "Public disclosure of an unpatched vulnerability in an embargoed bounty"
+    - "Any other actions prohibited by the Immunefi Rules"
+  scopePolicy: |-
+    Verbatim Immunefi scope (retrieved 2026-08-29; page last updated 12 November 2024).
+
+    Displayed wording is preserved; layout whitespace is normalized.
+
+    Smart Contract
+
+    Assets in Scope
+    https://github.com/marinade-finance/liquid-staking-program
+
+    Impacts in Scope
+    Critical: Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield
+    Critical: Permanent freezing of funds
+    Critical: Protocol insolvency
+    High: Theft of unclaimed yield
+    High: Permanent freezing of unclaimed yield
+    High: Temporary freezing of funds excluding DOS attacks
+
+    Out of scope
+    Best practice critiques and the default Immunefi exclusions transcribed below apply.
+
+    Asset and branch boundary
+    The official in-scope Smart Contract asset is https://github.com/marinade-finance/liquid-staking-program. Immunefi links the repository root and does not pin a commit, tag, or branch. This scan selects the repository's mainnet branch for production relevance because its README states that mainnet contains the version deployed on mainnet and is kept current with every deployment. Branch selection is an analysis convenience, not an expansion or immutable pin of Immunefi scope; reconcile findings with the deployed program and live scope before submission.
+
+    Impact and reward boundary
+    Primacy is impact. Eligible Smart Contract impacts are limited to the six typed clauses above: direct theft of user funds other than unclaimed yield, permanent freezing of funds, and protocol insolvency at Critical; theft or permanent freezing of unclaimed yield and temporary freezing of funds excluding DoS attacks at High. The maximum bounty is $250,000. Critical rewards are capped at 10% of directly affected funds, up to $250,000, with a stated $50,000 minimum for qualifying Critical reports; High rewards are up to $15,000. Payouts are denominated in USD and paid in mSOL and MNDE.
+
+    Proof of concept and identity
+    A proof of concept is required for every severity. Testing must use a local fork of public testnet or mainnet; never test deployed code on mainnet or a public testnet. KYC is not required for payout processing.
+
+    Exclusions
+    Best-practice critiques and recommendations, feature requests, test or configuration-only impacts, incorrect third-party oracle data, basic economic or governance attacks, lack of liquidity, Sybil attacks, centralization risks, already-exploited attacks that caused damage, leaked credentials, unmodified privileged access, externally caused stablecoin depegs, unproven GitHub secrets, and phishing or social engineering are out of scope. The third-party oracle-data exclusion does not exclude oracle manipulation or flash-loan attacks.
+
+    Prohibited testing
+    Do not test mainnet or public-testnet deployments, pricing oracles, third-party smart contracts, third-party systems, applications, or websites. Do not conduct phishing or social engineering, denial-of-service attacks against project assets, traffic-heavy automated testing, public disclosure of an unpatched vulnerability in an embargoed bounty, or any activity prohibited by the Immunefi Rules.
