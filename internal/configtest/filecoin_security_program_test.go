@@ -14,34 +14,10 @@ func TestFilecoinSecurityProgramExactScope(t *testing.T) {
 	readBootstrapAsset(t, "securityprograms", "immunefi-filecoin", &program)
 
 	expectedTargets := map[string]string{
-		"https://github.com/whyrusleeping/cbor-gen":                    "master",
-		"https://github.com/filecoin-project/boost":                    "main",
-		"https://github.com/ipfs/go-graphsync":                         "main",
-		"https://github.com/filecoin-project/lotus":                    "master",
-		"https://github.com/filecoin-project/rust-fil-proofs-ffi":      "master",
-		"https://github.com/filecoin-project/rust-filecoin-proofs-api": "master",
-		"https://github.com/filecoin-project/rust-fil-proofs":          "master",
-		"https://github.com/filecoin-project/bellperson":               "master",
-		"https://github.com/filecoin-project/merkletree":               "master",
-		"https://github.com/lurk-lab/neptune":                          "main",
-		"https://github.com/lurk-lab/neptune-triton":                   "master",
-		"https://github.com/filecoin-project/paired":                   "master",
-		"https://github.com/filecoin-project/go-address":               "master",
-		"https://github.com/filecoin-project/go-amt-ipld":              "master",
-		"https://github.com/filecoin-project/go-bitfield":              "master",
-		"https://github.com/filecoin-project/go-cbor-util":             "master",
-		"https://github.com/filecoin-project/go-crypto":                "master",
-		"https://github.com/filecoin-project/go-data-transfer":         "master",
-		"https://github.com/filecoin-project/go-fil-commcid":           "master",
-		"https://github.com/filecoin-project/go-padreader":             "master",
-		"https://github.com/filecoin-project/go-sectorbuilder":         "master",
-		"https://github.com/filecoin-project/go-statemachine":          "master",
-		"https://github.com/filecoin-project/go-statestore":            "master",
-		"https://github.com/ipfs/go-hamt-ipld":                         "master",
-		"https://github.com/ipfs/go-ipld-cbor":                         "master",
-		"https://github.com/filecoin-project/builtin-actors":           "master",
-		"https://github.com/filecoin-project/ref-fvm":                  "master",
-		"https://github.com/filecoin-project/go-f3":                    "main",
+		"https://github.com/filecoin-project/lotus":          "master",
+		"https://github.com/filecoin-project/builtin-actors": "master",
+		"https://github.com/filecoin-project/ref-fvm":        "master",
+		"https://github.com/filecoin-project/go-f3":          "main",
 	}
 	if got := len(program.Spec.EffectiveScanTargets()); got != len(expectedTargets) {
 		t.Fatalf("Filecoin scan targets = %d, want %d", got, len(expectedTargets))

@@ -4,213 +4,21 @@ metadata:
   name: immunefi-filecoin
 spec:
   scanTargets:
-    - repositoryURL: https://github.com/whyrusleeping/cbor-gen
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-cbor-gen
-      displayName: Filecoin CBOR code generator
-      priority: 53
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/boost
-      baseBranch: main
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-boost
-      displayName: Filecoin Boost
-      priority: 54
-      featured: false
-    - repositoryURL: https://github.com/ipfs/go-graphsync
-      baseBranch: main
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-graphsync
-      displayName: Filecoin GraphSync
-      priority: 55
-      featured: false
     - repositoryURL: https://github.com/filecoin-project/lotus
       baseBranch: master
       workflowRef: filecoin-security-review
       policyPackRef: bug-bounty
       scanName: filecoin-lotus
       displayName: Filecoin Lotus
-      priority: 56
+      priority: 53
       featured: true
-    - repositoryURL: https://github.com/filecoin-project/rust-fil-proofs-ffi
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-rust-fil-proofs-ffi
-      displayName: Filecoin proofs FFI
-      priority: 57
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/rust-filecoin-proofs-api
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-rust-proofs-api
-      displayName: Filecoin proofs API
-      priority: 58
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/rust-fil-proofs
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-rust-fil-proofs
-      displayName: Filecoin proofs
-      priority: 59
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/bellperson
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-bellperson
-      displayName: Filecoin Bellperson
-      priority: 60
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/merkletree
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-merkletree
-      displayName: Filecoin Merkle tree
-      priority: 61
-      featured: false
-    - repositoryURL: https://github.com/lurk-lab/neptune
-      baseBranch: main
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-neptune
-      displayName: Filecoin Neptune
-      priority: 62
-      featured: false
-    - repositoryURL: https://github.com/lurk-lab/neptune-triton
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-neptune-triton
-      displayName: Filecoin Neptune Triton
-      priority: 63
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/paired
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-paired
-      displayName: Filecoin Paired
-      priority: 64
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/go-address
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-address
-      displayName: Filecoin address library
-      priority: 65
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/go-amt-ipld
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-amt-ipld
-      displayName: Filecoin IPLD AMT
-      priority: 66
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/go-bitfield
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-bitfield
-      displayName: Filecoin bitfield library
-      priority: 67
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/go-cbor-util
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-cbor-util
-      displayName: Filecoin CBOR utilities
-      priority: 68
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/go-crypto
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-crypto
-      displayName: Filecoin crypto utilities
-      priority: 69
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/go-data-transfer
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-data-transfer
-      displayName: Filecoin data transfer
-      priority: 70
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/go-fil-commcid
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-fil-commcid
-      displayName: Filecoin commitment CID utilities
-      priority: 71
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/go-padreader
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-padreader
-      displayName: Filecoin padded reader
-      priority: 72
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/go-sectorbuilder
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-sectorbuilder
-      displayName: Filecoin sector builder
-      priority: 73
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/go-statemachine
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-statemachine
-      displayName: Filecoin state machine
-      priority: 74
-      featured: false
-    - repositoryURL: https://github.com/filecoin-project/go-statestore
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-statestore
-      displayName: Filecoin state store
-      priority: 75
-      featured: false
-    - repositoryURL: https://github.com/ipfs/go-hamt-ipld
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-hamt-ipld
-      displayName: Filecoin IPLD HAMT
-      priority: 76
-      featured: false
-    - repositoryURL: https://github.com/ipfs/go-ipld-cbor
-      baseBranch: master
-      workflowRef: filecoin-security-review
-      policyPackRef: bug-bounty
-      scanName: filecoin-go-ipld-cbor
-      displayName: Filecoin IPLD CBOR
-      priority: 77
-      featured: false
     - repositoryURL: https://github.com/filecoin-project/builtin-actors
       baseBranch: master
       workflowRef: filecoin-security-review
       policyPackRef: bug-bounty
       scanName: filecoin-builtin-actors
       displayName: Filecoin built-in actors
-      priority: 78
+      priority: 54
       featured: true
     - repositoryURL: https://github.com/filecoin-project/ref-fvm
       baseBranch: master
@@ -218,7 +26,7 @@ spec:
       policyPackRef: bug-bounty
       scanName: filecoin-ref-fvm
       displayName: Filecoin FVM
-      priority: 79
+      priority: 55
       featured: true
     - repositoryURL: https://github.com/filecoin-project/go-f3
       baseBranch: main
@@ -226,7 +34,7 @@ spec:
       policyPackRef: bug-bounty
       scanName: filecoin-go-f3
       displayName: Filecoin Fast Finality
-      priority: 80
+      priority: 56
       featured: true
   provider: Immunefi
   displayName: Filecoin
@@ -465,7 +273,7 @@ spec:
     High
     Inability to propagate new transactions (limited to fraction of the network)
 
-    This is a Primacy of Rules program. A valid bounty report must affect an itemized asset and produce an itemized impact. The published table contains 30 rows: 29 source-code assets, plus https://filecoin.io as the non-code "Primacy of Impact" marker. The 29 source rows collapse to 28 importable repositories because Lotus is listed both at the repository root and specifically at master/miner. The Lotus scan target imports the root once; bounty eligibility must still be checked against the exact published asset rows. Repository default branches were verified on 2026-08-24; Immunefi itself explicitly pins only the Lotus miner row to master/miner.
+    This is a Primacy of Rules program. A valid bounty report must affect an itemized asset and produce an itemized impact. The published table contains 30 rows: 29 source-code assets, plus https://filecoin.io as the non-code "Primacy of Impact" marker. The 29 source rows collapse to 28 repositories because Lotus is listed both at the repository root and specifically at master/miner. Automated scans intentionally target only the four featured core blockchain implementations: Lotus, built-in actors, ref-fvm, and go-f3. The remaining official assets stay recorded for bounty eligibility but are not scheduled as standalone scans. The Lotus scan target imports the root once; bounty eligibility must still be checked against the exact published asset rows. Repository default branches were verified on 2026-08-24; Immunefi itself explicitly pins only the Lotus miner row to master/miner.
 
     Program status and rewards
     - Live since 14 April 2023; last updated 21 July 2026.
