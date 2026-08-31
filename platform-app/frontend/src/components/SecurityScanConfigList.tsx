@@ -77,8 +77,11 @@ const FILTER_SPEC = {
   findings: "all",
   scanned: "all",
   schedule: "all",
+  workflow: "all",
   program: "all",
   repo: "all",
+  target: "all",
+  policy: "all",
   sort: "scanned",
 } as const;
 
@@ -112,6 +115,12 @@ const SCHEDULE_OPTIONS: FilterOption[] = [
   { value: "manual", label: "Manual only" },
 ];
 
+const TARGET_OPTIONS: FilterOption[] = [
+  { value: "all", label: "Any target" },
+  { value: "repository", label: "Repository" },
+  { value: "web", label: "Web" },
+];
+
 const SORT_OPTIONS = [
   { value: "name", label: "Name", direction: "ascending" as const },
   { value: "scanned", label: "Last Scan", direction: "descending" as const },
@@ -123,12 +132,28 @@ export type ScanConfigFilters = {
   findings: string;
   scanned: string;
   schedule: string;
+  workflow: string;
   program: string;
   repo: string;
+  target: string;
+  policy: string;
 };
 
 function configRepoUrl(config: SecurityScanConfig): string {
   return config.spec?.repoUrl || config.spec?.targetUrl || "";
+}
+
+/**
+ * Which research plan the configuration runs: a named reusable
+ * SecurityWorkflow ("ref:<name>"), an inline plan defined on the scan itself,
+ * or the server default when neither is set. Named refs are prefixed so a
+ * workflow that happens to be called "inline" or "default" can never collide
+ * with the built-in buckets in the filter URL.
+ */
+export function workflowFilterValue(config: SecurityScanConfig): string {
+  const ref = config.spec?.workflowRef.trim() ?? "";
+  if (ref) return `ref:${ref}`;
+  return (config.spec?.workflow.length ?? 0) > 0 ? "inline" : "default";
 }
 
 /**
@@ -230,6 +255,11 @@ export function filterScanConfigs(
     // "Manual only" label rendered next to it.
     if (filters.schedule !== "all" && scheduleKind(config) !== filters.schedule) return false;
 
+    // "ref:<name>" targets one reusable SecurityWorkflow; "inline" and
+    // "default" are the two anonymous buckets. The same function feeds the row
+    // label, so the filter and the row can never disagree.
+    if (filters.workflow !== "all" && workflowFilterValue(config) !== filters.workflow) return false;
+
     const programRef = config.spec?.securityProgramRef ?? "";
     if (filters.program === "none" && programRef) return false;
     if (filters.program !== "all" && filters.program !== "none" && programRef !== filters.program) {
@@ -237,6 +267,17 @@ export function filterScanConfigs(
     }
 
     if (filters.repo !== "all" && repoLabel(configRepoUrl(config)) !== filters.repo) return false;
+
+    // Repository scans and repoless web scans are mutually exclusive on the
+    // spec, so each row belongs to exactly one bucket.
+    if (filters.target === "repository" && !config.spec?.repoUrl) return false;
+    if (filters.target === "web" && !config.spec?.targetUrl) return false;
+
+    const policyRef = config.spec?.policyPackRef ?? "";
+    if (filters.policy === "none" && policyRef) return false;
+    if (filters.policy !== "all" && filters.policy !== "none" && policyRef !== filters.policy) {
+      return false;
+    }
     return true;
   });
 }
@@ -550,11 +591,35 @@ export function SecurityScanConfigList() {
     "All repositories",
   );
 
+  // Named workflows come from the configurations themselves (like repository
+  // options), so the menu only offers values that select at least one row.
+  const workflowRefs = optionsFrom(
+    configs.map((config) => config.spec?.workflowRef.trim() ?? ""),
+    "All workflows",
+  );
+  const workflowOptions: FilterOption[] = [
+    workflowRefs[0],
+    ...workflowRefs.slice(1).map((option) => ({ value: `ref:${option.value}`, label: option.label })),
+    { value: "inline", label: "Inline workflow" },
+    { value: "default", label: "Default workflow" },
+  ];
+  const policyBase = optionsFrom(
+    configs.map((config) => config.spec?.policyPackRef ?? ""),
+    "All policy packs",
+  );
+  const policyOptions: FilterOption[] = [
+    policyBase[0],
+    { value: "none", label: "No policy pack" },
+    ...policyBase.slice(1),
+  ];
+
   const searched = filterByQuery(configs, values.q, (config) => [
     config.name,
     config.namespace,
     configRepoUrl(config),
     config.spec?.schedule ?? "",
+    config.spec?.workflowRef ?? "",
+    config.spec?.policyPackRef ?? "",
     config.spec?.securityProgramRef ?? "",
     programUrls.get(config.spec?.securityProgramRef ?? "") ?? "",
     config.phase,
@@ -721,6 +786,12 @@ export function SecurityScanConfigList() {
               options={SCHEDULE_OPTIONS}
             />
             <FilterSelect
+              label="Workflow"
+              value={values.workflow}
+              onChange={(value) => set("workflow", value)}
+              options={workflowOptions}
+            />
+            <FilterSelect
               label="Program"
               value={values.program}
               onChange={(value) => set("program", value)}
@@ -731,6 +802,18 @@ export function SecurityScanConfigList() {
               value={values.repo}
               onChange={(value) => set("repo", value)}
               options={repoOptions}
+            />
+            <FilterSelect
+              label="Target"
+              value={values.target}
+              onChange={(value) => set("target", value)}
+              options={TARGET_OPTIONS}
+            />
+            <FilterSelect
+              label="Policy pack"
+              value={values.policy}
+              onChange={(value) => set("policy", value)}
+              options={policyOptions}
             />
           </FilterBar>
         )
@@ -906,6 +989,14 @@ export function SecurityScanConfigList() {
                     </span>
                     <span aria-hidden>·</span>
                     <span className="truncate">{scheduleSummary(config)}</span>
+                    {(config.spec?.workflowRef.trim() ?? "") && (
+                      <>
+                        <span aria-hidden>·</span>
+                        <span className="truncate font-mono" title="Workflow">
+                          {config.spec?.workflowRef.trim()}
+                        </span>
+                      </>
+                    )}
                     {programRef && (
                       <span className="truncate font-mono lg:hidden">· {programRef}</span>
                     )}
