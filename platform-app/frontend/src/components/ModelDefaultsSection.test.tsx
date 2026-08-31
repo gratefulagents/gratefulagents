@@ -222,6 +222,43 @@ describe("ModelDefaultsSection", () => {
     );
   });
 
+  it("offers xAI when an xAI API key is saved", async () => {
+    getDefaults.mockResolvedValue({
+      provider: "",
+      authMode: "",
+      model: "",
+      reasoningLevel: "",
+      disabled: false,
+    } as never);
+    listCredentials.mockResolvedValue({
+      namespace: "user-alice",
+      anthropicApiKeyPresent: false,
+      anthropicOauthPresent: false,
+      openaiApiKeyPresent: false,
+      openaiOauthPresent: false,
+      copilotOauthPresent: false,
+      openrouterApiKeyPresent: false,
+      xaiApiKeyPresent: true,
+    } as never);
+    listModels.mockResolvedValue({ models: ["grok-4"] } as never);
+
+    render(<ModelDefaultsSection />);
+
+    const providerSelect = (await screen.findByLabelText("Provider")) as HTMLSelectElement;
+    await waitFor(() => expect(providerSelect.value).toBe("xai"));
+    expect(Array.from(providerSelect.options).map((option) => option.text)).toEqual(["xAI"]);
+    expect((screen.getByLabelText("Authentication mode") as HTMLSelectElement).value).toBe(
+      "api-key",
+    );
+    await waitFor(() => {
+      expect(listModels).toHaveBeenCalledWith(
+        { namespace: "user-alice", provider: "xai", authMode: "api-key" },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    });
+    expect(await screen.findByText("1 xAI models available")).toBeTruthy();
+  });
+
   it("loads model suggestions for the selected credential and auth mode", async () => {
     getDefaults.mockResolvedValue({
       provider: "openai",

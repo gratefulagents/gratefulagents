@@ -139,6 +139,7 @@ interface AuthContextType extends AuthState {
   renameWorkspace: (id: string, name: string) => Promise<void>;
   loginWithGoogle: (googleIdToken: string) => Promise<void>;
   loginWithPassword: (username: string, password: string) => Promise<void>;
+  redeemSetupToken: (token: string) => Promise<void>;
   logout: () => Promise<void>;
   getAccessToken: () => string | null;
 }
@@ -456,6 +457,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const redeemSetupToken = useCallback(async (token: string) => {
+    const resp = await runtimeFetch(`${backendBaseUrl()}/auth.v1.AuthService/RedeemSetupToken`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getCloudflareAccessHeaders(),
+      },
+      body: JSON.stringify({ token }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ message: "Setup link sign-in failed" }));
+      throw new Error(err.message || "Setup link sign-in failed");
+    }
+    const data = (await resp.json()) as {
+      accessToken: string;
+      refreshToken: string;
+      user: AuthUser;
+    };
+    await setTokens(data.accessToken, data.refreshToken);
+    await storeSet(userStoreKey(), data.user);
+    setState((prev) => ({
+      ...prev,
+      isAuthenticated: true,
+      accessToken: data.accessToken,
+      user: data.user,
+      error: null,
+    }));
+  }, []);
+
   const logout = useCallback(async () => {
     const refresh = getRefreshToken();
     if (refresh) {
@@ -491,6 +521,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         renameWorkspace,
         loginWithGoogle,
         loginWithPassword,
+        redeemSetupToken,
         logout,
         getAccessToken,
       }}

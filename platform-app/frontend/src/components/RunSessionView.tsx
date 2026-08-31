@@ -52,6 +52,7 @@ import { useAvailableModes } from "@/hooks/useAvailableModes";
 import { activityGroupKey, autoChatKickoffRequest, autoExecutionKickoffRequest, bucketActivityByMessage, findLatestPlanPresentation, getActionButtonVariant, mapPendingAction, messageDeliveryTimestamp, messageTimelineKey, orderDeliveredMessages, parseUsd, partitionConversation, pendingBannerConfig, planContentForPresentationGroup, renderPlanDialogButton, TIMELINE_MIN_OVERSCAN_ITEMS, timelineScrollIndex, type QuickAction, type TimelineItem } from "@/components/run-session/helpers";
 import { isActionableInputType, isRunComputing, visibleInputType } from "@/lib/runStatus";
 import { TimelineRow } from "@/components/run-session/TimelineRow";
+import { StartupProgress, hasFirstAgentOutput } from "@/components/run-session/StartupProgress";
 import { PendingMessages } from "@/components/run-session/PendingMessages";
 import { ActiveSubagentsDock } from "@/components/run-session/ActiveSubagentsDock";
 import { messageForQuickAction } from "@/components/quickActions";
@@ -352,6 +353,15 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     [conversation],
   );
   const pendingMessages = conversationParts.pending;
+
+  // First agent output: any activity entry or any non-user transcript
+  // message. The startup stepper only shows before that point — the seeded
+  // initial user request alone does not count as agent output.
+  const hasAgentOutput = hasFirstAgentOutput(activityEntries.length, conversationParts.delivered);
+  // Staged startup progress while the sandbox spins up. Disappears with the
+  // first agent output; unknown phases render nothing (StartupProgress
+  // returns null), leaving the generic thinking copy as the fallback.
+  const showStartupProgress = isThinking && !hasAgentOutput;
 
   const hasRun = Boolean(run);
   const intentTitle = run?.intentTitle ?? "";
@@ -989,6 +999,12 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
                 onScrollTo={scrollChatTo}
               />
               </div>
+
+              {showStartupProgress && (
+                <div className="shrink-0 px-3 pb-3 md:px-4">
+                  <StartupProgress run={run} />
+                </div>
+              )}
 
               {/* Gates only earn space above the composer when one failed;
                   a clean run says so in the transcript. */}

@@ -333,9 +333,30 @@ fi
 
 kind_bin="$(command -v kind)"
 kubectl_bin="$(command -v kubectl)"
+
+setup_token="$(kubectl -n "$NAMESPACE" get secret gratefulagents-admin-credentials \
+  -o jsonpath='{.data.setup-token}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+if [[ "$dashboard_access" == http* ]]; then
+  dashboard_url="$dashboard_access"
+else
+  dashboard_url="http://127.0.0.1:$DASHBOARD_PORT"
+fi
+
 cat <<EOF
 
 Installation complete.
+EOF
+
+if [[ -n "$setup_token" ]]; then
+  cat <<EOF
+
+Open $dashboard_url/login?setup_token=$setup_token to sign in (one-time link).
+
+If the link was already used, sign in with the admin password instead:
+EOF
+fi
+
+cat <<EOF
 
 Dashboard: $dashboard_access
 Username:  admin

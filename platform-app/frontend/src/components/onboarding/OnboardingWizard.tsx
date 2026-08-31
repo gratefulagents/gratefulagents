@@ -22,17 +22,27 @@ import { ImportLocalCredentials } from "@/components/ImportLocalCredentials";
 import { OpenAIOAuthConnect } from "@/components/OpenAIOAuthConnect";
 import { RuntimeImagePicker } from "@/components/RuntimeImagePicker";
 import { Chip } from "@/components/create-flow/create-flow";
-import { PROVIDERS } from "@/components/create-flow/providers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
+import { ApiKeyVerificationNote, useApiKeyVerification } from "@/hooks/useApiKeyVerification";
+import { useAvailableModels } from "@/hooks/useAvailableModels";
 import { useCreateProject } from "@/hooks/useCreateProject";
 import { useMyCredentials } from "@/hooks/useMyCredentials";
 import { useMyModelDefaults } from "@/hooks/useMyModelDefaults";
 import { useProjects } from "@/hooks/useWatchedList";
 import { client } from "@/lib/client";
 import { writeLastProject } from "@/lib/lastProject";
+import {
+  MODEL_PROVIDERS,
+  credentialAuthModes,
+  flagsFromPresence,
+  hasProviderCredential,
+  preferredAuthMode,
+  providerLabel,
+  type ProviderAuthMode,
+} from "@/lib/model-providers";
 import { openExternal } from "@/lib/native";
 import { REASONING_LEVELS } from "@/lib/reasoning";
 import {
@@ -62,39 +72,13 @@ const STEP_TITLES = [
   "First project",
 ] as const;
 
-/** Providers the wizard offers for the first project (saved-credential wiring). */
-const WIZARD_PROVIDERS = [
-  { id: "anthropic", label: "Anthropic · Claude" },
-  { id: "openai", label: "OpenAI · GPT" },
-  { id: "openrouter", label: "OpenRouter" },
-  { id: "copilot", label: "GitHub Copilot" },
-] as const;
+/** Providers the wizard offers for saved-credential wiring (registry entries with a credential surface). */
+const WIZARD_PROVIDERS = MODEL_PROVIDERS.filter((p) => p.userCredentials);
 
-function savedAvailable(p: CredentialPresence, provider: string): boolean {
-  if (provider === "anthropic") return p.anthropicApiKey || p.anthropicOauth;
-  if (provider === "openai") return p.openaiApiKey || p.openaiOauth;
-  if (provider === "openrouter") return p.openrouterApiKey;
-  if (provider === "copilot") return p.copilotOauth;
-  return false;
-}
-
-function pickAuthMode(p: CredentialPresence, provider: string): "api-key" | "oauth" {
-  if (provider === "copilot") return "oauth";
-  if (provider === "anthropic") return p.anthropicApiKey ? "api-key" : "oauth";
-  if (provider === "openai") return p.openaiApiKey ? "api-key" : "oauth";
-  return "api-key";
-}
-
-function authModeAvailable(
-  p: CredentialPresence,
-  provider: string,
-  mode: "api-key" | "oauth",
-): boolean {
-  if (provider === "copilot") return mode === "oauth" && p.copilotOauth;
-  if (provider === "anthropic") return mode === "oauth" ? p.anthropicOauth : p.anthropicApiKey;
-  if (provider === "openai") return mode === "oauth" ? p.openaiOauth : p.openaiApiKey;
-  return mode === "api-key" && provider === "openrouter" && p.openrouterApiKey;
-}
+/** Wizard providers with an API-key field — the ones a save can live-verify. */
+const WIZARD_KEY_PROVIDERS = WIZARD_PROVIDERS.filter((p) => p.authModes.includes("api-key")).map(
+  (p) => p.id,
+);
 
 export function OnboardingWizard() {
   const navigate = useNavigate();
@@ -440,19 +424,31 @@ function ProviderStep({
   const [anthropicKey, setAnthropicKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [openrouterKey, setOpenrouterKey] = useState("");
+  const [xaiKey, setXaiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { verifications, verify } = useApiKeyVerification();
 
   const connected = [
     (presence.anthropicApiKey || presence.anthropicOauth) && "Claude",
     (presence.openaiApiKey || presence.openaiOauth) && "OpenAI",
     presence.openrouterApiKey && "OpenRouter",
+    presence.xaiApiKey && "xAI",
     presence.copilotOauth && "Copilot",
   ].filter(Boolean) as string[];
 
+  const nothingToSave =
+    !anthropicKey.trim() && !openaiKey.trim() && !openrouterKey.trim() && !xaiKey.trim();
+
   async function saveKeys() {
-    if (!anthropicKey.trim() && !openaiKey.trim() && !openrouterKey.trim()) return;
+    if (nothingToSave) return;
+    const savedProviders = [
+      anthropicKey.trim() && "anthropic",
+      openaiKey.trim() && "openai",
+      openrouterKey.trim() && "openrouter",
+      xaiKey.trim() && "xai",
+    ].filter(Boolean) as string[];
     setSaving(true);
     setStatus(null);
     setError(null);
@@ -461,12 +457,15 @@ function ProviderStep({
         anthropicApiKey: anthropicKey.trim(),
         openaiApiKey: openaiKey.trim(),
         openrouterApiKey: openrouterKey.trim(),
+        xaiApiKey: xaiKey.trim(),
       });
       apply(c);
       setAnthropicKey("");
       setOpenaiKey("");
       setOpenrouterKey("");
+      setXaiKey("");
       setStatus("API key saved");
+      verify(c.namespace || presence.namespace, savedProviders);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save API keys");
     } finally {
@@ -482,9 +481,9 @@ function ProviderStep({
         done={connected.length > 0}
         doneNote={connected.join(" · ")}
       >
-        Agents run on your own model account — Claude, OpenAI, OpenRouter, or GitHub Copilot.
-        Credentials are stored privately in your namespace and can be changed anytime in Settings
-        → Credentials.
+        Agents run on your own model account — Claude, OpenAI, OpenRouter, xAI, or GitHub
+        Copilot. Credentials are stored privately in your namespace and can be changed anytime in
+        Settings → Credentials.
       </StepIntro>
 
       {/* Local import and Copilot are desktop-only; Claude and OpenAI OAuth also work on web. */}
@@ -535,15 +534,26 @@ function ProviderStep({
             autoComplete="off"
           />
         </div>
+        <div>
+          <div className="mb-1.5 flex h-5 items-center justify-between gap-2">
+            <Label className="text-[12.5px]">xAI API key</Label>
+            {presence.xaiApiKey && <SavedChip />}
+          </div>
+          <Input
+            type="password"
+            value={xaiKey}
+            onChange={(e) => setXaiKey(e.target.value)}
+            placeholder={presence.xaiApiKey ? "•••• (saved) — enter to replace" : "xai-..."}
+            autoComplete="off"
+          />
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
         <Button
           size="sm"
           onClick={() => void saveKeys()}
-          disabled={
-            saving || (!anthropicKey.trim() && !openaiKey.trim() && !openrouterKey.trim())
-          }
+          disabled={saving || nothingToSave}
         >
           {saving && <Loader2 className="animate-spin" data-icon="inline-start" />}
           {saving ? "Saving…" : "Save API key"}
@@ -555,6 +565,14 @@ function ProviderStep({
           </span>
         )}
       </div>
+
+      {WIZARD_KEY_PROVIDERS.some((p) => verifications[p]) && (
+        <div className="flex flex-col gap-1">
+          {WIZARD_KEY_PROVIDERS.map((p) => (
+            <ApiKeyVerificationNote key={p} provider={p} state={verifications[p]} />
+          ))}
+        </div>
+      )}
 
       <p className="text-[11.5px] text-muted-foreground/80">
         Prefer existing CLI credentials? You can also paste credential JSON in{" "}
@@ -821,31 +839,42 @@ function ModelDefaultsStep({
   onSaved: (defaults: ModelDefaults) => void;
 }) {
   const [provider, setProvider] = useState(defaults?.provider || "anthropic");
-  const [authMode, setAuthMode] = useState<"api-key" | "oauth">(
+  const [authMode, setAuthMode] = useState<ProviderAuthMode>(
     defaults?.authMode === "oauth"
       ? "oauth"
-      : pickAuthMode(presence, defaults?.provider || "anthropic"),
+      : preferredAuthMode(flagsFromPresence(presence), defaults?.provider || "anthropic"),
   );
   const [model, setModel] = useState(defaults?.model ?? "");
   const [reasoningLevel, setReasoningLevel] = useState(defaults?.reasoningLevel ?? "");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const credentialReady = authModeAvailable(
-    presence,
+  const flags = flagsFromPresence(presence);
+  const effectiveAuthMode = provider === "copilot" ? "oauth" : authMode;
+  const credentialReady = hasProviderCredential(flags, provider, effectiveAuthMode);
+  const {
+    models: modelSuggestions,
+    loading: modelsLoading,
+    error: modelsError,
+  } = useAvailableModels({
+    namespace: presence.namespace,
     provider,
-    provider === "copilot" ? "oauth" : authMode,
-  );
+    authMode: effectiveAuthMode,
+    enabled: credentialReady,
+  });
 
   useEffect(() => {
-    const availableProviders = PROVIDERS.filter((candidate) => savedAvailable(presence, candidate.id));
-    const nextProvider = savedAvailable(presence, provider)
+    const saved = flagsFromPresence(presence);
+    const availableProviders = WIZARD_PROVIDERS.filter((candidate) =>
+      hasProviderCredential(saved, candidate.id),
+    );
+    const nextProvider = hasProviderCredential(saved, provider)
       ? provider
       : availableProviders[0]?.id ?? "";
-    if (nextProvider === provider && authModeAvailable(presence, provider, authMode)) return;
+    if (nextProvider === provider && hasProviderCredential(saved, provider, authMode)) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reconcile defaults after credential presence loads or changes
     setProvider(nextProvider);
-    setAuthMode(pickAuthMode(presence, nextProvider));
+    setAuthMode(preferredAuthMode(saved, nextProvider));
     if (nextProvider !== provider) setModel("");
   }, [presence, provider, authMode]);
 
@@ -887,17 +916,17 @@ function ModelDefaultsStep({
       <div>
         <Label className="mb-1.5 block text-[12.5px]">Provider</Label>
         <div className="flex flex-wrap gap-1.5">
-          {PROVIDERS.filter((p) => savedAvailable(presence, p.id)).map((p) => (
+          {WIZARD_PROVIDERS.filter((p) => hasProviderCredential(flags, p.id)).map((p) => (
             <Chip
               key={p.id}
               selected={provider === p.id}
               onSelect={() => {
                 if (p.id !== provider) setModel("");
                 setProvider(p.id);
-                setAuthMode(pickAuthMode(presence, p.id));
+                setAuthMode(preferredAuthMode(flags, p.id));
               }}
             >
-              {p.name}
+              {p.label}
             </Chip>
           ))}
         </div>
@@ -911,16 +940,15 @@ function ModelDefaultsStep({
           <select
             id="onboarding-default-auth-mode"
             className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            value={provider === "copilot" ? "oauth" : authMode}
-            onChange={(e) => setAuthMode(e.target.value as "api-key" | "oauth")}
+            value={effectiveAuthMode}
+            onChange={(e) => setAuthMode(e.target.value as ProviderAuthMode)}
             disabled={provider === "copilot"}
           >
-            {(provider === "anthropic" ? presence.anthropicApiKey : provider === "openai" ? presence.openaiApiKey : provider !== "copilot") && (
-              <option value="api-key">API key</option>
-            )}
-            {(provider === "anthropic" ? presence.anthropicOauth : provider === "openai" ? presence.openaiOauth : provider === "copilot") && (
-              <option value="oauth">OAuth</option>
-            )}
+            {credentialAuthModes(flags, provider).map((mode) => (
+              <option key={mode} value={mode}>
+                {mode === "api-key" ? "API key" : "OAuth"}
+              </option>
+            ))}
           </select>
         </div>
         <div>
@@ -929,10 +957,28 @@ function ModelDefaultsStep({
           </Label>
           <Input
             id="onboarding-default-model"
+            list="onboarding-default-model-options"
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            placeholder="provider default"
+            placeholder={modelsLoading ? "Loading models…" : "provider default"}
           />
+          <datalist id="onboarding-default-model-options">
+            {modelSuggestions.map((candidate) => (
+              <option key={candidate} value={candidate} />
+            ))}
+          </datalist>
+          {modelsLoading && (
+            <p className="mt-1 text-[11.5px] text-muted-foreground">Loading models…</p>
+          )}
+          {!modelsLoading && modelSuggestions.length > 0 && (
+            <p className="mt-1 text-[11.5px] text-muted-foreground">
+              {modelSuggestions.length} {providerLabel(provider)}{" "}
+              {modelSuggestions.length === 1 ? "model" : "models"} available
+            </p>
+          )}
+          {modelsError && (
+            <p className="mt-1 text-[11.5px] text-destructive">{modelsError}</p>
+          )}
         </div>
         <div>
           <Label htmlFor="onboarding-default-reasoning" className="mb-1.5 block text-[12.5px]">
@@ -987,50 +1033,25 @@ function ProjectStep({
   const [timeout, setTimeout] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
-  const available = WIZARD_PROVIDERS.filter((p) => savedAvailable(presence, p.id));
+  const flags = flagsFromPresence(presence);
+  const available = WIZARD_PROVIDERS.filter((p) => hasProviderCredential(flags, p.id));
   const [provider, setProvider] = useState("");
   const effectiveProvider = provider || available[0]?.id || "";
-  const effectiveProviderLabel =
-    WIZARD_PROVIDERS.find((candidate) => candidate.id === effectiveProvider)?.label ??
-    effectiveProvider;
-  const effectiveAuthMode = pickAuthMode(presence, effectiveProvider);
+  const effectiveProviderLabel = providerLabel(effectiveProvider);
+  const effectiveAuthMode = preferredAuthMode(flags, effectiveProvider);
 
   // Every first project gets an explicit model. Suggestions come from the live
   // catalog for the currently selected provider and its saved auth mode.
-  const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState("");
-  const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelsError, setModelsError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!effectiveProvider || !presence.namespace) return;
-    const controller = new AbortController();
-
-    async function loadModels() {
-      setModelsLoading(true);
-      setModelsError(null);
-      try {
-        const resp = await client.listAvailableModels(
-          {
-            namespace: presence.namespace,
-            provider: effectiveProvider,
-            authMode: effectiveAuthMode,
-          },
-          { signal: controller.signal },
-        );
-        if (controller.signal.aborted) return;
-        setModels(resp.models);
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        setModels([]);
-        setModelsError(err instanceof Error ? err.message : "Failed to load provider models");
-      } finally {
-        if (!controller.signal.aborted) setModelsLoading(false);
-      }
-    }
-
-    void loadModels();
-    return () => controller.abort();
-  }, [effectiveAuthMode, effectiveProvider, presence.namespace]);
+  const {
+    models,
+    loading: modelsLoading,
+    error: modelsError,
+  } = useAvailableModels({
+    namespace: presence.namespace,
+    provider: effectiveProvider,
+    authMode: effectiveAuthMode,
+  });
 
   const name = projectNameFromRepo(repoUrl, displayName);
   const receipt = `${presence.namespace || "…"}/${name}`;
@@ -1154,8 +1175,6 @@ function ProjectStep({
                     if (p.id === effectiveProvider) return;
                     setProvider(p.id);
                     setModel("");
-                    setModels([]);
-                    setModelsError(null);
                     setFormError(null);
                   }}
                 >

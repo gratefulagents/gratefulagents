@@ -1,4 +1,6 @@
-/** Shared model-provider metadata for create flows. */
+import { MODEL_PROVIDERS } from "@/lib/model-providers";
+
+/** Shared model-provider metadata for create flows, derived from the registry. */
 export type ProviderMeta = {
   id: string;
   name: string;
@@ -9,15 +11,13 @@ export type ProviderMeta = {
   savedSupported?: boolean;
 };
 
-export const PROVIDERS: ProviderMeta[] = [
-  { id: "anthropic", name: "Anthropic", hint: "Claude", savedSupported: true },
-  { id: "openai", name: "OpenAI", hint: "GPT", savedSupported: true },
-  { id: "copilot", name: "GitHub Copilot", hint: "OAuth", oauthOnly: true, savedSupported: true },
-  { id: "gemini", name: "Gemini", hint: "Google" },
-  { id: "openrouter", name: "OpenRouter", hint: "Gateway", savedSupported: true },
-  { id: "groq", name: "Groq", hint: "Fast inference" },
-  { id: "xai", name: "xAI", hint: "Grok", savedSupported: true },
-];
+export const PROVIDERS: ProviderMeta[] = MODEL_PROVIDERS.map((p) => ({
+  id: p.id,
+  name: p.label,
+  hint: p.hint,
+  oauthOnly: !p.authModes.includes("api-key"),
+  savedSupported: p.userCredentials,
+}));
 
 export function providerMeta(id: string): ProviderMeta {
   return PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[0];
