@@ -3,8 +3,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   checklistDismissed,
   dismissChecklist,
+  dismissFeatureTour,
   dismissOnboarding,
   emptyCredentialPresence,
+  featureTourDismissed,
+  featureTourProgress,
+  featureTourStepsDone,
   hasProviderCredential,
   onboardingDismissed,
   presenceFromServer,
@@ -13,6 +17,7 @@ import {
   setupStepsDone,
   shouldOfferOnboarding,
   shouldShowChecklist,
+  shouldShowFeatureTour,
 } from "@/lib/onboarding";
 
 const empty = emptyCredentialPresence;
@@ -109,6 +114,57 @@ describe("dismissal flags", () => {
     dismissOnboarding(undefined);
     expect(onboardingDismissed(undefined)).toBe(true);
     expect(onboardingDismissed("")).toBe(true);
+  });
+});
+
+describe("feature tour", () => {
+  const readySetup = setupProgress({ ...empty, anthropicApiKey: true }, 1);
+  const noTriggers = featureTourProgress([]);
+
+  it("marks a feature done once any trigger of that source exists", () => {
+    const tour = featureTourProgress(["slack", "github", "github"]);
+    expect(tour).toEqual({ github: true, slack: true, cron: false, linear: false });
+    expect(featureTourStepsDone(tour)).toBe(2);
+    expect(featureTourStepsDone(noTriggers)).toBe(0);
+  });
+
+  it("shows the tour only after the setup essentials exist", () => {
+    expect(
+      shouldShowFeatureTour({ setup: readySetup, tour: noTriggers, role: "member", dismissed: false }),
+    ).toBe(true);
+
+    const missingProject = setupProgress({ ...empty, anthropicApiKey: true }, 0);
+    expect(
+      shouldShowFeatureTour({ setup: missingProject, tour: noTriggers, role: "member", dismissed: false }),
+    ).toBe(false);
+
+    const missingProvider = setupProgress({ ...empty, githubToken: true }, 2);
+    expect(
+      shouldShowFeatureTour({ setup: missingProvider, tour: noTriggers, role: "member", dismissed: false }),
+    ).toBe(false);
+  });
+
+  it("hides for viewers, after dismissal, and once every feature is in use", () => {
+    expect(
+      shouldShowFeatureTour({ setup: readySetup, tour: noTriggers, role: "viewer", dismissed: false }),
+    ).toBe(false);
+    expect(
+      shouldShowFeatureTour({ setup: readySetup, tour: noTriggers, role: "member", dismissed: true }),
+    ).toBe(false);
+
+    const allDone = featureTourProgress(["github", "slack", "cron", "linear"]);
+    expect(
+      shouldShowFeatureTour({ setup: readySetup, tour: allDone, role: "member", dismissed: false }),
+    ).toBe(false);
+  });
+
+  it("scopes the dismissal flag per user, independent of the other flags", () => {
+    expect(featureTourDismissed("u1")).toBe(false);
+    dismissFeatureTour("u1");
+    expect(featureTourDismissed("u1")).toBe(true);
+    expect(featureTourDismissed("u2")).toBe(false);
+    expect(checklistDismissed("u1")).toBe(false);
+    expect(onboardingDismissed("u1")).toBe(false);
   });
 });
 

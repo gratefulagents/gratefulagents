@@ -4,10 +4,13 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
+  CalendarClock,
   Check,
   CheckCircle2,
   ExternalLink,
+  GitBranch,
   Loader2,
+  MessageSquare,
   Sparkles,
 } from "lucide-react";
 
@@ -176,6 +179,11 @@ export function OnboardingWizard() {
         onStartChatting={() => leave("/")}
         onOpenProject={() =>
           leave(`/projects/${createdProject.namespace}/${createdProject.name}`)
+        }
+        onOpenEntryPoints={() =>
+          leave(
+            `/projects/${createdProject.namespace}/${createdProject.name}?tab=entry-points`,
+          )
         }
       />
     );
@@ -428,11 +436,31 @@ function FinishedScreen({
   project,
   onStartChatting,
   onOpenProject,
+  onOpenEntryPoints,
 }: {
   project: Project;
   onStartChatting: () => void;
   onOpenProject: () => void;
+  onOpenEntryPoints: () => void;
 }) {
+  const nextSteps = [
+    {
+      icon: GitBranch,
+      title: "Add a GitHub trigger",
+      description: "Agents pick up new issues and pull requests automatically.",
+    },
+    {
+      icon: MessageSquare,
+      title: "Add a Slack trigger",
+      description: "@mention the bot in Slack to start and steer runs.",
+    },
+    {
+      icon: CalendarClock,
+      title: "Schedule recurring runs",
+      description: "Cron entry points run agent work on a schedule.",
+    },
+  ];
+
   return (
     <div className="grid h-full place-items-center overflow-auto bg-background px-6">
       <div className="flex max-w-[460px] flex-col items-center gap-5 py-12 text-center">
@@ -464,6 +492,36 @@ function FinishedScreen({
           <Button variant="outline" onClick={onOpenProject}>
             Open project
           </Button>
+        </div>
+
+        <div className="mt-4 w-full text-left">
+          <p className="mb-2 px-1 font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
+            What's next
+          </p>
+          <div className="overflow-hidden rounded-xl border">
+            {nextSteps.map((step) => (
+              <button
+                key={step.title}
+                type="button"
+                onClick={onOpenEntryPoints}
+                className="group flex w-full items-center gap-3 border-b p-3 text-left transition-colors last:border-b-0 hover:bg-muted/50"
+              >
+                <span className="grid size-8 shrink-0 place-items-center rounded-lg border bg-muted/30 text-muted-foreground">
+                  <step.icon className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-medium">{step.title}</span>
+                  <span className="block text-[11.5px] leading-relaxed text-muted-foreground">
+                    {step.description}
+                  </span>
+                </span>
+                <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-muted-foreground" />
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 px-1 text-[11.5px] text-muted-foreground">
+            All of these live in the project's Entry points tab — you can set them up any time.
+          </p>
         </div>
       </div>
     </div>

@@ -76,6 +76,7 @@ export function hasProviderCredential(p: CredentialPresence): boolean {
 
 const WIZARD_DISMISS_KEY = "gratefulagents.onboarding.dismissed.v1";
 const CHECKLIST_DISMISS_KEY = "gratefulagents.onboarding.checklistDismissed.v1";
+const FEATURE_TOUR_DISMISS_KEY = "gratefulagents.onboarding.featureTourDismissed.v1";
 
 function flagKey(base: string, userId: string | undefined): string {
   return `${base}.${userId || "local"}`;
@@ -111,6 +112,14 @@ export function checklistDismissed(userId?: string): boolean {
 
 export function dismissChecklist(userId?: string) {
   writeFlag(CHECKLIST_DISMISS_KEY, userId);
+}
+
+export function featureTourDismissed(userId?: string): boolean {
+  return readFlag(FEATURE_TOUR_DISMISS_KEY, userId);
+}
+
+export function dismissFeatureTour(userId?: string) {
+  writeFlag(FEATURE_TOUR_DISMISS_KEY, userId);
 }
 
 /* ── Eligibility ──────────────────────────────────────────────── */
@@ -165,6 +174,49 @@ export function shouldShowChecklist(input: {
   if (input.dismissed) return false;
   if (input.role === "viewer") return false;
   return !(input.progress.provider && input.progress.project);
+}
+
+/* ── Feature tour (post-setup tutorial) ───────────────────────── */
+
+/** The automation features the post-setup tutorial teaches, in display order. */
+export const FEATURE_TOUR_SOURCES = ["github", "slack", "cron", "linear"] as const;
+export type FeatureTourSource = (typeof FEATURE_TOUR_SOURCES)[number];
+
+export type FeatureTourProgress = Record<FeatureTourSource, boolean>;
+
+/**
+ * featureTourProgress marks a tutorial item done once any project has a
+ * trigger of that source — the user has demonstrably set the feature up.
+ */
+export function featureTourProgress(triggerSources: Iterable<string>): FeatureTourProgress {
+  const seen = new Set(triggerSources);
+  return {
+    github: seen.has("github"),
+    slack: seen.has("slack"),
+    cron: seen.has("cron"),
+    linear: seen.has("linear"),
+  };
+}
+
+export function featureTourStepsDone(p: FeatureTourProgress): number {
+  return FEATURE_TOUR_SOURCES.reduce((n, source) => n + Number(p[source]), 0);
+}
+
+/**
+ * shouldShowFeatureTour keeps the Home tutorial card visible only after the
+ * setup essentials exist (so it never competes with the setup checklist) and
+ * while at least one automation feature remains untried.
+ */
+export function shouldShowFeatureTour(input: {
+  setup: SetupProgress;
+  tour: FeatureTourProgress;
+  role?: string;
+  dismissed: boolean;
+}): boolean {
+  if (input.dismissed) return false;
+  if (input.role === "viewer") return false;
+  if (!input.setup.provider || !input.setup.project) return false;
+  return featureTourStepsDone(input.tour) < FEATURE_TOUR_SOURCES.length;
 }
 
 /* ── Project naming ───────────────────────────────────────────── */

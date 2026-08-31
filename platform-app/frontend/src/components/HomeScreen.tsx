@@ -5,6 +5,7 @@ import { ChevronRight, FolderKanban, MessageSquarePlus, Plus, ShieldHalf } from 
 
 import { NewChatComposer } from "@/components/NewChatComposer";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
+import { FeatureTour } from "@/components/onboarding/FeatureTour";
 import { SetupChecklist } from "@/components/onboarding/SetupChecklist";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { useProjects } from "@/hooks/useWatchedList";
@@ -200,6 +201,7 @@ export function HomeScreen() {
       </motion.div>
 
       <SetupChecklist className="mt-6" />
+      <FeatureTour className="mt-6" />
 
       <div className="mt-8 grid gap-x-6 gap-y-7 sm:grid-cols-2">
         <motion.div {...rise(2)} className="min-w-0">
