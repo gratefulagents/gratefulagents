@@ -962,7 +962,7 @@ function IntegrationCredentials({
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Integration name (e.g. grafana)"
+          placeholder="Name (e.g. grafana)"
           className="max-w-[240px] font-mono"
           autoComplete="off"
         />

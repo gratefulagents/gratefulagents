@@ -24,7 +24,10 @@ export function SettingsSection({
 }) {
   return (
     <section className={cn("surface-card space-y-4 p-4 sm:p-5", className)}>
-      <div className="flex items-start justify-between gap-3">
+      {/* Stack the aside under the header on phones: a wide aside (e.g. the
+          Skills install buttons) otherwise squeezes the title/description
+          into a sliver and the two overlap. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-2.5">
           {icon && (
             <div className="grid size-7 shrink-0 place-items-center rounded-[7px] bg-muted/60 text-muted-foreground ring-1 ring-inset ring-border/60 [&_svg]:size-3.5">

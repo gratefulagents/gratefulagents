@@ -365,7 +365,7 @@ export function SlackAgentDetail() {
                 value={query}
                 onChange={setQuery}
                 placeholder="Search drafts…"
-                className="w-[240px]"
+                className="w-full sm:w-[240px]"
                 ariaLabel="Search drafts"
               />
             )}

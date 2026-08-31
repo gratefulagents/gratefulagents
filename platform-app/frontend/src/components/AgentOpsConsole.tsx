@@ -730,11 +730,11 @@ export function AgentOpsConsole() {
               <TableHead>Run</TableHead>
               <TableHead>State</TableHead>
               <TableHead className="hidden xl:table-cell">Mode</TableHead>
-              <TableHead className="min-w-[210px]">Latest activity</TableHead>
+              <TableHead className="hidden min-w-[210px] md:table-cell">Latest activity</TableHead>
               <TableHead className="hidden lg:table-cell">Origin</TableHead>
               <TableHead className="hidden lg:table-cell">PR</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
-              <TableHead className="text-right">Age</TableHead>
+              <TableHead className="hidden text-right sm:table-cell">Cost</TableHead>
+              <TableHead className="hidden text-right min-[480px]:table-cell">Age</TableHead>
               <TableHead className="w-8"><span className="sr-only">Actions</span></TableHead>
             </TableRow>
           </TableHeader>
@@ -978,7 +978,7 @@ function ScanGroupRow({
           className="size-3.5 accent-primary"
         />
       </TableCell>
-      <TableCell className="max-w-[260px]">
+      <TableCell className="max-w-[170px] sm:max-w-[260px]">
         <div className="flex min-w-0 items-center gap-1.5">
           <button
             type="button"
@@ -1005,7 +1005,7 @@ function ScanGroupRow({
       <TableCell className="hidden xl:table-cell">
         <div className="text-[12px]">Security scan</div>
       </TableCell>
-      <TableCell className="max-w-[300px] whitespace-normal">
+      <TableCell className="hidden max-w-[300px] whitespace-normal md:table-cell">
         <div className="text-[12.5px]">{progress.done} of {progress.total} tasks done</div>
         <div className="mt-0.5 text-[10.5px] text-muted-foreground">
           {newestActivity ? `${formatAge(newestActivity, now)} ago` : "-"}
@@ -1017,11 +1017,11 @@ function ScanGroupRow({
       <TableCell className="hidden lg:table-cell">
         <span className="text-muted-foreground">-</span>
       </TableCell>
-      <TableCell className="text-right font-mono text-[12px] tabular-nums">
+      <TableCell className="hidden text-right font-mono text-[12px] tabular-nums sm:table-cell">
         ${totalCost.toFixed(2)}
         <div className="font-mono text-[10px] text-muted-foreground/70">{totalTokens.toLocaleString()} tok</div>
       </TableCell>
-      <TableCell className="text-right">
+      <TableCell className="hidden text-right min-[480px]:table-cell">
         <div className="font-mono text-[12px] tabular-nums text-muted-foreground">{createdAt ? formatAge(createdAt, now) : "-"}</div>
       </TableCell>
       <TableCell />
@@ -1074,7 +1074,7 @@ function RunRows({
         <TableCell>
           <input type="checkbox" aria-label={`Select ${run.displayName || run.name}`} checked={selected} onChange={(event) => onSelect(event.currentTarget.checked)} className="size-3.5 accent-primary" />
         </TableCell>
-        <TableCell className={cn("max-w-[260px]", indent && "pl-8")}>
+        <TableCell className={cn("max-w-[170px] sm:max-w-[260px]", indent && "pl-8")}>
           <div className="flex min-w-0 items-center gap-2">
             <OwnerAvatar owner={run.owner} />
             <div className="min-w-0">
@@ -1106,7 +1106,7 @@ function RunRows({
         <TableCell className="hidden xl:table-cell">
           <div className="text-[12px]">{runModeLabel(run)}</div>
         </TableCell>
-        <TableCell className="max-w-[300px] whitespace-normal">
+        <TableCell className="hidden max-w-[300px] whitespace-normal md:table-cell">
           <div className={cn("truncate text-[12.5px]", isDonePhase(run.phase) && attention.kind === "none" && "text-muted-foreground")} title={activitySummary}>
             {activitySummary}
           </div>
@@ -1150,8 +1150,8 @@ function RunRows({
           ) : <span className="text-muted-foreground">-</span>}
           {run.prLoop?.state && <div className="mt-0.5 text-[10.5px] capitalize text-muted-foreground">{run.prLoop.state.replace(/_/g, " ")}</div>}
         </TableCell>
-        <TableCell className="text-right font-mono text-[12px] tabular-nums">{run.costUsd ? `$${costValue(run).toFixed(2)}` : "-"}</TableCell>
-        <TableCell className="text-right">
+        <TableCell className="hidden text-right font-mono text-[12px] tabular-nums sm:table-cell">{run.costUsd ? `$${costValue(run).toFixed(2)}` : "-"}</TableCell>
+        <TableCell className="hidden text-right min-[480px]:table-cell">
           <div className="font-mono text-[12px] tabular-nums text-muted-foreground">{formatAge(run.createdAtUnix, now)}</div>
           <div className="font-mono text-[10px] text-muted-foreground/70">{shortDuration(runDurationSeconds(run, now))} runtime</div>
         </TableCell>
