@@ -94,6 +94,17 @@ export function SubagentDagCard({
     return m;
   }, [groups]);
 
+  // Rows render in `groups` order, so the 1-based row index is the stable
+  // ordinal (#n) used to reference dependencies unambiguously — batch
+  // delegations often share a prompt prefix, making titles interchangeable.
+  const ordinalByTaskId = useMemo(() => {
+    const m = new Map<string, number>();
+    groups.forEach((g, i) => {
+      if (g.taskId) m.set(g.taskId, i + 1);
+    });
+    return m;
+  }, [groups]);
+
   const waveOf = waves && waves.length === groups.length ? waves : groups.map(() => 0);
 
   // Synthesize a SubagentGraph for the burst (no root node — the feed row
@@ -218,15 +229,20 @@ export function SubagentDagCard({
           <div className="max-h-72 overflow-y-auto p-1.5">
             {groups.map((group, index) => {
               const id = groupId(group, index);
-              const depTitles = groupDependsOn(group)
-                .filter((dep) => titleByTaskId.has(dep))
-                .map((dep) => titleByTaskId.get(dep)!);
+              const deps = groupDependsOn(group)
+                .filter((dep) => ordinalByTaskId.has(dep))
+                .map((dep) => ({
+                  ordinal: ordinalByTaskId.get(dep)!,
+                  title: titleByTaskId.get(dep) ?? dep,
+                }))
+                .sort((a, b) => a.ordinal - b.ordinal);
               return (
                 <RosterRow
                   key={id}
                   group={group}
+                  ordinal={index + 1}
                   wave={waveOf[index] ?? 0}
-                  depTitles={depTitles}
+                  deps={deps}
                   selected={selectedId === id}
                   onSelect={() => setSelectedId((cur) => (cur === id ? null : id))}
                 />
@@ -247,14 +263,16 @@ export function SubagentDagCard({
 
 function RosterRow({
   group,
+  ordinal,
   wave,
-  depTitles,
+  deps,
   selected,
   onSelect,
 }: {
   group: SubagentGroup;
+  ordinal: number;
   wave: number;
-  depTitles: string[];
+  deps: Array<{ ordinal: number; title: string }>;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -285,7 +303,7 @@ function RosterRow({
       data-testid="subagent-roster-row"
       onClick={onSelect}
       aria-pressed={selected}
-      title={groupTitle(group)}
+      title={`#${ordinal} ${groupTitle(group)}`}
       className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
         selected ? "bg-muted/60" : "hover:bg-muted/40"
       }`}
@@ -298,6 +316,9 @@ function RosterRow({
         />
       )}
       <SubagentStatusIcon status={group.subagentStatus} />
+      <span className="shrink-0 font-mono text-[10px] font-semibold tabular-nums text-muted-foreground/80">
+        #{ordinal}
+      </span>
       {group.subagentType && (
         <span
           className={`inline-flex shrink-0 items-center rounded-[4px] border px-1 py-px text-[9.5px] font-semibold ${color.border} ${color.bg} ${color.text}`}
@@ -310,12 +331,14 @@ function RosterRow({
         {liveLine && (
           <span className="ml-1.5 text-[10px] text-muted-foreground/80">· {liveLine}</span>
         )}
-        {!running && depTitles.length > 0 && (
+        {deps.length > 0 && (
           <span
-            className="ml-1.5 text-[10px] text-muted-foreground/60"
-            title={`Depends on: ${depTitles.join(", ")}`}
+            className={`ml-1.5 font-mono text-[10px] tabular-nums ${
+              waiting ? toneText.warning : "text-muted-foreground/60"
+            }`}
+            title={`Runs after: ${deps.map((d) => `#${d.ordinal} ${d.title}`).join(" · ")}`}
           >
-            · after {depTitles.length === 1 ? depTitles[0] : `${depTitles.length} tasks`}
+            · after {deps.map((d) => `#${d.ordinal}`).join(", ")}
           </span>
         )}
       </span>
