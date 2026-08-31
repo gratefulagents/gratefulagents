@@ -217,6 +217,12 @@ describe("OnboardingWizard", () => {
     expect(request.authMode).toBe("api-key");
     expect(request.useSavedCredentials).toBe(true);
 
+    // The finished screen teaches the automation entry points.
+    expect(screen.getByText("What's next")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add a GitHub trigger/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add a Slack trigger/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Schedule recurring runs/ })).toBeTruthy();
+
     fireEvent.click(screen.getByRole("button", { name: "Start chatting" }));
     await screen.findByText("home-screen");
     expect(onboardingDismissed("u1")).toBe(true);
