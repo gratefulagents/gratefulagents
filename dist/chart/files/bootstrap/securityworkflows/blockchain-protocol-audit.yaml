@@ -10,7 +10,7 @@ spec:
       role: protocol-investigator
       category: recon
       timeout: 25m
-      maxTurns: 50
+      maxTurns: 250
       tools:
         denied: [git_commit, git_push, create_pull_request]
       skillRefs:
@@ -37,7 +37,7 @@ spec:
       role: protocol-investigator
       category: logic-flaw
       timeout: 90m
-      maxTurns: 140
+      maxTurns: 250
       tools:
         denied: [git_commit, git_push, create_pull_request]
       skillRefs:
@@ -71,7 +71,7 @@ spec:
       role: protocol-investigator
       category: denial-of-service
       timeout: 90m
-      maxTurns: 140
+      maxTurns: 250
       tools:
         denied: [git_commit, git_push, create_pull_request]
       skillRefs:
@@ -102,7 +102,7 @@ spec:
       role: protocol-investigator
       category: authz
       timeout: 90m
-      maxTurns: 140
+      maxTurns: 250
       tools:
         denied: [git_commit, git_push, create_pull_request]
       skillRefs:
@@ -134,7 +134,7 @@ spec:
       role: protocol-investigator
       category: supply-chain
       timeout: 90m
-      maxTurns: 140
+      maxTurns: 250
       tools:
         denied: [git_commit, git_push, create_pull_request]
       skillRefs:
@@ -172,7 +172,7 @@ spec:
       role: native-fuzz-runner
       category: other
       timeout: 12m
-      maxTurns: 35
+      maxTurns: 250
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-cargo-fuzz
@@ -203,6 +203,7 @@ spec:
     - name: collect-investigator-handoffs
       role: protocol-investigator
       category: other
+      maxTurns: 250
       skillRefs:
         - name: blockchain-security-research-method
       objective: Deterministically concatenate the preflight and five compact version-1 handoffs without loading or copying durable artifact bodies.
@@ -221,7 +222,7 @@ spec:
       role: threat-modeler
       category: recon
       timeout: 20m
-      maxTurns: 40
+      maxTurns: 250
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
@@ -247,7 +248,7 @@ spec:
       role: protocol-investigator
       category: other
       timeout: 40m
-      maxTurns: 80
+      maxTurns: 250
       tools:
         denied: [git_commit, git_push, create_pull_request]
       skillRefs:
@@ -277,7 +278,7 @@ spec:
       role: exploit-validator
       category: triage
       timeout: 45m
-      maxTurns: 90
+      maxTurns: 250
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
@@ -315,6 +316,7 @@ spec:
     - name: triage-and-report
       role: finding-triager
       category: triage
+      maxTurns: 250
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-variant-analysis
