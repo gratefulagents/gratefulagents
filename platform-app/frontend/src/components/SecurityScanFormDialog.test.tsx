@@ -958,6 +958,7 @@ describe("SecurityScanFormDialog execution & parameter values", () => {
             timeout: "30m",
             maxTurns: 40,
             maxCostUsd: "2.50",
+            dockerInDocker: false,
             tools: { allowed: ["read_file"], denied: ["Bash"] },
             outputSchema: '{"type":"object"}',
             forEach: "",
@@ -986,6 +987,7 @@ describe("SecurityScanFormDialog execution & parameter values", () => {
     expect(task?.timeout).toBe("30m");
     expect(task?.maxTurns).toBe(40);
     expect(task?.maxCostUsd).toBe("2.50");
+    expect(task?.dockerInDocker).toBe(false);
     expect(task?.tools?.allowed).toEqual(["read_file"]);
     expect(task?.tools?.denied).toEqual(["Bash"]);
     expect(task?.outputSchema).toBe('{"type":"object"}');

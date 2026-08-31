@@ -793,10 +793,27 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 	if !ok {
 		t.Fatal("protocol workflow must begin with a runtime readiness gate")
 	}
-	for _, marker := range []string{"conditions.ready", "build_ready", "test_ready", "blocker artifact"} {
+	for _, marker := range []string{
+		"initialize declared submodules", "repository-declared dependencies", "principal build", "focused test",
+		"conditions.ready false", "revision_ready", "build_ready", "test_ready", "local_experiment_ready", "negative control", "blocker artifact",
+	} {
 		if !strings.Contains(strings.ToLower(preflight.Objective), marker) {
 			t.Errorf("runtime preflight must require %q", marker)
 		}
+	}
+	for _, marker := range []string{`"revision_ready"`, `"local_experiment_ready"`, `"allOf"`, `"const":true`} {
+		if !strings.Contains(preflight.OutputSchema, marker) {
+			t.Errorf("runtime preflight schema must enforce %q", marker)
+		}
+	}
+
+	readyWithoutExperiment := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"revision_ready":true,"build_ready":true,"test_ready":true,"local_experiment_ready":false}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(preflight.OutputSchema, readyWithoutExperiment); err == nil {
+		t.Error("preflight schema accepted ready=true without an operational local experiment")
+	}
+	blockedPreflight := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"revision_ready":true,"build_ready":false,"test_ready":false,"local_experiment_ready":false}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(preflight.OutputSchema, blockedPreflight); err != nil {
+		t.Fatalf("preflight schema rejected truthful blocked output: %v", err)
 	}
 
 	investigators := []string{
@@ -818,10 +835,52 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 			t.Errorf("investigator %q is not persistent enough: timeout=%s maxTurns=%d", name, task.Timeout.Duration, task.MaxTurns)
 		}
 		objective := strings.ToLower(task.Objective)
-		for _, marker := range []string{"create_security_hypothesis", "local", "create_security_research_artifact", "record_security_coverage"} {
+		for _, marker := range []string{
+			"create_security_hypothesis", "local", "create_security_research_artifact", "record_security_coverage",
+			"at least six distinct", "at least three calibrated dynamic experiments", "at least two methods",
+			"exhausted-surface artifact", "conditions.hypotheses_examined", "conditions.dynamic_experiments",
+			"conditions.experiment_methods", "conditions.surface_exhausted",
+		} {
 			if !strings.Contains(objective, marker) {
 				t.Errorf("investigator %q must require %q", name, marker)
 			}
+		}
+		for _, marker := range []string{
+			`"hypotheses_examined"`, `"dynamic_experiments"`, `"experiment_methods"`,
+			`"surface_exhausted"`, `"minimum":6`, `"minimum":3`, `"minimum":2`,
+		} {
+			if !strings.Contains(task.OutputSchema, marker) {
+				t.Errorf("investigator %q handoff schema must enforce %q", name, marker)
+			}
+		}
+	}
+
+	investigatorSchema := byName[investigators[0]].OutputSchema
+	validQuota := `{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"hypotheses_examined":6,"dynamic_experiments":3,"experiment_methods":2,"surface_exhausted":false}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(investigatorSchema, validQuota); err != nil {
+		t.Fatalf("investigator schema rejected completed evidence quota: %v", err)
+	}
+	validExhaustion := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"hypotheses_examined":2,"dynamic_experiments":1,"experiment_methods":1,"surface_exhausted":true}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(investigatorSchema, validExhaustion); err != nil {
+		t.Fatalf("investigator schema rejected documented surface exhaustion: %v", err)
+	}
+	invalidExhaustion := `{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"hypotheses_examined":2,"dynamic_experiments":1,"experiment_methods":1,"surface_exhausted":true}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(investigatorSchema, invalidExhaustion); err == nil {
+		t.Error("investigator schema accepted surface_exhausted without an artifact")
+	}
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(investigatorSchema, byName[investigators[0]].When.OtherwiseOutput); err != nil {
+		t.Fatalf("investigator schema rejected readiness-gate skipped output: %v", err)
+	}
+
+	var role platformv1alpha1.RoleInstruction
+	readBootstrapAsset(t, "roleinstructions", "protocol-investigator", &role)
+	for _, marker := range []string{
+		"at least six distinct high-impact hypotheses", "at least three calibrated dynamic experiments",
+		"at least two methods", "explicit exhausted-surface artifact", "hypotheses_examined",
+		"dynamic_experiments", "experiment_methods", "surface_exhausted",
+	} {
+		if !strings.Contains(strings.ToLower(role.Spec.Instructions), marker) {
+			t.Errorf("protocol investigator role must require %q", marker)
 		}
 	}
 

@@ -333,15 +333,18 @@ func TestSecurityScanTaskConditionLaunchesWhenMatched(t *testing.T) {
 
 func TestSecurityScanDeterministicTaskRunAppliesTaskConfiguration(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	disableDocker := false
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{
-		Name:         "focused",
-		Objective:    "inspect the focused surface",
-		Timeout:      metav1.Duration{Duration: 15 * time.Minute},
-		MaxTurns:     7,
-		MaxCostUSD:   "1.25",
-		OutputSchema: `{"type":"object"}`,
-		Tools:        &triggersv1alpha1.SecurityScanTaskTools{Allowed: []string{"read_file"}, Denied: []string{"Bash"}},
+		Name:           "focused",
+		Objective:      "inspect the focused surface",
+		DockerInDocker: &disableDocker,
+		Timeout:        metav1.Duration{Duration: 15 * time.Minute},
+		MaxTurns:       7,
+		MaxCostUSD:     "1.25",
+		OutputSchema:   `{"type":"object"}`,
+		Tools:          &triggersv1alpha1.SecurityScanTaskTools{Allowed: []string{"read_file"}, Denied: []string{"Bash"}},
 	}}, 1)
+	scan.Spec.Defaults.DockerInDocker = true
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
@@ -350,6 +353,9 @@ func TestSecurityScanDeterministicTaskRunAppliesTaskConfiguration(t *testing.T) 
 		t.Fatalf("AgentRuns = %d, want 1", len(runs))
 	}
 	run := runs[0]
+	if run.Spec.DockerInDocker {
+		t.Fatal("DockerInDocker = true, want task-level false to override scan default")
+	}
 	if run.Labels[securityScanLabel] != securityScanLabelValue(scan.Name) || run.Labels[securityScanTaskLabel] != "focused" {
 		t.Fatalf("Labels = %#v, want scan and task labels", run.Labels)
 	}
@@ -374,6 +380,32 @@ func TestSecurityScanDeterministicTaskRunAppliesTaskConfiguration(t *testing.T) 
 	}
 	if run.Annotations[securityScanTaskOutputSchemaAnnotation] != `{"type":"object"}` {
 		t.Fatalf("output-schema annotation = %q, want task schema", run.Annotations[securityScanTaskOutputSchemaAnnotation])
+	}
+}
+
+func TestSecurityScanDeterministicTaskRunInheritsDockerInDockerWhenUnset(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "focused", Objective: "inspect"}}, 1)
+	scan.Spec.Defaults.DockerInDocker = true
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 1 || !runs[0].Spec.DockerInDocker {
+		t.Fatalf("AgentRuns = %#v, want inherited DockerInDocker=true", runs)
+	}
+}
+
+func TestSecurityScanDeterministicTaskRunCannotEnableDockerInDocker(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	enableDocker := true
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "focused", Objective: "inspect", DockerInDocker: &enableDocker}}, 1)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	runs := securityScanRuns(t, k8sClient, scan.Namespace)
+	if len(runs) != 1 || runs[0].Spec.DockerInDocker {
+		t.Fatalf("AgentRuns = %#v, want task-level true unable to widen admin-gated DockerInDocker=false", runs)
 	}
 }
 

@@ -78,6 +78,7 @@ function advancedProtoTasks(): SecurityScanTaskConfig[] {
       timeout: "45m",
       maxTurns: 80,
       maxCostUsd: "2.50",
+      dockerInDocker: false,
       tools: { allowed: ["read_file", "grep"], denied: ["Bash"] },
       outputSchema: '{"type":"object","properties":{"items":{"type":"array"}}}',
       forEach: "injection-hunt",
@@ -108,6 +109,16 @@ describe("workflow round-trip", () => {
     });
     const [roundTripped] = workflowTasksToProto(workflowTasksFromProto([original]));
     expect(roundTripped.targetRuns).toBe(12);
+  });
+
+  it("round-trips all task Docker-in-Docker states", () => {
+    const original = [
+      create(SecurityScanTaskConfigSchema, { name: "inherit", objective: "inspect" }),
+      create(SecurityScanTaskConfigSchema, { name: "off", objective: "inspect", dockerInDocker: false }),
+      create(SecurityScanTaskConfigSchema, { name: "on", objective: "inspect", dockerInDocker: true }),
+    ];
+    const roundTripped = workflowTasksToProto(workflowTasksFromProto(original));
+    expect(roundTripped.map((task) => task.dockerInDocker)).toEqual([undefined, false, true]);
   });
 
   it("round-trips controller-side reducers", () => {

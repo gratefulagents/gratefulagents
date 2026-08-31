@@ -52,6 +52,8 @@ export interface WorkflowTaskDraft {
   category: string;
   role: string;
   model: string;
+  /** Optional task-level DinD narrowing; undefined inherits the scan default. */
+  dockerInDocker: boolean | undefined;
   dependsOn: string[];
   /** Retry budget in deterministic execution (0-10); "" inherits the scan default. */
   maxRetries: string;
@@ -94,6 +96,7 @@ export function emptyWorkflowTask(): WorkflowTaskDraft {
     category: "",
     role: "",
     model: "",
+    dockerInDocker: undefined,
     dependsOn: [],
     maxRetries: "",
     timeout: "",
@@ -130,6 +133,7 @@ export function workflowTasksFromProto(tasks: SecurityScanTaskConfig[]): Workflo
     category: t.category,
     role: t.role,
     model: t.model,
+    dockerInDocker: t.dockerInDocker,
     dependsOn: [...t.dependsOn],
     maxRetries: t.maxRetries !== undefined ? String(t.maxRetries) : "",
     timeout: t.timeout,
@@ -166,6 +170,7 @@ export function workflowTasksToProto(tasks: WorkflowTaskDraft[]): SecurityScanTa
       category: t.category.trim(),
       role: t.role.trim(),
       model: t.model.trim(),
+      dockerInDocker: t.dockerInDocker,
       dependsOn: t.dependsOn.filter((d) => d.trim() !== ""),
       maxRetries: t.maxRetries.trim() !== "" ? Number(t.maxRetries) : undefined,
       timeout: t.timeout.trim(),

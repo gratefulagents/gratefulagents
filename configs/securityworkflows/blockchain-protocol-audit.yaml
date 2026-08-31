@@ -11,6 +11,7 @@ spec:
       category: recon
       timeout: 25m
       maxTurns: 250
+      dockerInDocker: false
       tools:
         denied: [git_commit, git_push, create_pull_request]
       skillRefs:
@@ -19,25 +20,32 @@ spec:
       objective: >-
         Call get_security_research_context first and accept reusable evidence only for the exact immutable target,
         revision, and scope; prior-revision negative evidence is stale context. Perform a bounded runtime preflight:
-        verify the checked-out revision, in-scope roots, dependencies and submodules, required toolchains, principal
-        build and test commands, companion repositories, generated or deployed artifacts, and operator-authorized
-        fork or deployment inputs. Run only cheap local smoke checks needed to decide whether investigation can
-        proceed. Build the protocol dossier from production wiring: components, trust boundaries, actors, assets,
+        verify the checked-out revision and in-scope roots, then initialize declared submodules and repository-declared
+        dependencies using safe standard local commands that require no credentials, public writes, or scope expansion;
+        persist a blocker when a prerequisite cannot be initialized safely. Execute the repository's principal build
+        and at least one focused test against in-scope code rather than merely discovering their commands. Execute one
+        cheap local experiment path (for example a focused fixture, mutant, property check, or differential command)
+        and calibrate it with a negative control so readiness proves experiments can run, not only tests. Verify required
+        toolchains, companion repositories, generated or deployed artifacts, and operator-authorized fork or deployment
+        inputs. Build the protocol dossier from production wiring: components, trust boundaries, actors, assets,
         state machines, entry points, invariants, reference implementations, native fuzz targets, and explicit
         exclusions. Persist the dossier and preflight as manifest artifacts and each blocker as a blocker artifact
         with create_security_research_artifact, always supplying kind, an object payload, and a stable idempotency_key;
-        persist material dossier changes with amend_security_dossier. Set conditions.ready true only when the four
-        source investigations can execute meaningfully; keep conditions.build_ready and conditions.test_ready
-        truthful. Return the actual version-1 handoff shape: version, artifact_ids, candidate_fingerprints,
+        persist material dossier changes with amend_security_dossier. Set conditions.ready false unless the exact
+        revision, principal build, focused test, and calibrated local experiment path are operational; keep
+        conditions.revision_ready, conditions.build_ready, conditions.test_ready, and
+        conditions.local_experiment_ready truthful. Return the actual
+        version-1 handoff shape: version, artifact_ids, candidate_fingerprints,
         coverage_ids, blocker_ids, and scalar conditions only. Never embed artifact bodies in task output.
       outputSchema: |-
-        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","build_ready","test_ready"],"properties":{"ready":{"type":"boolean"},"build_ready":{"type":"boolean"},"test_ready":{"type":"boolean"}}}}}
+        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","revision_ready","build_ready","test_ready","local_experiment_ready"],"properties":{"ready":{"type":"boolean"},"revision_ready":{"type":"boolean"},"build_ready":{"type":"boolean"},"test_ready":{"type":"boolean"},"local_experiment_ready":{"type":"boolean"}},"allOf":[{"if":{"properties":{"ready":{"const":true}},"required":["ready"]},"then":{"properties":{"revision_ready":{"const":true},"build_ready":{"const":true},"test_ready":{"const":true},"local_experiment_ready":{"const":true}}}}]}}}
 
     - name: consensus-and-execution-investigator
       role: protocol-investigator
       category: logic-flaw
       timeout: 90m
       maxTurns: 250
+      dockerInDocker: false
       tools:
         denied: [git_commit, git_push, create_pull_request]
       skillRefs:
@@ -55,23 +63,28 @@ spec:
         mutants, reference vectors, private devnets, or differential execution. After every experiment call
         transition_security_hypothesis and record_security_coverage. Persist manifests, traces, harness summaries,
         commands, outputs, and blockers with create_security_research_artifact using stable idempotency keys. Report
-        only proven production-impacting defects with report_security_finding. Apply the evidence stopping rule and
+        only proven production-impacting defects with report_security_finding. Examine at least six distinct
+        high-impact hypotheses and run at least three calibrated dynamic experiments spanning at least two methods.
+        Fewer is allowed only with an explicit exhausted-surface artifact that enumerates the reachable surface and
+        explains why no additional meaningful hypothesis or experiment exists. Apply the evidence stopping rule and
         return only the actual version-1 handoff fields, using artifact IDs and finding fingerprints as challenge
-        handles rather than embedding evidence.
+        handles rather than embedding evidence; set scalar conditions.hypotheses_examined,
+        conditions.dynamic_experiments, conditions.experiment_methods, and conditions.surface_exhausted.
       dependsOn: [runtime-preflight-and-dossier]
       when:
         task: runtime-preflight-and-dossier
         path: conditions.ready
         equals: "true"
-        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked"}}'
-      outputSchema: &handoffSchema |-
-        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready"],"properties":{"ready":{"type":"boolean"},"reason":{"type":"string"}}}}}
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked","hypotheses_examined":0,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false}}'
+      outputSchema: &investigatorHandoffSchema |-
+        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","hypotheses_examined","dynamic_experiments","experiment_methods","surface_exhausted"],"properties":{"ready":{"type":"boolean"},"reason":{"type":"string"},"hypotheses_examined":{"type":"integer","minimum":0,"maximum":64},"dynamic_experiments":{"type":"integer","minimum":0,"maximum":64},"experiment_methods":{"type":"integer","minimum":0,"maximum":16},"surface_exhausted":{"type":"boolean"}},"allOf":[{"if":{"properties":{"ready":{"const":true}},"required":["ready"]},"then":{"anyOf":[{"properties":{"hypotheses_examined":{"minimum":6},"dynamic_experiments":{"minimum":3},"experiment_methods":{"minimum":2}}},{"properties":{"surface_exhausted":{"const":true}},"required":["surface_exhausted"]}]}}]}},"allOf":[{"if":{"properties":{"conditions":{"properties":{"surface_exhausted":{"const":true}},"required":["surface_exhausted"]}},"required":["conditions"]},"then":{"properties":{"artifact_ids":{"minItems":1}},"required":["artifact_ids"]}}]}
 
     - name: network-and-state-investigator
       role: protocol-investigator
       category: denial-of-service
       timeout: 90m
       maxTurns: 250
+      dockerInDocker: false
       tools:
         denied: [git_commit, git_push, create_pull_request]
       skillRefs:
@@ -88,21 +101,26 @@ spec:
         or differential checks. Never direct availability testing at a live peer or public endpoint. After every
         experiment call transition_security_hypothesis and record_security_coverage, and persist exact trace, harness,
         run, and blocker evidence with create_security_research_artifact using stable idempotency keys. Report only
-        evidence-backed production findings, apply the evidence stopping rule, and return only the actual version-1
-        handoff fields with compact artifact and fingerprint handles.
+        evidence-backed production findings. Examine at least six distinct high-impact hypotheses and run at least
+        three calibrated dynamic experiments spanning at least two methods. Fewer is allowed only with an explicit
+        exhausted-surface artifact that enumerates the reachable surface and explains why no additional meaningful
+        hypothesis or experiment exists. Apply the evidence stopping rule and return only the actual version-1 handoff
+        fields with compact artifact and fingerprint handles and scalar conditions.hypotheses_examined,
+        conditions.dynamic_experiments, conditions.experiment_methods, and conditions.surface_exhausted.
       dependsOn: [runtime-preflight-and-dossier]
       when:
         task: runtime-preflight-and-dossier
         path: conditions.ready
         equals: "true"
-        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked"}}'
-      outputSchema: *handoffSchema
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked","hypotheses_examined":0,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false}}'
+      outputSchema: *investigatorHandoffSchema
 
     - name: cross-chain-and-custody-investigator
       role: protocol-investigator
       category: authz
       timeout: 90m
       maxTurns: 250
+      dockerInDocker: false
       tools:
         denied: [git_commit, git_push, create_pull_request]
       skillRefs:
@@ -121,20 +139,26 @@ spec:
         tests, mutants, simulators, private devnets, or differential checks. Never sign for or write to a public chain.
         After every experiment call transition_security_hypothesis and record_security_coverage, persist evidence and
         blockers with create_security_research_artifact using stable idempotency keys, and report only proven defects.
-        Apply the evidence stopping rule and return only the actual version-1 handoff fields.
+        Examine at least six distinct high-impact hypotheses and run at least three calibrated dynamic experiments
+        spanning at least two methods. Fewer is allowed only with an explicit exhausted-surface artifact that enumerates
+        the reachable surface and explains why no additional meaningful hypothesis or experiment exists. Apply the
+        evidence stopping rule and return only the actual version-1 handoff fields with scalar
+        conditions.hypotheses_examined, conditions.dynamic_experiments, conditions.experiment_methods, and
+        conditions.surface_exhausted.
       dependsOn: [runtime-preflight-and-dossier]
       when:
         task: runtime-preflight-and-dossier
         path: conditions.ready
         equals: "true"
-        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked"}}'
-      outputSchema: *handoffSchema
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked","hypotheses_examined":0,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false}}'
+      outputSchema: *investigatorHandoffSchema
 
     - name: crypto-economics-and-release-investigator
       role: protocol-investigator
       category: supply-chain
       timeout: 90m
       maxTurns: 250
+      dockerInDocker: false
       tools:
         denied: [git_commit, git_push, create_pull_request]
       skillRefs:
@@ -158,15 +182,19 @@ spec:
         trace production reachability, and run bounded local vectors, fixtures, focused tests, mutants, artifact
         comparisons, or economic simulations. After every experiment call transition_security_hypothesis and
         record_security_coverage; persist evidence and blockers with create_security_research_artifact using stable
-        idempotency keys. Report only proven defects, apply the evidence stopping rule, and return only the actual
-        version-1 handoff fields.
+        idempotency keys. Report only proven defects. Examine at least six distinct high-impact hypotheses and run at
+        least three calibrated dynamic experiments spanning at least two methods. Fewer is allowed only with an
+        explicit exhausted-surface artifact that enumerates the reachable surface and explains why no additional
+        meaningful hypothesis or experiment exists. Apply the evidence stopping rule and return only the actual
+        version-1 handoff fields with scalar conditions.hypotheses_examined, conditions.dynamic_experiments,
+        conditions.experiment_methods, and conditions.surface_exhausted.
       dependsOn: [runtime-preflight-and-dossier]
       when:
         task: runtime-preflight-and-dossier
         path: conditions.ready
         equals: "true"
-        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked"}}'
-      outputSchema: *handoffSchema
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked","hypotheses_examined":0,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false}}'
+      outputSchema: *investigatorHandoffSchema
 
     - name: run-bounded-native-fuzz
       role: native-fuzz-runner
@@ -198,7 +226,8 @@ spec:
         path: conditions.ready
         equals: "true"
         otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked"}}'
-      outputSchema: *handoffSchema
+      outputSchema: |-
+        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready"],"properties":{"ready":{"type":"boolean"},"reason":{"type":"string"}}}}}
 
     - name: collect-investigator-handoffs
       role: protocol-investigator
@@ -249,6 +278,7 @@ spec:
       category: other
       timeout: 40m
       maxTurns: 250
+      dockerInDocker: false
       tools:
         denied: [git_commit, git_push, create_pull_request]
       skillRefs:
@@ -279,6 +309,7 @@ spec:
       category: triage
       timeout: 45m
       maxTurns: 250
+      dockerInDocker: false
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check

@@ -4560,6 +4560,9 @@ message SecurityScanTaskConfig {
   // reduce performs a controller-side deterministic aggregation instead of
   // launching an AgentRun. Currently supported: concat.
   string reduce = 20;
+  // docker_in_docker narrows the scan default for this task. False disables
+  // inherited DinD; true cannot enable it unless the admin-gated default does.
+  optional bool docker_in_docker = 21;
 }
 
 // SecurityScanTaskCondition is a controller-side launch predicate.

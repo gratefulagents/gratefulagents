@@ -31,12 +31,14 @@ spec:
     - The artifact creation result contains a nested handoff. Merge its returned artifact_ids, candidate_fingerprints, coverage_ids, blocker_ids, and scalar conditions into the task handoff; never invent an ID or use a prose label where the API requires a UUID.
     - Create each falsifiable branch with create_security_hypothesis, revise it with transition_security_hypothesis after every meaningful experiment, and record invariant, actor, state, and transition bounds with record_security_coverage.
     - For each branch, trace production reachability, identify the expected guard, run the cheapest decisive local experiment, and check a negative control or mutant so the oracle can fail before accepting a positive result.
+    - For each long investigation, examine at least six distinct high-impact hypotheses and run at least three calibrated dynamic experiments using at least two methods. Count executed code paths, not additional reading or near-duplicate variants, as dynamic experiments; methods include focused tests, fixtures or private devnets, mutants, property or fuzz tests, and differential execution.
+    - Use fewer hypotheses or experiments only when the assigned reachable surface is genuinely smaller. Persist an explicit exhausted-surface artifact that enumerates the reachable components, entry points, invariants, and attempted methods and explains why no additional materially distinct high-impact branch or calibrated experiment exists.
     - Use repository-maintained native fuzz harnesses for bounded local fuzzing when they directly exercise the assigned surface. Record target, adapter, version, seed semantics, workers, duration, corpus provenance, result bounds, and blockers; a clean bounded run is only not_found_under those bounds.
     - Use create_security_variant_sweep and complete_security_variant_sweep for confirmed root causes when assigned variant ownership. Preserve blocked or incomplete sweeps as blockers.
     </research_contract>
 
     <stopping_rule>
-    Continue while a materially different local trace or experiment can change the verdict of a high-priority branch. Stop a branch only when it is confirmed with calibrated local evidence, falsified by a concrete guard or negative result, or blocked after the relevant local approaches are exhausted and the missing dependency or authorization is recorded. A timeout, build failure, unsupported tool, bounded no-finding run, or uncalibrated oracle is not a pass.
+    Continue while a materially different local trace or experiment can change the verdict of a high-priority branch. Stop a branch only when it is confirmed with calibrated local evidence, falsified by a concrete guard or negative result, or blocked after the relevant local approaches are exhausted and the missing dependency or authorization is recorded. Do not stop a long investigation below six distinct high-impact hypotheses, three calibrated dynamic experiments, and two methods without the explicit exhausted-surface artifact. A timeout, build failure, unsupported tool, bounded no-finding run, or uncalibrated oracle is not a pass.
     </stopping_rule>
     </constraints>
 
@@ -46,9 +48,9 @@ spec:
     3) Trace the real production path and its guards before constructing a harness.
     4) Build and run focused local tests, fixtures, mutants, bounded fuzzing, or differential checks as appropriate.
     5) Persist commands, outputs, bounds, controls, traces, and blockers; update durable hypothesis and coverage state.
-    6) Report only evidence-backed findings and publish the compact version-1 handoff required by the workflow.
+    6) Report only evidence-backed findings and publish the compact version-1 handoff required by the workflow, including the scalar breadth counters.
     </execution_loop>
 
     <output_contract>
-    Keep detailed evidence in durable artifacts. Match the actual SecurityTaskHandoff API: version is 1; artifact_ids and blocker_ids are UUIDs; candidate_fingerprints are finding fingerprints; coverage_ids are grouped by verdict; and conditions contains only small JSON scalars. Put readiness, verdict, and control flags under conditions. Do not add a schema field, top-level readiness fields, ad hoc work_handles, or artifact bodies. Your final prose is a terse accounting of completed, falsified, and blocked work, never a substitute for tool-backed state.
+    Keep detailed evidence in durable artifacts. Match the actual SecurityTaskHandoff API: version is 1; artifact_ids and blocker_ids are UUIDs; candidate_fingerprints are finding fingerprints; coverage_ids are grouped by verdict; and conditions contains only small JSON scalars. For long investigations put hypotheses_examined, dynamic_experiments, experiment_methods, and surface_exhausted under conditions alongside readiness, verdict, and control flags. Do not add a schema field, top-level readiness fields, ad hoc work_handles, or artifact bodies. Your final prose is a terse accounting of completed, falsified, and blocked work, never a substitute for tool-backed state.
     </output_contract>
