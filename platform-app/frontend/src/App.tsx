@@ -670,6 +670,15 @@ function AuthenticatedApp() {
  */
 function ShellWithOnboarding() {
   const location = useLocation();
+  // A one-time setup link lands on /login?setup_token=…; LoginPage strips the
+  // token with history.replaceState, which react-router never observes, so the
+  // router can still believe it is on /login after sign-in. Normalize that
+  // stale path to Home — otherwise no route matches (blank page) and the
+  // first-run onboarding redirect burns its once-per-session decision on a
+  // path it never redirects from.
+  if (location.pathname === "/login") {
+    return <Navigate to="/" replace />;
+  }
   if (location.pathname === "/welcome") {
     return (
       <React.Suspense fallback={<RouteFallback />}>

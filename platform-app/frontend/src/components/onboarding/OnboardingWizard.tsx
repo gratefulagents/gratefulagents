@@ -7,12 +7,7 @@ import {
   Check,
   CheckCircle2,
   ExternalLink,
-  FolderGit2,
-  GitBranch,
-  GitCommitHorizontal,
-  KeyRound,
   Loader2,
-  SlidersHorizontal,
   Sparkles,
 } from "lucide-react";
 
@@ -44,6 +39,7 @@ import {
   type ProviderAuthMode,
 } from "@/lib/model-providers";
 import { openExternal } from "@/lib/native";
+import { isTauri } from "@/lib/platform";
 import { REASONING_LEVELS } from "@/lib/reasoning";
 import {
   dismissOnboarding,
@@ -53,7 +49,7 @@ import {
   type CredentialPresence,
   type ServerCredentialPresence,
 } from "@/lib/onboarding";
-import { toneSoft, toneText } from "@/lib/status";
+import { toneSoft, toneSolid, toneText } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { CreateProjectRequestSchema, type ModelDefaults, type Project } from "@/rpc/platform/service_pb";
 
@@ -64,12 +60,12 @@ import { CreateProjectRequestSchema, type ModelDefaults, type Project } from "@/
  * live server state so returning to /welcome shows what's already done.
  */
 
-const STEP_TITLES = [
-  "Model provider",
-  "GitHub",
-  "Git identity",
-  "Default model",
-  "First project",
+const STEPS = [
+  { title: "Model provider", hint: "The account your agents think with" },
+  { title: "GitHub", hint: "Clone, branch, and open pull requests" },
+  { title: "Git identity", hint: "Who agent commits are authored as" },
+  { title: "Default model", hint: "What new projects start from" },
+  { title: "First project", hint: "Point an agent at a repository" },
 ] as const;
 
 /** Providers the wizard offers for saved-credential wiring (registry entries with a credential surface). */
@@ -185,142 +181,245 @@ export function OnboardingWizard() {
     );
   }
 
+  const doneCount = stepDone.filter(Boolean).length;
+
   return (
-    <div className="h-full overflow-auto bg-background">
-      <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col px-6 pt-[7vh] pb-10">
-        <header className="mb-7 flex items-start justify-between gap-4">
+    <div className="flex h-full flex-col overflow-hidden bg-background lg:flex-row">
+      {/* Desktop rail: a progress spine that reflects live server state. */}
+      <aside className="hidden w-[300px] shrink-0 flex-col overflow-y-auto border-r bg-muted/20 px-6 py-8 lg:flex">
+        <div className="flex items-center gap-2.5">
+          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+            <Sparkles className="size-4" />
+          </div>
+          <span className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
+            First-run setup
+          </span>
+        </div>
+
+        <div className="mt-7">
+          <h1 className="text-[24px] font-semibold leading-tight tracking-[-0.02em]">
+            Welcome{firstName ? `, ${firstName}` : ""}
+          </h1>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
+            A few minutes of setup and your agents are ready to work. Every step is optional.
+          </p>
+        </div>
+
+        <ol aria-label="Setup steps" className="mt-8 flex flex-col gap-1">
+          {STEPS.map((s, i) => (
+            <li key={s.title} className="relative">
+              {i < STEPS.length - 1 && (
+                <span
+                  aria-hidden
+                  className={cn(
+                    "absolute bottom-[-10px] left-[20px] top-[36px] w-px",
+                    stepDone[i]
+                      ? "bg-[color-mix(in_oklch,var(--tone-success)_55%,transparent)]"
+                      : "bg-[color-mix(in_oklch,var(--muted-foreground)_28%,transparent)]",
+                  )}
+                />
+              )}
+              <button
+                type="button"
+                onClick={() => setStep(i)}
+                aria-current={step === i ? "step" : undefined}
+                className={cn(
+                  "group relative flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition-colors",
+                  step === i ? "bg-background shadow-[inset_0_0_0_1px_var(--border)]" : "hover:bg-muted/50",
+                )}
+              >
+                <span
+                  className={cn(
+                    "mt-px grid size-[25px] shrink-0 place-items-center rounded-full font-mono text-[11px] transition-colors",
+                    stepDone[i]
+                      ? cn(toneSolid.success)
+                      : step === i
+                        ? "bg-primary text-primary-foreground"
+                        : "border border-border bg-background text-muted-foreground",
+                  )}
+                >
+                  {stepDone[i] ? <Check className="size-3" /> : i + 1}
+                </span>
+                <span className="min-w-0">
+                  <span
+                    className={cn(
+                      "block truncate text-[13px] leading-[25px]",
+                      step === i ? "font-medium text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    {s.title}
+                  </span>
+                  <span className="block text-[11.5px] leading-snug text-muted-foreground/70">
+                    {s.hint}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
+
+        <div className="mt-auto flex flex-col gap-3 pt-10">
+          <div aria-hidden className="flex items-center gap-1">
+            {STEPS.map((s, i) => (
+              <span
+                key={s.title}
+                className={cn(
+                  "h-1 flex-1 rounded-full transition-colors",
+                  stepDone[i]
+                    ? "bg-[color:var(--tone-success)]"
+                    : i === step
+                      ? "bg-primary/50"
+                      : "bg-border",
+                )}
+              />
+            ))}
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {doneCount}/{STEPS.length} configured
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-mr-2 h-7 px-2 text-muted-foreground"
+              onClick={() => leave()}
+            >
+              Skip setup
+            </Button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Compact header for phones and tablets. */}
+      <header className="flex flex-col gap-3 border-b px-5 pb-4 pt-5 lg:hidden">
+        <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
+            <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
               <Sparkles className="size-4" />
             </div>
             <div>
-              <h1 className="text-[22px] font-semibold leading-none tracking-[-0.02em]">
+              <h1 className="text-[17px] font-semibold leading-none tracking-[-0.02em]">
                 Welcome{firstName ? `, ${firstName}` : ""}
               </h1>
-              <p className="mt-1 text-[13px] text-muted-foreground">
-                Five quick steps and your agents are ready to work.
+              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                {doneCount}/{STEPS.length} configured
               </p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => leave()}>
-            Skip setup
-          </Button>
-        </header>
-
-        <nav aria-label="Setup steps" className="mb-6 flex items-center gap-2">
-          {STEP_TITLES.map((title, i) => (
-            <button
-              key={title}
-              type="button"
-              onClick={() => setStep(i)}
-              aria-current={step === i ? "step" : undefined}
-              className={cn(
-                "flex min-w-0 flex-1 items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
-                step === i
-                  ? "border-[color:var(--color-primary)]/40 bg-[color:var(--color-primary)]/8"
-                  : "border-border/70 hover:bg-muted/40",
-              )}
-            >
-              <span
-                className={cn(
-                  "grid size-5 shrink-0 place-items-center rounded-full text-[11px] font-medium",
-                  stepDone[i]
-                    ? cn(toneSoft.success)
-                    : step === i
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground",
-                )}
-              >
-                {stepDone[i] ? <Check className="size-3" /> : i + 1}
-              </span>
-              <span
-                className={cn(
-                  "truncate text-[12.5px]",
-                  step === i ? "font-medium" : "text-muted-foreground",
-                )}
-              >
-                {title}
-              </span>
-            </button>
-          ))}
-        </nav>
-
-        <section className="flex-1">
-          {step === 0 && (
-            <ProviderStep presence={presence} apply={apply} onImported={() => void reload()} />
-          )}
-          {step === 1 && <GitHubStep presence={presence} apply={apply} />}
-          {step === 2 && (
-            <GitIdentityStep
-              name={gitIdentityName}
-              email={gitIdentityEmail}
-              saved={gitIdentityDone}
-              dirty={gitIdentityDirty}
-              loaded={gitIdentityLoaded}
-              loading={gitIdentityLoading}
-              loadError={gitIdentityLoadError}
-              onNameChange={setGitIdentityName}
-              onEmailChange={setGitIdentityEmail}
-              onRetry={() => setGitIdentityReload((attempt) => attempt + 1)}
-              onSaved={(name, email) => {
-                const savedName = name.trim();
-                const savedEmail = email.trim();
-                setGitIdentityName(savedName);
-                setGitIdentityEmail(savedEmail);
-                setSavedGitIdentityName(savedName);
-                setSavedGitIdentityEmail(savedEmail);
-                setGitIdentityLoadError(null);
-              }}
-            />
-          )}
-          {step === 3 && (
-            <ModelDefaultsStep
-              key={modelDefaultsLoaded ? "loaded" : "loading"}
-              defaults={myModelDefaults}
-              presence={presence}
-              saved={modelDefaultsDone}
-              onSaved={applyModelDefaultsResponse}
-            />
-          )}
-          {step === 4 && (
-            <ProjectStep
-              presence={presence}
-              onCreated={(project) => {
-                writeLastProject({ namespace: project.namespace, name: project.name });
-                dismissOnboarding(user?.id);
-                setCreatedProject(project);
-              }}
-              onGoToStep={setStep}
-            />
-          )}
-        </section>
-
-        <footer className="mt-8 flex items-center justify-between gap-3 border-t pt-4">
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setStep((s) => Math.max(s - 1, 0))}
-            className={cn(step === 0 && "invisible")}
+            className="text-muted-foreground"
+            onClick={() => leave()}
           >
-            <ArrowLeft data-icon="inline-start" />
-            Back
+            Skip
           </Button>
-          {step < 4 ? (
+        </div>
+        <div className="flex items-center gap-1" role="tablist" aria-label="Setup steps">
+          {STEPS.map((s, i) => (
+            <button
+              key={s.title}
+              type="button"
+              role="tab"
+              aria-label={s.title}
+              aria-selected={step === i}
+              onClick={() => setStep(i)}
+              className={cn(
+                "h-1.5 flex-1 rounded-full transition-colors",
+                stepDone[i]
+                  ? "bg-[color:var(--tone-success)]"
+                  : i === step
+                    ? "bg-primary"
+                    : "bg-border",
+              )}
+            />
+          ))}
+        </div>
+      </header>
+
+      <main id="main-content" className="flex-1 overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col px-5 py-8 sm:px-8 lg:px-10 lg:py-[8vh]">
+          <p className="mb-4 font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
+            Step {step + 1} of {STEPS.length} — {STEPS[step].title}
+          </p>
+
+          <section className="flex-1">
+            {step === 0 && (
+              <ProviderStep presence={presence} apply={apply} onImported={() => void reload()} />
+            )}
+            {step === 1 && <GitHubStep presence={presence} apply={apply} />}
+            {step === 2 && (
+              <GitIdentityStep
+                name={gitIdentityName}
+                email={gitIdentityEmail}
+                saved={gitIdentityDone}
+                dirty={gitIdentityDirty}
+                loaded={gitIdentityLoaded}
+                loading={gitIdentityLoading}
+                loadError={gitIdentityLoadError}
+                onNameChange={setGitIdentityName}
+                onEmailChange={setGitIdentityEmail}
+                onRetry={() => setGitIdentityReload((attempt) => attempt + 1)}
+                onSaved={(name, email) => {
+                  const savedName = name.trim();
+                  const savedEmail = email.trim();
+                  setGitIdentityName(savedName);
+                  setGitIdentityEmail(savedEmail);
+                  setSavedGitIdentityName(savedName);
+                  setSavedGitIdentityEmail(savedEmail);
+                  setGitIdentityLoadError(null);
+                }}
+              />
+            )}
+            {step === 3 && (
+              <ModelDefaultsStep
+                key={modelDefaultsLoaded ? "loaded" : "loading"}
+                defaults={myModelDefaults}
+                presence={presence}
+                saved={modelDefaultsDone}
+                onSaved={applyModelDefaultsResponse}
+              />
+            )}
+            {step === 4 && (
+              <ProjectStep
+                presence={presence}
+                onCreated={(project) => {
+                  writeLastProject({ namespace: project.namespace, name: project.name });
+                  dismissOnboarding(user?.id);
+                  setCreatedProject(project);
+                }}
+                onGoToStep={setStep}
+              />
+            )}
+          </section>
+
+          <footer className="mt-10 flex items-center justify-between gap-3 border-t pt-5">
             <Button
+              variant="ghost"
               size="sm"
-              variant={stepDone[step] ? "default" : "outline"}
-              onClick={() => setStep((s) => Math.min(s + 1, 4))}
+              onClick={() => setStep((s) => Math.max(s - 1, 0))}
+              className={cn("text-muted-foreground", step === 0 && "invisible")}
             >
-              {stepDone[step] ? "Continue" : "Skip for now"}
-              <ArrowRight data-icon="inline-end" />
+              <ArrowLeft data-icon="inline-start" />
+              Back
             </Button>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => leave()}>
-              Skip for now
-            </Button>
-          )}
-        </footer>
-      </div>
+            {step < STEPS.length - 1 ? (
+              <Button
+                size="sm"
+                variant={stepDone[step] ? "default" : "outline"}
+                onClick={() => setStep((s) => Math.min(s + 1, STEPS.length - 1))}
+              >
+                {stepDone[step] ? "Continue" : "Skip for now"}
+                <ArrowRight data-icon="inline-end" />
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => leave()}>
+                Skip for now
+              </Button>
+            )}
+          </footer>
+        </div>
+      </main>
     </div>
   );
 }
@@ -336,20 +435,31 @@ function FinishedScreen({
 }) {
   return (
     <div className="grid h-full place-items-center overflow-auto bg-background px-6">
-      <div className="flex max-w-[440px] flex-col items-center gap-4 py-12 text-center">
-        <div className={cn("grid size-12 place-items-center rounded-full", toneSoft.success)}>
-          <CheckCircle2 className="size-6" />
+      <div className="flex max-w-[460px] flex-col items-center gap-5 py-12 text-center">
+        <div
+          className={cn(
+            "grid size-14 place-items-center rounded-full ring-8 ring-[color-mix(in_oklch,var(--tone-success)_6%,transparent)]",
+            toneSoft.success,
+          )}
+        >
+          <CheckCircle2 className="size-7" />
         </div>
         <div>
-          <h1 className="text-[20px] font-semibold tracking-[-0.02em]">You're all set</h1>
-          <p className="mt-1.5 text-[13px] text-muted-foreground">
+          <p className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
+            Setup complete
+          </p>
+          <h1 className="mt-2 text-[24px] font-semibold tracking-[-0.02em]">You're all set</h1>
+          <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
             <span className="font-medium text-foreground">
               {project.displayName || project.name}
             </span>{" "}
             is ready. Describe a task and the agent takes it from there.
           </p>
         </div>
-        <div className="mt-2 flex items-center gap-2">
+        <code className="rounded-md border bg-muted/30 px-2.5 py-1 font-mono text-[11.5px] text-muted-foreground">
+          {project.namespace}/{project.name}
+        </code>
+        <div className="mt-1 flex items-center gap-2">
           <Button onClick={onStartChatting}>Start chatting</Button>
           <Button variant="outline" onClick={onOpenProject}>
             Open project
@@ -363,27 +473,24 @@ function FinishedScreen({
 /* ── Shared step bits ─────────────────────────────────────────── */
 
 function StepIntro({
-  icon: Icon,
   title,
   done,
   doneNote,
   children,
 }: {
-  icon: typeof KeyRound;
   title: string;
   done: boolean;
   doneNote?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-4">
-      <div className="flex items-center gap-2">
-        <Icon className="size-4 text-muted-foreground" />
-        <h2 className="text-[15px] font-semibold tracking-[-0.01em]">{title}</h2>
+    <div className="mb-6">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        <h2 className="text-[21px] font-semibold leading-tight tracking-[-0.02em]">{title}</h2>
         {done && (
           <span
             className={cn(
-              "inline-flex h-[18px] items-center gap-1 rounded-full px-1.5 text-[10.5px] font-medium",
+              "inline-flex h-[19px] items-center gap-1 rounded-full px-2 text-[10.5px] font-medium",
               toneSoft.success,
             )}
           >
@@ -392,7 +499,9 @@ function StepIntro({
           </span>
         )}
       </div>
-      <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{children}</p>
+      <p className="mt-2 max-w-[56ch] text-[13px] leading-relaxed text-muted-foreground">
+        {children}
+      </p>
     </div>
   );
 }
@@ -407,6 +516,32 @@ function SavedChip() {
     >
       Saved
     </span>
+  );
+}
+
+/**
+ * ProviderRow frames one sign-in option: name and promise on the left, the
+ * live connect control (compact OAuth component) on the right.
+ */
+function ProviderRow({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-b p-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-5 sm:py-4">
+      <div className="min-w-0">
+        <h3 className="text-[13px] font-medium">{title}</h3>
+        <p className="mt-0.5 max-w-[44ch] text-[11.5px] leading-relaxed text-muted-foreground">
+          {description}
+        </p>
+      </div>
+      <div className="min-w-0 sm:max-w-[58%] sm:shrink-0">{children}</div>
+    </div>
   );
 }
 
@@ -476,7 +611,6 @@ function ProviderStep({
   return (
     <div className="flex flex-col gap-4">
       <StepIntro
-        icon={KeyRound}
         title="Connect a model provider"
         done={connected.length > 0}
         doneNote={connected.join(" · ")}
@@ -488,9 +622,37 @@ function ProviderStep({
 
       {/* Local import and Copilot are desktop-only; Claude and OpenAI OAuth also work on web. */}
       <ImportLocalCredentials onImported={onImported} />
-      <AnthropicOAuthConnect onSaved={apply} />
-      <OpenAIOAuthConnect onSaved={apply} />
-      <CopilotOAuthConnect onSaved={apply} />
+
+      <div className="overflow-hidden rounded-xl border">
+        <ProviderRow
+          title="Claude"
+          description="Sign in with your Claude Pro/Max account; refreshable credentials are stored for new projects."
+        >
+          <AnthropicOAuthConnect compact onSaved={apply} />
+        </ProviderRow>
+        <ProviderRow
+          title="OpenAI"
+          description="Sign in with ChatGPT; refreshable credentials are stored for new projects."
+        >
+          <OpenAIOAuthConnect compact onSaved={apply} />
+        </ProviderRow>
+        {isTauri && (
+          <ProviderRow
+            title="GitHub Copilot"
+            description="Connect with GitHub; refreshable Copilot credentials are stored for new projects."
+          >
+            <CopilotOAuthConnect compact onSaved={apply} />
+          </ProviderRow>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3 pt-1" role="separator" aria-label="or paste an API key">
+        <span aria-hidden className="h-px flex-1 bg-border" />
+        <span className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
+          or paste an API key
+        </span>
+        <span aria-hidden className="h-px flex-1 bg-border" />
+      </div>
 
       <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
         <div>
@@ -618,7 +780,7 @@ function GitHubStep({
 
   return (
     <div className="flex flex-col gap-4">
-      <StepIntro icon={GitBranch} title="Connect GitHub" done={presence.githubToken} doneNote="Token saved">
+      <StepIntro title="Connect GitHub" done={presence.githubToken} doneNote="Token saved">
         A personal access token lets agents clone private repositories, push branches, and open
         pull requests as you. Use a fine-grained token with read/write access to the repositories
         you'll work on.
@@ -727,7 +889,6 @@ function GitIdentityStep({
   return (
     <div className="flex flex-col gap-4">
       <StepIntro
-        icon={GitCommitHorizontal}
         title="Set your git identity"
         done={saved}
         doneNote="Identity saved"
@@ -903,7 +1064,6 @@ function ModelDefaultsStep({
   return (
     <div className="flex flex-col gap-4">
       <StepIntro
-        icon={SlidersHorizontal}
         title="Pick a default model"
         done={saved}
         doneNote="Saved"
@@ -1091,7 +1251,7 @@ function ProjectStep({
 
   return (
     <div className="flex flex-col gap-4">
-      <StepIntro icon={FolderGit2} title="Create your first project" done={false}>
+      <StepIntro title="Create your first project" done={false}>
         A project points agents at a repository and carries its defaults. Choose its provider and
         model now; fine-tune policies and instructions later in project settings.
       </StepIntro>
