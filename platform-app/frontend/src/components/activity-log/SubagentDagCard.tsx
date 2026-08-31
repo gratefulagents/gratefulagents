@@ -333,7 +333,7 @@ function RosterRow({
         </span>
       )}
       <span
-        className={`shrink-0 font-mono text-[10px] tabular-nums ${
+        className={`min-w-14 shrink-0 text-right font-mono text-[10px] tabular-nums ${
           group.subagentStatus === "failed"
             ? toneText.danger
             : waiting || stopped
