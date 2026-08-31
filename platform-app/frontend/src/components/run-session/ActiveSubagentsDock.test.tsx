@@ -140,18 +140,26 @@ describe("ActiveSubagentsDock", () => {
     expect(screen.getByText("2.5K tok")).toBeTruthy();
     expect(screen.getByText("$0.045")).toBeTruthy();
     expect(screen.getByText("Task waiting")).toBeTruthy();
-    expect(screen.getByText("Waiting on 1 task")).toBeTruthy();
     expect(screen.getByText("Task done")).toBeTruthy();
     expect(screen.getByText("Task failed")).toBeTruthy();
     expect(screen.queryByText("Main agent")).toBeNull();
 
-    // The dependent task renders in a later wave, below a divider, and after
-    // the task it waits on in document order.
+    // The dependent task renders in a later wave, below a divider that names
+    // the exact tasks it runs after, and its card carries the same reference.
     expect(screen.getAllByTestId("subagent-wave-divider")).toHaveLength(1);
+    expect(screen.getByTestId("subagent-wave-divider").textContent).toContain(
+      "runs after #1",
+    );
     const cards = screen.getAllByTestId("subagent-dock-card");
     expect(cards).toHaveLength(4);
+    const waitingCard = cards.find((card) =>
+      card.getAttribute("title")?.includes("Task waiting"),
+    )!;
+    expect(waitingCard.textContent).toContain("after #1");
+    expect(waitingCard.textContent).toContain("Waiting on #1");
+    // Every card carries its stable ordinal so references are unambiguous.
     const order = cards.map((card) => card.getAttribute("title"));
-    expect(order.indexOf("Task waiting")).toBeGreaterThan(order.indexOf("Task running"));
+    expect(order.indexOf("#4 Task waiting")).toBeGreaterThan(order.indexOf("#1 Task running"));
   });
 
   it("lays out independent parallel tasks as a single wave without dividers", () => {
@@ -220,7 +228,7 @@ describe("ActiveSubagentsDock", () => {
     expect(toggle.textContent).toContain("1 running");
     expect(toggle.textContent).toContain("1 completed");
     fireEvent.click(toggle);
-    const stale = screen.getByTitle("Task stale");
+    const stale = screen.getByTitle(/Task stale/);
     expect(stale.textContent).toContain("Completed");
     expect(stale.textContent).not.toContain("An outdated running step");
   });

@@ -1119,21 +1119,25 @@ export function SecurityFindingDetail() {
 
           <span aria-hidden className="hidden h-8 w-px self-end bg-border/60 lg:block" />
 
-          <div className="space-y-1">
-            <label htmlFor="finding-assignee" className={fieldLabelClass}>
-              Assignee
-            </label>
-            <input
-              id="finding-assignee"
-              type="text"
-              value={assigneeDraft ?? finding.assignee}
-              disabled={assigneeSaving}
-              onChange={(e) => setAssigneeDraft(e.target.value)}
-              placeholder={EMPTY_VALUE}
-              className={cn(fieldInputClass, "w-48")}
-            />
-          </div>
-          <div className="flex items-center gap-2">
+          {/* One wrapping unit so the input and its buttons stay together
+              when the triage row folds on narrow viewports, instead of the
+              button drifting to the far left of the next line. */}
+          <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+            <div className="space-y-1">
+              <label htmlFor="finding-assignee" className={fieldLabelClass}>
+                Assignee
+              </label>
+              <input
+                id="finding-assignee"
+                type="text"
+                value={assigneeDraft ?? finding.assignee}
+                disabled={assigneeSaving}
+                onChange={(e) => setAssigneeDraft(e.target.value)}
+                placeholder={EMPTY_VALUE}
+                className={cn(fieldInputClass, "w-48")}
+              />
+            </div>
+            <div className="flex items-center gap-2">
             <GuardedAction enabled={assigneeDirty} reason="Change the assignee to enable this.">
               <Button
                 size="sm"
@@ -1178,6 +1182,7 @@ export function SecurityFindingDetail() {
               </Button>
             )}
             {savedFlash === "assignee" && <SavedFlash />}
+            </div>
           </div>
         </div>
       </section>

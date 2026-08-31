@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toaster";
+import { ApiKeyVerificationNote, useApiKeyVerification } from "@/hooks/useApiKeyVerification";
 
 interface Presence {
   anthropicApiKey: boolean;
@@ -181,8 +182,20 @@ export function CredentialsSection() {
       applyCredentials(c);
       setError(null);
       toast.success("Credential saved");
+      return c;
     },
     [applyCredentials],
+  );
+
+  const { verifications, verify } = useApiKeyVerification();
+
+  /** API-key save that follows up with an advisory live-verification probe. */
+  const saveApiKey = useCallback(
+    async (provider: string, fields: UpdateFields) => {
+      const c = await saveFields(fields);
+      verify(c.namespace, [provider]);
+    },
+    [saveFields, verify],
   );
 
   const remove = useCallback(
@@ -360,9 +373,10 @@ export function CredentialsSection() {
               label="API key"
               present={presence.anthropicApiKey}
               placeholder="sk-ant-..."
-              onSave={(value) => saveFields({ anthropicApiKey: value })}
+              onSave={(value) => saveApiKey("anthropic", { anthropicApiKey: value })}
               onRemove={() => void remove("anthropic-api-key")}
             />
+            <ApiKeyVerificationNote provider="anthropic" state={verifications["anthropic"]} />
             <Advanced>
               <SecretField
                 label="Claude OAuth JSON"
@@ -437,9 +451,10 @@ export function CredentialsSection() {
               label="API key"
               present={presence.openaiApiKey}
               placeholder="sk-..."
-              onSave={(value) => saveFields({ openaiApiKey: value })}
+              onSave={(value) => saveApiKey("openai", { openaiApiKey: value })}
               onRemove={() => void remove("openai-api-key")}
             />
+            <ApiKeyVerificationNote provider="openai" state={verifications["openai"]} />
             <Advanced>
               <SecretField
                 label="OpenAI OAuth JSON"
@@ -512,9 +527,10 @@ export function CredentialsSection() {
               label="API key"
               present={presence.openrouterApiKey}
               placeholder="sk-or-v1-..."
-              onSave={(value) => saveFields({ openrouterApiKey: value })}
+              onSave={(value) => saveApiKey("openrouter", { openrouterApiKey: value })}
               onRemove={() => void remove("openrouter-api-key")}
             />
+            <ApiKeyVerificationNote provider="openrouter" state={verifications["openrouter"]} />
           </ProviderRow>
 
           <ProviderRow
@@ -529,9 +545,10 @@ export function CredentialsSection() {
               label="API key"
               present={presence.xaiApiKey}
               placeholder="xai-..."
-              onSave={(value) => saveFields({ xaiApiKey: value })}
+              onSave={(value) => saveApiKey("xai", { xaiApiKey: value })}
               onRemove={() => void remove("xai-api-key")}
             />
+            <ApiKeyVerificationNote provider="xai" state={verifications["xai"]} />
           </ProviderRow>
 
           <ProviderRow
@@ -794,7 +811,7 @@ function SecretField({
   present?: boolean;
   placeholder: string;
   multiline?: boolean;
-  onSave: (value: string) => Promise<void>;
+  onSave: (value: string) => Promise<unknown>;
   onRemove?: () => void;
 }) {
   const [value, setValue] = useState("");
@@ -962,7 +979,7 @@ function IntegrationCredentials({
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Integration name (e.g. grafana)"
+          placeholder="Name (e.g. grafana)"
           className="max-w-[240px] font-mono"
           autoComplete="off"
         />

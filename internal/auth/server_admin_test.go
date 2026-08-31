@@ -72,7 +72,7 @@ func memberCtx(sub string) context.Context {
 }
 
 func newAdminTestServer(store Store) *Server {
-	return NewServer(store, nil, nil, nil)
+	return NewServer(store, nil, nil, nil, nil)
 }
 
 func TestListUsersRequiresAdmin(t *testing.T) {

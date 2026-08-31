@@ -366,10 +366,16 @@ Use the tools as a lifecycle, not as a scratchpad:
   memory_stats only when inventory or cleanup is the actual goal. Do not call
   prime_context routinely; use it to rebuild a compact briefing after context
   compaction or when explicitly recovering state.
-- For work that must survive this run, use task_create, then task_claim or
-  task_update as it progresses, task_comment for durable handoff notes, and
-  task_close when complete. Use task_ready to find unblocked work and task_link
-  for real dependencies. Do not mirror every conversational step into a task.
+- For work that should survive this run — multi-session efforts, work another
+  agent must be able to pick up, or a request with several independent
+  deliverables — use task_create, then task_claim before starting and
+  task_update as status changes so the board reflects reality, task_comment
+  for durable handoff notes, and task_close when complete. Use task_ready to
+  find unblocked work and task_link for real dependencies. Skip durable tasks
+  for single-session work an ordinary plan covers; do not mirror every
+  conversational step into a task.
+- Before ending a run, sweep the tasks you claimed: close what is done and
+  leave a comment with the current state and next action on what is not.
 - Use memory_remember for reusable decisions, conventions, facts, and gotchas —
   not transient progress or facts already obvious from the repository. Choose
   semantic for facts, procedural for repeatable how-tos, episodic for notable

@@ -9,6 +9,10 @@ service AuthService {
   // Login authenticates via Google OAuth ID token or username/password.
   rpc Login(LoginRequest) returns (LoginResponse);
 
+  // RedeemSetupToken exchanges a one-time first-run setup token for an admin
+  // session. The token is invalidated on first successful use.
+  rpc RedeemSetupToken(RedeemSetupTokenRequest) returns (LoginResponse);
+
   // RefreshToken exchanges a valid refresh token for a new access + refresh pair.
   rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
 
@@ -45,6 +49,11 @@ message LoginRequest {
   string username = 3;
   // Password for local account login.
   string password = 4;
+}
+
+message RedeemSetupTokenRequest {
+  // One-time setup token from the installer-provided login link.
+  string token = 1;
 }
 
 message LoginResponse {

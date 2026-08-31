@@ -56,7 +56,7 @@ describe("SubagentDagCard", () => {
       name: new RegExp(`Delegated ${count} tasks`),
     });
     expect(summary.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByTitle("Review area 0")).toBeNull();
+    expect(screen.queryByTitle("#1 Review area 0")).toBeNull();
   });
 
   it("expands into a compact historical task roster instead of an inline DAG", () => {
@@ -99,7 +99,7 @@ describe("SubagentDagCard", () => {
       }),
     );
 
-    const row = screen.getByTitle("Review area 0");
+    const row = screen.getByTitle("#1 Review area 0");
     expect(row.textContent).toContain(label);
     expect(row.querySelector("svg.lucide-check")).toBeNull();
   });
@@ -118,7 +118,7 @@ describe("SubagentDagCard", () => {
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
-  it("indents dependent tasks by wave and names their dependencies", () => {
+  it("indents dependent tasks by wave and references their dependencies by ordinal", () => {
     const dependent = group(1, "completed");
     dependent.entries[0].subagentDependsOn = ["task_0"];
     const groups = [group(0, "completed"), dependent];
@@ -131,7 +131,7 @@ describe("SubagentDagCard", () => {
     expect(rows[0].style.paddingLeft).toBe("");
     expect(rows[1].querySelector("svg.lucide-corner-down-right")).not.toBeNull();
     expect(rows[1].style.paddingLeft).toBe("24px");
-    expect(rows[1].textContent).toContain("after Review area 0");
+    expect(rows[1].textContent).toContain("after #1");
   });
 
   it("surfaces per-task tokens, cost, and the live step in the roster", () => {
@@ -153,10 +153,10 @@ describe("SubagentDagCard", () => {
     render(<SubagentDagCard groups={[running, done]} />);
     fireEvent.click(screen.getByRole("button", { name: /Delegated 2 tasks/ }));
 
-    expect(screen.getByTitle("Review area 0").textContent).toContain(
+    expect(screen.getByTitle("#1 Review area 0").textContent).toContain(
       "scanning the API surface",
     );
-    const doneRow = screen.getByTitle("Review area 1");
+    const doneRow = screen.getByTitle("#2 Review area 1");
     expect(doneRow.textContent).toContain("12.4K tok");
     expect(doneRow.textContent).toContain("$0.0123");
   });

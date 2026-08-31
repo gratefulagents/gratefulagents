@@ -46,7 +46,12 @@ export function DetailHeader({
           </h1>
           {meta && <div className="flex shrink-0 items-center gap-2">{meta}</div>}
         </div>
-        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+        {actions && (
+          // min-w-0 + wrap: wide action clusters (e.g. the scan-detail
+          // download group) fold onto extra rows on a phone instead of
+          // running past the right edge of the viewport.
+          <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div>
+        )}
       </div>
       {subtitle && <div className="min-w-0 pt-0.5">{subtitle}</div>}
     </div>
@@ -220,7 +225,9 @@ export function DetailSection({
 }) {
   return (
     <section className={cn("space-y-3", className)}>
-      <div className="flex items-baseline justify-between gap-3">
+      {/* Wrap so a wide aside (filter segments, counts) drops below the
+          heading on narrow viewports instead of crushing the description. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
           {description && (

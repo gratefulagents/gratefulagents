@@ -218,8 +218,11 @@ export function RunSessionFooter({
     });
   }
 
+  // Bottom padding: safe-area inset when present (iPhone home indicator),
+  // but never less than the base padding — a plain `pb-safe` collapsed to 0
+  // in browsers and pressed the footer against the viewport edge.
   return (
-              <div className="shrink-0 border-t px-3 py-2 pb-safe md:px-4 md:py-3">
+              <div className="shrink-0 border-t px-3 py-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] md:px-4 md:py-3 md:pb-[max(env(safe-area-inset-bottom),0.75rem)]">
                 {(isActive || isViewer) ? (
                   <div className="space-y-2">
                     <ImageAttachmentStrip

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
@@ -42,6 +42,7 @@ function serverCreds(overrides: Record<string, unknown> = {}) {
     anthropicApiKeyPresent: false,
     openaiApiKeyPresent: false,
     openrouterApiKeyPresent: false,
+    xaiApiKeyPresent: false,
     anthropicOauthPresent: false,
     openaiOauthPresent: false,
     copilotOauthPresent: false,
@@ -53,6 +54,7 @@ function serverCreds(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.mocked(client.getMyGitIdentity).mockResolvedValue({ name: "", email: "" } as never);
   vi.mocked(client.listRuntimeImages).mockResolvedValue({ images: [] } as never);
+  vi.mocked(client.listAvailableModels).mockResolvedValue({ models: [] } as never);
   vi.mocked(client.getMyModelDefaults).mockResolvedValue({
     provider: "",
     model: "",
@@ -129,6 +131,7 @@ describe("OnboardingWizard", () => {
     expect(client.updateMyCredentials).toHaveBeenCalledWith({
       anthropicApiKey: "",
       openaiApiKey: "",
+      xaiApiKey: "",
       openrouterApiKey: "openrouter-test-key",
     });
 
@@ -230,7 +233,7 @@ describe("OnboardingWizard", () => {
     );
 
     renderWizard("/welcome?step=3");
-    await screen.findByText("1 Anthropic · Claude model available");
+    await screen.findByText("1 Anthropic model available");
     expect(client.listAvailableModels).toHaveBeenCalledWith(
       { namespace: "dana-x", provider: "anthropic", authMode: "api-key" },
       expect.anything(),
@@ -239,9 +242,9 @@ describe("OnboardingWizard", () => {
     fireEvent.change(screen.getByLabelText("Model"), {
       target: { value: "claude-opus-4-6" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "OpenAI · GPT" }));
+    fireEvent.click(screen.getByRole("button", { name: "OpenAI" }));
     expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("");
-    await screen.findByText("2 OpenAI · GPT models available");
+    await screen.findByText("2 OpenAI models available");
     expect(client.listAvailableModels).toHaveBeenLastCalledWith(
       { namespace: "dana-x", provider: "openai", authMode: "api-key" },
       expect.anything(),
@@ -365,5 +368,163 @@ describe("OnboardingWizard", () => {
     expect(model).toBeTruthy();
     expect((screen.getByLabelText("Reasoning level") as HTMLSelectElement).value).toBe("low");
     expect(await screen.findByRole("button", { name: /Continue/ })).toBeTruthy();
+  });
+
+  it("saves an xAI API key from the provider step", async () => {
+    vi.mocked(client.listMyCredentials).mockResolvedValue(serverCreds() as never);
+    vi.mocked(client.updateMyCredentials).mockResolvedValue(
+      serverCreds({ xaiApiKeyPresent: true }) as never,
+    );
+
+    renderWizard();
+    await screen.findByText("Connect a model provider");
+    fireEvent.change(screen.getByPlaceholderText("xai-..."), {
+      target: { value: "xai-test-key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save API key" }));
+    await screen.findByText("API key saved");
+    expect(client.updateMyCredentials).toHaveBeenCalledWith({
+      anthropicApiKey: "",
+      openaiApiKey: "",
+      openrouterApiKey: "",
+      xaiApiKey: "xai-test-key",
+    });
+    // The saved xAI credential satisfies the provider step.
+    await screen.findByText("xAI");
+  });
+
+  it("live-verifies each key saved at once and shows model counts", async () => {
+    vi.mocked(client.listMyCredentials).mockResolvedValue(serverCreds() as never);
+    vi.mocked(client.updateMyCredentials).mockResolvedValue(
+      serverCreds({ anthropicApiKeyPresent: true, xaiApiKeyPresent: true }) as never,
+    );
+    vi.mocked(client.listAvailableModels).mockImplementation((request) => {
+      const { provider } = request as { provider: string };
+      return Promise.resolve(
+        provider === "anthropic"
+          ? { models: ["claude-opus-4-6"] }
+          : { models: ["grok-4", "grok-3"] },
+      ) as never;
+    });
+
+    renderWizard();
+    await screen.findByText("Connect a model provider");
+    fireEvent.change(screen.getByPlaceholderText("sk-ant-..."), {
+      target: { value: "sk-ant-test-key" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("xai-..."), {
+      target: { value: "xai-test-key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save API key" }));
+
+    await screen.findByText("API key saved");
+    await screen.findByText("✓ Anthropic key verified — 1 model available (e.g. claude-opus-4-6)");
+    await screen.findByText("✓ xAI key verified — 2 models available (e.g. grok-4)");
+    expect(client.listAvailableModels).toHaveBeenCalledWith({
+      namespace: "dana-x",
+      provider: "anthropic",
+      authMode: "api-key",
+    });
+    expect(client.listAvailableModels).toHaveBeenCalledWith({
+      namespace: "dana-x",
+      provider: "xai",
+      authMode: "api-key",
+    });
+  });
+
+  it("warns when key verification fails but keeps the key saved", async () => {
+    vi.mocked(client.listMyCredentials).mockResolvedValue(serverCreds() as never);
+    vi.mocked(client.updateMyCredentials).mockResolvedValue(
+      serverCreds({ openrouterApiKeyPresent: true }) as never,
+    );
+    let reject!: (cause: Error) => void;
+    vi.mocked(client.listAvailableModels).mockReturnValue(
+      new Promise((_resolve, rej) => {
+        reject = rej;
+      }) as never,
+    );
+
+    renderWizard();
+    await screen.findByText("Connect a model provider");
+    fireEvent.change(screen.getByPlaceholderText("sk-or-v1-..."), {
+      target: { value: "openrouter-bad-key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save API key" }));
+
+    await screen.findByText("API key saved");
+    await screen.findByText("Verifying OpenRouter key…");
+    reject(new Error("401 invalid key"));
+    await screen.findByText(
+      "OpenRouter key saved, but verification failed: 401 invalid key. Check the key and try again.",
+    );
+    // Advisory only: the credential stays saved and the step stays satisfied.
+    expect(screen.getByText("Saved")).toBeTruthy();
+    expect(screen.getByText("API key saved")).toBeTruthy();
+  });
+
+  it("offers xAI in the default-model and first-project steps", async () => {
+    vi.mocked(client.listMyCredentials).mockResolvedValue(
+      serverCreds({ xaiApiKeyPresent: true }) as never,
+    );
+    vi.mocked(client.listAvailableModels).mockResolvedValue({
+      models: ["grok-4"],
+    } as never);
+
+    renderWizard("/welcome?step=default-model");
+    await screen.findByText("Pick a default model");
+    expect(await screen.findByRole("button", { name: "xAI" })).toBeTruthy();
+    await waitFor(() => {
+      expect(client.listAvailableModels).toHaveBeenCalledWith(
+        { namespace: "dana-x", provider: "xai", authMode: "api-key" },
+        expect.anything(),
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Skip for now/ }));
+    await screen.findByText("Create your first project");
+    expect(screen.getByRole("button", { name: "xAI" })).toBeTruthy();
+    await screen.findByText("1 xAI model available");
+    expect(client.listAvailableModels).toHaveBeenLastCalledWith(
+      { namespace: "dana-x", provider: "xai", authMode: "api-key" },
+      expect.anything(),
+    );
+  });
+
+  it("suggests models in the default-model step while keeping the field free-form", async () => {
+    vi.mocked(client.listMyCredentials).mockResolvedValue(
+      serverCreds({ anthropicApiKeyPresent: true }) as never,
+    );
+    vi.mocked(client.listAvailableModels).mockResolvedValue({
+      models: ["claude-opus-4-6", "claude-sonnet-4-6"],
+    } as never);
+
+    renderWizard("/welcome?step=default-model");
+    await screen.findByText("Pick a default model");
+    await screen.findByText("2 Anthropic models available");
+    expect(client.listAvailableModels).toHaveBeenCalledWith(
+      { namespace: "dana-x", provider: "anthropic", authMode: "api-key" },
+      expect.anything(),
+    );
+    expect(
+      document.querySelector(
+        '#onboarding-default-model-options option[value="claude-sonnet-4-6"]',
+      ),
+    ).toBeTruthy();
+
+    // Free-form entry is untouched by the suggestion list.
+    fireEvent.change(screen.getByLabelText("Model"), {
+      target: { value: "a-custom-model" },
+    });
+    expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("a-custom-model");
+  });
+
+  it("surfaces model-suggestion errors in the default-model step", async () => {
+    vi.mocked(client.listMyCredentials).mockResolvedValue(
+      serverCreds({ anthropicApiKeyPresent: true }) as never,
+    );
+    vi.mocked(client.listAvailableModels).mockRejectedValue(new Error("catalog offline"));
+
+    renderWizard("/welcome?step=default-model");
+    await screen.findByText("catalog offline");
   });
 });

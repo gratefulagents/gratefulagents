@@ -28,6 +28,7 @@ describe("presenceFromServer / hasProviderCredential", () => {
       anthropicApiKeyPresent: false,
       openaiApiKeyPresent: false,
       openrouterApiKeyPresent: false,
+      xaiApiKeyPresent: false,
       anthropicOauthPresent: true,
       openaiOauthPresent: false,
       copilotOauthPresent: false,
@@ -40,6 +41,10 @@ describe("presenceFromServer / hasProviderCredential", () => {
 
   it("treats an OpenRouter API key as a provider credential", () => {
     expect(hasProviderCredential({ ...empty, openrouterApiKey: true })).toBe(true);
+  });
+
+  it("treats an xAI API key as a provider credential", () => {
+    expect(hasProviderCredential({ ...empty, xaiApiKey: true })).toBe(true);
   });
 
   it("does not count the GitHub token as a provider credential", () => {

@@ -10,6 +10,7 @@ import {
   type OpenAIOAuthStart,
 } from "@/lib/openai-oauth";
 import { copyText, openExternal } from "@/lib/native";
+import { isTauri } from "@/lib/platform";
 import { toneSoft, toneText } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -233,7 +234,7 @@ export function OpenAIOAuthConnect({ onSaved, className, compact, slot }: OpenAI
                     ? "Saving..."
                     : "Sign in with ChatGPT"}
             </Button>
-            {offerDeviceFlow ? (
+            {isTauri || offerDeviceFlow ? (
               <Button
                 type="button"
                 size="sm"
@@ -241,7 +242,7 @@ export function OpenAIOAuthConnect({ onSaved, className, compact, slot }: OpenAI
                 onClick={() => void start("device")}
                 disabled={busy}
               >
-                Use device code instead
+                Use a device code instead
               </Button>
             ) : null}
           </div>
