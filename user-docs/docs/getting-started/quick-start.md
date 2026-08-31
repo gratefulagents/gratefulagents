@@ -18,7 +18,7 @@ Complete these in order:
 
 1. **Install GratefulAgents.** Use [Kind](./self-hosting-kind.md) for local evaluation on a macOS or Linux laptop. Use [k3s](./self-hosting-k3s.md) for a dedicated Debian or Ubuntu server and the Internet-facing path.
 2. **Publish and protect k3s.** Follow [Publish securely with Cloudflare](./cloudflare-access.md) to create a public HTTPS hostname, protect it with Cloudflare Access, and create service-token credentials for installed apps. Keep the origin dashboard port closed to the Internet.
-3. **Distribute a client.** Give users the HTTPS Operator URL and, when needed, device-specific Cloudflare Access credentials. Follow [Install mobile and desktop apps](./web-desktop-workspaces.md); AltStore Classic signs the published iOS IPA for each user's device, and the Android APK is a debug build for sideloading.
+3. **Distribute a client.** Give users the HTTPS Operator URL — the workspace's public HTTPS address (for example `https://agents.example.com`) — and, when needed, device-specific Cloudflare Access credentials. Follow [Install mobile and desktop apps](./web-desktop-workspaces.md); AltStore Classic signs the published iOS IPA for each user's device, and the Android APK is a debug build for sideloading.
 
 ### I am joining an existing workspace
 
@@ -26,7 +26,7 @@ Ask your administrator for the web URL or installed app, the HTTPS Operator URL,
 
 ## 1. Open the app
 
-- **Web app:** Open the HTTPS URL your team provides.
+- **Dashboard (web):** Open the HTTPS URL your team provides.
 - **iOS, Android, or desktop app:** [Download and install the appropriate app](./web-desktop-workspaces.md), then add or select the workspace your team provides.
 
 If the installed app's workspace uses Cloudflare Access, enter the client ID and client secret your team provides on the connection screen.
@@ -34,10 +34,10 @@ If the installed app's workspace uses Cloudflare Access, enter the client ID and
 ## 2. Sign in
 
 1. In an installed app, connect to the workspace first.
-2. Sign in with username/password or Google when your workspace enables it.
+2. Sign in with username/password or Google when your workspace enables it. If you installed the workspace yourself, the installer prints a one-time sign-in link that signs you in as `admin` in the browser without a password.
 3. The app opens **Home**.
 
-See [Sign in](./sign-in.md) for help with either method.
+See [Sign in](./sign-in.md) for help with any method.
 
 ## 3. Add a provider credential
 
@@ -58,7 +58,7 @@ Example task:
 Explain the trade-offs between optimistic and pessimistic locking for an API that updates inventory.
 ```
 
-When no project exists, the app creates a **Personal workspace** project using your saved provider credential and starts the run there. This project has no repository, so it is useful for questions, planning, and other repo-free work.
+When no project exists, the app creates your personal project (shown in the app as **Personal workspace**) using your saved provider credential and starts the run there. This project has no repository, so it is useful for questions, planning, and other repo-free work.
 
 If the app asks you to connect a provider, return to **Settings → Credentials** and save one first.
 

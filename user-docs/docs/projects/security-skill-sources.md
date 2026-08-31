@@ -1,6 +1,14 @@
+---
+title: Security skill sources and curation
+seoTitle: Security Skill Sources and Curation | GratefulAgents
+description: How the curated GratefulAgents security skill catalog is sourced, pinned to upstream commits, licensed, reviewed, and attached to security workflow tasks.
+agentPrompt: >-
+  Read https://gratefulagents.dev/docs/projects/security-skill-sources/ and explain where the curated gratefulagents security skills come from, how they are pinned and reviewed, and how I install them.
+---
+
 # Security skill sources and curation
 
-Grateful Agents ships a curated security skill catalog for repository security scans. External skills are not copied into this repository: each `Skill` resource points to an immutable upstream commit and folder containing a `SKILL.md`. The controller validates the skill frontmatter before making its instructions available to runs.
+GratefulAgents ships a curated security skill catalog for repository security scans. External skills are not copied into this repository: each `Skill` resource points to an immutable upstream commit and folder containing a `SKILL.md`. The controller validates the skill frontmatter before making its instructions available to runs.
 
 The catalog is opt-in for each user. Open **Security** and select **Install security skills** to copy the curated bundle into your personal namespace. Merely opening the Security page only checks installation status; it never installs anything. Existing personal skills with the same name, including modified copies from an older bundle, are preserved rather than overwritten.
 

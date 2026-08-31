@@ -35,8 +35,15 @@ const sidebars: SidebarsConfig = {
         'projects/projects',
         'projects/run-defaults',
         'projects/cron',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Security',
+      items: [
         'projects/security-scanning',
-        'projects/blockchain-security-research',
+        'projects/security-tool-packs',
+        'projects/security-skill-sources',
       ],
     },
     {
@@ -45,7 +52,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'integrations/connection-secrets',
         'integrations/github',
-        'integrations/maintainer-work-item-cutover',
         'integrations/linear',
         'integrations/slack',
       ],

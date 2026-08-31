@@ -1,3 +1,5 @@
+> Internal engineering/reference document — not part of the published user guide.
+
 # Blockchain security workflow research benchmark
 
 This document records the evidence baseline used to maintain the shipped blockchain security workflows. It is not a substitute for a program's current rules or a protocol's pinned specification. Re-check every source at review time because program scope, fork status, implementations, and toolchains change.

@@ -18,7 +18,9 @@ A run is one agent session. Start a run from **Home** or from a project. Automat
 4. Optional: select **Options** and enter a model override.
 5. Press **Enter** or select **Start**.
 
-If no project is selected, Home uses the personal workspace when one is available. When Home creates or finds that workspace, it also ensures a **Grateful Agents** project exists beside it. That project opens the public platform and SDK repositories in a read-only issue-intake mode, so you can describe a product bug or feature request and have the agent file it in the correct repository. It does not implement changes or open pull requests.
+If no project is selected, Home uses your personal project (shown in the app as "Personal workspace") when one is available. When Home creates or finds that personal project, it also ensures a **Grateful Agents** project exists beside it. That project opens the public platform and SDK repositories in a read-only issue-intake mode, so you can describe a product bug or feature request and have the agent file it in the correct repository. It does not implement changes or open pull requests.
+
+Example tasks:
 
 ```text
 Investigate why checkout totals are sometimes rounded incorrectly. Explain the likely cause before editing.
@@ -47,4 +49,4 @@ After the run starts, use the session's `/` command menu to see the mode transit
 
 ## What happens next
 
-The app opens the run session after creation. The run can show a startup message while its workspace and repositories are prepared. Once the composer is enabled, you can message the agent and review activity in the session tabs.
+The app opens the run session after creation. Until the agent produces its first output, the session shows a **Starting up** checklist with the elapsed time and the current startup stage: **Run queued**, **Starting sandbox**, **Preparing workspace**, then **Agent is working**. Once the composer is enabled, you can message the agent and review activity in the session tabs.

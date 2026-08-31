@@ -17,11 +17,22 @@ const pages = [];
   }
 })(dist);
 
+function decodeEntities(text) {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
 function extractMeta(html) {
   const rawTitle = html.match(/<title>([^<]+)<\/title>/)?.[1]?.trim() ?? '';
   // Strip " | GratefulAgents" suffix and variants for readability.
-  const title = rawTitle.replace(/\s*\|\s*GratefulAgents.*$/, '').trim();
-  const description = html.match(/<meta name="description" content="([^"]+)"/)?.[1]?.trim() ?? '';
+  const title = decodeEntities(rawTitle.replace(/\s*\|\s*GratefulAgents.*$/, '').trim());
+  const description = decodeEntities(
+    html.match(/<meta name="description" content="([^"]+)"/)?.[1]?.trim() ?? '',
+  );
   const isNoindex = html.includes('content="noindex');
   return {title, description, isNoindex};
 }

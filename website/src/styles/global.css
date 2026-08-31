@@ -718,7 +718,7 @@ img { max-width: 100%; height: auto; }
 .docs-layout { display: grid; grid-template-columns: 17rem minmax(0, 1fr); width: min(100%, 82rem); min-height: calc(100vh - 8rem); margin: 0 auto; }
 .sidebar { position: sticky; top: 58px; height: calc(100vh - 58px); overflow-y: auto; padding: 1.8rem 1.4rem 3rem 1.5rem; border-right: 1px solid var(--line-strong); background: rgba(5, 5, 6, 0.4); font-size: 0.88rem; }
 .nav-group { margin-bottom: 1.5rem; }
-.nav-key { margin: 0 0 0.45rem; color: var(--faded-dim); font-family: var(--font-mono); font-size: 0.68rem; }
+.nav-key { margin: 0 0 0.45rem; color: var(--faded-dim); font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700; }
 .nav-key b { color: var(--redline-soft); font-weight: 500; }
 .nav-group ul { margin: 0; padding: 0; border-left: 1px solid var(--line); list-style: none; }
 .nav-group li a { display: block; margin-left: -1px; padding: 0.28rem 0 0.28rem 0.85rem; border-left: 2px solid transparent; color: var(--faded); text-decoration: none; }

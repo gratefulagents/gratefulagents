@@ -16,7 +16,9 @@ Run sessions use tabs to separate the conversation from supporting evidence. **C
 
 ## Graph
 
-**Graph** visualizes delegated and sub-agent work. Use it to see parallel tasks, dependencies, and the status of child work. It is most useful when a run delegates research, implementation, testing, or review.
+**Graph** visualizes delegated and subagent work. Use it to see parallel tasks, dependencies, and the status of child work. It is most useful when a run delegates research, implementation, testing, or review.
+
+While delegated work is active, the **Chat** tab also pins a subagent dock above the composer. Its summary row shows the total ("Delegated 6 tasks") with running and waiting counts, and expands into the full task roster grouped into dependency waves: tasks in the same wave run in parallel, and later waves appear below a divider naming the tasks they run after. Every task gets a stable number (#1, #2, …); dependent tasks state exactly which tasks they run after ("after #1, #3"), and gated tasks show "Waiting on #n" for their unfinished dependencies. Hover a dependency reference for the full task titles. Cards show each subagent's status, elapsed time or duration, current activity, model, tokens, and cost, and the dock's expand icon opens the full **Graph** tab. The delegation entry in the chat transcript uses the same numbering and "after #n" references. The dock disappears once all delegated tasks finish; the roster remains in the transcript and the **Graph** tab.
 
 ## Diff
 

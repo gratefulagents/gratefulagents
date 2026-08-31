@@ -12,7 +12,7 @@ The web, iOS, Android, and desktop apps use the same GratefulAgents backend. Ins
 
 ## Choose web or an installed app
 
-- **Web:** Open the HTTPS URL your administrator provides. The web app uses the backend that served it, so there is no endpoint to configure.
+- **Web:** Open the HTTPS URL your administrator provides. The dashboard uses the backend that served it, so there is no endpoint to configure.
 - **iOS, Android, or desktop:** Install a release supplied by the project or your administrator, then enter the workspace's Operator URL. Use an installed app when you need Cloudflare Access service-token authentication or multiple saved workspaces.
 
 Desktop release artifacts currently target Apple Silicon macOS and AMD64 or ARM64 Linux. Windows is not currently listed as a release target.

@@ -8,7 +8,7 @@ agentPrompt: >-
 
 # SOUL persona
 
-**SOUL** is your personal agent persona. Teammates can ask an agent for your perspective on a question, plan, or diff, and the response uses the guidance you save.
+**SOUL** is a stylized name for your personal agent persona; it is not an acronym. Teammates can ask an agent for your perspective on a question, plan, or diff, and the response uses the guidance you save.
 
 ## Save a SOUL
 

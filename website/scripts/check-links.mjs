@@ -37,6 +37,15 @@ const sitemapUrls = new Set([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m
 const descriptions = new Map();
 const titles = new Map();
 
+// Doc ids listed in src/data/sidebar.ts (orderedIds); every built /docs/ route
+// must appear there so no doc page is orphaned from the sidebar navigation.
+const sidebarSource = readFileSync(new URL('../src/data/sidebar.ts', import.meta.url), 'utf8');
+const sidebarIds = new Set();
+for (const block of sidebarSource.matchAll(/items:\s*\[([^\]]*)\]/g)) {
+  for (const id of block[1].matchAll(/'([^']+)'/g)) sidebarIds.add(id[1]);
+}
+const orphanDocs = [];
+
 let indexablePageCount = 0;
 
 for (const page of pages) {
@@ -65,6 +74,11 @@ for (const page of pages) {
 
   // Noindex pages (e.g. 404) are exempt from indexability checks.
   const isNoindex = robotsMeta?.startsWith('noindex');
+
+  if (!isNoindex && route.startsWith('/docs/')) {
+    const docId = route === '/docs/' ? 'intro' : route.slice('/docs/'.length).replace(/\/$/, '');
+    if (!sidebarIds.has(docId)) orphanDocs.push(`${route} (id: ${docId})`);
+  }
 
   if (!title) fail(`MISSING title in ${route}`);
   else {
@@ -116,6 +130,12 @@ for (const page of pages) {
 
 if (sitemapUrls.size !== indexablePageCount) {
   fail(`SITEMAP count ${sitemapUrls.size} does not match indexable page count ${indexablePageCount}`);
+}
+
+if (orphanDocs.length > 0) {
+  fail(
+    `ORPHAN docs route(s) not listed in src/data/sidebar.ts orderedIds — add them to a sidebar section or move the source out of user-docs/docs:\n  ${orphanDocs.join('\n  ')}`,
+  );
 }
 
 console.log(bad

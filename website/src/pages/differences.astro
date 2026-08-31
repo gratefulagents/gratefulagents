@@ -3,7 +3,7 @@ import Base from '../layouts/Base.astro';
 import '../styles/marketing.css';
 import {differenceRows, faqs} from '../data/differences';
 
-const title = 'Self-Hosted Alternative to Devin and GitHub Copilot | GratefulAgents';
+const title = 'Self-Hosted Alternative to Devin & Copilot | GratefulAgents';
 const description =
   'GratefulAgents is an open-source, self-hosted alternative to Devin and GitHub Copilot. Agents run in your own Kubernetes cluster, on your own model keys.';
 
@@ -68,7 +68,7 @@ const structuredData = [
         </p>
         <div class="cta-row">
           <a href="/docs/getting-started/self-hosting-kind/" class="btn btn-primary">
-            Run it locally →
+            Run it locally with Kind →
           </a>
           <a href="/self-hosted-coding-agents/" class="btn btn-quiet">
             Why self-host?
@@ -80,11 +80,11 @@ const structuredData = [
 
         <h2>What changes when you self-host</h2>
         <p>
-          The difference is architectural, not a feature checklist. On a cloud harness your source
-          code, your prompts, and your model credentials all transit the vendor's network and
-          execute on the vendor's machines. Self-hosting moves that boundary: agents run in sandbox
-          pods in your cluster, against secrets you hold, and every run leaves a trace you can
-          inspect.
+          The difference is architectural, not a feature checklist. On a cloud harness — the
+          software loop that drives the agent — your source code, your prompts, and your model
+          credentials all transit the vendor's network and execute on the vendor's machines.
+          Self-hosting moves that boundary: agents run in sandbox pods in your cluster, against
+          secrets you hold, and every run leaves a trace you can inspect.
         </p>
 
         <div class="mk-table-scroll" role="region" aria-label="Architectural differences" tabindex="0">

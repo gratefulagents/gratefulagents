@@ -12,10 +12,10 @@ Use this page for dashboard, sign-in, run, or self-hosted control-plane problems
 
 ## The desktop app will not install or open
 
-Check the [GitHub releases page](https://github.com/gratefulagents/gratefulagents/releases) for an artifact that matches your operating system and CPU. On macOS, published builds currently target Apple Silicon. On Linux, confirm the AppImage matches `uname -m` and is executable:
+Check the [GitHub releases page](https://github.com/gratefulagents/gratefulagents/releases) for an artifact that matches your operating system and CPU. On macOS, published builds currently target Apple Silicon. On Linux, confirm the AppImage matches `uname -m` and is executable. From the directory containing the download, using the asset's real filename:
 
 ```bash
-chmod +x "$HOME/.local/bin/gratefulagents"
+chmod +x ./gratefulagents-<version>-<architecture>.AppImage
 ```
 
 Do not use the repository's convenience installer as a recovery path on a security-sensitive device: it selects the mutable latest release, does not verify an asset checksum, and clears macOS quarantine attributes. Never pipe it from a mutable branch directly into a shell. On macOS, do not bypass Gatekeeper with a blanket `xattr -cr`. If the release does not provide a checksum or a verifiable signed and notarized build, ask the release maintainer or your workspace administrator for one.

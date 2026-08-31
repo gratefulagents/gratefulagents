@@ -8,7 +8,7 @@ agentPrompt: >-
 
 # Chat with an agent
 
-The **Chat** tab is the main workspace for collaborating with an agent. It combines your messages, agent replies, activity, questions, approvals, and live working state in one timeline.
+The **Chat** tab is the main surface for collaborating with an agent. It combines your messages, agent replies, activity, questions, approvals, and live working state in one timeline.
 
 The timeline follows new activity while you are at the bottom. Use the scroll controls to jump to the beginning or end of a long session.
 

@@ -4,6 +4,8 @@ seoTitle: Maintainer Work-Item Delivery and Cutover | GratefulAgents
 description: Reference for MaintainerWorkItemCommand delivery rules, guarded merge conditions, waiter cutover, and branch-protection requirements in GratefulAgents.
 ---
 
+> Internal engineering/reference document — not part of the published user guide.
+
 # Maintainer work-item delivery and waiter cutover
 
 Maintainer delivery uses authenticated `MaintainerWorkItemCommand` resources. The standing maintainer submits intent; the repository controller owns irreversible side effects.

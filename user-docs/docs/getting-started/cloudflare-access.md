@@ -93,7 +93,7 @@ Create the protection before distributing the URL:
 
 1. Go to **Zero Trust → Access controls → Applications**.
 2. Add a **Self-hosted** application for the exact hostname, such as `agents.example.com`.
-3. Add an **Allow** policy for the users, email domains, or identity-provider groups that may use the web app.
+3. Add an **Allow** policy for the users, email domains, or identity-provider groups that may use the dashboard.
 4. Set a short session duration appropriate for your organization and save the application.
 5. Open the hostname in a private browser window and confirm Cloudflare requests identity before GratefulAgents loads.
 

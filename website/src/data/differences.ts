@@ -3,7 +3,7 @@
  *
  * Deliberately narrow: stable architectural facts only. No pricing, benchmark,
  * funding, or customer claims — those go stale and become inaccurate — and no
- * editorialising about other vendors' products.
+ * editorializing about other vendors' products.
  */
 
 export interface DifferenceRow {
@@ -35,11 +35,11 @@ export const differenceRows: DifferenceRow[] = [
   {
     dimension: 'Model choice',
     devin: "Cognition's own models",
-    copilot: "GitHub's supported catalogue",
-    gratefulagents: 'Claude, OpenAI, OpenRouter, Grok, Copilot — your keys',
+    copilot: "GitHub's supported catalog",
+    gratefulagents: 'Claude (Anthropic), OpenAI, OpenRouter, Grok (xAI), GitHub Copilot — your keys',
   },
   {
-    dimension: 'Licence',
+    dimension: 'License',
     devin: 'Proprietary SaaS',
     copilot: 'Proprietary SaaS',
     gratefulagents: 'AGPL-3.0 open source',
@@ -60,7 +60,7 @@ export const differenceRows: DifferenceRow[] = [
     dimension: 'Trigger surfaces',
     devin: 'Web UI, Slack',
     copilot: 'GitHub issues and pull requests',
-    gratefulagents: 'GitHub, Linear, Slack, cron',
+    gratefulagents: 'GitHub, Linear, Slack, Cron',
   },
   {
     dimension: 'Client applications',
@@ -94,11 +94,11 @@ export const faqs: FaqItem[] = [
   {
     question: 'Which models can I use?',
     answer:
-      'Any provider whose credentials you store in your workspace: Claude (Anthropic), OpenAI, OpenRouter, Grok (xAI), and GitHub Copilot. Model choice is configurable per project and per role, so you are not tied to one vendor\u2019s catalogue.',
+      'Any provider whose credentials you store in your workspace: Claude (Anthropic), OpenAI, OpenRouter, Grok (xAI), and GitHub Copilot. Model choice is configurable per project and per role, so you are not tied to one vendor\u2019s catalog.',
   },
   {
     question: 'What do I need to run it?',
     answer:
-      'A Kubernetes cluster. The Kind guide stands one up on a macOS or Linux laptop for evaluation; the k3s guide covers a persistent install on a fresh Debian or Ubuntu server. Both are installed with the same Helm chart.',
+      'A Kubernetes cluster. The Kind guide stands one up on a macOS or Linux laptop for evaluation; the k3s guide covers a persistent install on a fresh Debian or Ubuntu server. Both paths install the same Helm chart.',
   },
 ];
