@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -88,6 +89,9 @@ func TestSecurityProgramLibrary(t *testing.T) {
 	t.Parallel()
 
 	expectedCategories := map[string][]string{
+		"immunefi-cosmos":    {"Blockchain/DLT"},
+		"immunefi-etherfi":   {"Smart Contract"},
+		"immunefi-marinade":  {"Smart Contract"},
 		"immunefi-1inch":     {"Smart Contract"},
 		"immunefi-aave":      {"Smart Contract"},
 		"immunefi-arbitrum":  {"Smart Contract"},
@@ -123,6 +127,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"hackenproof-near-contracts":      "https://hackenproof.com/programs/near-smart-contracts-1",
 		"hackenproof-near-intents":        "https://hackenproof.com/programs/near-intents-smart-contracts",
 		"hackenproof-risc-zero-verifiers": "https://hackenproof.com/programs/risc-zero-blockchain-verifiers",
+		"hackenproof-scallop":             "https://hackenproof.com/programs/scallop-protocol-smart-contract",
 		"hackenproof-snowbridge":          "https://hackenproof.com/programs/snowbridge-on-chain-code",
 		"hackenproof-slush-wallet":        "https://hackenproof.com/programs/slush-wallet",
 		"hackenproof-sui-protocol":        "https://hackenproof.com/programs/sui-protocol",
@@ -144,6 +149,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"hackenproof-flow-protocol":       {"Public HackenProof scope snapshot", "https://github.com/onflow/flow-evm-bridge", "Range of bounty: $0 - $25,000"},
 		"hackenproof-layer3":              {"Public HackenProof scope snapshot", "https://github.com/layer3xyz/cubes/blob/main/src/escrow/Factory.sol", "Range of bounty: $0 - $500,000"},
 		"hackenproof-risc-zero-verifiers": {"Public HackenProof scope snapshot", "https://github.com/risc0/risc0-ethereum/tree/main/contracts/src", "Range of bounty: $250 - $150,000"},
+		"hackenproof-scallop":             {"Public HackenProof scope snapshot", "https://github.com/scallop-io/sui-lending-protocol", "Range of bounty: $30 - $300,000"},
 		"hackenproof-adi-zkvm":            {"Public HackenProof scope snapshot", "ADI Foundation zkVM Verification", "Range of bounty: $200 - $10,000"},
 		"hackenproof-aptos-network":       {"Public HackenProof scope snapshot", "https://github.com/aptos-labs/aptos-core/tree/mainnet", "Range of bounty: $0 - $250,000"},
 		"hackenproof-atomone":             {"Public HackenProof scope snapshot", "https://github.com/atomone-hub/atomone", "Range of bounty: $200 - $10,000"},
@@ -166,6 +172,49 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"bugcrowd-openai":                 {"Browser-verified program boundary (2026-08-15)", "Security Bug Bounty boundary", "Safety Bug Bounty is separate", "historical 25-row table"},
 		"immunefi-filecoin":               {"Immunefi scope snapshot verified 2026-08-24", "29 source-code assets", "running local devnet", "$50,000 maximum bounty"},
 	}
+	type researchedBoundaryExpectation struct {
+		impactCount     int
+		outOfScopeCount int
+		testingCount    int
+		impactClause    string
+		outOfScope      string
+		prohibitedTest  string
+		policyMarker    string
+	}
+	expectedResearchedBoundaries := map[string]researchedBoundaryExpectation{
+		"hackenproof-scallop": {
+			impactCount: 7, outOfScopeCount: 13, testingCount: 17,
+			impactClause: "Fee payment bypass", outOfScope: "Theoretical vulnerabilities without any proof or demonstration.",
+			prohibitedTest: "Any testing with mainnet or public testnet contracts; all testing should be done on private testnets",
+			policyMarker:   "reported exclusively through hackenproof.com no later than 24 hours after discovery",
+		},
+		"immunefi-cosmos": {
+			impactCount: 9, outOfScopeCount: 6, testingCount: 6,
+			impactClause: "Non-determinism / consensus fork / AppHash divergence", outOfScope: "Assets not explicitly listed as in scope, including assets not owned by participating teams",
+			prohibitedTest: "Do not test live mainnet or public testnet networks, deployed code, or production infrastructure; use local forks, local clusters, or private deployments",
+			policyMarker:   "running local 4-node network",
+		},
+		"immunefi-etherfi": {
+			impactCount: 21, outOfScopeCount: 5, testingCount: 5,
+			impactClause: "Protocol insolvency", outOfScope: "Vulnerabilities whose root cause lies in third-party infrastructure or protocols",
+			prohibitedTest: "Do not test deployed mainnet or public-testnet code; use a local fork",
+			policyMarker:   "The live Immunefi table, not repository membership, is the authority for deployed eligibility.",
+		},
+		"immunefi-marinade": {
+			impactCount: 6, outOfScopeCount: 15, testingCount: 8,
+			impactClause: "Protocol insolvency", outOfScope: "Best practice critiques",
+			prohibitedTest: "Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet",
+			policyMarker:   "This scan selects the repository's mainnet branch for production relevance",
+		},
+	}
+	containsImpact := func(values []triggersv1alpha1.SecurityProgramImpact, want string) bool {
+		for _, value := range values {
+			if value.Impact == want {
+				return true
+			}
+		}
+		return false
+	}
 	browserResearchedCatalogPrograms := map[string]struct{}{
 		"coinkite-coldcard":               {},
 		"hackenproof-1inch-wallet":        {},
@@ -176,6 +225,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"hackenproof-flow-protocol":       {},
 		"hackenproof-layer3":              {},
 		"hackenproof-risc-zero-verifiers": {},
+		"hackenproof-scallop":             {},
 		"hackenproof-adi-zkvm":            {},
 		"hackenproof-aptos-network":       {},
 		"hackenproof-atomone":             {},
@@ -195,6 +245,9 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"hackerone-coinbase":              {},
 		"bugcrowd-openai":                 {},
 		"immunefi-filecoin":               {},
+		"immunefi-cosmos":                 {},
+		"immunefi-etherfi":                {},
+		"immunefi-marinade":               {},
 	}
 	catalogProgramsWithoutImportTargets := map[string]string{
 		"bugcrowd-openai":          "authenticated Bugcrowd",
@@ -221,12 +274,16 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"hackenproof-near-contracts":      2,
 		"hackenproof-near-intents":        1,
 		"hackenproof-risc-zero-verifiers": 1,
+		"hackenproof-scallop":             1,
 		"hackenproof-snowbridge":          2,
 		"hackenproof-sui-protocol":        4,
 		"hackenproof-vechainthor":         1,
 		"shiftcrypto-bitbox":              2,
 		"hackerone-coinbase":              2,
 		"immunefi-filecoin":               28,
+		"immunefi-cosmos":                 2,
+		"immunefi-etherfi":                2,
+		"immunefi-marinade":               1,
 	}
 	expectedCatalogTargetWorkflows := map[string]string{
 		"coinkite-coldcard":               "wallet-security-review",
@@ -248,12 +305,16 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"hackenproof-near-contracts":      "near-contract-review",
 		"hackenproof-near-intents":        "near-contract-review",
 		"hackenproof-risc-zero-verifiers": "bridge-l2-zk-security-review",
+		"hackenproof-scallop":             "sui-move-security-review",
 		"hackenproof-snowbridge":          "substrate-xcm-security-review",
 		"hackenproof-sui-protocol":        "blockchain-protocol-audit",
 		"hackenproof-vechainthor":         "blockchain-protocol-audit",
 		"shiftcrypto-bitbox":              "wallet-security-review",
 		"hackerone-coinbase":              "mpc-cryptography-security-review",
 		"immunefi-filecoin":               "filecoin-security-review",
+		"immunefi-cosmos":                 "blockchain-protocol-audit",
+		"immunefi-etherfi":                "bounty-hunt-evm",
+		"immunefi-marinade":               "solana-defi-program-review",
 	}
 	// A program whose in-scope repositories span more than one execution
 	// environment cannot be reviewed by a single workflow: the Solana crates
@@ -293,7 +354,21 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		baseBranch    string
 		scanName      string
 	}
-	expectedWalletRepositoryTargets := map[string][]expectedRepositoryTarget{
+	expectedRepositoryTargets := map[string][]expectedRepositoryTarget{
+		"hackenproof-scallop": {
+			{repositoryURL: "https://github.com/scallop-io/sui-lending-protocol", baseBranch: "main", scanName: "hackenproof-scallop"},
+		},
+		"immunefi-cosmos": {
+			{repositoryURL: "https://github.com/CosmWasm/cosmwasm", baseBranch: "v3.0.9", scanName: "immunefi-cosmos-cosmwasm"},
+			{repositoryURL: "https://github.com/CosmWasm/wasmvm", baseBranch: "v3.0.7", scanName: "immunefi-cosmos-wasmvm"},
+		},
+		"immunefi-etherfi": {
+			{repositoryURL: "https://github.com/etherfi-protocol/smart-contracts", baseBranch: "master", scanName: "immunefi-etherfi-smart-contracts"},
+			{repositoryURL: "https://github.com/etherfi-protocol/cash-v3", baseBranch: "master", scanName: "immunefi-etherfi-cash-v3"},
+		},
+		"immunefi-marinade": {
+			{repositoryURL: "https://github.com/marinade-finance/liquid-staking-program", baseBranch: "mainnet", scanName: "immunefi-marinade-liquid-staking-program"},
+		},
 		"coinkite-coldcard": {
 			{repositoryURL: "https://github.com/Coldcard/firmware", baseBranch: "master", scanName: "coldcard-firmware"},
 		},
@@ -404,12 +479,29 @@ func TestSecurityProgramLibrary(t *testing.T) {
 				if strings.Contains(program.Spec.ScopePolicy, "Verification boundary") {
 					t.Error("catalog program still contains the pre-research placeholder scope")
 				}
+				if want, expected := expectedResearchedBoundaries[program.Name]; expected {
+					if len(program.Spec.InScopeImpacts) != want.impactCount || len(program.Spec.OutOfScope) != want.outOfScopeCount || len(program.Spec.ProhibitedTesting) != want.testingCount {
+						t.Errorf("typed boundary counts = impacts %d, out-of-scope %d, testing %d; want %d, %d, %d", len(program.Spec.InScopeImpacts), len(program.Spec.OutOfScope), len(program.Spec.ProhibitedTesting), want.impactCount, want.outOfScopeCount, want.testingCount)
+					}
+					if !containsImpact(program.Spec.InScopeImpacts, want.impactClause) {
+						t.Errorf("typed impacts missing researched clause %q", want.impactClause)
+					}
+					if !slices.Contains(program.Spec.OutOfScope, want.outOfScope) {
+						t.Errorf("typed out-of-scope boundary missing researched clause %q", want.outOfScope)
+					}
+					if !slices.Contains(program.Spec.ProhibitedTesting, want.prohibitedTest) {
+						t.Errorf("typed testing boundary missing researched clause %q", want.prohibitedTest)
+					}
+					if !strings.Contains(program.Spec.ScopePolicy, want.policyMarker) {
+						t.Errorf("scopePolicy missing researched qualification %q", want.policyMarker)
+					}
+				}
 			}
 			if want, ok := expectedCatalogTargetCounts[program.Name]; ok {
 				if got := len(targets); got != want {
 					t.Fatalf("importable scan target count = %d, want %d", got, want)
 				}
-				if expected, ok := expectedWalletRepositoryTargets[program.Name]; ok {
+				if expected, ok := expectedRepositoryTargets[program.Name]; ok {
 					for index, wantTarget := range expected {
 						gotTarget := targets[index]
 						if gotTarget.RepositoryURL != wantTarget.repositoryURL || gotTarget.TargetURL != "" || gotTarget.BaseBranch != wantTarget.baseBranch || gotTarget.ScanName != wantTarget.scanName {
@@ -535,8 +627,10 @@ func TestSecurityProgramLibrary(t *testing.T) {
 			switch got := program.Spec.SeveritySystem; {
 			case got == "":
 				t.Error("shipped program declares no severitySystem")
-			case isImmunefi && got != string(triggersv1alpha1.SeveritySystemImmunefiV23):
+			case isImmunefi && program.Name != "immunefi-cosmos" && got != string(triggersv1alpha1.SeveritySystemImmunefiV23):
 				t.Errorf("severitySystem = %q, want immunefi-v2.3", got)
+			case program.Name == "immunefi-cosmos" && got != string(triggersv1alpha1.SeveritySystemCustom):
+				t.Errorf("severitySystem = %q, want custom Cosmos impact/likelihood framework", got)
 			case program.Spec.Provider == "Ethereum Foundation" && got != string(triggersv1alpha1.SeveritySystemEthereumFoundation):
 				t.Errorf("severitySystem = %q, want ethereum-foundation", got)
 			}

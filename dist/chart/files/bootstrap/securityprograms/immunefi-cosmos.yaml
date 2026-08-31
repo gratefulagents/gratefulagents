@@ -1,0 +1,140 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-cosmos
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/CosmWasm/cosmwasm
+      baseBranch: v3.0.9
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: immunefi-cosmos-cosmwasm
+      displayName: CosmWasm smart-contract platform at released tag v3.0.9
+      priority: 83
+      featured: true
+    - repositoryURL: https://github.com/CosmWasm/wasmvm
+      baseBranch: v3.0.7
+      workflowRef: blockchain-protocol-audit
+      policyPackRef: bug-bounty
+      scanName: immunefi-cosmos-wasmvm
+      displayName: CosmWasm wasmvm smart-contract platform at released tag v3.0.7
+      priority: 84
+      featured: false
+  provider: Immunefi
+  displayName: Cosmos CosmWasm Smart-Contract Platform
+  programURL: https://immunefi.com/bug-bounty/cosmos/scope/
+  verifiedAt: 2026-08-29T00:00:00Z
+  severitySystem: custom
+  primacy: rules
+  pocRequired: true
+  pocEnvironment: local-devnet
+  kycRequired: true
+  assets:
+    - repositoryURL: https://github.com/CosmWasm/cosmwasm
+      displayName: Blockchain/DLT smart-contract platform — CosmWasm at released tag v3.0.9
+    - repositoryURL: https://github.com/CosmWasm/wasmvm
+      displayName: Blockchain/DLT smart-contract platform — CosmWasm wasmvm at released tag v3.0.7
+  inScopeImpacts:
+    - impact: Unauthorized minting or burning of user funds
+      level: critical
+      assetType: Blockchain/DLT
+    - impact: Permanent freezing of funds (fix requires hardfork)
+      level: critical
+      assetType: Blockchain/DLT
+    - impact: Chain halt / liveness failure
+      level: high
+      assetType: Blockchain/DLT
+    - impact: Non-determinism / consensus fork / AppHash divergence
+      level: high
+      assetType: Blockchain/DLT
+    - impact: Permanent locking / freezing of funds or clients
+      level: high
+      assetType: Blockchain/DLT
+    - impact: Theft / unauthorized extraction of funds
+      level: high
+      assetType: Blockchain/DLT
+    - impact: Loss of cryptoeconomic security
+      level: high
+      assetType: Blockchain/DLT
+    - impact: Single-node crash / resource-exhaustion DoS
+      level: medium
+      assetType: Blockchain/DLT
+    - impact: Privilege escalation / authorization bypass / unauthorized state mutation
+      level: medium
+      assetType: Blockchain/DLT
+  outOfScope:
+    - "Assets not explicitly listed as in scope, including assets not owned by participating teams"
+    - "Issues already publicly or privately addressed, issues fixed upstream, and downstream effects of resolved bounty issues"
+    - "Scanner-generated, automated, informational-only, architectural, best-practice, and feature-request reports without demonstrated impact"
+    - "Impacts requiring leaked credentials, unexplained privileged access, or an unchanged privileged address"
+    - "Impacts on test files and configuration files unless stated otherwise"
+    - "Attacks that require honest users to interact with, transfer to, or deposit into a malicious chain, IBC channel/client, or contract"
+  prohibitedTesting:
+    - "Do not test live mainnet or public testnet networks, deployed code, or production infrastructure; use local forks, local clusters, or private deployments"
+    - "Do not execute denial-of-service attacks against project assets or live networks"
+    - "Do not run automated testing that generates significant traffic"
+    - "Do not violate privacy, disrupt production, destroy data, harm users, or access more data than a proof of concept requires"
+    - "Do not test third-party systems or use accounts without permission"
+    - "Do not phish, socially engineer, or disclose an unpatched vulnerability without approval"
+  scopePolicy: |-
+    Verbatim Immunefi scope (retrieved 2026-08-29; page last updated 27 August 2026).
+
+    Displayed wording is preserved; layout whitespace is normalized.
+
+    Blockchain/DLT
+
+    Assets in Scope
+    https://github.com/CosmWasm/cosmwasm — CosmWasm - WebAssembly Smart Contracts for the Cosmos SDK
+    https://github.com/CosmWasm/wasmvm — Blockchain/DLT - CosmWasm (wasmvm)
+
+    Impacts in Scope
+    The relevant published impact clauses for this subset are transcribed below.
+
+    Out of scope
+    The program-wide exclusions and prohibited activities transcribed below apply.
+
+    This SecurityProgram intentionally represents only the Blockchain/DLT smart-contract-platform subset of the broader Cosmos program:
+    - https://github.com/CosmWasm/cosmwasm at released tag v3.0.9 (CosmWasm - WebAssembly Smart Contracts for the Cosmos SDK)
+    - https://github.com/CosmWasm/wasmvm at released tag v3.0.7 (Blockchain/DLT - CosmWasm (wasmvm))
+    No other repository, service, website, Cosmos Stack component, branch, tag, or asset from the broader Cosmos program is authorized by this record.
+
+    Release eligibility warning
+    Only released code is eligible for a reward. An issue must exist in released code that is tagged and actively maintained under the Cosmos Release Family Policy, and it must be exploitable in an intended deployed environment and configuration. Code that exists only on main, master, or another development branch is not in scope. The pinned tags above were released and selected at verification time; release-family support and live program eligibility can change.
+
+    Severity and rewards
+    Cosmos uses its own impact/likelihood framework, impact-specific downgrade conditions, program-wide downgrade conditions, feasibility, exploitability, and report quality rather than the generic Immunefi severity ladder. Cosmos retains discretion over final severity and provides reasons for special additional downgrades. Primacy of Rules applies: the program runs strictly under its published terms.
+    Rewards are flat by threat level for Blockchain/DLT findings: Critical $50,000; High $12,500; Medium $2,500; Low $1,000. The maximum bounty is $50,000. Informational findings are not eligible.
+
+    Relevant published Blockchain/DLT impacts for this smart-contract-platform subset
+    Critical
+    - Unauthorized minting or burning of user funds
+    - Permanent freezing of funds (fix requires hardfork)
+
+    High
+    - Chain halt / liveness failure
+    - Non-determinism / consensus fork / AppHash divergence
+    - Permanent locking / freezing of funds or clients
+    - Theft / unauthorized extraction of funds
+    - Loss of cryptoeconomic security
+
+    Medium
+    - Single-node crash / resource-exhaustion DoS
+    - Privilege escalation / authorization bypass / unauthorized state mutation
+
+    Impact definitions and downgrade conditions remain controlling. Among them, an optional or non-default wasm configuration can downgrade a single-node crash or resource-exhaustion report. Out-of-memory reports must demonstrate node memory consumption increasing by more than 16 GB. Authorization paths that are intentionally permissionless by design and nested authz MsgExec execution through a valid grant are excluded from the authorization-bypass impact.
+
+    Proof of concept and KYC
+    A runnable, readable code PoC is required for every severity; written descriptions, mock-only or database-only calls, and unit or integration tests alone are insufficient. For every Medium, High, or Critical report, the PoC must demonstrate the vulnerability end-to-end from an external perspective against a running local 4-node network. A malicious-node attack may modify one local instance, but must prove impact against the network as a whole. A self-contained bash script that starts the network, applies required modifications, runs the attack, and proves the result is preferred. KYC is required for payout, and researchers employed by or contracted to the affected code's maintainers during the preceding 12 months are ineligible.
+
+    Testing restrictions
+    - Do not test against live mainnet or public testnet networks, deployed code, or production infrastructure; use local forks, local test clusters, or private deployments.
+    - Do not execute denial-of-service attacks against project assets or live networks, or run automated testing that generates significant traffic.
+    - Do not violate user privacy, disrupt production, destroy data, harm user experience, or access more data than the minimum needed for a PoC. Stop and report immediately if sensitive data is encountered.
+    - Use only test accounts you own or have explicit permission to use. Do not test third-party systems, applications, or websites.
+    - Do not use phishing or social engineering, disclose an unpatched or unapproved vulnerability, engage in extortion, or violate the Immunefi Rules.
+
+    Exclusions
+    Excluded reports include assets not explicitly listed here; issues requiring an already-compromised environment or majority-compromised consensus; previously addressed, upstream-fixed, known, or downstream duplicate issues; third-party services and websites; web vulnerabilities; expected configuration behavior; governance-misconfiguration-only issues; dependency or package-registry reports without a Cosmos-specific exploit and demonstrated in-scope impact; scanner-generated, automated, informational-only, architectural, best-practice, and feature-request reports without immediate demonstrated impact; user-error or undocumented-deployment issues; attacks requiring unexplained privileged local access, leaked credentials, or an unchanged privileged address; attacks already exploited to cause damage; phishing or social engineering; test/configuration-file-only impacts; attacks costing more than their deterministically proven damage; incorrect third-party oracle data; centralization risks; and attacks requiring honest users to interact with, transfer to, or deposit into a malicious chain, IBC channel/client, or contract on their own.
+
+    Mutability and reverification
+    Immunefi scope, impact definitions, downgrade rules, rewards, exclusions, release-family maintenance status, and eligible tags are mutable. Before every scan and again before report submission, reverify the live Cosmos program and Release Family Policy. Do not scan or submit against either pinned tag if it is no longer listed, released, actively maintained, or otherwise eligible; update this snapshot instead. The verifiedAt timestamp records only when this subset was checked and is not a promise of continuing eligibility.

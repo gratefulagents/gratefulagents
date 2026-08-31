@@ -1,0 +1,176 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityProgram
+metadata:
+  name: immunefi-etherfi
+spec:
+  scanTargets:
+    - repositoryURL: https://github.com/etherfi-protocol/smart-contracts
+      baseBranch: master
+      workflowRef: bounty-hunt-evm
+      policyPackRef: bug-bounty
+      scanName: immunefi-etherfi-smart-contracts
+      displayName: Ether.fi liquid restaking contract sources
+      priority: 81
+      featured: true
+    - repositoryURL: https://github.com/etherfi-protocol/cash-v3
+      baseBranch: master
+      workflowRef: bounty-hunt-evm
+      policyPackRef: bug-bounty
+      scanName: immunefi-etherfi-cash-v3
+      displayName: Ether.fi Cash v3 contract sources
+      priority: 82
+      featured: false
+  provider: Immunefi
+  displayName: Ether.fi Smart Contracts
+  programURL: https://immunefi.com/bug-bounty/etherfi/scope/
+  verifiedAt: 2026-08-29T00:00:00Z
+  severitySystem: immunefi-v2.3
+  primacy: impact
+  pocRequired: true
+  pocEnvironment: mainnet-fork
+  kycRequired: true
+  inScopeImpacts:
+    - impact: "Manipulation of governance voting result deviating from voted outcome and resulting in a direct change from intended effect of original results"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Direct theft of any user NFTs, whether at-rest or in-motion, other than unclaimed royalties"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Permanent freezing of funds"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Permanent freezing of NFTs"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Unauthorized minting of NFTs"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Predictable or manipulable RNG that results in abuse of the principal or NFT"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Unintended alteration of what the NFT represents (e.g. token URI, payload, artistic content)"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Protocol insolvency"
+      level: critical
+      assetType: Smart Contract
+    - impact: "Theft of unclaimed yield"
+      level: high
+      assetType: Smart Contract
+    - impact: "Theft of unclaimed royalties"
+      level: high
+      assetType: Smart Contract
+    - impact: "Permanent freezing of unclaimed yield"
+      level: high
+      assetType: Smart Contract
+    - impact: "Permanent freezing of unclaimed royalties"
+      level: high
+      assetType: Smart Contract
+    - impact: "Temporary freezing of funds"
+      level: high
+      assetType: Smart Contract
+    - impact: "Temporary freezing of NFTs"
+      level: high
+      assetType: Smart Contract
+    - impact: "Smart contract unable to operate due to lack of token funds"
+      level: medium
+      assetType: Smart Contract
+    - impact: "Block stuffing for profit"
+      level: medium
+      assetType: Smart Contract
+    - impact: "Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)"
+      level: medium
+      assetType: Smart Contract
+    - impact: "Theft of gas"
+      level: medium
+      assetType: Smart Contract
+    - impact: "Unbounded gas consumption"
+      level: medium
+      assetType: Smart Contract
+    - impact: "Contract fails to deliver promised returns, but doesn't lose value"
+      level: low
+      assetType: Smart Contract
+  knownIssues:
+    - source: Ether.fi acknowledged issue
+      summary: "The program excludes the acknowledged issue tracked in smart-contracts issue 25."
+      reference: https://github.com/etherfi-protocol/smart-contracts/issues/25
+    - source: Ether.fi audits
+      summary: "Findings disclosed by previous audits are out of scope and must be checked before reporting."
+      reference: https://etherfi.gitbook.io/etherfi/security/audits
+  outOfScope:
+    - "Issues discovered by previous audits"
+    - "Anything related to the ether.fan project"
+    - "Vulnerabilities whose root cause lies in third-party infrastructure or protocols"
+    - "Impacts requiring a compromised or malicious privileged role unless an unprivileged attacker can obtain that role"
+    - "Best-practice recommendations, feature requests, and test or configuration-only impacts"
+  prohibitedTesting:
+    - "Do not test deployed mainnet or public-testnet code; use a local fork"
+    - "Do not test pricing oracles, third-party contracts, systems, applications, or websites"
+    - "Do not execute denial-of-service attacks or high-traffic automated testing"
+    - "Do not use phishing or social engineering"
+    - "Do not publicly disclose an unpatched vulnerability"
+  scopePolicy: |-
+    Verbatim Immunefi scope (retrieved 2026-08-29; page last updated 22 July 2026).
+
+    Displayed wording is preserved; layout whitespace is normalized. This record covers only the Smart Contract category. The live Immunefi table, not repository membership, is the authority for deployed eligibility.
+
+    Smart Contract
+
+    Assets in Scope
+    The live scope displayed 62 total program assets across Smart Contract and Web & App. The Smart Contract rows are deployed addresses on supported networks. The source repositories https://github.com/etherfi-protocol/smart-contracts/tree/master/src and https://github.com/etherfi-protocol/cash-v3 are review inputs from the program resources page; cloning either repository does not make every file or deployment eligible. Recheck the live Show all table and bind any finding to a listed deployed address before research and again before submission.
+
+    Impacts in Scope
+    Critical
+    Manipulation of governance voting result deviating from voted outcome and resulting in a direct change from intended effect of original results
+    Critical
+    Direct theft of any user funds, whether at-rest or in-motion, other than unclaimed yield
+    Critical
+    Direct theft of any user NFTs, whether at-rest or in-motion, other than unclaimed royalties
+    Critical
+    Permanent freezing of funds
+    Critical
+    Permanent freezing of NFTs
+    Critical
+    Unauthorized minting of NFTs
+    Critical
+    Predictable or manipulable RNG that results in abuse of the principal or NFT
+    Critical
+    Unintended alteration of what the NFT represents (e.g. token URI, payload, artistic content)
+    Critical
+    Protocol insolvency
+    High
+    Theft of unclaimed yield
+    High
+    Theft of unclaimed royalties
+    High
+    Permanent freezing of unclaimed yield
+    High
+    Permanent freezing of unclaimed royalties
+    High
+    Temporary freezing of funds
+    High
+    Temporary freezing of NFTs
+    Medium
+    Smart contract unable to operate due to lack of token funds
+    Medium
+    Block stuffing for profit
+    Medium
+    Griefing (e.g. no profit motive for an attacker, but damage to the users or the protocol)
+    Medium
+    Theft of gas
+    Medium
+    Unbounded gas consumption
+    Low
+    Contract fails to deliver promised returns, but doesn't lose value
+
+    Program qualifications
+    Impacts requiring a compromised or malicious privileged role are out of scope unless the vulnerability lets an unprivileged attacker obtain that role. Freezing is permanent only if no existing upgrade, governance, admin, pausing, or migration mechanism can recover assets. Temporary freezing requires at least 10 days without a user-side workaround. Direct theft requires attacker custody or an irrevocable claim. Root causes in EigenLayer, oracle providers, bridges, RPC providers, wallets, or other third-party infrastructure do not qualify. Critical and High reports require a runnable mainnet-fork proof of concept and must not execute the attack on mainnet.
+
+    Out of scope
+    Issues discovered in previous audits, the ether.fan project, acknowledged smart-contracts issue 25, incorrect third-party oracle data, basic economic or governance attacks, liquidity and Sybil impacts, centralization risks, leaked-key or unchanged privileged-address assumptions, best-practice reports, feature requests, test/configuration-only impacts, and third-party root causes are excluded.
+
+    Rewards and testing
+    Maximum bounty: $500,000. Critical mainnet rewards are 5% of directly affected funds, capped at $500,000, with a $10,000 minimum. A PoC is required for every severity and KYC is required for payout. Do not test deployed mainnet or public-testnet code, pricing oracles, third-party contracts or systems; do not execute DoS, high-traffic automation, phishing, social engineering, or public disclosure of an unpatched issue. Use a local mainnet fork and comply with Immunefi rules.
