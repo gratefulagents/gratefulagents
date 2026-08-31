@@ -106,7 +106,9 @@ spec:
   postScripts:
     - name: validate
       prompt: "Re-read the cited code and confirm the finding is exploitable; downgrade it if not."
-      runOn: high-and-above             # one of: all (default), confirmed, high-and-above, high-and-above-actionable
+      runOn: high-and-above             # one of: all (default), confirmed, high-and-above,
+                                        # high-and-above-actionable, medium-and-above-actionable,
+                                        # low-and-above-actionable
 
   # Matching is evaluated once against each finding as research ends. All
   # matching post-scripts for that finding then normally run in order in one
@@ -140,8 +142,11 @@ spec:
   # The controller forces defaults.repoURL and defaults.baseBranch from the scan
   # target, and applies the "security-scan" mode unless defaults.modeRef is set.
   # disableCommandSandbox and kubernetesAdmin are not allowed for SecurityScans.
-  # dockerInDocker (admin-only, kubectl/GitOps) is allowed when scan tooling
-  # needs a Docker daemon; it adds a privileged docker:dind sidecar to scan runs.
+  # dockerInDocker (admin-only) is allowed when scan tooling needs a Docker
+  # daemon; it adds a privileged docker:dind sidecar to scan runs. Cluster
+  # admins toggle it in the dashboard scan form ("Privileged runtime"), where
+  # new scans they create default to enabled; non-admins cannot enable or
+  # change it, and a non-admin duplicate never inherits it.
   defaults:
     model: gpt-5.4
     provider: openai
@@ -157,7 +162,7 @@ spec:
 
 The controller seeds each scan run with a generated prompt containing the target, scope, the workflow as an explicit subagent plan, the machine-readable finding contract, ranking rules, and the reporting policy. The coordinating agent then spawns **one subagent per workflow task**, runs tasks whose dependencies are complete in parallel (never more than `parallelism` at a time), and holds back a task until everything in its `dependsOn` list has finished.
 
-When `workflow` is empty, the built-in default plan is used: eleven focused hunting tasks plus conditional execution of repository-maintained Rust and Go fuzz targets, followed by a final triage task that depends on all of them.
+When `workflow` is empty, the built-in default plan is used: eleven focused hunting tasks plus conditional execution of repository-maintained Rust and Go fuzz targets, then a red-team gate that adversarially re-reviews every recorded finding, followed by a final triage task that depends on all of them.
 
 | Task | Category | Role |
 | --- | --- | --- |
@@ -173,9 +178,12 @@ When `workflow` is empty, the built-in default plan is used: eleven focused hunt
 | `infrastructure-and-configuration` | misconfiguration | `vulnerability-hunter` |
 | `business-logic` | logic-flaw | `vulnerability-hunter` |
 | `run-upstream-native-fuzz` | other | `native-fuzz-runner` |
+| `red-team-bounty-worthiness` | triage (depends on all of the above) | `exploit-validator` |
 | `triage-and-report` | triage (depends on all of the above) | `finding-triager` |
 
 The native-fuzz task runs only repository-maintained `cargo-fuzz` or Go `FuzzXxx` harnesses that cover an attacker-controlled surface. A normal scan selects at most two targets for two minutes each and records its run reference, seed, workers, bounds, corpus provenance, artifacts, and uncovered targets. Rust runs use explicit seeds; Go's native runner has no seed option, so Go results record a null seed and the resulting schedule/environment reproducibility limitation. Longer warm-corpus work uses the separate `native-fuzz-campaign` workflow, which runs independently recorded rounds of at most fifteen minutes and restores the prior durable corpus between rounds.
+
+Every shipped security workflow ends with the same **red-team bounty-worthiness gate** before final triage: a skeptical `exploit-validator` subagent re-reads each recorded finding's evidence and audit trail, attempts safe local reproduction or disproof, and records an evidence-backed disposition — a proven finding stays `confirmed`, a technically real but program-ineligible one becomes `accepted_risk` with a machine-readable policy disposition, a disproved or unreachable one becomes `false_positive`, and one whose validation is unavailable stays `triaged` rather than being suppressed. The gate reproduces only against disposable local fixtures; read-only calls to explicitly in-scope live targets are allowed, state-changing requests never are.
 
 ### Specialist roles and the scan skill
 
@@ -191,7 +199,7 @@ Workflows, severity rankers, post-scripts, and bounty program scope snapshots ca
 
 - **`SecurityWorkflow`** — `spec.description`, `spec.tasks` (the same task schema as `spec.workflow`), and an optional `spec.parallelism` that overrides the referencing scan's parallelism when set.
 - **`SecurityRanker`** — `spec.description` and `spec.rules`, a list of ranking rule lines in the same language as `spec.severityRankers[].rules`.
-- **`SecurityPostScript`** — `spec.description`, `spec.prompt`, and `spec.runOn` (`all`, `confirmed`, `high-and-above`, or `high-and-above-actionable`). The actionable variant is for proof or remediation stages that should not start after a successful predecessor has already rejected, fixed, or accepted the risk; final reporting and audit stages should use `all` so they can record the terminal outcome.
+- **`SecurityPostScript`** — `spec.description`, `spec.prompt`, and `spec.runOn` (`all`, `confirmed`, `high-and-above`, `high-and-above-actionable`, `medium-and-above-actionable`, or `low-and-above-actionable`). The actionable variants are for proof or remediation stages that should not start after a successful predecessor has already rejected, fixed, or accepted the risk; the medium and low variants raise their severity floor to the governing program's payable floor when that is stricter. Final reporting and audit stages should use `all` so they can record the terminal outcome.
 - **`SecurityProgram`** — an operator-verified bounty or disclosure-program snapshot: provider, display name, HTTPS provenance URL, the explicit scope policy, when that policy was verified, and optional `scanTargets` for every independently importable repository. Each target selects its own default branch, workflow, policy pack, scan name, and catalog priority. The controller never fetches the program URL. Neither the URL nor a scan target authorizes network access; only `spec.scope.authorizedNetworkTargets` can do that.
 
 Shipped security resources are opt-in. Open **Security → Library** and select **Add from shipped catalog** to browse the live catalog supplied by the operator. Choose programs, workflows, policy packs, rankers, post-scripts, or security skills, review the dependency-expanded dry run, and then apply it. Catalog contents are discovered dynamically; installing a program also proposes its referenced workflows and policy packs, which in turn include their required rankers, post-scripts, and skills. Existing local modifications are never overwritten. After installing a program, use **Security → Configurations → Import scan targets** to create scan configurations from that program; installing catalog content alone does not start a scan.
@@ -211,7 +219,7 @@ Smart-contract bounty targets are not interchangeable: the toolchain, the harnes
 All seven share one spine:
 
 - **Execution model.** Pin the revision and repository-native harness, fan out independent protocol-specific discovery lanes, then let one write-capable validator reproduce or refute their candidates. Compatible EVM reproductions use the registered deterministic Forge tool packs. A lane that cannot be bootstrapped is reported as blocked instead of quietly disappearing.
-- **Validity versus eligibility.** Technical validity is kept separate from provider eligibility: a confirmed defect remains in the internal report when an impact clause, release check, novelty check, human-authorship requirement, KYC step, or provider-required PoC is missing; those gaps make it not submission-ready.
+- **Validity versus eligibility.** Technical validity is kept separate from provider eligibility: a confirmed defect remains in the internal report when an impact clause, release check, novelty check, human-authorship requirement, KYC step, or provider-required PoC is missing; those gaps make it not submission-ready. The eligibility severity floor follows the program's own published in-scope severity levels; when that table is unavailable — or lists only critical — the floor defaults to medium.
 - **PoC gating.** When `pocRequired` is true, submission readiness also requires a runnable coded proof in the environment allowed by `pocEnvironment`.
 
 `bounty-hunt-evm`, `smart-contract-review`, `blockchain-protocol-audit` and the chain-specific reviews remain available for targets outside these families.
@@ -309,6 +317,7 @@ The dashboard's **Security → Library** page (`/security/library`) lists workfl
 
 - Workflows are edited in a visual builder: structured task cards (name, objective, category, specialist role picker, model override, max findings), dependency selection limited to the other task names, and a live read-only graph of the dependency DAG.
 - The builder refuses to save cycles, dangling or self dependencies, duplicate names, invalid roles/models, or an empty workflow — the same validation the server enforces on create/update and exposes through the `ValidateSecurityWorkflow` RPC.
+- Editing a workflow that scan configurations reference shows an impact banner listing those configurations and explaining next-run semantics, and saving confirms how many configurations pick up the new definition on their next run (historical runs keep their snapshot). The scan form flags drift against the referenced library workflow: missing required parameters (with a one-click fix prefilled from the declared defaults), stale keys the workflow no longer declares, and a `workflowRef` that no longer exists in the library.
 - The scan form's *Workflow tasks* section lets you pick a library workflow (or keep editing inline), its *Rankers & post-scripts* section attaches library rankers and post-scripts, and its *Scope* section attaches an optional security program.
 
 ### AI-assisted authoring
@@ -361,7 +370,7 @@ Findings start as **open** and move through a triage lifecycle; every status cha
 
 `open` → `triaged` / `confirmed` / `false_positive` / `fixed` / `accepted_risk`
 
-Change a finding's status from the dashboard, or from inside an agent run with the `update_security_finding` tool.
+Change a finding's status from the dashboard, or from inside an agent run with the `update_security_finding` tool. Re-affirming a finding's current status records a `status_reviewed` audit event instead of a status change, so review passes stay distinguishable from real transitions in the history.
 
 ### Triage & collaboration
 
@@ -462,7 +471,7 @@ When the scan submits its report, two artifacts are saved on the scan's agent ru
 - **`security_report`** — a Markdown report with the executive summary and ranked findings.
 - **`security_sarif`** — a SARIF 2.1.0 file suitable for importing into code-scanning tools; each result carries the finding fingerprint for cross-referencing.
 
-In the dashboard, **Security** in the sidebar opens an overview of active and recent scans, open critical/high finding counts, and any scan configurations that are failing, blocked, or suspended, with shortcuts to the full run history and to scan configurations. Each scan run links to a detail page where you can filter findings by severity, status, category, and text search, change a finding's status inline — for example, marking a validated non-issue as `false_positive` or a real one as `confirmed` — download the Markdown report and SARIF artifact, and jump to the underlying agent run.
+In the dashboard, **Security** in the sidebar opens an overview of active and recent scans, open critical/high finding counts, and any scan configurations that are failing, blocked, or suspended, with shortcuts to the full run history and to scan configurations. Each scan run links to a detail page where you can filter findings by severity, status, category, and text search, change a finding's status inline — for example, marking a validated non-issue as `false_positive` or a real one as `confirmed` — download the Markdown report and SARIF artifact, and jump to the underlying agent run. Throughout the security pages, missing data is labeled explicitly — for example "Not provided", "No CWE assigned", or "Unassigned" — instead of being left blank.
 
 While a scan is running, the detail page also shows the live state of the run behind it: the workflow's subagent graph (pending, running, completed, failed), run phase, retries, model, runtime, token/cost usage, and the most recent error.
 
@@ -476,11 +485,15 @@ Collaborators can stop an active scan run from this panel. Stopping cancels ever
 
 Stop is rejected when nothing is running. Findings recorded before the stop remain available. **Resume** applies only to a **Failed** deterministic execution.
 
+### Research memory
+
+Runs of the same scan target share durable research state, keyed to the exact target revision: a versioned research dossier, hypotheses with evidence-backed state transitions, coverage records, variant sweeps, and bounty submission candidates with their externally adjudicated outcomes (`accepted`, `duplicate`, `informative`, `rejected`, `resolved`). Agents read and write this state through dedicated research tools (`get_security_research_context`, `amend_security_dossier`, `create_security_hypothesis`, and related tools), so a later run resumes prior research instead of rediscovering it, and bounty submissions honor a program-configured rolling submission budget enforced from durable state — a candidate that does not fit the budget is retained and ranked rather than submitted. The scan detail page shows the same state in the **Security research** panel, where collaborators with write access can amend the dossier, manage hypotheses, and record submission outcomes and corrections.
+
 ### Scan configurations
 
-On **Scan configurations**, select individual rows or select all visible rows, then use **Run now**, **Stop**, **Suspend**, **Resume**, or **Delete**. The bulk toolbar reports the number changed and lists each configuration that failed, so you can retry those items. Deleting a configuration also removes its recorded scan runs and findings, so export them first if you need them.
+On **Scan configurations**, select individual rows or select all visible rows, then use **Run now**, **Stop**, **Suspend**, **Resume**, or **Delete**. Each bulk button shows how many selected rows it applies to and is disabled when none qualifies, so an action is only ever sent to eligible configurations; the toolbar also notes selected rows hidden by the current filters. Results are reported per action, listing each configuration that failed — failed and ineligible rows stay selected so you can retry them. Deleting a configuration also removes its recorded scan runs and findings, so export them first if you need them.
 
-Select **Import scan targets** to import security-program targets in bulk. Select individual targets or **Select all**; targets that already have a configuration are unavailable and skipped. Import creates every selected configuration but starts no scans. Imported configurations use saved credentials and default model settings, a manual-only schedule, workspace-write access, unrestricted network egress, minimum severity `high`, parallelism `4`, and deduplication enabled. Select **Configure scan** for one target when you want to review its prefilled configuration before creating it.
+Select **Import scan targets** to import security-program targets in bulk. Select individual targets or **Select all**; targets that already have a configuration are unavailable and skipped. Import creates every selected configuration but starts no scans. Imported configurations use saved credentials and default model settings, a manual-only schedule, workspace-write access, unrestricted network egress, minimum severity `high`, parallelism `4`, deduplication enabled, and — when the importer is a cluster admin — Docker-in-Docker enabled. Select **Configure scan** for one target when you want to review its prefilled configuration before creating it.
 
 **Run now** starts an immediate run of a configuration without editing its spec (`concurrencyPolicy: Forbid` still applies: the request is skipped with a `ConcurrencyBlocked` status while a previous run is active), and **Duplicate** opens the scan form pre-filled from an existing configuration so you can review the copied settings and create it under a new name.
 
@@ -500,7 +513,7 @@ Skipped ticks are not backfilled, matching [Cron schedule](./cron.md) semantics.
 
 ## Retention and budgets
 
-A `SecurityPolicyPack` referenced by `spec.policyPackRef` can govern how long scan data is kept and how much a scan run may consume.
+A `SecurityPolicyPack` referenced by `spec.policyPackRef` can govern how long scan data is kept and how much a scan run may consume. A scan created from scratch in the dashboard preselects the shipped `baseline` pack when it is installed — pick a different pack or clear the selection to opt out; program-imported, duplicated, and edited scans keep their existing policy choice.
 
 ### Retention
 
@@ -556,7 +569,7 @@ Enforcement is entirely platform-side and model output can never relax it:
 
 ## Operational guidance
 
-**Cost and models.** A scan is expensive relative to a normal run: every workflow task is its own subagent that reads the repository, so cost scales with the number of tasks, repository size, and model choice. The default workflow launches twelve subagents. To control spend: narrow `scope.includePaths` and `scope.languages`, replace the default workflow with fewer targeted tasks, use a cheaper `defaults.model` and reserve a stronger per-task `model` override for the triage task, and set `maxRuntime` as a hard stop.
+**Cost and models.** A scan is expensive relative to a normal run: every workflow task is its own subagent that reads the repository, so cost scales with the number of tasks, repository size, and model choice. The default workflow launches more than a dozen subagents. To control spend: narrow `scope.includePaths` and `scope.languages`, replace the default workflow with fewer targeted tasks, use a cheaper `defaults.model` and reserve a stronger per-task `model` override for the triage task, and set `maxRuntime` as a hard stop.
 
 **Parallelism.** `parallelism` (default 4) trades wall-clock time against concurrent load: each in-flight task is a live subagent consuming provider rate limits and sandbox resources. Raise it toward 16 for wide, independent workflows when your provider limits allow; lower it to 1–2 on constrained clusters or strict rate limits.
 

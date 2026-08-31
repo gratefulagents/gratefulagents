@@ -1,7 +1,7 @@
 ---
 title: Sign in
 seoTitle: Sign In to GratefulAgents | GratefulAgents
-description: Sign in to GratefulAgents with username and password or Google OAuth. Includes troubleshooting for failed sign-ins and Cloudflare Access deployments.
+description: Sign in to GratefulAgents with a one-time setup link, username and password, or Google. Includes troubleshooting for failed sign-ins and Cloudflare Access.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/getting-started/sign-in/ and explain how signing in to gratefulagents works, then walk me through my first sign-in.
 ---
@@ -9,6 +9,12 @@ agentPrompt: >-
 # Sign in
 
 The sign-in methods available depend on your workspace configuration.
+
+## One-time setup link
+
+The [Kind](./self-hosting-kind.md) and [k3s](./self-hosting-k3s.md) installers print a one-time sign-in link of the form `<dashboard-url>/login?setup_token=...`. Opening it in a browser signs you in as `admin` without entering a password.
+
+The link is single use and expires seven days after the admin account is created. The token is stored in the `setup-token` key of the `gratefulagents-admin-credentials` Secret until it is redeemed. If the link was already used or has expired, the sign-in page shows **This setup link is invalid or was already used. Sign in with your password instead.** — retrieve the admin password with the command each installer prints and sign in with username and password.
 
 ## Username and password
 

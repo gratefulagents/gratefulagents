@@ -34,10 +34,10 @@ If the installed app's workspace uses Cloudflare Access, enter the client ID and
 ## 2. Sign in
 
 1. In an installed app, connect to the workspace first.
-2. Sign in with username/password or Google when your workspace enables it.
+2. Sign in with username/password or Google when your workspace enables it. If you installed the workspace yourself, the installer prints a one-time sign-in link that signs you in as `admin` in the browser without a password.
 3. The app opens **Home**.
 
-See [Sign in](./sign-in.md) for help with either method.
+See [Sign in](./sign-in.md) for help with any method.
 
 ## 3. Add a provider credential
 

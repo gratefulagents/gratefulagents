@@ -46,6 +46,8 @@ make k3s-upgrade
 
 The installer preserves an existing k3s installation, selects the latest release tag for all three GHCR images, fetches the Helm chart and supporting manifests from that same tag, reapplies agent-sandbox, and runs `helm upgrade --install --atomic`. It does not deploy the chart from whichever branch happens to be checked out. It disables active swap and saves the original `/etc/fstab` as `/etc/fstab.gratefulagents-backup` before its first swap change. It creates the login user's kubeconfig at `~/.kube/config`.
 
+When installation completes, the installer prints a one-time sign-in link of the form `<dashboard-url>/login?setup_token=...` (after the port-forward, for a `ClusterIP` dashboard). Open it to sign in as `admin` directly; the link is single use and expiring. If it was already used, sign in with the admin password instead — see [Status, credentials, and logs](#status-credentials-and-logs) and [Sign in](./sign-in.md).
+
 Older versions of this installer created a registry in the `gratefulagents-registry` namespace and configured `127.0.0.1:5000` in k3s. The current installer does not use or remove those older resources automatically.
 
 :::warning Do not install the chart with bare defaults
@@ -170,7 +172,7 @@ kubectl -n gratefulagents-system logs \
   -l control-plane=controller-manager -c manager --tail=200
 ```
 
-Retrieve the generated local admin password only on a trusted terminal:
+Retrieve the generated local admin password only on a trusted terminal, for example when the installer's one-time sign-in link was already used:
 
 ```bash
 kubectl -n gratefulagents-system get secret gratefulagents-admin-credentials \

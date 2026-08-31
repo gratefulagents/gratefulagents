@@ -25,11 +25,17 @@ The page supports these saved credential types:
 
 Enter or replace values, then select **Save credentials**. Saved values are write-only: the page shows that a credential is saved, but not its value. Select **Remove** beside a saved item to remove it.
 
+Saving an API key also verifies it by listing the models the key can access. A working key shows a confirmation such as **key verified — 12 models available**; a failing check shows a warning that verification failed. The verification is advisory: the key is saved either way, so fix and re-save a key that fails verification. OAuth credentials are not verified this way.
+
 The desktop app can offer **Use your local sign-in** when it detects supported local provider credentials. This option is not available in every environment.
 
 ## OAuth
 
 Use the relevant OAuth card when it is available. The page can also accept manually supplied OAuth JSON for Claude, ChatGPT/OpenAI, or Copilot. Follow your workspace's provider-access policy before adding credentials.
+
+For **Claude OAuth**, sign in to Claude through the displayed link, approve access, then paste the whole string from the confirmation page — it looks like `code#state` — into the field labeled **Paste the whole code (code#state)**. The page rejects a pasted value that does not match that format before submitting it.
+
+For **ChatGPT OAuth**, select **Sign in with ChatGPT** to use the browser flow. The desktop app also offers **Use a device code instead**, which shows a code to enter on OpenAI's device page — useful when the browser callback cannot reach the app.
 
 ## Integration credentials
 

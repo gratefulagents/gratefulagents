@@ -38,7 +38,7 @@ cd gratefulagents
 make kind-install
 ```
 
-When installation completes, open the printed `http://127.0.0.1:8090` dashboard and retrieve the generated `admin` password using the printed command.
+When installation completes, the installer prints a one-time sign-in link of the form `http://127.0.0.1:<port>/login?setup_token=...`. Open it to sign in as `admin` directly; the link is single use and expiring. If it was already used, open the printed `http://127.0.0.1:8090` dashboard and retrieve the generated `admin` password using the printed command. See [Sign in](./sign-in.md).
 
 The installer is safe to rerun. It preserves the cluster and persistent volumes, reapplies agent-sandbox, reuses its private Helm values, and performs a Helm upgrade. It refuses to upgrade an existing release when the values file is missing, because replacement bundled-service credentials would not match existing data.
 

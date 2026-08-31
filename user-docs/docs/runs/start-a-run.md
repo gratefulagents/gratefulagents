@@ -49,4 +49,4 @@ After the run starts, use the session's `/` command menu to see the mode transit
 
 ## What happens next
 
-The app opens the run session after creation. The run can show a startup message while its workspace and repositories are prepared. Once the composer is enabled, you can message the agent and review activity in the session tabs.
+The app opens the run session after creation. Until the agent produces its first output, the session shows a **Starting up** checklist with the elapsed time and the current startup stage: **Run queued**, **Starting sandbox**, **Preparing workspace**, then **Agent is working**. Once the composer is enabled, you can message the agent and review activity in the session tabs.
