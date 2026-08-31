@@ -170,31 +170,6 @@ describe("ActiveSubagentsDock", () => {
     expect(screen.queryByTestId("subagent-wave-divider")).toBeNull();
   });
 
-  it("disambiguates identical task labels using their descriptions", () => {
-    const sharedLabel = "You are auditing screenshots of the dashboard for defects";
-    render(
-      <ActiveSubagentsDock
-        graph={graph([
-          node("a", "running", {
-            label: sharedLabel,
-            description: "Focus on the run list page",
-          }),
-          node("b", "running", {
-            label: sharedLabel,
-            description: "Focus on the settings page",
-          }),
-        ])}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /2 active agents/i }));
-    const cards = screen.getAllByTestId("subagent-dock-card");
-    expect(cards[0].textContent).toContain("run list page");
-    expect(cards[1].textContent).toContain("settings page");
-    // The full label stays reachable as a tooltip.
-    expect(cards[0].getAttribute("title")).toBe(sharedLabel);
-  });
-
   it("lets the pinned DAG be expanded and collapsed again, remembering the choice", () => {
     const dagGraph = graph([node("running", "started", { label: "Implement composer DAG" })]);
     const { unmount } = render(<ActiveSubagentsDock graph={dagGraph} />);

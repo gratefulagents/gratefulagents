@@ -11,7 +11,6 @@ import {
 } from "@/lib/activityGrouping";
 import { formatUsd } from "@/lib/activityLogFormat";
 import { getSubagentColor } from "@/lib/subagentColors";
-import { disambiguateSubagentTitles } from "@/lib/subagentTitles";
 import { toneText } from "@/lib/status";
 import {
   SubagentGraphSchema,
@@ -87,27 +86,13 @@ export function SubagentDagCard({
     return m;
   }, [groups]);
 
-  // Batches often share one prompt template, so derived titles truncate to
-  // the same generic prefix. Surface the part of each task that differs.
-  const displayTitles = useMemo(
-    () =>
-      disambiguateSubagentTitles(
-        groups.map((g) => {
-          const title = groupTitle(g);
-          const prompt = (g.subagentPrompt || "").trim();
-          return { title, detail: prompt ? `${title} ${prompt}` : title };
-        }),
-      ),
-    [groups],
-  );
-
   const titleByTaskId = useMemo(() => {
     const m = new Map<string, string>();
-    groups.forEach((g, i) => {
-      if (g.taskId) m.set(g.taskId, displayTitles[i] || groupTitle(g));
-    });
+    for (const g of groups) {
+      if (g.taskId) m.set(g.taskId, groupTitle(g));
+    }
     return m;
-  }, [groups, displayTitles]);
+  }, [groups]);
 
   const waveOf = waves && waves.length === groups.length ? waves : groups.map(() => 0);
 
@@ -240,7 +225,6 @@ export function SubagentDagCard({
                 <RosterRow
                   key={id}
                   group={group}
-                  title={displayTitles[index] || groupTitle(group)}
                   wave={waveOf[index] ?? 0}
                   depTitles={depTitles}
                   selected={selectedId === id}
@@ -263,14 +247,12 @@ export function SubagentDagCard({
 
 function RosterRow({
   group,
-  title,
   wave,
   depTitles,
   selected,
   onSelect,
 }: {
   group: SubagentGroup;
-  title: string;
   wave: number;
   depTitles: string[];
   selected: boolean;
@@ -303,7 +285,7 @@ function RosterRow({
       data-testid="subagent-roster-row"
       onClick={onSelect}
       aria-pressed={selected}
-      title={title}
+      title={groupTitle(group)}
       className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
         selected ? "bg-muted/60" : "hover:bg-muted/40"
       }`}
@@ -324,7 +306,7 @@ function RosterRow({
         </span>
       )}
       <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/85">
-        {title}
+        {groupTitle(group)}
         {liveLine && (
           <span className="ml-1.5 text-[10px] text-muted-foreground/80">· {liveLine}</span>
         )}

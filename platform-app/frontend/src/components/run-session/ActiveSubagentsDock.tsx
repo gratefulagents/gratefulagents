@@ -20,7 +20,6 @@ import {
   isWaitingStatus,
   type LayoutDims,
 } from "@/lib/subagentGraphLayout";
-import { disambiguateSubagentTitles } from "@/lib/subagentTitles";
 import { toneText } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { SubagentGraph, SubagentGraphNode } from "@/rpc/platform/service_pb";
@@ -146,23 +145,6 @@ export function ActiveSubagentsDock({
     () => (visibleGraph ? buildLayout(visibleGraph, WAVE_DIMS) : undefined),
     [visibleGraph],
   );
-
-  // Batches often share one prompt template, so raw labels are identical.
-  // Surface the part of each task that actually differs.
-  const titleById = useMemo(() => {
-    const titles = disambiguateSubagentTitles(
-      subagents.map((node) => ({
-        title: node.label,
-        detail:
-          node.description && node.description !== node.label
-            ? `${node.label} ${node.description}`
-            : node.label,
-      })),
-    );
-    const m = new Map<string, string>();
-    subagents.forEach((node, i) => m.set(node.id, titles[i] || node.label));
-    return m;
-  }, [subagents]);
 
   // Dependency waves: bucket nodes by their layout column so parallel tasks
   // share a row and dependent tasks appear beneath the work they wait on.
@@ -304,7 +286,6 @@ export function ActiveSubagentsDock({
                     key={node.id}
                     node={node}
                     state={nodeState(node)}
-                    title={titleById.get(node.id) || node.label}
                     now={now}
                   />
                 ))}
@@ -320,12 +301,10 @@ export function ActiveSubagentsDock({
 function DockTaskCard({
   node,
   state,
-  title,
   now,
 }: {
   node: SubagentGraphNode;
   state: NodeState;
-  title: string;
   now: number;
 }) {
   const color = getSubagentColor(agentType(node));
@@ -364,7 +343,7 @@ function DockTaskCard({
           {agentType(node)}
         </span>
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/90">
-          {title}
+          {node.label}
         </span>
         {elapsed && (
           <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/80">
