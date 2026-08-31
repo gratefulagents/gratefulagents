@@ -13,6 +13,7 @@ export interface CredentialPresence {
   anthropicApiKey: boolean;
   openaiApiKey: boolean;
   openrouterApiKey: boolean;
+  xaiApiKey: boolean;
   anthropicOauth: boolean;
   openaiOauth: boolean;
   copilotOauth: boolean;
@@ -24,6 +25,7 @@ export const emptyCredentialPresence: CredentialPresence = {
   anthropicApiKey: false,
   openaiApiKey: false,
   openrouterApiKey: false,
+  xaiApiKey: false,
   anthropicOauth: false,
   openaiOauth: false,
   copilotOauth: false,
@@ -36,6 +38,7 @@ export interface ServerCredentialPresence {
   anthropicApiKeyPresent: boolean;
   openaiApiKeyPresent: boolean;
   openrouterApiKeyPresent: boolean;
+  xaiApiKeyPresent: boolean;
   anthropicOauthPresent: boolean;
   openaiOauthPresent: boolean;
   copilotOauthPresent: boolean;
@@ -48,6 +51,7 @@ export function presenceFromServer(c: ServerCredentialPresence): CredentialPrese
     anthropicApiKey: c.anthropicApiKeyPresent,
     openaiApiKey: c.openaiApiKeyPresent,
     openrouterApiKey: c.openrouterApiKeyPresent,
+    xaiApiKey: c.xaiApiKeyPresent,
     anthropicOauth: c.anthropicOauthPresent,
     openaiOauth: c.openaiOauthPresent,
     copilotOauth: c.copilotOauthPresent,
@@ -61,6 +65,7 @@ export function hasProviderCredential(p: CredentialPresence): boolean {
     p.anthropicApiKey ||
     p.openaiApiKey ||
     p.openrouterApiKey ||
+    p.xaiApiKey ||
     p.anthropicOauth ||
     p.openaiOauth ||
     p.copilotOauth

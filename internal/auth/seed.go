@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	corev1 "k8s.io/api/core/v1"
@@ -16,19 +17,28 @@ import (
 )
 
 const (
-	adminSecretName = "gratefulagents-admin-credentials"
-	adminUsername   = "admin"
-	passwordLength  = 24
+	adminSecretName     = "gratefulagents-admin-credentials"
+	adminUsername       = "admin"
+	passwordLength      = 24
+	setupTokenKey       = "setup-token"
+	setupTokenExpiryKey = "setup-token-expiry"
+	setupTokenTTL       = 7 * 24 * time.Hour
 )
+
+// podNamespace returns the namespace this controller runs in, defaulting to
+// "default" outside a cluster.
+func podNamespace() string {
+	if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+		return ns
+	}
+	return "default"
+}
 
 // SeedAdmin ensures a local admin user exists. It reads or creates a Kubernetes
 // secret containing the admin credentials, then upserts the admin user in the
 // auth store.
 func SeedAdmin(ctx context.Context, clientset kubernetes.Interface, store Store) error {
-	namespace := os.Getenv("POD_NAMESPACE")
-	if namespace == "" {
-		namespace = "default"
-	}
+	namespace := podNamespace()
 
 	secrets := clientset.CoreV1().Secrets(namespace)
 
@@ -44,21 +54,27 @@ func SeedAdmin(ctx context.Context, clientset kubernetes.Interface, store Store)
 		if err != nil {
 			return fmt.Errorf("generating admin password: %w", err)
 		}
+		setupToken, err := generateSetupToken()
+		if err != nil {
+			return fmt.Errorf("generating setup token: %w", err)
+		}
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      adminSecretName,
 				Namespace: namespace,
 			},
 			Data: map[string][]byte{
-				"username": []byte(adminUsername),
-				"password": []byte(password),
+				"username":          []byte(adminUsername),
+				"password":          []byte(password),
+				setupTokenKey:       []byte(setupToken),
+				setupTokenExpiryKey: []byte(time.Now().Add(setupTokenTTL).Format(time.RFC3339)),
 			},
 		}
 		if _, err := secrets.Create(ctx, secret, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("creating admin secret: %w", err)
 		}
-		log.Printf("Admin credentials created — retrieve with: kubectl get secret %s -n %s -o jsonpath='{.data.password}' | base64 -d",
-			adminSecretName, namespace)
+		log.Printf("Admin credentials created — sign in via the one-time setup link (<dashboard-url>/login?setup_token=<token>, token in the %q key of secret %s/%s), or retrieve the password with: kubectl get secret %s -n %s -o jsonpath='{.data.password}' | base64 -d",
+			setupTokenKey, namespace, adminSecretName, adminSecretName, namespace)
 	} else {
 		password = string(existing.Data["password"])
 		if password == "" {
@@ -97,4 +113,12 @@ func generatePassword(n int) (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b)[:n], nil
+}
+
+func generateSetupToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }

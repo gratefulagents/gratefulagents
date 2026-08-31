@@ -89,6 +89,12 @@ export function AnthropicOAuthConnect({ onSaved, className, compact, slot }: Ant
       setError("Paste the code shown after approving access");
       return;
     }
+    if (!/^[^#\s]+#[^#\s]+$/.test(pasted)) {
+      setError(
+        "That doesn’t look like the authorization code. Copy the full value from the confirmation page — it looks like code#state.",
+      );
+      return;
+    }
     setPhase("exchanging");
     setError(null);
     try {
@@ -136,8 +142,9 @@ export function AnthropicOAuthConnect({ onSaved, className, compact, slot }: Ant
           {phase === "awaiting-code" || phase === "exchanging" ? (
             <div className="space-y-2 rounded-md border bg-background/70 p-3">
               <p className="text-xs text-muted-foreground">
-                Click the link below to sign in to Claude, approve access, then paste the code
-                shown on the confirmation page.
+                Click the link below to sign in to Claude, approve access, then paste the whole
+                string shown on the confirmation page — it looks like{" "}
+                <code className="font-mono">code#state</code>.
               </p>
               <div className="flex items-start gap-2">
                 <a
@@ -173,7 +180,7 @@ export function AnthropicOAuthConnect({ onSaved, className, compact, slot }: Ant
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void complete();
                   }}
-                  placeholder="Paste code (code#state)"
+                  placeholder="Paste the whole code (code#state)"
                   className="h-8 max-w-[280px] font-mono text-xs"
                   autoComplete="off"
                   disabled={phase === "exchanging"}

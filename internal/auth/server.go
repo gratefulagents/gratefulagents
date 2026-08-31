@@ -3,12 +3,15 @@ package auth
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"time"
 
 	"connectrpc.com/connect"
 	"golang.org/x/crypto/bcrypt"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 
 	authpb "github.com/gratefulagents/gratefulagents/rpc/auth"
 )
@@ -20,19 +23,21 @@ const (
 
 // Server implements the AuthService RPC handlers.
 type Server struct {
-	store    Store
-	google   *GoogleVerifier // nil if Google OAuth is not configured
-	jwt      *JWTIssuer
-	resolver *RoleResolver
+	store     Store
+	google    *GoogleVerifier // nil if Google OAuth is not configured
+	jwt       *JWTIssuer
+	resolver  *RoleResolver
+	clientset kubernetes.Interface // nil when setup-token redemption is unavailable
 }
 
 // NewServer creates a new integrated auth server.
-func NewServer(store Store, google *GoogleVerifier, jwt *JWTIssuer, resolver *RoleResolver) *Server {
+func NewServer(store Store, google *GoogleVerifier, jwt *JWTIssuer, resolver *RoleResolver, clientset kubernetes.Interface) *Server {
 	return &Server{
-		store:    store,
-		google:   google,
-		jwt:      jwt,
-		resolver: resolver,
+		store:     store,
+		google:    google,
+		jwt:       jwt,
+		resolver:  resolver,
+		clientset: clientset,
 	}
 }
 
@@ -57,6 +62,12 @@ func (s *Server) Login(ctx context.Context, req *connect.Request[authpb.LoginReq
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("provide google_id_token or username+password"))
 	}
 
+	return s.issueLoginResponse(ctx, user)
+}
+
+// issueLoginResponse records the login and mints the access/refresh token pair
+// shared by password, Google, and setup-token logins.
+func (s *Server) issueLoginResponse(ctx context.Context, user *User) (*connect.Response[authpb.LoginResponse], error) {
 	// Record the login time for the admin user view; best-effort.
 	if err := s.store.TouchUserLastLogin(ctx, user.ID); err == nil {
 		now := time.Now()
@@ -143,6 +154,51 @@ func (s *Server) loginPassword(ctx context.Context, username, password string) (
 	}
 
 	return user, nil
+}
+
+// errInvalidSetupLink is the single generic failure returned for every
+// redemption reject cause so the endpoint leaks nothing about token state.
+func errInvalidSetupLink() *connect.Error {
+	return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid or expired setup link"))
+}
+
+func (s *Server) RedeemSetupToken(ctx context.Context, req *connect.Request[authpb.RedeemSetupTokenRequest]) (*connect.Response[authpb.LoginResponse], error) {
+	presented := req.Msg.Token
+	if s.clientset == nil || presented == "" {
+		return nil, errInvalidSetupLink()
+	}
+
+	secrets := s.clientset.CoreV1().Secrets(podNamespace())
+	secret, err := secrets.Get(ctx, adminSecretName, metav1.GetOptions{})
+	if err != nil {
+		return nil, errInvalidSetupLink()
+	}
+	stored := secret.Data[setupTokenKey]
+	if len(stored) == 0 {
+		return nil, errInvalidSetupLink()
+	}
+	expiry, err := time.Parse(time.RFC3339, string(secret.Data[setupTokenExpiryKey]))
+	if err != nil || time.Now().After(expiry) {
+		return nil, errInvalidSetupLink()
+	}
+	if subtle.ConstantTimeCompare([]byte(presented), stored) != 1 {
+		return nil, errInvalidSetupLink()
+	}
+
+	user, err := s.store.GetUserByUsername(ctx, adminUsername)
+	if err != nil {
+		return nil, errInvalidSetupLink()
+	}
+
+	// Invalidate the token before issuing a session; a failed invalidation
+	// must fail the redemption so the link cannot be replayed.
+	delete(secret.Data, setupTokenKey)
+	delete(secret.Data, setupTokenExpiryKey)
+	if _, err := secrets.Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
+		return nil, errInvalidSetupLink()
+	}
+
+	return s.issueLoginResponse(ctx, user)
 }
 
 func (s *Server) RefreshToken(ctx context.Context, req *connect.Request[authpb.RefreshTokenRequest]) (*connect.Response[authpb.RefreshTokenResponse], error) {

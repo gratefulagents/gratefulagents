@@ -5,11 +5,13 @@ import { CredentialsSection } from "@/components/CredentialsSection";
 
 const listMyCredentials = vi.fn();
 const updateMyCredentials = vi.fn();
+const listAvailableModels = vi.fn();
 
 vi.mock("@/lib/client", () => ({
   client: {
     listMyCredentials: (...args: unknown[]) => listMyCredentials(...args),
     updateMyCredentials: (...args: unknown[]) => updateMyCredentials(...args),
+    listAvailableModels: (...args: unknown[]) => listAvailableModels(...args),
   },
 }));
 
@@ -52,6 +54,7 @@ const baseCredentials = {
 beforeEach(() => {
   listMyCredentials.mockResolvedValue(baseCredentials);
   updateMyCredentials.mockResolvedValue(baseCredentials);
+  listAvailableModels.mockResolvedValue({ models: [] });
 });
 
 afterEach(() => {
@@ -102,6 +105,55 @@ describe("CredentialsSection", () => {
     await waitFor(() =>
       expect(updateMyCredentials).toHaveBeenCalledWith({ openrouterApiKey: "sk-or-v1-secret" }),
     );
+  });
+
+  it("live-verifies a saved API key and shows the model count", async () => {
+    updateMyCredentials.mockResolvedValue({ ...baseCredentials, openrouterApiKeyPresent: true });
+    listAvailableModels.mockResolvedValue({ models: ["z-ai/glm-4.7", "qwen3-coder"] });
+
+    render(<CredentialsSection />);
+    await waitFor(() => expect(screen.getByText("user-alice")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /OpenRouter/ }));
+    fireEvent.change(screen.getByPlaceholderText("sk-or-v1-..."), {
+      target: { value: "sk-or-v1-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await screen.findByText("✓ OpenRouter key verified — 2 models available (e.g. z-ai/glm-4.7)");
+    expect(listAvailableModels).toHaveBeenCalledWith({
+      namespace: "user-alice",
+      provider: "openrouter",
+      authMode: "api-key",
+    });
+  });
+
+  it("warns when verification fails but keeps the credential saved", async () => {
+    updateMyCredentials.mockResolvedValue({ ...baseCredentials, xaiApiKeyPresent: true });
+    let reject!: (cause: Error) => void;
+    listAvailableModels.mockReturnValue(
+      new Promise((_resolve, rej) => {
+        reject = rej;
+      }),
+    );
+
+    render(<CredentialsSection />);
+    await waitFor(() => expect(screen.getByText("user-alice")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /xAI \/ Grok/ }));
+    fireEvent.change(screen.getByPlaceholderText("xai-..."), {
+      target: { value: "xai-bad-key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await screen.findByText("Verifying xAI key…");
+    reject(new Error("403 forbidden"));
+    await screen.findByText(
+      "xAI key saved, but verification failed: 403 forbidden. Check the key and try again.",
+    );
+    // Advisory only: the credential was saved and the row reflects it.
+    expect(updateMyCredentials).toHaveBeenCalledWith({ xaiApiKey: "xai-bad-key" });
+    expect(screen.getByRole("button", { name: /xAI \/ Grok/ }).textContent).toContain("API key");
   });
 
   it("removes a saved credential", async () => {

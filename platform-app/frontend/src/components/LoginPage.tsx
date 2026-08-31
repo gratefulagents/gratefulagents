@@ -49,7 +49,7 @@ function verifyGoogleNonce(idToken: string, expectedNonce: string): void {
 }
 
 export function LoginPage() {
-  const { connectToServer, environment, error: authError, isConnected, loginWithGoogle, loginWithPassword, config, workspaces } = useAuth();
+  const { connectToServer, environment, error: authError, isConnected, loginWithGoogle, loginWithPassword, redeemSetupToken, config, workspaces } = useAuth();
   const theme = useTheme();
   const [serverUrl, setServerUrl] = useState(environment.endpointUrl);
   const [cfClientId, setCfClientId] = useState(environment.cfAccessClientId);
@@ -105,6 +105,30 @@ export function LoginPage() {
       !!(environment.cfAccessClientId || environment.cfAccessClientSecret),
     );
   }, [environment]);
+
+  // One-time setup link from the installer: redeem the token for an admin
+  // session, stripping it from the URL immediately so it never lingers in
+  // the address bar or browser history.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const setupToken = params.get('setup_token');
+    if (!setupToken) return;
+    params.delete('setup_token');
+    const search = params.toString();
+    const pathname = window.location.pathname === '/login' ? '/' : window.location.pathname;
+    window.history.replaceState({}, '', `${pathname}${search ? `?${search}` : ''}${window.location.hash}`);
+    setIsLoading(true);
+    setError('');
+    void (async () => {
+      try {
+        await redeemSetupToken(setupToken);
+      } catch {
+        setError('This setup link is invalid or was already used. Sign in with your password instead.');
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, [redeemSetupToken]);
 
   const handleConnect = async () => {
     const endpointUrl = serverUrl.trim();

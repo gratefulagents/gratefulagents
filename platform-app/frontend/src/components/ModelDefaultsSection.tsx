@@ -2,51 +2,36 @@ import { useEffect, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
-import { PROVIDERS, providerName } from "@/components/create-flow/providers";
 import { SettingsSection } from "@/components/settings-section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toaster";
+import { useAvailableModels } from "@/hooks/useAvailableModels";
 import { client } from "@/lib/client";
+import {
+  MODEL_PROVIDERS,
+  credentialAuthModes,
+  modelProvider,
+  providerLabel,
+  type ModelProviderDef,
+  type ProviderAuthMode,
+} from "@/lib/model-providers";
 import { REASONING_LEVELS } from "@/lib/reasoning";
 import type { ModelDefaults, MyCredentials } from "@/rpc/platform/service_pb";
 
 const selectClassName =
   "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
-type AuthMode = "api-key" | "oauth";
-
-function authModesFor(credentials: MyCredentials, provider: string): AuthMode[] {
-  switch (provider) {
-    case "anthropic":
-      return [
-        ...(credentials.anthropicApiKeyPresent ? ["api-key" as const] : []),
-        ...(credentials.anthropicOauthPresent ? ["oauth" as const] : []),
-      ];
-    case "openai":
-      return [
-        ...(credentials.openaiApiKeyPresent ? ["api-key" as const] : []),
-        ...(credentials.openaiOauthPresent ? ["oauth" as const] : []),
-      ];
-    case "copilot":
-      return credentials.copilotOauthPresent ? ["oauth"] : [];
-    case "openrouter":
-      return credentials.openrouterApiKeyPresent ? ["api-key"] : [];
-    case "xai":
-      return credentials.xaiApiKeyPresent ? ["api-key"] : [];
-    default:
-      return [];
-  }
-}
+type AuthMode = ProviderAuthMode;
 
 function reconciledAuthMode(
   credentials: MyCredentials,
   provider: string,
   preferred: string,
 ): AuthMode | "" {
-  const modes = authModesFor(credentials, provider);
+  const modes = credentialAuthModes(credentials, provider);
   return modes.includes(preferred as AuthMode) ? (preferred as AuthMode) : modes[0] ?? "";
 }
 
@@ -61,13 +46,12 @@ export function ModelDefaultsSection() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelsError, setModelsError] = useState<string | null>(null);
 
   function applyServer(defaults: ModelDefaults, savedCredentials: MyCredentials | null) {
     const availableProviders = savedCredentials
-      ? PROVIDERS.filter((candidate) => authModesFor(savedCredentials, candidate.id).length > 0)
+      ? MODEL_PROVIDERS.filter(
+          (candidate) => credentialAuthModes(savedCredentials, candidate.id).length > 0,
+        )
       : [];
     // Keep a saved selection intact even when its credential was removed. This
     // lets users disable or edit the default without silently replacing it.
@@ -117,65 +101,42 @@ export function ModelDefaultsSection() {
     };
   }, []);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    if (
-      !credentials ||
-      !provider ||
-      !authMode ||
-      !authModesFor(credentials, provider).includes(authMode)
-    ) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear stale suggestions when no saved credential can serve this selection
-      setAvailableModels([]);
-      setModelsLoading(false);
-      setModelsError(null);
-      return () => controller.abort();
-    }
-
-    setAvailableModels([]);
-    setModelsLoading(true);
-    setModelsError(null);
-    void client
-      .listAvailableModels(
-        { namespace: credentials.namespace, provider, authMode },
-        { signal: controller.signal },
-      )
-      .then(
-        (response) => {
-          if (!controller.signal.aborted) setAvailableModels(response.models);
-        },
-        (cause: unknown) => {
-          if (!controller.signal.aborted) {
-            setModelsError(cause instanceof Error ? cause.message : "Failed to load provider models");
-          }
-        },
-      )
-      .finally(() => {
-        if (!controller.signal.aborted) setModelsLoading(false);
-      });
-    return () => controller.abort();
-  }, [credentials, provider, authMode]);
+  const credentialAvailableForSelection = Boolean(
+    credentials && provider && authMode && credentialAuthModes(credentials, provider).includes(authMode),
+  );
+  const {
+    models: availableModels,
+    loading: modelsLoading,
+    error: modelsError,
+  } = useAvailableModels({
+    namespace: credentials?.namespace ?? "",
+    provider,
+    authMode,
+    enabled: credentialAvailableForSelection,
+  });
 
   const availableProviders = credentials
-    ? PROVIDERS.filter((candidate) => authModesFor(credentials, candidate.id).length > 0)
+    ? MODEL_PROVIDERS.filter((candidate) => credentialAuthModes(credentials, candidate.id).length > 0)
     : [];
-  const pickerProviders =
+  const pickerProviders: ModelProviderDef[] =
     provider && !availableProviders.some((candidate) => candidate.id === provider)
       ? [
-          PROVIDERS.find((candidate) => candidate.id === provider) ?? {
+          modelProvider(provider) ?? {
             id: provider,
-            name: provider,
+            label: provider,
             hint: "",
+            authModes: [],
+            userCredentials: false,
           },
           ...availableProviders,
         ]
-      : availableProviders;
-  const credentialAuthModes = credentials ? authModesFor(credentials, provider) : [];
+      : [...availableProviders];
+  const credentialAuthModesForProvider = credentials ? credentialAuthModes(credentials, provider) : [];
   const availableAuthModes =
-    authMode && !credentialAuthModes.includes(authMode)
-      ? [authMode, ...credentialAuthModes]
-      : credentialAuthModes;
-  const providerCredentialAvailable = credentialAuthModes.length > 0;
+    authMode && !credentialAuthModesForProvider.includes(authMode)
+      ? [authMode, ...credentialAuthModesForProvider]
+      : credentialAuthModesForProvider;
+  const providerCredentialAvailable = credentialAuthModesForProvider.length > 0;
 
   function selectProvider(nextProvider: string) {
     if (nextProvider !== provider) setModel("");
@@ -223,8 +184,8 @@ export function ModelDefaultsSection() {
             {pickerProviders.length === 0 && <option value="">No saved credentials</option>}
             {pickerProviders.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
-                {candidate.name}
-                {!credentials || authModesFor(credentials, candidate.id).length === 0
+                {candidate.label}
+                {!credentials || credentialAuthModes(credentials, candidate.id).length === 0
                   ? " (credential unavailable)"
                   : ""}
               </option>
@@ -244,7 +205,7 @@ export function ModelDefaultsSection() {
             {availableAuthModes.map((mode) => (
               <option key={mode} value={mode}>
                 {mode === "api-key" ? "API key" : "OAuth"}
-                {!credentialAuthModes.includes(mode) ? " (credential unavailable)" : ""}
+                {!credentialAuthModesForProvider.includes(mode) ? " (credential unavailable)" : ""}
               </option>
             ))}
           </select>
@@ -276,13 +237,13 @@ export function ModelDefaultsSection() {
             aria-live="polite"
           >
             {modelsLoading
-              ? `Loading ${providerName(provider)} models…`
+              ? `Loading ${providerLabel(provider)} models…`
               : modelsError
                 ? modelsError
                 : provider && !providerCredentialAvailable
-                  ? `Connect ${providerName(provider)} credentials to load models.`
+                  ? `Connect ${providerLabel(provider)} credentials to load models.`
                   : provider
-                  ? `${availableModels.length} ${providerName(provider)} models available`
+                  ? `${availableModels.length} ${providerLabel(provider)} models available`
                   : "Save a provider credential to load models."}
           </p>
         </div>

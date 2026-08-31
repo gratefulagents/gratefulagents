@@ -616,7 +616,7 @@ func main() {
 		}
 
 		roleResolver := auth.NewRoleResolver()
-		authServer := auth.NewServer(authStore, googleVerifier, jwtIssuer, roleResolver)
+		authServer := auth.NewServer(authStore, googleVerifier, jwtIssuer, roleResolver, clientset)
 
 		dashOpts := []dashboard.ServerOption{dashboard.WithAPIReader(mgr.GetAPIReader())}
 		if sharedStateStore != nil {

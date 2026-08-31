@@ -378,9 +378,32 @@ case "$DASHBOARD_SERVICE_TYPE" in
     firewall_hint="No public dashboard port is required for local port-forwarding."
     ;;
 esac
+setup_token="$(kubectl -n "$NAMESPACE" get secret gratefulagents-admin-credentials \
+  -o jsonpath='{.data.setup-token}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+
 cat <<EOF
 
 Installation complete.
+EOF
+
+if [[ -n "$setup_token" && "$dashboard_access" == http* ]]; then
+  cat <<EOF
+
+Open $dashboard_access/login?setup_token=$setup_token to sign in (one-time link).
+
+If the link was already used, sign in with the admin password instead:
+EOF
+elif [[ -n "$setup_token" ]]; then
+  cat <<EOF
+
+After starting the port-forward below, open
+http://localhost:8090/login?setup_token=$setup_token to sign in (one-time link).
+
+If the link was already used, sign in with the admin password instead:
+EOF
+fi
+
+cat <<EOF
 
 Dashboard: $dashboard_access
 Username:  admin

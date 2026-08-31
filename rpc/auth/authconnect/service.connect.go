@@ -35,6 +35,9 @@ const (
 const (
 	// AuthServiceLoginProcedure is the fully-qualified name of the AuthService's Login RPC.
 	AuthServiceLoginProcedure = "/auth.v1.AuthService/Login"
+	// AuthServiceRedeemSetupTokenProcedure is the fully-qualified name of the AuthService's
+	// RedeemSetupToken RPC.
+	AuthServiceRedeemSetupTokenProcedure = "/auth.v1.AuthService/RedeemSetupToken"
 	// AuthServiceRefreshTokenProcedure is the fully-qualified name of the AuthService's RefreshToken
 	// RPC.
 	AuthServiceRefreshTokenProcedure = "/auth.v1.AuthService/RefreshToken"
@@ -60,6 +63,9 @@ const (
 type AuthServiceClient interface {
 	// Login authenticates via Google OAuth ID token or username/password.
 	Login(context.Context, *connect.Request[auth.LoginRequest]) (*connect.Response[auth.LoginResponse], error)
+	// RedeemSetupToken exchanges a one-time first-run setup token for an admin
+	// session. The token is invalidated on first successful use.
+	RedeemSetupToken(context.Context, *connect.Request[auth.RedeemSetupTokenRequest]) (*connect.Response[auth.LoginResponse], error)
 	// RefreshToken exchanges a valid refresh token for a new access + refresh pair.
 	RefreshToken(context.Context, *connect.Request[auth.RefreshTokenRequest]) (*connect.Response[auth.RefreshTokenResponse], error)
 	// Logout invalidates the given refresh token.
@@ -93,6 +99,12 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+AuthServiceLoginProcedure,
 			connect.WithSchema(authServiceMethods.ByName("Login")),
+			connect.WithClientOptions(opts...),
+		),
+		redeemSetupToken: connect.NewClient[auth.RedeemSetupTokenRequest, auth.LoginResponse](
+			httpClient,
+			baseURL+AuthServiceRedeemSetupTokenProcedure,
+			connect.WithSchema(authServiceMethods.ByName("RedeemSetupToken")),
 			connect.WithClientOptions(opts...),
 		),
 		refreshToken: connect.NewClient[auth.RefreshTokenRequest, auth.RefreshTokenResponse](
@@ -148,20 +160,26 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // authServiceClient implements AuthServiceClient.
 type authServiceClient struct {
-	login          *connect.Client[auth.LoginRequest, auth.LoginResponse]
-	refreshToken   *connect.Client[auth.RefreshTokenRequest, auth.RefreshTokenResponse]
-	logout         *connect.Client[auth.LogoutRequest, auth.LogoutResponse]
-	getCurrentUser *connect.Client[auth.GetCurrentUserRequest, auth.User]
-	searchUsers    *connect.Client[auth.SearchUsersRequest, auth.SearchUsersResponse]
-	listUsers      *connect.Client[auth.ListUsersRequest, auth.ListUsersResponse]
-	updateUserRole *connect.Client[auth.UpdateUserRoleRequest, auth.User]
-	deleteUser     *connect.Client[auth.DeleteUserRequest, auth.DeleteUserResponse]
-	getJWKS        *connect.Client[auth.GetJWKSRequest, auth.GetJWKSResponse]
+	login            *connect.Client[auth.LoginRequest, auth.LoginResponse]
+	redeemSetupToken *connect.Client[auth.RedeemSetupTokenRequest, auth.LoginResponse]
+	refreshToken     *connect.Client[auth.RefreshTokenRequest, auth.RefreshTokenResponse]
+	logout           *connect.Client[auth.LogoutRequest, auth.LogoutResponse]
+	getCurrentUser   *connect.Client[auth.GetCurrentUserRequest, auth.User]
+	searchUsers      *connect.Client[auth.SearchUsersRequest, auth.SearchUsersResponse]
+	listUsers        *connect.Client[auth.ListUsersRequest, auth.ListUsersResponse]
+	updateUserRole   *connect.Client[auth.UpdateUserRoleRequest, auth.User]
+	deleteUser       *connect.Client[auth.DeleteUserRequest, auth.DeleteUserResponse]
+	getJWKS          *connect.Client[auth.GetJWKSRequest, auth.GetJWKSResponse]
 }
 
 // Login calls auth.v1.AuthService.Login.
 func (c *authServiceClient) Login(ctx context.Context, req *connect.Request[auth.LoginRequest]) (*connect.Response[auth.LoginResponse], error) {
 	return c.login.CallUnary(ctx, req)
+}
+
+// RedeemSetupToken calls auth.v1.AuthService.RedeemSetupToken.
+func (c *authServiceClient) RedeemSetupToken(ctx context.Context, req *connect.Request[auth.RedeemSetupTokenRequest]) (*connect.Response[auth.LoginResponse], error) {
+	return c.redeemSetupToken.CallUnary(ctx, req)
 }
 
 // RefreshToken calls auth.v1.AuthService.RefreshToken.
@@ -208,6 +226,9 @@ func (c *authServiceClient) GetJWKS(ctx context.Context, req *connect.Request[au
 type AuthServiceHandler interface {
 	// Login authenticates via Google OAuth ID token or username/password.
 	Login(context.Context, *connect.Request[auth.LoginRequest]) (*connect.Response[auth.LoginResponse], error)
+	// RedeemSetupToken exchanges a one-time first-run setup token for an admin
+	// session. The token is invalidated on first successful use.
+	RedeemSetupToken(context.Context, *connect.Request[auth.RedeemSetupTokenRequest]) (*connect.Response[auth.LoginResponse], error)
 	// RefreshToken exchanges a valid refresh token for a new access + refresh pair.
 	RefreshToken(context.Context, *connect.Request[auth.RefreshTokenRequest]) (*connect.Response[auth.RefreshTokenResponse], error)
 	// Logout invalidates the given refresh token.
@@ -237,6 +258,12 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		AuthServiceLoginProcedure,
 		svc.Login,
 		connect.WithSchema(authServiceMethods.ByName("Login")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceRedeemSetupTokenHandler := connect.NewUnaryHandler(
+		AuthServiceRedeemSetupTokenProcedure,
+		svc.RedeemSetupToken,
+		connect.WithSchema(authServiceMethods.ByName("RedeemSetupToken")),
 		connect.WithHandlerOptions(opts...),
 	)
 	authServiceRefreshTokenHandler := connect.NewUnaryHandler(
@@ -291,6 +318,8 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		switch r.URL.Path {
 		case AuthServiceLoginProcedure:
 			authServiceLoginHandler.ServeHTTP(w, r)
+		case AuthServiceRedeemSetupTokenProcedure:
+			authServiceRedeemSetupTokenHandler.ServeHTTP(w, r)
 		case AuthServiceRefreshTokenProcedure:
 			authServiceRefreshTokenHandler.ServeHTTP(w, r)
 		case AuthServiceLogoutProcedure:
@@ -318,6 +347,10 @@ type UnimplementedAuthServiceHandler struct{}
 
 func (UnimplementedAuthServiceHandler) Login(context.Context, *connect.Request[auth.LoginRequest]) (*connect.Response[auth.LoginResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.Login is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) RedeemSetupToken(context.Context, *connect.Request[auth.RedeemSetupTokenRequest]) (*connect.Response[auth.LoginResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("auth.v1.AuthService.RedeemSetupToken is not implemented"))
 }
 
 func (UnimplementedAuthServiceHandler) RefreshToken(context.Context, *connect.Request[auth.RefreshTokenRequest]) (*connect.Response[auth.RefreshTokenResponse], error) {
