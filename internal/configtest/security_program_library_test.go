@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -205,14 +206,6 @@ func TestSecurityProgramLibrary(t *testing.T) {
 			prohibitedTest: "Any testing on mainnet or public testnet deployed code; all testing should be done on local-forks of either public testnet or mainnet",
 			policyMarker:   "This scan selects the repository's mainnet branch for production relevance",
 		},
-	}
-	containsString := func(values []string, want string) bool {
-		for _, value := range values {
-			if value == want {
-				return true
-			}
-		}
-		return false
 	}
 	containsImpact := func(values []triggersv1alpha1.SecurityProgramImpact, want string) bool {
 		for _, value := range values {
@@ -493,10 +486,10 @@ func TestSecurityProgramLibrary(t *testing.T) {
 					if !containsImpact(program.Spec.InScopeImpacts, want.impactClause) {
 						t.Errorf("typed impacts missing researched clause %q", want.impactClause)
 					}
-					if !containsString(program.Spec.OutOfScope, want.outOfScope) {
+					if !slices.Contains(program.Spec.OutOfScope, want.outOfScope) {
 						t.Errorf("typed out-of-scope boundary missing researched clause %q", want.outOfScope)
 					}
-					if !containsString(program.Spec.ProhibitedTesting, want.prohibitedTest) {
+					if !slices.Contains(program.Spec.ProhibitedTesting, want.prohibitedTest) {
 						t.Errorf("typed testing boundary missing researched clause %q", want.prohibitedTest)
 					}
 					if !strings.Contains(program.Spec.ScopePolicy, want.policyMarker) {
