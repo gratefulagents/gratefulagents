@@ -81,7 +81,8 @@ const (
 
 	// securityScanReasonOutputContractUnmet marks a task run that succeeded
 	// without publishing the structured output its schema requires.
-	securityScanReasonOutputContractUnmet = "OutputContractUnmet"
+	securityScanReasonOutputContractUnmet  = "OutputContractUnmet"
+	securityScanReadinessCoverageGapPrefix = "runtime readiness gate "
 )
 
 // securityScanExecutionTerminal reports whether an execution phase is final.
@@ -183,6 +184,7 @@ func (r *SecurityScanReconciler) reconcileExecutionResume(ctx context.Context, s
 			return
 		}
 		exec.Phase = triggersv1alpha1.SecurityScanExecutionPhaseRunning
+		exec.EvidenceOutcome = ""
 		exec.CompletedAt = nil
 		for i := range exec.Tasks {
 			task := &exec.Tasks[i]
@@ -519,12 +521,12 @@ func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context
 	if errs := triggersv1alpha1.ValidateSecurityWorkflowTasks(workflow); len(errs) != 0 {
 		return recordFailure(&securityScanRefError{reason: securityScanReasonInvalidSpec, message: "workflow is invalid: " + errs[0].Error()})
 	}
-	if err := validateSecurityScanTaskSkillRefs(ctx, r.Client, scan.Namespace, scan.Spec.Defaults.SkillRefs, workflow); err != nil {
-		return recordFailure(err)
-	}
 	// Required or referenced parameters without a value fail the dispatch
 	// non-retryably before any task run exists.
 	if _, err := resolveSecurityScanParameters(resolved); err != nil {
+		return recordFailure(err)
+	}
+	if err := r.preflightDeterministicExecution(ctx, scan, resolved); err != nil {
 		return recordFailure(err)
 	}
 
@@ -573,6 +575,121 @@ func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context
 	setSecurityScanCondition(fresh, metav1.ConditionTrue, "ExecutionRunning", fmt.Sprintf("Deterministic execution %s is running", exec.ID))
 	setSecurityScanCoverageCondition(fresh, metav1.ConditionUnknown, "ExecutionRunning", "coverage completeness is unknown while the execution is running")
 	return r.advanceDeterministicExecution(ctx, fresh)
+}
+
+// preflightDeterministicExecution rejects static dispatch failures before an
+// execution plan or any task run is materialized.
+func (r *SecurityScanReconciler) preflightDeterministicExecution(ctx context.Context, scan *triggersv1alpha1.SecurityScan, resolved *resolvedSecurityScanSpec) error {
+	workflow := resolved.spec.Workflow
+	if securityScanWorkflowRequiresResearchArtifacts(workflow) {
+		_, findingsArtifactCapable := r.Findings.(store.SecurityResearchArtifactStore)
+		_, stateArtifactCapable := r.StateStore.(store.SecurityResearchArtifactStore)
+		_, findingsResearchCapable := r.Findings.(store.SecurityResearchStore)
+		_, stateResearchCapable := r.StateStore.(store.SecurityResearchStore)
+		if (!findingsArtifactCapable && !stateArtifactCapable) || (!findingsResearchCapable && !stateResearchCapable) {
+			return &securityScanRefError{
+				reason:  securityScanReasonUnresolvedReference,
+				message: "workflow requires durable security research and artifact stores, but the configured stores do not provide both capabilities",
+			}
+		}
+	}
+	if err := validateSecurityScanTaskSkillRefs(ctx, r.Client, scan.Namespace, scan.Spec.Defaults.SkillRefs, workflow); err != nil {
+		return err
+	}
+
+	baseDefaults := securityScanPreflightDefaults(scan, resolved)
+	if err := validateTriggerRunDefaults(TriggerRunSpec{
+		Namespace: scan.Namespace, TriggerKind: securityScanKind, TriggerName: scan.Name, Defaults: baseDefaults,
+	}); err != nil {
+		return err
+	}
+
+	sinks := securityScanSinkTasks(workflow)
+	for _, task := range workflow {
+		role, err := r.resolveSecurityScanTaskRole(ctx, task)
+		if err != nil {
+			return err
+		}
+		d := baseDefaults
+		if model := strings.TrimSpace(task.Model); model != "" {
+			d.Model = model
+		}
+		if level := role.spec.ReasoningLevel; level != "" && d.ReasoningLevel == "" {
+			d.ReasoningLevel = level
+		}
+		if task.Timeout.Duration > 0 && (d.Timeout.Duration == 0 || task.Timeout.Duration < d.Timeout.Duration) {
+			d.Timeout = task.Timeout
+		}
+		if err := validateTriggerRunDefaults(TriggerRunSpec{
+			Namespace: scan.Namespace, TriggerKind: securityScanKind, TriggerName: scan.Name, Defaults: d,
+		}); err != nil {
+			return fmt.Errorf("workflow task %q adjusted defaults are invalid: %w", task.Name, err)
+		}
+		if err := validateSecurityScanTaskToolContract(task, sinks[task.Name]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func securityScanWorkflowRequiresResearchArtifacts(workflow []triggersv1alpha1.SecurityScanTask) bool {
+	for _, task := range workflow {
+		// The artifact tool is intentionally an explicit workflow capability.
+		// Matching both its tool name and compact handoff field avoids treating
+		// incidental prose as a hard runtime dependency.
+		if strings.Contains(task.Objective, "create_security_research_artifact") &&
+			strings.Contains(task.OutputSchema, `"artifact_ids"`) {
+			return true
+		}
+	}
+	return false
+}
+
+func securityScanPreflightDefaults(scan *triggersv1alpha1.SecurityScan, resolved *resolvedSecurityScanSpec) triggersv1alpha1.AgentRunDefaults {
+	d := scan.Spec.Defaults
+	d.RepoURL = scan.Spec.RepoURL
+	if strings.TrimSpace(scan.Spec.TargetURL) == "" {
+		d.BaseBranch = scan.Spec.EffectiveBaseBranch()
+		if len(scan.Spec.AdditionalRepos) > 0 {
+			d.AdditionalRepos = append([]string(nil), scan.Spec.AdditionalRepos...)
+		}
+	} else {
+		d.RepoURL = ""
+		d.BaseBranch = ""
+		d.AdditionalRepos = nil
+		d.Secrets.GithubToken = ""
+	}
+	if scan.Spec.MaxRuntime.Duration > 0 {
+		d.Timeout = scan.Spec.MaxRuntime
+	}
+	if budgets := resolved.spec.Budgets; budgets != nil && budgets.MaxRuntime.Duration > 0 &&
+		(d.Timeout.Duration == 0 || budgets.MaxRuntime.Duration < d.Timeout.Duration) {
+		d.Timeout = budgets.MaxRuntime
+	}
+	return d
+}
+
+func validateSecurityScanTaskToolContract(task triggersv1alpha1.SecurityScanTask, sink bool) error {
+	if task.Tools == nil {
+		return nil
+	}
+	required := map[string]bool{}
+	if strings.TrimSpace(task.OutputSchema) != "" {
+		required["submit_task_output"] = true
+	}
+	if sink {
+		required["submit_security_scan_report"] = true
+	}
+	for _, tool := range task.Tools.Denied {
+		name := strings.TrimSpace(tool)
+		if required[name] {
+			return &securityScanRefError{
+				reason:  securityScanReasonInvalidSpec,
+				message: fmt.Sprintf("workflow task %q denies required contract tool %q", task.Name, name),
+			}
+		}
+	}
+	return nil
 }
 
 // planSecurityScanExecution expands the workflow into the initial
@@ -771,12 +888,14 @@ func applySecurityScanExecutionOutcomeCondition(fresh *triggersv1alpha1.Security
 		return
 	}
 	if exec.Phase == triggersv1alpha1.SecurityScanExecutionPhaseCancelled {
+		exec.EvidenceOutcome = exec.DerivedEvidenceOutcome()
 		// No LastError: a user-requested stop is not a scan error.
 		setSecurityScanCondition(fresh, metav1.ConditionFalse, securityScanReasonCancelled, securityScanCancelMessage)
 		setSecurityScanCoverageCondition(fresh, metav1.ConditionUnknown, securityScanReasonCancelled, "coverage completeness is unknown because the execution was cancelled")
 		return
 	}
 	if exec.Phase == triggersv1alpha1.SecurityScanExecutionPhaseSucceeded {
+		exec.EvidenceOutcome = exec.DerivedEvidenceOutcome()
 		if len(exec.CoverageGaps) == 0 {
 			setSecurityScanCondition(fresh, metav1.ConditionTrue, "ExecutionSucceeded", fmt.Sprintf("Deterministic execution %s succeeded", exec.ID))
 			setSecurityScanCoverageCondition(fresh, metav1.ConditionTrue, "Complete", "Execution completed without coverage gaps")
@@ -790,6 +909,7 @@ func applySecurityScanExecutionOutcomeCondition(fresh *triggersv1alpha1.Security
 	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
 		return
 	}
+	exec.EvidenceOutcome = exec.DerivedEvidenceOutcome()
 	msg := fmt.Sprintf("deterministic execution %s failed", exec.ID)
 	if reason := failedSecurityScanExecutionDetail(exec); reason != "" {
 		msg += ": " + reason
@@ -1163,10 +1283,34 @@ func (e *securityScanExecutionEngine) observe(ctx context.Context) {
 			entry.LastError = ""
 			entry.NextRetryTime = nil
 			entry.FinishedAt = &e.now
+			e.recordCompactHandoffCoverage(entry.Name, run.Status.StructuredOutput)
 		case platformv1alpha1.AgentRunPhaseFailed, platformv1alpha1.AgentRunPhaseCancelled,
 			platformv1alpha1.AgentRunPhasePaused:
 			reason := securityScanAgentRunFailureReason(run, "task")
 			e.recordAttemptFailure(entry, run, reason, classifySecurityScanTaskFailure(reason))
+		}
+	}
+}
+
+// recordCompactHandoffCoverage folds only the bounded version-1 handoff
+// summary into controller assurance semantics. Artifact bodies remain in the
+// research store; the controller needs only explicit blockers and negative
+// coverage classes to avoid advertising a false all-clear.
+func (e *securityScanExecutionEngine) recordCompactHandoffCoverage(taskName, output string) {
+	var handoff struct {
+		Version     int                 `json:"version"`
+		BlockerIDs  []string            `json:"blocker_ids"`
+		CoverageIDs map[string][]string `json:"coverage_ids"`
+	}
+	if strings.TrimSpace(output) == "" || json.Unmarshal([]byte(output), &handoff) != nil || handoff.Version != 1 {
+		return
+	}
+	if len(handoff.BlockerIDs) > 0 {
+		appendSecurityScanCoverageGap(e.exec, fmt.Sprintf("task %q retained %d durable blocker(s)", taskName, len(handoff.BlockerIDs)))
+	}
+	for _, verdict := range []string{"inadequately_tested", "not_tested"} {
+		if count := len(handoff.CoverageIDs[verdict]); count > 0 {
+			appendSecurityScanCoverageGap(e.exec, fmt.Sprintf("task %q retained %d %s coverage record(s)", taskName, count, verdict))
 		}
 	}
 }
@@ -1857,6 +2001,14 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 				entry.State = triggersv1alpha1.SecurityScanTaskStateSucceeded
 				entry.StructuredOutput = output
 				entry.FinishedAt = &e.now
+				// A failed explicit readiness gate is a delivered workflow, not a
+				// complete security assessment. Preserve the controller-side skip
+				// as a coverage gap so terminal EvidenceOutcome cannot become a
+				// misleading complete result merely because the fallback output was
+				// schema-valid. Other conditional routing remains a normal no-op.
+				if task.When.Path == "conditions.ready" && strings.EqualFold(strings.TrimSpace(task.When.Equals), "true") {
+					appendSecurityScanCoverageGap(e.exec, fmt.Sprintf("runtime readiness gate %q did not pass", task.When.Task))
+				}
 				continue
 			}
 		}
@@ -2708,12 +2860,18 @@ func (r *SecurityScanReconciler) resolveSecurityScanTaskRole(ctx context.Context
 	role := &platformv1alpha1.RoleInstruction{}
 	if err := r.Get(ctx, client.ObjectKey{Name: name}, role); err != nil {
 		if apierrors.IsNotFound(err) {
-			return securityScanTaskRole{}, fmt.Errorf("task %q: effective role %q not found: no RoleInstruction of that name exists", task.Name, name)
+			return securityScanTaskRole{}, &securityScanRefError{
+				reason:  securityScanReasonUnresolvedReference,
+				message: fmt.Sprintf("task %q: effective role %q not found: no RoleInstruction of that name exists", task.Name, name),
+			}
 		}
 		return securityScanTaskRole{}, fmt.Errorf("task %q: reading RoleInstruction %q for effective role: %w", task.Name, name, err)
 	}
 	if strings.TrimSpace(role.Spec.Instructions) == "" {
-		return securityScanTaskRole{}, fmt.Errorf("task %q: effective role %q is invalid: RoleInstruction has no spec.instructions", task.Name, name)
+		return securityScanTaskRole{}, &securityScanRefError{
+			reason:  securityScanReasonUnresolvedReference,
+			message: fmt.Sprintf("task %q: effective role %q is invalid: RoleInstruction has no spec.instructions", task.Name, name),
+		}
 	}
 	return securityScanTaskRole{name: name, spec: role.Spec}, nil
 }

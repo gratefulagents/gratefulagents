@@ -170,6 +170,9 @@ var migration056Up string
 //go:embed migrations/057_interrupt_change_seq.up.sql
 var migration057Up string
 
+//go:embed migrations/058_security_research_artifacts.up.sql
+var migration058Up string
+
 // noTxMigrations run statement-by-statement outside a transaction so they can
 // use commands PostgreSQL forbids in transaction blocks, such as
 // CREATE INDEX CONCURRENTLY (which avoids blocking writers during the build).
@@ -277,6 +280,7 @@ func orderedMigrations() []schemaMigration {
 		{55, migration055Up, false},
 		{56, migration056Up, false},
 		{57, migration057Up, false},
+		{58, migration058Up, false},
 	}
 }
 

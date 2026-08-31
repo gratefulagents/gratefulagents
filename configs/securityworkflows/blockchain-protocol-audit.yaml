@@ -3,1310 +3,341 @@ kind: SecurityWorkflow
 metadata:
   name: blockchain-protocol-audit
 spec:
-  description: Deep security review for blockchain clients, rollups, bridges, peer-to-peer nodes, and signing services. It inventories protocol-critical surfaces, reviews the highest-risk flows individually, and hunts consensus, rollup, transaction, network, bridge, execution, signer, storage, native-safety, and release-integrity failures before exploit validation and triage. Contract-only repositories should use smart-contract-review instead.
+  description: Evidence-driven review of blockchain clients, rollups, bridges, peer-to-peer nodes, signing services, and protocol release paths. A runtime dossier gates four long investigations and bounded native fuzzing; detailed evidence is persisted behind compact handoffs before adaptive challenge, independent validation, campaign reconciliation, and one final report.
   parallelism: 6
   tasks:
-    - name: detect-platforms-and-components
-      role: threat-modeler
+    - name: runtime-preflight-and-dossier
+      role: protocol-investigator
       category: recon
+      timeout: 25m
+      maxTurns: 50
+      tools:
+        denied: [git_commit, git_push, create_pull_request]
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-audit-context-building
       objective: >-
-        Call get_security_research_context first and reuse only records bound to the exact immutable target
-        revision and scope; prior-revision negative evidence is stale context. Build the authoritative scope,
-        platform, and component inventory for this repository before any surface
-        is mapped. Record the immutable revision under review, explicit in-scope and out-of-scope roots, stated
-        deployment/artifact availability, and limitations. Inspect manifests, build files, imports, schemas,
-        source layout, generated artifacts, tests,
-        deployment files, and production wiring for EVM clients/protocol code/system contracts, Solana and
-        Anchor, Cosmos SDK/CosmWasm/IBC, Substrate/Polkadot/XCM, Aptos Move, Sui Move, Cairo/Starknet, TON,
-        Algorand, and Bitcoin/UTXO/Lightning. Emit exactly one record for every enumerated platform, including
-        platforms not detected. For each detected platform identify concrete components such as node/client,
-        runtime/VM, consensus, contracts/programs/modules, bridge/rollup/prover, wallet/signer/custody,
-        relayer/oracle/indexer/keeper/sequencer/batcher, RPC/P2P, tests, and deployment/release code, with
-        repository-relative evidence files. Use detected only when source or configuration evidence supports
-        it, not from documentation or names alone; use inconclusive when evidence conflicts. Populate every
-        specialists boolean conservatively: each of the ten platform-specialist flags is true exactly when its
-        matching platform status is detected or inconclusive; bridge-l2-zk-specialist is true when a bridge,
-        rollup, prover, verifier, cross-chain message, or data-availability component is detected or inconclusive;
-        wallet-mpc-cryptography-specialist is true for any wallet, signer, custody, HSM, MPC, or threshold-crypto
-        component; economics-mev-governance-specialist is true whenever any production protocol platform is
-        detected or inconclusive; and off-chain-services-specialist is true for any relayer, oracle, indexer,
-        keeper, bundler, sequencer, batcher, prover service, RPC service, admin API, telemetry pipeline,
-        key-custody service, backup, or recovery component. Set a specialist flag false only when repository
-        evidence establishes that its entire area is absent; uncertainty must route to review. This is inventory,
-        not a vulnerability hunt, and it must not claim that builds, tests, analyzers, fuzzers, provers, or
-        network checks were executed.
+        Call get_security_research_context first and accept reusable evidence only for the exact immutable target,
+        revision, and scope; prior-revision negative evidence is stale context. Perform a bounded runtime preflight:
+        verify the checked-out revision, in-scope roots, dependencies and submodules, required toolchains, principal
+        build and test commands, companion repositories, generated or deployed artifacts, and operator-authorized
+        fork or deployment inputs. Run only cheap local smoke checks needed to decide whether investigation can
+        proceed. Build the protocol dossier from production wiring: components, trust boundaries, actors, assets,
+        state machines, entry points, invariants, reference implementations, native fuzz targets, and explicit
+        exclusions. Persist the dossier and preflight as manifest artifacts and each blocker as a blocker artifact
+        with create_security_research_artifact, always supplying kind, an object payload, and a stable idempotency_key;
+        persist material dossier changes with amend_security_dossier. Set conditions.ready true only when the four
+        source investigations can execute meaningfully; keep conditions.build_ready and conditions.test_ready
+        truthful. Return the actual version-1 handoff shape: version, artifact_ids, candidate_fingerprints,
+        coverage_ids, blocker_ids, and scalar conditions only. Never embed artifact bodies in task output.
       outputSchema: |-
-        {
-          "type": "object",
-          "required": ["revision", "scope", "platforms", "specialists", "limitations"],
-          "properties": {
-            "revision": {"type": "string"},
-            "scope": {
-              "type": "object",
-              "required": ["in_scope", "out_of_scope", "deployment_artifacts"],
-              "properties": {
-                "in_scope": {"type": "array", "items": {"type": "string"}},
-                "out_of_scope": {"type": "array", "items": {"type": "string"}},
-                "deployment_artifacts": {"type": "string", "enum": ["available", "partial", "unavailable"]}
-              }
-            },
-            "platforms": {
-              "type": "array",
-              "minItems": 10,
-              "maxItems": 10,
-              "items": {
-                "type": "object",
-                "required": ["platform", "status", "evidence", "components"],
-                "properties": {
-                  "platform": {"type": "string", "enum": ["evm-protocol", "solana-anchor", "cosmos-cosmwasm-ibc", "substrate-polkadot-xcm", "aptos-move", "sui-move", "cairo-starknet", "ton", "algorand", "bitcoin-lightning"]},
-                  "status": {"type": "string", "enum": ["detected", "not_detected", "inconclusive"]},
-                  "evidence": {"type": "array", "items": {"type": "string", "description": "Repository-relative file or file:line evidence"}},
-                  "components": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "required": ["name", "kind", "files"],
-                      "properties": {
-                        "name": {"type": "string"},
-                        "kind": {"type": "string"},
-                        "files": {"type": "array", "items": {"type": "string"}}
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            "specialists": {"type":"object","required":["evm-protocol-specialist","solana-anchor-specialist","cosmos-cosmwasm-ibc-specialist","substrate-polkadot-xcm-specialist","aptos-move-specialist","sui-move-specialist","cairo-starknet-specialist","ton-specialist","algorand-specialist","bitcoin-lightning-specialist","bridge-l2-zk-specialist","wallet-mpc-cryptography-specialist","economics-mev-governance-specialist","off-chain-services-specialist"],"properties":{"evm-protocol-specialist":{"type":"boolean"},"solana-anchor-specialist":{"type":"boolean"},"cosmos-cosmwasm-ibc-specialist":{"type":"boolean"},"substrate-polkadot-xcm-specialist":{"type":"boolean"},"aptos-move-specialist":{"type":"boolean"},"sui-move-specialist":{"type":"boolean"},"cairo-starknet-specialist":{"type":"boolean"},"ton-specialist":{"type":"boolean"},"algorand-specialist":{"type":"boolean"},"bitcoin-lightning-specialist":{"type":"boolean"},"bridge-l2-zk-specialist":{"type":"boolean"},"wallet-mpc-cryptography-specialist":{"type":"boolean"},"economics-mev-governance-specialist":{"type":"boolean"},"off-chain-services-specialist":{"type":"boolean"}}},
-            "limitations": {"type": "array", "items": {"type": "string"}}
-          }
-        }
+        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","build_ready","test_ready"],"properties":{"ready":{"type":"boolean"},"build_ready":{"type":"boolean"},"test_ready":{"type":"boolean"}}}}}
 
-    - name: map-protocol-surfaces
-      role: threat-modeler
-      category: recon
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-audit-context-building
-        - name: trail-of-bits-entry-point-analyzer
-      objective: >-
-        Consume the complete platform/component inventory in
-        {{tasks.detect-platforms-and-components.output}} and map and risk-rank every production protocol
-        surface in every detected or inconclusive component: consensus and finality;
-        transaction, block, batch, proof, and state-transition validation; rollup derivation and disputes;
-        peer-to-peer, mempool, synchronization, and public RPC entry points; cross-chain messages and
-        withdrawals; execution engines, precompiles, system contracts, and host boundaries; persistent state,
-        snapshots, and reorgs; signing, HSM, and privileged operator interfaces; and genesis, upgrade, build,
-        and release mechanisms that can change protocol behavior. Follow real production wiring rather than
-        documentation. Distinguish unauthenticated peers, transaction senders, RPC callers, block producers,
-        validators, sequencers, relayers, and operators. Give each surface a stable id, protected asset or
-        invariant, principal control already enforced, and risk rank. Exclude tests and unreachable code.
-        This workflow is not a generic Solidity audit: in mixed repositories map only cross-layer contracts,
-        system contracts, proof/message semantics, and VM/host boundaries; leave ordinary reentrancy, oracle,
-        token, proxy-layout, and contract access-control review to smart-contract-review. Publish the complete
-        risk-ranked inventory, not findings. Sort the array by strictly ascending, unique risk_rank (one is
-        highest risk); later fan-out consumes that array order and reviews every surface. Preserve the
-        inventory's platform identifier on every surface and do not map a not_detected platform.
-      dependsOn: [detect-platforms-and-components]
-      outputSchema: |-
-        {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["surface_id", "platform", "domain", "entrypoint", "file", "attacker", "asset_or_invariant", "control", "risk_rank"],
-            "properties": {
-              "surface_id": {"type": "string", "description": "Stable short identifier for this review unit"},
-              "platform": {"type": "string", "enum": ["evm-protocol", "solana-anchor", "cosmos-cosmwasm-ibc", "substrate-polkadot-xcm", "aptos-move", "sui-move", "cairo-starknet", "ton", "algorand", "bitcoin-lightning"]},
-              "domain": {"type": "string", "enum": ["consensus", "rollup", "zk", "transaction", "p2p", "bridge", "execution", "signer", "wallet", "economics", "offchain", "storage", "native", "deployment", "release"]},
-              "entrypoint": {"type": "string", "description": "Production handler, message, method, hook, or build entry point"},
-              "file": {"type": "string", "description": "Repository-relative implementation file"},
-              "attacker": {"type": "string", "description": "Least-privileged principal able to influence this surface"},
-              "asset_or_invariant": {"type": "string", "description": "Funds, keys, safety, liveness, state, or release property protected here"},
-              "control": {"type": "string", "description": "Validation or authorization expected to enforce the invariant"},
-              "risk_rank": {"type": "integer", "minimum": 1, "description": "One is highest risk; ranks are unique and the array is strictly ascending by this field"}
-            }
-          }
-        }
-
-    - name: review-critical-surface
-      role: vulnerability-hunter
-      category: other
+    - name: consensus-and-execution-investigator
+      role: protocol-investigator
+      category: logic-flaw
+      timeout: 90m
+      maxTurns: 140
+      tools:
+        denied: [git_commit, git_push, create_pull_request]
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-secure-workflow-guide
-      objective: >-
-        Process the indexed array in {{items}}, reviewing every risk-ranked protocol surface it contains end
-        to end. For each input, use its surface_id, domain, entrypoint, file, attacker, asset_or_invariant, and
-        control. Attack each surface in the payout-ordered sequence, naming the invariant you are trying to
-        break. Priority 1, initialization and upgrade state on the DEPLOYED implementation: every
-        implementation behind a proxy is already initialized, owns nothing, and is reachable only through
-        its proxy (Wormhole, $10M). Priority 2, cross-chain proof and identity binding: a proof is accepted
-        only from the producer allowed to have produced it, and a relayed message keeps the caller identity
-        the destination believes it has, msg.sender after relaying included (Aurora, $1M). Priority 3,
-        fork-versus-upstream divergence when the surface belongs to a client or an L2 fork: upstream-fork-diff
-        enumerates every divergence and each one is checked against the invariant the upstream code used to
-        satisfy (Optimism l2geth, $2,000,042). Priority 4, encoding and decoding round trips and replay:
-        decode after encode is the identity, one identifier has exactly one encoding, and nonce and domain
-        separation are present (Polygon Plasma, $2M). Priority 5, missing balance and state validation, the
-        most frequently confirmed root cause in Immunefi's disclosed set: every state-changing path checks
-        the balance, bound or existence it depends on. Priority 6, accounting, rounding, precision and
-        decimals: conversions round-trip within a stated bound at the decimals actually reported, never an
-        assumed 18 (Moonbeam, Astar and Acala, $1M). Priority 7, access control and role or permission
-        inventories: the matrix of who may call what holds. Priorities 1 and 6 rest on deployed state that
-        only the chain-read and deployed-bytecode-diff packs can settle, and both need an
-        operator-authorized fork endpoint alias: with no alias authorized, return blocked for that surface
-        with the missing authorization named in the summary rather than assuming the deployed value.
-        Templated reentrancy and flash-loan oracle patterns stay available but sit off the default path,
-        because bots already sweep them and bot-findable means unpayable. Follow attacker-controlled data through parsing, validation, authorization, state reads and
-        writes, cryptography, external calls, persistence, and error or rollback handling. Compare alternate
-        admission, replay, synchronization, estimation, tracing, recovery, and upgrade paths that perform the
-        same operation. Report only a concrete path where the stated control is absent or bypassable, with
-        every hop and the resulting fund, key, safety, liveness, or node-compromise impact at file:line. Return
-        exactly one envelope per input, preserving its absolute recordIndex, with result containing surface_id,
-        status, fingerprints, and summary. Set status to reviewed when the review completes or blocked when it
-        cannot complete. List every finding fingerprint returned by report_security_finding; use an empty
-        fingerprints array when the surface holds.
-      dependsOn: [map-protocol-surfaces]
-      forEach: map-protocol-surfaces
-      # Chunk the complete surface inventory across a bounded number of agents.
-      # Twelve preserves one result per surface while reducing repeated repository
-      # discovery and prompt context compared with the previous sixteen-run fan-out.
-      targetRuns: 12
-      outputSchema: |-
-        {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["recordIndex", "result"],
-            "properties": {
-              "recordIndex": {"type": "integer", "minimum": 0, "description": "Absolute index of the input record"},
-              "result": {
-                "type": "object",
-                "required": ["surface_id", "status", "fingerprints", "summary"],
-                "properties": {
-                  "surface_id": {"type": "string"},
-                  "status": {"type": "string", "enum": ["reviewed", "blocked"]},
-                  "fingerprints": {"type": "array", "items": {"type": "string"}},
-                  "summary": {"type": "string", "description": "What was checked or why review was blocked"}
-                }
-              }
-            }
-          }
-        }
-
-    - name: consensus-finality-and-state-transition
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-property-based-testing
-        - name: trail-of-bits-sharp-edges
-      objective: >-
-        Use {{tasks.map-protocol-surfaces.output}} to audit consensus, finality, and state transitions.
-        Payout-ordered priority 3 is owned here: when this codebase is a fork of an upstream client or L2,
-        name upstream-fork-diff, enumerate every divergence against the upstream revision, and check each
-        divergence against the invariant the upstream code used to satisfy — a state-transition or
-        accounting rule upstream enforced and the fork silently dropped is the cheapest enumerable
-        high-payout sweep we have (Optimism l2geth, $2,000,042). Record an unavailable upstream revision as
-        a limitation instead of guessing at the diff. Cover
-        vote and certificate validation, stake-weighted quorum, validator-set and epoch changes,
-        equivocation and slashing, view or round transitions, weak-subjectivity and checkpoint assumptions,
-        fork-choice and upgrade activation, block and transaction execution, and state-root construction.
-        Hunt for validation differences across admission, proposal, replay, sync, and recovery paths;
-        invalid transitions; fail-open errors; and nondeterminism from iteration order, wall-clock time,
-        floating point, environment, I/O, or concurrency. Report only a production-reachable object or
-        sequence that honest nodes accept differently, commits invalid state, violates finality, or halts
-        network progress, with the attacker's role and decisive code at file:line.
-      dependsOn: [map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: rollup-derivation-da-and-fault-proofs
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-property-based-testing
-        - name: trail-of-bits-sharp-edges
-      objective: >-
-        Determine from {{tasks.map-protocol-surfaces.output}} whether this is a rollup or supplies a rollup
-        component. If applicable, audit L1 origin selection and reorg handling, batch framing, compression and
-        decoding, data-availability rules, deposits and forced inclusion, safe/unsafe/finalized head
-        transitions, sequencer and batcher assumptions, output-root construction, withdrawal finalization,
-        challenge windows, bonds, fault-proof games, and proof VM behavior. Hunt for alternate derivation
-        paths, malformed or withheld data, stale L1 views, deadline and boundary errors, censorship escape
-        failures, and disagreement between proposer and verifier that permits an invalid output or blocks a
-        valid challenge. If absent, report nothing. Cite the crafted L1 event, batch, output, or dispute move,
-        the validation defect at file:line, and its safety, liveness, or fund impact.
-      dependsOn: [map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: transaction-crypto-and-accounting
-      role: vulnerability-hunter
-      category: crypto
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-dimensional-analysis
-        - name: trail-of-bits-constant-time-analysis
         - name: trail-of-bits-property-based-testing
       objective: >-
-        Audit transaction and protocol authorization, proof verification, and value accounting using
-        {{tasks.map-protocol-surfaces.output}}. Payout-ordered priorities 4, 5 and 6 are owned here.
-        Priority 4, encoding and decoding round trips and replay: the invariant is that decode after encode
-        is the identity and that one identifier has exactly one encoding, so hunt two encodings colliding
-        on one identifier, signature malleability, and missing nonce or domain separation (Polygon Plasma,
-        $2M). Priority 5, missing balance and state validation, the most frequently confirmed root cause in
-        Immunefi's disclosed set: the invariant is that every value-moving path checks the balance, bound
-        or existence it depends on before it acts. Priority 6, accounting, rounding, precision and
-        decimals: the invariant is that a conversion round-trips within a stated bound across every
-        representation and decimal scale, so build the decimals matrix over non-18-decimal representations
-        and hunt division before multiplication (Moonbeam, Astar and Acala, $1M). Check signature encoding and recovery, domain and chain
-        separation, nonces and replay, threshold and multisignature rules, commitments, randomness, and
-        cryptographic errors that fail open. Follow fees, balances, gas, rewards, deposits, withdrawals,
-        integer conversions, precision, and rounding across every representation and layer. Hunt for an
-        alternate path that omits a check, accepts a proof for the wrong statement, truncates or overflows,
-        double counts, or reorders/replays an operation to mint, steal, or freeze value. Leave ordinary
-        token/oracle/contract arithmetic to smart-contract-review. Report the attacker-controlled object,
-        broken invariant, and verification or accounting defect at file:line.
-      dependsOn: [map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+        Consume {{tasks.runtime-preflight-and-dossier.output}} and retrieve its dossier artifacts with
+        get_security_research_artifacts using include_payload true. Own consensus safety and liveness, finality and
+        reorgs, transaction/block/batch/proof admission, deterministic state transitions, runtime/VM and host
+        boundaries, rollup derivation, data availability, and dispute paths. Payout-ordered priority 3 is owned here:
+        Priority 3, fork-versus-upstream divergence. Name upstream-fork-diff and the invariant the upstream code used
+        to satisfy; record an unavailable upstream revision as a limitation. Create falsifiable branches with
+        create_security_hypothesis, trace production reachability, and settle them with local fixtures, focused tests,
+        mutants, reference vectors, private devnets, or differential execution. After every experiment call
+        transition_security_hypothesis and record_security_coverage. Persist manifests, traces, harness summaries,
+        commands, outputs, and blockers with create_security_research_artifact using stable idempotency keys. Report
+        only proven production-impacting defects with report_security_finding. Apply the evidence stopping rule and
+        return only the actual version-1 handoff fields, using artifact IDs and finding fingerprints as challenge
+        handles rather than embedding evidence.
+      dependsOn: [runtime-preflight-and-dossier]
+      when:
+        task: runtime-preflight-and-dossier
+        path: conditions.ready
+        equals: "true"
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked"}}'
+      outputSchema: &handoffSchema |-
+        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready"],"properties":{"ready":{"type":"boolean"},"reason":{"type":"string"}}}}}
 
-    - name: p2p-sync-mempool-and-rpc
-      role: vulnerability-hunter
-      category: dos
+    - name: network-and-state-investigator
+      role: protocol-investigator
+      category: denial-of-service
+      timeout: 90m
+      maxTurns: 140
+      tools:
+        denied: [git_commit, git_push, create_pull_request]
       skillRefs:
         - name: blockchain-security-research-method
-        - name: trail-of-bits-property-based-testing
+        - name: offchain-blockchain-services-review
+        - name: trail-of-bits-rust-review
       objective: >-
-        Audit unauthenticated peer, discovery, gossip, mempool, synchronization, RPC, API, and binary parser
-        surfaces in {{tasks.map-protocol-surfaces.output}}. Check peer identity and handshake binding,
-        eclipse/Sybil resistance assumptions, scoring and ban evasion, equivocation handling, gossip
-        validation order, scarce-queue capture, and request amplification. Trace attacker-controlled lengths,
-        counts, nesting, compression, framing, and identifiers through decoding, allocation, database work,
-        cryptography, logging, and replies. Hunt for panic, memory/disk/CPU amplification, deadlock,
-        goroutine/thread/connection leaks, starvation, malformed-state poisoning, rate-limit bypass, and
-        exposed admin/debug methods. Distinguish clean rejection from measurable node degradation. Report
-        the request/message pattern, cost asymmetry or trust bypass, recovery behavior, and sink at file:line.
-      dependsOn: [map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+        Consume {{tasks.runtime-preflight-and-dossier.output}} and retrieve its durable dossier with
+        get_security_research_artifacts using include_payload true. Own peer discovery and identity, gossip, wire
+        decoders, sync, mempool admission and replacement, RPC and admin boundaries, resource exhaustion, persistent
+        state, snapshots, pruning, crash recovery, reorg handling, concurrency, native memory safety, FFI, and
+        off-chain service reconciliation. Create high-impact branches with create_security_hypothesis, trace the
+        production path, and run bounded local fixtures, parser harnesses, focused tests, mutants, sanitizers, fuzzing,
+        or differential checks. Never direct availability testing at a live peer or public endpoint. After every
+        experiment call transition_security_hypothesis and record_security_coverage, and persist exact trace, harness,
+        run, and blocker evidence with create_security_research_artifact using stable idempotency keys. Report only
+        evidence-backed production findings, apply the evidence stopping rule, and return only the actual version-1
+        handoff fields with compact artifact and fingerprint handles.
+      dependsOn: [runtime-preflight-and-dossier]
+      when:
+        task: runtime-preflight-and-dossier
+        path: conditions.ready
+        equals: "true"
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked"}}'
+      outputSchema: *handoffSchema
 
-    - name: cross-chain-bridge-and-custody
-      role: vulnerability-hunter
+    - name: cross-chain-and-custody-investigator
+      role: protocol-investigator
       category: authz
+      timeout: 90m
+      maxTurns: 140
+      tools:
+        denied: [git_commit, git_push, create_pull_request]
       skillRefs:
         - name: blockchain-security-research-method
-        - name: trail-of-bits-sharp-edges
-        - name: trail-of-bits-property-based-testing
+        - name: bridge-l2-zk-security-review
+        - name: wallet-security-review
+        - name: mpc-cryptographic-security-review
       objective: >-
-        Where {{tasks.map-protocol-surfaces.output}} shows a chain, layer, shard, or custody boundary, trace
-        the entire message and value lifecycle. Payout-ordered priority 2 is owned here, cross-chain proof
-        and identity binding: the invariant is that a proof is accepted only from the producer allowed to
-        have produced it and that a relayed message arrives with the caller identity the destination
-        believes it has, so establish who is allowed to have produced this proof, how relayer and forwarder
-        identity is bound to it, and what msg.sender becomes on the far side after relaying (Aurora, $1M). Audit origin, destination, chain-id, emitter, nonce,
-        membership, stake/guardian quorum, epoch, sequence, finality, proof root, replay, and execution checks;
-        canonical encoding across producer and verifier; reorg behavior; relayer confused-deputy paths; and
-        retry, refund, partial failure, and withdrawal ownership. Hunt for forged, substituted, reordered, or
-        double-executed messages and accounting that creates value twice or strands it. Include on-chain and
-        off-chain halves present here, but not generic contract vulnerabilities. If no such boundary exists,
-        report nothing. Cite acceptance and execution at file:line and the exact message sequence and impact.
-      dependsOn: [map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+        Consume {{tasks.runtime-preflight-and-dossier.output}} and retrieve exact-bound evidence with
+        get_security_research_artifacts using include_payload true. Own cross-domain message and value lifecycles,
+        relayers and oracles, withdrawals, bridge accounting, signer and wallet policy, key custody, HSM/MPC/threshold
+        quorum, nonce safety, recovery, and privileged interfaces. Payout-ordered priority 2 is owned here: Priority 2,
+        cross-chain proof and identity binding. For every proof ask who is allowed to have produced this proof and what
+        msg.sender becomes on the far side after relaying. Create falsifiable branches with create_security_hypothesis,
+        trace both sides of each boundary, and settle them with safe local fixtures, dummy keys and assets, focused
+        tests, mutants, simulators, private devnets, or differential checks. Never sign for or write to a public chain.
+        After every experiment call transition_security_hypothesis and record_security_coverage, persist evidence and
+        blockers with create_security_research_artifact using stable idempotency keys, and report only proven defects.
+        Apply the evidence stopping rule and return only the actual version-1 handoff fields.
+      dependsOn: [runtime-preflight-and-dossier]
+      when:
+        task: runtime-preflight-and-dossier
+        path: conditions.ready
+        equals: "true"
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked"}}'
+      outputSchema: *handoffSchema
 
-    - name: execution-vm-and-host-boundaries
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-c-review
-        - name: trail-of-bits-rust-review
-        - name: trail-of-bits-property-based-testing
-      objective: >-
-        Audit virtual machines, interpreters, precompiles, system contracts, host functions, plugins, WASM,
-        native extensions, and privileged protocol-to-contract calls in {{tasks.map-protocol-surfaces.output}}.
-        Hunt for gas undercharging or inconsistent metering, context/caller confusion, reentrancy specifically
-        across host or system boundaries, state committed before failed execution, sandbox escape, unsafe
-        dynamic loading, memory aliasing, nondeterministic host behavior, and fork-dependent opcode or
-        precompile semantics. Compare validation, estimation, tracing, proof, and execution implementations.
-        Do not duplicate generic Solidity reentrancy, oracle, token, access-control, or storage-layout work.
-        If no execution boundary exists, report nothing. Cite the crafted program or call sequence and the
-        consensus, fund, or node-compromise impact at file:line.
-      dependsOn: [map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: signer-policy-quorum-and-hsm
-      role: vulnerability-hunter
-      category: authz
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-constant-time-analysis
-        - name: trail-of-bits-sharp-edges
-        - name: trail-of-bits-zeroize-audit
-      objective: >-
-        Audit signing policy, threshold coordination, and remote signer/HSM interfaces identified in
-        {{tasks.map-protocol-surfaces.output}}. Check that each signing request binds the authenticated caller,
-        chain, purpose, payload, policy, epoch, and monotonic anti-replay or anti-equivocation state; validate
-        DKG and threshold transcripts, participant identity, quorum, and share handling; and compare every
-        parser/encoding before policy evaluation and signing. For PKCS#11, KMS, or firmware boundaries, check
-        mechanism allowlists, key attributes, handle/tenant isolation, session and login state, attestation,
-        firmware authenticity and anti-rollback, backup/restore counters, and audit enforcement. Hunt for a
-        concrete request that obtains an unauthorized or conflicting signature or bypasses operator policy.
-        Report the request, trust boundary, and decisive authorization or state defect at file:line.
-      dependsOn: [map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: key-material-and-operator-secrets
-      role: secrets-auditor
-      category: secrets
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-zeroize-audit
-        - name: trail-of-bits-constant-time-analysis
-      objective: >-
-        Audit generation, derivation, storage, import/export, wrapping, backup, transport, rotation,
-        zeroization, logging, and error handling for private keys, seed material, operator credentials, and
-        API tokens referenced by {{tasks.map-protocol-surfaces.output}}. Hunt for real credentials in source
-        or shipped artifacts; extractable or weakly protected keys; secrets exposed through logs, metrics,
-        errors, temporary files, core dumps, environment propagation, or permissive permissions; and
-        development credentials enabled in production. Never print secret values. Do not review algorithms
-        or signing authorization here. Discard fixtures and placeholders; report only a concrete disclosure
-        path and what key or privilege it compromises, with redacted file:line evidence.
-      dependsOn: [map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: storage-snapshot-reorg-and-concurrency
-      role: vulnerability-hunter
-      category: race-condition
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-rust-review
-        - name: trail-of-bits-property-based-testing
-      objective: >-
-        Audit persistent state, sync, snapshots, pruning, rollback, reorg, migration, recovery, and concurrent
-        processing from {{tasks.map-protocol-surfaces.output}}. Hunt for snapshots or metadata accepted without
-        integrity and network binding, path traversal or unsafe extraction, partial writes and crash states,
-        rollback that misses an index/balance/cache/side effect, stale-cache validation, races and lock-order
-        deadlocks, check-then-act windows, and cancellation or retry paths that commit twice or lose work.
-        Also check attacker-growable state and queues without proportional cost or pruning. Require a normal
-        transaction, peer, relayer, or RPC path rather than assumed local corruption. Report the trigger,
-        interleaving or recovery sequence, and persistent safety/liveness impact at file:line.
-      dependsOn: [map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: native-memory-and-ffi-safety
-      role: vulnerability-hunter
-      category: memory-safety
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-c-review
-        - name: trail-of-bits-rust-review
-        - name: trail-of-bits-address-sanitizer
-      objective: >-
-        In C, C++, Rust unsafe code, cgo/JNI, cryptographic native libraries, firmware, and FFI exposed by
-        {{tasks.map-protocol-surfaces.output}}, trace peer-, transaction-, proof-, and signer-controlled sizes,
-        indexes, pointers, lifetimes, ownership, integer conversions, and callback concurrency. Hunt for
-        overflow before allocation, out-of-bounds access, use-after-free, double-free, uninitialized data,
-        invalid aliasing, panic or exception crossing FFI, ABI/layout mismatches, and unsafe error cleanup.
-        Check whether language-level validation occurs before or after conversion to the native type. Report
-        only an attacker-reachable crash, corruption, secret disclosure, or code-execution path with source,
-        conversion, and unsafe sink at file:line.
-      dependsOn: [map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: genesis-deployment-and-upgrades
-      role: vulnerability-hunter
-      category: misconfiguration
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-guidelines-advisor
-        - name: trail-of-bits-secure-workflow-guide
-        - name: cloud-iac-hunting
-      objective: >-
-        Audit genesis and chain configuration, network and chain IDs, trusted checkpoints, fork and upgrade
-        activation, migrations, default service bindings, exposed ports, and deployment wiring associated
-        with {{tasks.map-protocol-surfaces.output}}. Payout-ordered priority 1 is owned here,
-        initialization and upgrade state on the DEPLOYED implementation: the invariant is that every
-        implementation behind a proxy is already initialized, owns nothing, and is reachable only through
-        its proxy, so hunt uninitialized implementations, initializer re-entry across upgrades, ownership
-        held on the implementation itself, and implementation/admin slot confusion (Wormhole, $10M). That
-        is deployed state rather than source: the chain-read pack reads the EIP-1967 implementation, admin
-        and beacon slots and the owner and role holders, and deployed-bytecode-diff proves the compiled
-        artifact is the code running at the address, and both need an operator-authorized fork endpoint
-        alias. With no alias authorized, record the missing authorization as an explicit limitation and
-        return unsupported for that check rather than assuming the deployed value. Hunt for inconsistent parameters across components,
-        boundary and rollback errors in activation, unsafe production defaults, unverified genesis or
-        checkpoint selection, migrations that violate state invariants, and drift between a fork and its
-        upstream implementation that changes protocol semantics. Report only a concrete configuration,
-        startup, migration, or upgrade path that makes honest nodes diverge, accepts the wrong network,
-        exposes a privileged service, corrupts state, or loses liveness, with file:line evidence and the
-        attacker or operator precondition.
-      dependsOn: [map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: dependencies-build-and-release
-      role: dependency-auditor
+    - name: crypto-economics-and-release-investigator
+      role: protocol-investigator
       category: supply-chain
+      timeout: 90m
+      maxTurns: 140
+      tools:
+        denied: [git_commit, git_push, create_pull_request]
       skillRefs:
         - name: blockchain-security-research-method
+        - name: evm-economic-and-mev-review
+        - name: trail-of-bits-constant-time-analysis
         - name: trail-of-bits-supply-chain-risk-auditor
-        - name: github-agent-supply-chain
       objective: >-
-        Audit consensus-critical dependencies, generated protocol code, build scripts, CI release jobs,
-        container images, downloaded tools and binaries, reproducibility, and signed upgrade artifacts tied
-        to {{tasks.map-protocol-surfaces.output}}. Hunt for mutable or unverified inputs, dependency confusion,
-        reachable vulnerable dependency APIs, generated code whose compiler or schema is not pinned,
-        untrusted pull-request code executing with release secrets, artifact substitution, and missing
-        signature or digest verification before distribution or installation. Triage advisories by actual
-        node, bridge, or signer reachability rather than version alone. Do not own genesis or protocol
-        activation correctness here. Report only a concrete path to compromise a shipped artifact or exploit
-        a reachable dependency, with file:line evidence and required privilege.
-      dependsOn: [map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: evm-protocol-specialist
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: evm-economic-and-mev-review
-        - name: evm-low-level-and-deployment-review
-        - name: trail-of-bits-property-based-testing
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
-        evm-protocol is not_detected, explicitly return skipped; if its evidence is inconclusive, review what
-        is available and return inconclusive rather than guessing. For detected EVM clients, protocol code,
-        precompiles, system contracts, rollups, or cross-layer components, map architecture and trust
-        boundaries, assets and privileged roles, and consensus, authorization, accounting, solvency, replay,
-        gas/liveness, upgrade, and deployment invariants before manual review. Cover transaction and chain
-        domains, ERC-1271/EIP-712/permits/account abstraction, CREATE2/clones, Yul/ABI/precompiles, VM/host
-        differences, proxy/diamond migrations, governance, liquidation, ordering, and MEV where present.
-        Identify applicable existing unit, integration, fork, invariant, fuzz, symbolic, and artifact-match
-        tests and inspect their definitions/results when present, but this manual task must not
-        claim any build, analyzer, test, fuzzer, symbolic engine, or fork was executed. Record execution gaps
-        in limitations. Report only production-reachable attacker paths with decisive file:line evidence and
-        return every resulting finding fingerprint; otherwise return an empty fingerprint list.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
+        Consume {{tasks.runtime-preflight-and-dossier.output}} and retrieve dossier artifacts with
+        get_security_research_artifacts using include_payload true. Own cryptographic verification and domain
+        separation, encodings and replay, accounting and precision, incentives and solvency, governance, auctions,
+        liquidations, MEV, genesis and upgrades, dependency/compiler provenance, reproducible builds, deployed drift,
+        release signing, and rollback. Payout-ordered priorities 1, 4, 5, 6, and 7 are owned here: Priority 1,
+        initialization and upgrade state on the DEPLOYED implementation; Priority 4, encoding and decoding round trips
+        and replay; Priority 5, missing balance and state validation; Priority 6, accounting, rounding, precision and
+        decimals, including non-18-decimal representations; and Priority 7, access control and role or permission
+        inventories. Where applicable, the chain-read pack reads the EIP-1967 implementation, admin and beacon slots;
+        chain-read and deployed-bytecode-diff require an operator-authorized fork endpoint alias, so record a blocker
+        rather than assuming the deployed value. Templated flash-loan oracle manipulation stays AVAILABLE but is off
+        the default bounty path; bot-findable means unpayable. Create each branch with create_security_hypothesis,
+        trace production reachability, and run bounded local vectors, fixtures, focused tests, mutants, artifact
+        comparisons, or economic simulations. After every experiment call transition_security_hypothesis and
+        record_security_coverage; persist evidence and blockers with create_security_research_artifact using stable
+        idempotency keys. Report only proven defects, apply the evidence stopping rule, and return only the actual
+        version-1 handoff fields.
+      dependsOn: [runtime-preflight-and-dossier]
       when:
-        task: detect-platforms-and-components
-        path: specialists.evm-protocol-specialist
+        task: runtime-preflight-and-dossier
+        path: conditions.ready
         equals: "true"
-        otherwiseOutput: '{"area":"evm-protocol","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked"}}'
+      outputSchema: *handoffSchema
 
-    - name: solana-anchor-specialist
-      role: vulnerability-hunter
-      category: authz
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-solana-vulnerability-scanner
-        - name: trail-of-bits-property-based-testing
-        - name: trail-of-bits-rust-review
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
-        solana-anchor is not_detected, explicitly return skipped; if inconclusive or required generated code
-        is unavailable, return inconclusive or unsupported with the exact limitation. For detected Solana or
-        Anchor components, establish architecture, program/account/CPI trust boundaries, assets, authorities,
-        and signer, ownership, lamport/token conservation, PDA uniqueness, initialization, and upgrade
-        invariants before manual review. Audit signer/writable/owner/executable and alias checks, PDA seeds and
-        bumps, CPI target and privilege propagation, remaining accounts, sysvars and instruction introspection,
-        init/close/reinit, SPL Token and Token-2022 hooks/extensions, upgrade authority, compute limits, unsafe
-        Rust, and transaction ordering. Identify applicable program-test, local-validator, stateful/property,
-        fuzz, verifiable-build, and compute tests, but do not claim this manual task executed any
-        tool or test; record execution gaps in limitations. Report only concrete production-reachable attacker
-        paths with decisive file:line evidence and return their finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.solana-anchor-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"solana-anchor","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: cosmos-cosmwasm-ibc-specialist
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-cosmos-vulnerability-scanner
-        - name: trail-of-bits-property-based-testing
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
-        cosmos-cosmwasm-ibc is not_detected, explicitly return skipped; use inconclusive or unsupported when
-        detected semantics or required generated artifacts cannot be established. For detected Cosmos SDK,
-        CometBFT/ABCI, CosmWasm, or IBC components, map architecture, module/keeper/capability and relayer trust
-        boundaries, assets, roles, and deterministic transition, authorization, packet/value conservation,
-        timeout, migration, and liveness invariants before manual review. Cover ante/post handlers, module
-        accounts, genesis/migrations/snapshots, proposal/vote/finalize behavior, panic and resources; IBC
-        clients/connections/channels/packets/timeouts/acks/middleware/denom traces/relayer failure; and CosmWasm
-        instantiate/execute/query/reply/migrate, funds, callbacks, storage, gas, and memory. Identify applicable
-        Go/Rust unit, simulation, invariant, fuzz, interchain, upgrade, and deterministic-replay tests, but do
-        not claim this manual task ran them. Record execution limits and report only concrete
-        attacker paths with decisive file:line evidence and finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.cosmos-cosmwasm-ibc-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"cosmos-cosmwasm-ibc","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: substrate-polkadot-xcm-specialist
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-substrate-vulnerability-scanner
-        - name: trail-of-bits-rust-review
-        - name: trail-of-bits-property-based-testing
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
-        substrate-polkadot-xcm is not_detected, explicitly return skipped; classify missing runtime metadata,
-        generated weights, or cross-chain context as unsupported or inconclusive. For detected Substrate,
-        Polkadot, parachain, or XCM components, map runtime/node/relay-chain architecture, origin and XCM trust
-        boundaries, assets and privileged roles, and authorization, weight/proof-size, storage-growth, asset
-        conservation, upgrade/migration, and native/Wasm consistency invariants before manual review. Audit
-        dispatchables, origins, signed extensions, unsigned transactions, inherents, hooks, off-chain workers,
-        nested dispatch, benchmarks, call indexes, proxy/multisig/scheduler/collective paths, and XCM origin,
-        barrier, asset, fee, routing, replay, and version handling. Identify applicable unit, runtime, try-runtime,
-        benchmark, property/fuzz, migration, and native/Wasm differential tests without claiming this
-        task ran them. Record limitations and report only concrete attacker paths with decisive
-        file:line evidence and finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.substrate-polkadot-xcm-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"substrate-polkadot-xcm","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: aptos-move-specialist
-      role: vulnerability-hunter
-      category: authz
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: move-chain-security-review
-        - name: trail-of-bits-property-based-testing
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} and
-        preserve Aptos semantics independently from Sui. If aptos-move is not_detected, explicitly return
-        skipped; return unsupported or inconclusive when bytecode, framework version, or upgrade context is
-        missing. For detected Aptos Move packages or node components, map module/resource/object architecture,
-        signer/capability/framework trust boundaries, assets and privileged roles, and resource conservation,
-        authentication, replay, type-safety, upgrade, and parallel-execution invariants before manual review.
-        Audit abilities, generics/type witnesses, signer and capability custody, visibility/friend entry points,
-        account and transaction authentication, sponsored and multisig transactions, sequence numbers,
-        Block-STM conflicts, Aptos objects/tokens, framework natives, and package compatibility. Identify
-        applicable Move unit/property tests, transactional tests, prover specifications, upgrade checks, and
-        parallel-execution differentials, but do not claim this task executed the Move compiler,
-        Prover, tests, or node. Record limitations and report only concrete attacker paths with decisive
-        file:line evidence and finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.aptos-move-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"aptos-move","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: sui-move-specialist
-      role: vulnerability-hunter
-      category: authz
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: move-chain-security-review
-        - name: trail-of-bits-property-based-testing
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} and
-        preserve Sui object semantics independently from Aptos. If sui-move is not_detected, explicitly return
-        skipped; return unsupported or inconclusive when bytecode, framework version, or upgrade context is
-        missing. For detected Sui Move packages or node components, map package/module and owned/shared/
-        immutable object architecture, authority/capability trust boundaries, assets and privileged roles, and
-        ownership, version, consensus sequencing, conservation, transfer, and upgrade invariants before manual
-        review. Audit abilities and type witnesses, UID/object creation, shared-object access, PTB argument and
-        result flow, dynamic fields, receiving and transfers, object wrapping/deletion, clock/randomness,
-        kiosks/tokens where present, package upgrades, and native/framework calls. Identify applicable Move
-        unit/scenario/property tests, PTB/stateful tests, upgrade checks, and shared-object concurrency tests,
-        but do not claim this task ran compiler, tests, simulators, or validators. Record limitations
-        and report only concrete attacker paths with decisive file:line evidence and finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.sui-move-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"sui-move","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: cairo-starknet-specialist
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-cairo-vulnerability-scanner
-        - name: trail-of-bits-property-based-testing
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
-        cairo-starknet is not_detected, explicitly return skipped; classify missing Sierra/CASM/deployed-class
-        evidence or unsupported compiler semantics honestly. For detected Cairo/Starknet contracts, accounts,
-        or node/prover components, map class/component/account/L1-L2 architecture, caller and sequencer trust
-        boundaries, assets and privileged roles, and arithmetic, authorization, replay, message binding,
-        class-upgrade, and source-to-artifact invariants before manual review. Audit felt/range/cast and field
-        arithmetic, source/Sierra/CASM/class consistency, storage/components, constructors, class replacement,
-        library calls, dispatchers, syscalls, account validation/execution, nonces/fees, and L1 handlers with
-        authenticated senders. Identify applicable unit, integration, fuzz/property, artifact comparison,
-        account, and L1 messaging tests, but do not claim this task executed Scarb, tests, analyzers,
-        provers, or a devnet. Record limitations and report only concrete attacker paths with decisive
-        file:line evidence and finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.cairo-starknet-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"cairo-starknet","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: ton-specialist
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-ton-vulnerability-scanner
-        - name: trail-of-bits-property-based-testing
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If TON
-        is not_detected, explicitly return skipped; otherwise map contracts, Jettons, messages, wallets, and
-        validator/client boundaries and establish assets and sender, message, balance/gas, bounce, and custody
-        invariants. Manually audit integer-as-boolean errors, fake Jettons, sender validation, message
-        mode/value/gas, bounce handling, replay, dictionaries/cells, and upgrades. Identify applicable unit,
-        emulator, property/stateful, compile/artifact, and integration tests, but do not claim this task ran any. Record TON-specific execution limits and report only concrete attacker paths with decisive
-        file:line evidence and finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.ton-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"ton","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: algorand-specialist
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-algorand-vulnerability-scanner
-        - name: trail-of-bits-property-based-testing
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
-        Algorand is not_detected, explicitly return skipped; otherwise map TEAL/PyTeal apps, assets, accounts,
-        groups, and node boundaries and establish authorization, rekey, fee, asset, group-completeness, state,
-        and upgrade invariants. Manually audit rekeying, fees, group indexes and foreign references,
-        close/remainder paths, asset/app identity, and inner transactions. Identify applicable unit, sandbox,
-        property/stateful, compile/artifact, and integration tests, but do not claim this task ran
-        any. Record Algorand-specific execution limits and report only concrete attacker paths with decisive
-        file:line evidence and finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.algorand-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"algorand","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: bitcoin-lightning-specialist
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: bitcoin-lightning-security-review
-        - name: trail-of-bits-property-based-testing
-        - name: trail-of-bits-constant-time-analysis
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}}. If
-        bitcoin-lightning is not_detected, explicitly return skipped; classify missing network, policy,
-        descriptor, or channel-state context as unsupported or inconclusive. For detected Bitcoin/UTXO,
-        wallet, signer, node, or Lightning components, map transaction/script/wallet/channel/watchtower/routing
-        architecture, peer and custody trust boundaries, assets and privileged roles, and UTXO ownership,
-        value/fee conservation, sighash/domain binding, timelock, channel-state monotonicity, revocation,
-        force-close, and recovery invariants before manual review. Cover script and witness validation, PSBT
-        intent, descriptors and derivation, coin selection/change, RBF/CPFP and malleability assumptions,
-        HTLC/PTLC timeouts, commitment updates, justice transactions, watchtowers, routing fees, channel jamming,
-        liquidity and backup/recovery. Identify applicable unit, functional/regtest, script-vector, property/fuzz,
-        channel-simulation, and interoperability tests, but do not claim this task ran nodes or
-        tests. Record limitations and report only concrete attacker paths with decisive file:line evidence and
-        finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.bitcoin-lightning-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"bitcoin-lightning","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: bridge-l2-zk-specialist
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-property-based-testing
-        - name: trail-of-bits-sharp-edges
-        - name: trail-of-bits-constant-time-analysis
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} across
-        all detected platforms. If no bridge, L2/rollup, data-availability, proof, circuit, prover, verifier,
-        or cross-domain component is inventoried, explicitly return skipped; mark unavailable counterpart or
-        circuit/artifact semantics unsupported or inconclusive. Map the end-to-end architecture and trust
-        boundaries among contracts/programs, clients, relayers, sequencers, batchers, challengers, provers and
-        verifiers; identify assets, roles, and message/value conservation, origin/destination binding, replay,
-        finality/reorg, retry/refund, forced-inclusion, derivation, DA, challenge, and proof-soundness invariants.
-        Manually trace one full lifecycle and cover lock/mint and burn/release, decimals, optimistic roots and
-        fault games, sequencer failure, ZK witnesses/public inputs/range constraints/field aliasing/transcripts/
-        aggregation/recursion/setup provenance, and prover-verifier disagreement. Identify applicable unit,
-        integration, reorg, differential, invariant/fuzz, circuit constraint, proof-vector, and local lifecycle
-        tests, but do not claim this task executed any. Record limitations and report only concrete
-        attacker paths with decisive file:line evidence and finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.bridge-l2-zk-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"bridge-l2-zk","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: wallet-mpc-cryptography-specialist
-      role: vulnerability-hunter
-      category: crypto
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: trail-of-bits-constant-time-analysis
-        - name: trail-of-bits-wycheproof
-        - name: trail-of-bits-zeroize-audit
-        - name: trail-of-bits-sharp-edges
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} across
-        all detected platforms. If no wallet, signing, key-management, HSM, MPC/threshold, custody, or custom
-        cryptographic component is inventoried, explicitly return skipped; mark unavailable firmware, peer,
-        transcript, or cryptographic implementation context unsupported or inconclusive. Map wallet/provider/
-        signer/MPC/HSM architecture and trust boundaries, assets and roles, and transaction-intent, key custody,
-        quorum, anti-replay/equivocation, transcript/domain binding, canonical encoding, nonce uniqueness,
-        subgroup/curve validity, and recovery invariants before manual review. Cover BIP-32/39/44 where
-        applicable, entropy/seeds/PSBT/display/blind signing/network and address confusion/change, provider and
-        WalletConnect permissions, browser/mobile/hardware isolation; DKG, rogue keys, shares, backups,
-        attestation and policy; and nonce bias/reuse, batch verification, constant-time behavior and vectors.
-        Identify applicable unit, vector/Wycheproof, interoperability, threshold-failure, recovery, property/fuzz,
-        and side-channel tests, but do not claim this task ran them. Record limitations and report
-        only concrete attacker paths with decisive file:line evidence and finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.wallet-mpc-cryptography-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"wallet-mpc-cryptography","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: economics-mev-governance-specialist
-      role: vulnerability-hunter
-      category: logic-flaw
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: evm-economic-and-mev-review
-        - name: trail-of-bits-dimensional-analysis
-        - name: trail-of-bits-property-based-testing
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} across
-        all detected platforms. If no protocol economics, staking, lending, exchange/auction, liquidation,
-        oracle, rewards, fee market, governance, delegation, timelock, or ordering-sensitive component is
-        inventoried, explicitly return skipped; classify unavailable parameter, liquidity, oracle, or
-        governance context as unsupported or inconclusive. Map economic and governance architecture, trust
-        and timing boundaries, assets and roles, and solvency/conservation, share/decimal, bad-debt, incentive,
-        quorum, delegation, timelock, emergency-action, ordering, and liveness invariants before manual review.
-        Cover oracle/liquidity assumptions, liquidation and auction incentives, insolvency cascades, reward and
-        fee gaming, griefing, bribery/censorship, flash-loan or borrowed voting, proposal/execution bypass,
-        sandwiches/back-running/JIT/liquidation races, batching, and parameter stress. Templated flash-loan
-        oracle manipulation stays available but is off the default path: bots already sweep the templated
-        patterns and bot-findable means unpayable, so spend the budget on the composition, freshness,
-        decimals and incentive cases no bot templates. Identify applicable unit,
-        invariant/property, stateful simulation, fork, differential, governance lifecycle, and adversarial
-        ordering tests, but do not claim this task ran them or performed economic simulation.
-        Record limitations and report only concrete attacker paths with decisive file:line evidence and
-        finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.economics-mev-governance-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"economics-mev-governance","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: off-chain-services-specialist
-      role: vulnerability-hunter
-      category: authz
-      skillRefs:
-        - name: blockchain-security-research-method
-        - name: api-authz-hunting
-        - name: web-app-hunting
-        - name: trail-of-bits-sharp-edges
-      objective: >-
-        Use {{tasks.detect-platforms-and-components.output}} and {{tasks.map-protocol-surfaces.output}} across
-        all detected platforms. If no relayer, oracle, indexer, keeper, bundler, sequencer, batcher, prover,
-        RPC service, admin API, telemetry pipeline, key-custody service, backup, or recovery component is
-        inventoried, explicitly return skipped; classify absent deployment, identity, peer, or persistence
-        context as unsupported or inconclusive. Map service/data/control architecture and on-chain/off-chain
-        trust boundaries, assets and operator roles, and tenant/chain/job binding, authorization, idempotency,
-        ordering, freshness, persistence, failover, custody, backup, recovery, and least-privilege invariants
-        before manual review. Audit untrusted inputs through APIs, queues and workers; confused-deputy and
-        cross-tenant paths; stale/replayed jobs; duplicate or partial execution; unsafe admin operations;
-        telemetry secret leakage; dependency on untrusted RPC/index data; key policy; and outage/recovery
-        behavior. Identify applicable unit, integration, replay/idempotency, authorization, queue-failure,
-        failover, backup/restore, and local end-to-end tests, but do not claim this task ran them or
-        contacted a service. Record limitations and report only concrete attacker paths with decisive
-        file:line evidence and finding fingerprints.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      when:
-        task: detect-platforms-and-components
-        path: specialists.off-chain-services-specialist
-        equals: "true"
-        otherwiseOutput: '{"area":"off-chain-services","status":"skipped","examined":[],"skipped":["not detected by platform/component inventory"],"limitations":[],"finding_fingerprints":[]}'
-      outputSchema: |-
-        {"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}
-
-    - name: account-chain-coverage-a
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Compact {{tasks.evm-protocol-specialist.output}}, {{tasks.solana-anchor-specialist.output}}, and
-        {{tasks.cosmos-cosmwasm-ibc-specialist.output}} into one record per source. Preserve area, status,
-        examined and skipped targets, limitations, and finding fingerprints exactly; do not reinterpret a
-        skipped, unsupported, or inconclusive result as examined and do not add findings.
-      dependsOn: [evm-protocol-specialist, solana-anchor-specialist, cosmos-cosmwasm-ibc-specialist]
-      reduce: concat
-      outputSchema: &coverageLedgerSchema |-
-        {"type":"array","minItems":3,"maxItems":3,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
-
-    - name: account-chain-coverage-b
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Compact {{tasks.substrate-polkadot-xcm-specialist.output}}, {{tasks.aptos-move-specialist.output}}, and
-        {{tasks.sui-move-specialist.output}} into one record per source, preserving every coverage status,
-        examined/skipped target, limitation, and finding fingerprint without adding or upgrading findings.
-      dependsOn: [substrate-polkadot-xcm-specialist, aptos-move-specialist, sui-move-specialist]
-      reduce: concat
-      outputSchema: *coverageLedgerSchema
-
-    - name: account-chain-coverage-c
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Compact {{tasks.cairo-starknet-specialist.output}}, {{tasks.ton-specialist.output}},
-        {{tasks.algorand-specialist.output}}, and {{tasks.bitcoin-lightning-specialist.output}} into one record per source, preserving every coverage
-        status, examined/skipped target, limitation, and finding fingerprint without adding findings.
-      dependsOn: [cairo-starknet-specialist, ton-specialist, algorand-specialist, bitcoin-lightning-specialist]
-      reduce: concat
-      outputSchema: |-
-        {"type":"array","minItems":4,"maxItems":4,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
-
-    - name: account-cross-system-coverage-a
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Compact {{tasks.bridge-l2-zk-specialist.output}}, {{tasks.wallet-mpc-cryptography-specialist.output}},
-        and {{tasks.economics-mev-governance-specialist.output}} into one record per source, preserving every
-        coverage status, examined/skipped target, limitation, and finding fingerprint without adding findings.
-      dependsOn: [bridge-l2-zk-specialist, wallet-mpc-cryptography-specialist, economics-mev-governance-specialist]
-      reduce: concat
-      outputSchema: *coverageLedgerSchema
-
-    - name: account-cross-system-coverage-b
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Preserve {{tasks.off-chain-services-specialist.output}} as a one-record coverage ledger. Keep its
-        status, examined/skipped targets, limitations, and finding fingerprints exact.
-      dependsOn: [off-chain-services-specialist]
-      reduce: concat
-      outputSchema: |-
-        {"type":"array","minItems":1,"maxItems":1,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
-
-    - name: account-chain-coverage
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Merge {{tasks.account-chain-coverage-a.output}}, {{tasks.account-chain-coverage-b.output}}, and
-        {{tasks.account-chain-coverage-c.output}} into one ordered chain coverage ledger without changing any
-        record or losing skipped, unsupported, inconclusive, limitation, or fingerprint data.
-      dependsOn: [account-chain-coverage-a, account-chain-coverage-b, account-chain-coverage-c]
-      reduce: concat
-      outputSchema: |-
-        {"type":"array","minItems":10,"maxItems":10,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
-
-    - name: account-cross-system-coverage
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Merge {{tasks.account-cross-system-coverage-a.output}} and
-        {{tasks.account-cross-system-coverage-b.output}} into one ordered cross-system coverage ledger without
-        changing any record or losing skipped, unsupported, inconclusive, limitation, or fingerprint data.
-      dependsOn: [account-cross-system-coverage-a, account-cross-system-coverage-b]
-      reduce: concat
-      outputSchema: |-
-        {"type":"array","minItems":4,"maxItems":4,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
-
-    - name: account-domain-coverage-a
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Compact {{tasks.consensus-finality-and-state-transition.output}},
-        {{tasks.rollup-derivation-da-and-fault-proofs.output}}, and
-        {{tasks.transaction-crypto-and-accounting.output}} into exactly three unchanged coverage records.
-      dependsOn: [consensus-finality-and-state-transition, rollup-derivation-da-and-fault-proofs, transaction-crypto-and-accounting]
-      reduce: concat
-      outputSchema: &domainCoverageSchema |-
-        {"type":"array","minItems":3,"maxItems":3,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
-
-    - name: account-domain-coverage-b
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Compact {{tasks.p2p-sync-mempool-and-rpc.output}}, {{tasks.cross-chain-bridge-and-custody.output}},
-        and {{tasks.execution-vm-and-host-boundaries.output}} into exactly three unchanged coverage records.
-      dependsOn: [p2p-sync-mempool-and-rpc, cross-chain-bridge-and-custody, execution-vm-and-host-boundaries]
-      reduce: concat
-      outputSchema: *domainCoverageSchema
-
-    - name: account-domain-coverage-c
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Compact {{tasks.signer-policy-quorum-and-hsm.output}}, {{tasks.key-material-and-operator-secrets.output}},
-        and {{tasks.storage-snapshot-reorg-and-concurrency.output}} into exactly three unchanged coverage records.
-      dependsOn: [signer-policy-quorum-and-hsm, key-material-and-operator-secrets, storage-snapshot-reorg-and-concurrency]
-      reduce: concat
-      outputSchema: *domainCoverageSchema
-
-    - name: account-domain-coverage-d
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Compact {{tasks.native-memory-and-ffi-safety.output}}, {{tasks.genesis-deployment-and-upgrades.output}},
-        and {{tasks.dependencies-build-and-release.output}} into exactly three unchanged coverage records.
-      dependsOn: [native-memory-and-ffi-safety, genesis-deployment-and-upgrades, dependencies-build-and-release]
-      reduce: concat
-      outputSchema: *domainCoverageSchema
-
-    - name: account-domain-coverage-ab
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Merge {{tasks.account-domain-coverage-a.output}} and {{tasks.account-domain-coverage-b.output}} into
-        exactly six records without changing statuses, limitations, targets, or fingerprints.
-      dependsOn: [account-domain-coverage-a, account-domain-coverage-b]
-      reduce: concat
-      outputSchema: &sixDomainCoverageSchema |-
-        {"type":"array","minItems":6,"maxItems":6,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
-
-    - name: account-domain-coverage-cd
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Merge {{tasks.account-domain-coverage-c.output}} and {{tasks.account-domain-coverage-d.output}} into
-        exactly six records without changing statuses, limitations, targets, or fingerprints.
-      dependsOn: [account-domain-coverage-c, account-domain-coverage-d]
-      reduce: concat
-      outputSchema: *sixDomainCoverageSchema
-
-    - name: account-domain-coverage
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Merge {{tasks.account-domain-coverage-ab.output}} and {{tasks.account-domain-coverage-cd.output}} into
-        exactly twelve records without changing statuses, limitations, targets, or fingerprints.
-      dependsOn: [account-domain-coverage-ab, account-domain-coverage-cd]
-      reduce: concat
-      outputSchema: |-
-        {"type":"array","minItems":12,"maxItems":12,"items":{"type":"object","required":["area","status","examined","skipped","limitations","finding_fingerprints"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"examined":{"type":"array","items":{"type":"string"}},"skipped":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}},"finding_fingerprints":{"type":"array","items":{"type":"string"}}}}}
-
-    - name: run-upstream-fuzz-campaigns
+    - name: run-bounded-native-fuzz
       role: native-fuzz-runner
       category: other
+      timeout: 12m
+      maxTurns: 35
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-cargo-fuzz
         - name: trail-of-bits-harness-writing
         - name: trail-of-bits-coverage-analysis
       objective: >-
-        Use the detected components in {{tasks.detect-platforms-and-components.output}} and the risk-ranked,
-        attacker-controlled surfaces in {{tasks.map-protocol-surfaces.output}} to inventory every
-        repository-maintained native fuzz harness. For Rust, enumerate `fuzz/Cargo.toml` `[[bin]]` targets and
-        follow each manifest-declared path safely contained beneath `fuzz/`, including non-conventional paths;
-        for Go, enumerate production packages containing `FuzzXxx` functions.
-        Match every harness to an in-scope surface and prioritize parsers, wire formats, transactions, blocks,
-        RPC/P2P messages, proofs, and state transitions. Run the highest-value eligible targets through the
-        registered `cargo-fuzz` or `go-fuzz-tests` adapter with `run_security_tool`; do not merely inventory
-        them and do not substitute a model-authored general-purpose harness. A normal audit runs at most two
-        targets for two minutes each. Use an explicit seed for `cargo-fuzz`; record a null seed and the native Go
-        runner's schedule/environment reproducibility limitation for `go-fuzz-tests`. Request two Rust workers when that typed option is
-        advertised and budget permits; otherwise preserve the runtime's fixed worker count. Do not launch warm
-        follow-up rounds here: recommend the dedicated `native-fuzz-campaign` workflow when a high-risk target,
-        useful durable corpus, or coverage plateau justifies repeated rounds. A run exists only when
-        `run_security_tool` returns a run reference. Return every discovered target and its surface, selection
-        decision, exact revision, execution status, tool-run reference, seed, duration, workers, corpus
-        provenance, artifacts, errors, and limitations. Reproduce and minimize crashes where safe. Treat clean
-        execution only as `not_found_under` the recorded bounds, never as proof of safety; keep ineligible,
-        skipped, unsupported, error, timeout, and partial targets visible.
-      dependsOn: [detect-platforms-and-components, map-protocol-surfaces]
-      outputSchema: |-
-        {"type":"object","additionalProperties":false,"required":["inventory","runs","uncovered","limitations"],"properties":{"inventory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","decision","reason"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"decision":{"type":"string","enum":["selected","skipped","unsupported"]},"reason":{"type":"string"}}}},"runs":{"type":"array","maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["tool","target","revision","execution_status","tool_run","seed","duration","workers","corpus_provenance","artifacts","errors","limitations"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"revision":{"type":"string"},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"corpus_provenance":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
+        Own the compact graph's bounded native fuzz baseline. Consume
+        {{tasks.runtime-preflight-and-dossier.output}} and retrieve its dossier with
+        get_security_research_artifacts using include_payload true. Inventory repository-maintained Rust
+        fuzz/Cargo.toml targets and Go FuzzXxx functions, then match each harness to an in-scope attacker-controlled
+        protocol surface. Use run_security_tool with the registered cargo-fuzz or go-fuzz-tests adapter for at most two
+        targets and two minutes each; do not substitute a model-authored acceptance harness. Use an explicit seed for
+        Rust and a null seed for Go, and record workers, tool version, immutable revision, duration, corpus provenance,
+        artifacts, errors, timeouts, skipped and unsupported targets. Treat clean execution only as not_found_under
+        those exact bounds and recommend the dedicated native-fuzz-campaign for justified warm rounds. Persist the
+        inventory and run as manifest or harness_summary artifacts and crashes and blockers in their supported artifact
+        kinds with create_security_research_artifact using stable idempotency keys; call record_security_coverage for
+        bounded verdicts. Return only the actual version-1 handoff fields, using artifact IDs or finding fingerprints
+        for crashes and plateaus rather than embedding run bodies.
+      dependsOn: [runtime-preflight-and-dossier]
+      when:
+        task: runtime-preflight-and-dossier
+        path: conditions.ready
+        equals: "true"
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked"}}'
+      outputSchema: *handoffSchema
 
-    - name: validate-high-impact-findings
-      role: exploit-validator
+    - name: collect-investigator-handoffs
+      role: protocol-investigator
       category: other
       skillRefs:
         - name: blockchain-security-research-method
+      objective: Deterministically concatenate the preflight and five compact version-1 handoffs without loading or copying durable artifact bodies.
+      dependsOn:
+        - runtime-preflight-and-dossier
+        - consensus-and-execution-investigator
+        - network-and-state-investigator
+        - cross-chain-and-custody-investigator
+        - crypto-economics-and-release-investigator
+        - run-bounded-native-fuzz
+      reduce: concat
+      outputSchema: |-
+        {"type":"array","minItems":6,"maxItems":6,"items":{"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object"}}}}
+
+    - name: select-adaptive-challenges
+      role: threat-modeler
+      category: recon
+      timeout: 20m
+      maxTurns: 40
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-fp-check
+      objective: >-
+        Review the six compact handoffs in {{tasks.collect-investigator-handoffs.output}}. Retrieve only the artifact
+        IDs needed to rank candidates with get_security_research_artifacts using include_payload true. Select no more
+        than eight artifact or finding handles where an independent challenge, mutant, differential test, crash replay,
+        or same-root-cause variant search has the highest expected information gain. Prefer high-impact reachable
+        candidates, conflicting evidence, uncalibrated controls, native crashes, and likely sibling root causes; do not
+        select decisively falsified work. Return an array ordered by priority, one actual version-1 handoff per selected
+        handle, copying only relevant IDs and setting scalar conditions.ready true. Return an empty array when no
+        challenge is justified; never embed artifact content.
+      dependsOn: [runtime-preflight-and-dossier, collect-investigator-handoffs]
+      when:
+        task: runtime-preflight-and-dossier
+        path: conditions.ready
+        equals: "true"
+        otherwiseOutput: '[]'
+      outputSchema: |-
+        {"type":"array","maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready"],"properties":{"ready":{"const":true}}}}}}
+
+    - name: challenge-and-variant-sweep
+      role: protocol-investigator
+      category: other
+      timeout: 40m
+      maxTurns: 80
+      tools:
+        denied: [git_commit, git_push, create_pull_request]
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-variant-analysis
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
       objective: >-
-        Call list_security_findings and settle every recorded candidate from the per-surface and domain hunts and
-        the bounded native-fuzz evidence in {{tasks.run-upstream-fuzz-campaigns.output}}. Reconcile the exact
-        fingerprint set: emit one disposition for each recorded fingerprint, no invented results, omissions, or
-        duplicates, and preserve the source task(s) and named invariant that produced it. Prioritize critical
-        and high candidates first, but never submit an unvalidated candidate at any severity. Re-read the full path and confirm
-        the entry point is production-reachable, the attacker has the stated protocol
-        role, every intermediate validation is absent or bypassable, and the final impact follows. Use only
-        safe local fixtures, focused tests, or harnesses that execute the real target code; never contact a live
-        network. If no suitable harness exists, create the smallest candidate-specific PoC in a disposable
-        working copy, execute it, debug it, minimize it, and preserve exact commands, exit statuses, observed
-        output, and artifacts. Exercise a positive control proving the oracle detects the claimed violation and
-        a negative control proving the same harness does not fail on a valid path. A missing pre-existing harness
-        is not a reason to stop. For consensus and bridge issues, construct the smallest object/sequence that makes the
-        implementations disagree or accept invalid state. For DoS, measure or tightly bound attacker versus
-        victim cost and recovery. For races, establish a concrete interleaving. For signer issues, use dummy
-        keys and prove the unauthorized signing decision. Update each candidate to confirmed when the local
-        proof holds, false_positive when a specific control disproves it, or triaged when safe local evidence
-        cannot settle it. Publish one result for every recorded fingerprint, including the concrete blocker
-        for every triaged result; publish an empty array only when no candidates were recorded.
-      dependsOn:
-        - review-critical-surface
-        - consensus-finality-and-state-transition
-        - rollup-derivation-da-and-fault-proofs
-        - transaction-crypto-and-accounting
-        - p2p-sync-mempool-and-rpc
-        - cross-chain-bridge-and-custody
-        - execution-vm-and-host-boundaries
-        - signer-policy-quorum-and-hsm
-        - key-material-and-operator-secrets
-        - storage-snapshot-reorg-and-concurrency
-        - native-memory-and-ffi-safety
-        - genesis-deployment-and-upgrades
-        - dependencies-build-and-release
-        - evm-protocol-specialist
-        - solana-anchor-specialist
-        - cosmos-cosmwasm-ibc-specialist
-        - substrate-polkadot-xcm-specialist
-        - aptos-move-specialist
-        - sui-move-specialist
-        - cairo-starknet-specialist
-        - ton-specialist
-        - algorand-specialist
-        - bitcoin-lightning-specialist
-        - bridge-l2-zk-specialist
-        - wallet-mpc-cryptography-specialist
-        - economics-mev-governance-specialist
-        - off-chain-services-specialist
-        - run-upstream-fuzz-campaigns
+        Independently challenge the selected artifact IDs {{item.artifact_ids}} and finding fingerprints
+        {{item.candidate_fingerprints}}. Retrieve evidence with get_security_research_artifacts using include_payload
+        true, re-trace production reachability, and run the cheapest materially different safe local focused test,
+        fixture, mutant, crash replay, fuzz check, or differential experiment. A confirmed result requires a failing
+        invariant, observed impact, conditions.negative_control_passed true, and conditions.oracle_can_fail true;
+        otherwise falsify it or preserve a concrete blocker. Update durable hypotheses with
+        transition_security_hypothesis and bounds with record_security_coverage. Persist commands, outputs, controls,
+        and blockers with create_security_research_artifact using stable idempotency keys. For every confirmed root
+        cause call create_security_variant_sweep and complete_security_variant_sweep with actual searched scope,
+        methods, sibling results, and evidence; an incomplete sweep remains blocked. Update existing findings rather
+        than duplicating them. Return only the actual version-1 handoff fields with the verdict in scalar conditions.
+      dependsOn: [select-adaptive-challenges]
+      forEach: select-adaptive-challenges
+      maxInstances: 8
       outputSchema: |-
-        {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["fingerprint", "source_tasks", "invariant", "verdict", "attempts", "summary"],
-            "properties": {
-              "fingerprint": {"type": "string", "minLength": 1},
-              "source_tasks": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
-              "invariant": {"type": "string", "minLength": 1},
-              "verdict": {"type": "string", "enum": ["confirmed", "false_positive", "triaged"]},
-              "attempts": {"type": "integer", "minimum": 1},
-              "reachability": {"type": "string", "minLength": 1},
-              "impact": {"type": "string", "minLength": 1},
-              "blocker": {"type": "string", "minLength": 1},
-              "disproof": {"type": "string", "minLength": 1},
-              "reproduction": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["command", "exit_status", "artifact", "substrate", "failing_assertion", "observed_output", "negative_control_passed", "oracle_can_fail"],
-                "properties": {
-                  "command": {"type": "string", "minLength": 1},
-                  "exit_status": {"type": "string", "minLength": 1},
-                  "artifact": {"type": "string", "minLength": 1, "description": "Repository-relative or tool-returned local reproduction artifact"},
-                  "substrate": {"type": "string", "enum": ["local_fixture", "focused_test", "local_harness"]},
-                  "failing_assertion": {"type": "string", "minLength": 1},
-                  "observed_output": {"type": "string", "minLength": 1},
-                  "negative_control_passed": {"const": true},
-                  "oracle_can_fail": {"const": true}
-                }
-              },
-              "summary": {"type": "string", "minLength": 1, "description": "Local proof, the control that disproves the path, or the specific validation blocker"}
-            },
-            "allOf": [
-              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "confirmed"}}}, "then": {"required": ["reachability", "impact", "reproduction"]}},
-              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "false_positive"}}}, "then": {"required": ["disproof"]}},
-              {"if": {"required": ["verdict"], "properties": {"verdict": {"const": "triaged"}}}, "then": {"required": ["blocker"]}}
-            ]
-          }
-        }
-
-    - name: account-protocol-and-validation-coverage
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Compare the complete inventory in {{tasks.map-protocol-surfaces.output}} with every result in
-        {{tasks.review-critical-surface.output}} and {{tasks.validate-high-impact-findings.output}}. Produce a
-        compact ledger naming reviewed and blocked surface ids, inventory domains with no surface, confirmed,
-        disproved, and still-triaged fingerprints, and validation limitations. Do not turn a blocked review,
-        missing domain, timeout, tool failure, or unresolved candidate into a pass.
-      dependsOn: [map-protocol-surfaces, review-critical-surface, validate-high-impact-findings]
-      outputSchema: |-
-        {"type":"object","required":["reviewed_surfaces","blocked_surfaces","absent_domains","confirmed","false_positives","triaged","limitations"],"properties":{"reviewed_surfaces":{"type":"array","items":{"type":"string"}},"blocked_surfaces":{"type":"array","items":{"type":"string"}},"absent_domains":{"type":"array","items":{"type":"string"}},"confirmed":{"type":"array","items":{"type":"string"}},"false_positives":{"type":"array","items":{"type":"string"}},"triaged":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
-
-    - name: account-complete-protocol-coverage
-      role: finding-triager
-      category: triage
-      skillRefs:
-        - name: blockchain-security-research-method
-      objective: >-
-        Combine the surface and validation ledger {{tasks.account-protocol-and-validation-coverage.output}}
-        with the twelve-record domain ledger {{tasks.account-domain-coverage.output}} and native-fuzz inventory,
-        bounded runs, and uncovered targets in {{tasks.run-upstream-fuzz-campaigns.output}}. Preserve every
-        blocked or absent surface, validation verdict, domain status, fuzz error/timeout/partial result,
-        limitation, and finding fingerprint in a compact object; do not promote unsupported or inconclusive
-        work to examined.
-      dependsOn: [account-protocol-and-validation-coverage, account-domain-coverage, run-upstream-fuzz-campaigns]
-      outputSchema: |-
-        {"type":"object","required":["surface_validation","domains","native_fuzz"],"properties":{"surface_validation":{"type":"object"},"domains":{"type":"array","minItems":12,"maxItems":12},"native_fuzz":{"type":"object","additionalProperties":false,"required":["inventory","runs","uncovered","limitations"],"properties":{"inventory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","decision","reason"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"decision":{"type":"string","enum":["selected","skipped","unsupported"]},"reason":{"type":"string"}}}},"runs":{"type":"array","maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["tool","target","revision","execution_status","tool_run","seed","duration","workers","corpus_provenance","artifacts","errors","limitations"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"revision":{"type":"string"},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"corpus_provenance":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}}}
+        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","verdict"],"properties":{"ready":{"type":"boolean"},"verdict":{"type":"string","enum":["confirmed","false_positive","triaged"]},"negative_control_passed":{"type":"boolean"},"oracle_can_fail":{"type":"boolean"}},"allOf":[{"if":{"properties":{"verdict":{"const":"confirmed"}},"required":["verdict"]},"then":{"required":["negative_control_passed","oracle_can_fail"],"properties":{"negative_control_passed":{"const":true},"oracle_can_fail":{"const":true}}}}]}}}
 
     - name: red-team-bounty-worthiness
       role: exploit-validator
       category: triage
+      timeout: 45m
+      maxTurns: 90
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
         - name: bug-bounty-reporting
         - name: exploit-poc-discipline
       objective: >-
-        Adversarially review every recorded finding from a skeptical bounty-triager perspective before final
-        reporting. Call list_security_findings, then call get_security_finding for every fingerprint and
-        read its complete evidence and audit trail before deciding it. Use all available tools, including the
-        full run tool surface, to attempt safe local reproduction and disproof. Challenge each
-        finding's reachability, least-privileged attacker control, claimed impact, preconditions, program
-        scope, novelty, duplicates, and exclusions. Use only disposable local fixtures and dummy assets for
-        reproduction. Read-only calls to explicitly in-scope live targets are allowed when they are minimally
-        invasive and do not access real-user data. Do not hunt for new vulnerabilities or submit the final
-        report. Never send state-changing requests to production
-        or live systems, perform destructive testing, expand scope, attack or guess credentials, or perform
-        denial-of-service or load testing. Preserve an existing false_positive, accepted_risk, or fixed
-        terminal status and add only an audit note. For every other finding, call update_security_finding with
-        an evidence-backed disposition: a proven bounty-worthy finding remains status confirmed; a technically
-        real but not bounty-eligible finding must become status accepted_risk with the exact evidence-backed
-        reason and the matching policy_disposition (scope_excluded, known_issue, or bot_findable when
-        applicable); a technically disproved or unreachable finding must become status false_positive with
-        policy_disposition disproved and the disproof; and a finding with missing evidence or unavailable
-        validation must remain status triaged with policy_disposition not_ready. Never use accepted_risk or
-        false_positive merely because evidence is missing or validation is unavailable. Stop after every
-        recorded finding has an evidence-backed disposition.
-      dependsOn: [account-complete-protocol-coverage, account-chain-coverage, account-cross-system-coverage]
+        Act as the independent validator and skeptical bounty-triager for the compact original handoffs
+        {{tasks.collect-investigator-handoffs.output}}, selected work {{tasks.select-adaptive-challenges.output}}, and
+        challenge results {{tasks.challenge-and-variant-sweep.output}}. Call list_security_findings, then
+        get_security_finding for every fingerprint and read its complete evidence and audit trail. Retrieve referenced
+        evidence with get_security_research_artifacts using include_payload true. Use all available tools to
+        independently reproduce or disprove every candidate intended for the report; confirmed requires observed local
+        behavior with calibrated controls, while missing evidence remains triaged and a concrete disproof becomes
+        false_positive. Call update_security_finding for every decision and preserve confirmed, accepted_risk,
+        false_positive, triaged, and fixed states. Set policy_disposition explicitly to scope_excluded, known_issue,
+        bot_findable, not_ready, or eligible without confusing a technically real defect with a payable submission. Do
+        not hunt for new vulnerabilities. Live verification is limited to operator-authorized read-only calls to
+        in-scope live targets and must be minimally invasive; never access real-user data, make a state-changing call,
+        perform destructive testing, expand scope, use credentials, or attempt denial-of-service. Persist one compact
+        validation manifest and any blocker with create_security_research_artifact using stable idempotency keys.
+        Return only the actual version-1 handoff fields with conditions.ready and conditions.report_ready.
+      dependsOn:
+        - runtime-preflight-and-dossier
+        - collect-investigator-handoffs
+        - select-adaptive-challenges
+        - challenge-and-variant-sweep
+      when:
+        task: runtime-preflight-and-dossier
+        path: conditions.ready
+        equals: "true"
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"report_ready":false}}'
+      outputSchema: |-
+        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","report_ready"],"properties":{"ready":{"type":"boolean"},"report_ready":{"type":"boolean"}}}}}
 
     - name: triage-and-report
       role: finding-triager
       category: triage
       skillRefs:
         - name: blockchain-security-research-method
-        - name: trail-of-bits-fp-check
-        - name: bug-bounty-reporting
         - name: trail-of-bits-variant-analysis
+        - name: bug-bounty-reporting
       objective: >-
-        Produce exactly one final report from the complete protocol/domain ledger
-        {{tasks.account-complete-protocol-coverage.output}}, chain ledger
-        {{tasks.account-chain-coverage.output}}, and cross-system ledger
-        {{tasks.account-cross-system-coverage.output}}. Call list_security_findings and re-read each concrete
-        attacker path and file:line before keeping it. Keep as submitted findings only candidates whose verdict
-        is confirmed in the complete protocol/domain ledger; place unresolved candidates in a clearly
-        non-finding appendix with conspicuous blockers. Reject claims that assume a modified binary, pre-existing operator compromise,
-        impossible state, or a validation performed elsewhere, and merge duplicates sharing one root cause.
-        Rank unauthenticated consensus failure or direct fund loss first, followed by persistent state
-        corruption, key compromise, bridge safety failure, single-peer takeover, and sustained denial of
-        service; state validator, sequencer, relayer, signer, and operator prerequisites explicitly.
-
-        Include separate structured sections for confirmed findings, tool/task errors and timeouts, unsupported
-        platforms or execution methods, skipped or non-applicable targets, inconclusive work, reviewed surfaces,
-        and uncovered inventory. A clean bounded result is evidence only for its named revision, harness, seed,
-        and bounds and must not be described as safety. For each kept finding provide root cause, smallest safe
-        remediation, regression-test guidance, rollout or migration risk, and a deterministic retest recipe
-        naming a new immutable revision, exact target, applicable registered tool and seed/bounds, and expected
-        evidence. State that an actual remediation retest requires a follow-up scan of that revision; do not
-        claim it happened in this immutable scan. Persist branch outcomes with transition_security_hypothesis
-        and invariant/actor/state/transition bounds with record_security_coverage. Every confirmed root cause
-        requires create_security_variant_sweep followed by complete_security_variant_sweep with scope and
-        evidence; blocked or inconclusive sweeps stay internal without an audited human override. Call
-        get_security_campaign_status and reconcile durable gaps and budget decisions. Hand every retained finding
-        to the configured post-script pipeline and report its packaging state separately from technical confirmation;
-        only a successfully persisted post-script artifact may be called bundle-ready. Then submit the final report.
+        Produce exactly one final report. Start from {{tasks.red-team-bounty-worthiness.output}} and reconcile it
+        against original handoffs {{tasks.collect-investigator-handoffs.output}}, adaptive selection
+        {{tasks.select-adaptive-challenges.output}}, and challenge outcomes
+        {{tasks.challenge-and-variant-sweep.output}}. Retrieve referenced dossier, manifests, traces, harness summaries,
+        native-fuzz runs, variant evidence, and blockers with get_security_research_artifacts using include_payload
+        true; never infer evidence from an ID alone. Call list_security_findings and deduplicate by root cause. Keep
+        errors, timeouts, skipped, unsupported, inadequately tested, not tested, inconclusive, blocked, and uncovered
+        work as explicit limitations; bounded not_found_under evidence is not proof of safety. Ensure every retained
+        finding has exact revision and file:line evidence, attacker path, violated invariant, impact, calibrated local
+        proof or honest blocker, remediation, and immutable-revision retest plan. Require completed durable variant
+        sweeps for confirmed root causes: create_security_variant_sweep and complete_security_variant_sweep may only
+        reflect actual recorded work. Call get_security_campaign_status and reconcile every open hypothesis, coverage
+        gap, blocker, variant sweep, native fuzz recommendation, and budget decision. Hand retained findings to the
+        configured post-script pipeline and describe bundle state separately from technical validity; only a
+        successfully persisted post-script artifact is bundle-ready. Apply ranker rules and minimum severity, then call
+        submit_security_scan_report exactly once. Do not create another sink or claim a remediation retest occurred.
       dependsOn:
-        - account-complete-protocol-coverage
-        - account-chain-coverage
-        - account-cross-system-coverage
+        - collect-investigator-handoffs
+        - select-adaptive-challenges
+        - challenge-and-variant-sweep
         - red-team-bounty-worthiness

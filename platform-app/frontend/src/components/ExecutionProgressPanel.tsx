@@ -438,6 +438,14 @@ export function ExecutionProgressPanel({
       <div className="space-y-3" data-testid="execution-progress">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <StatePill state={execution.phase} />
+          {execution.evidenceOutcome && (
+            <span
+              className="rounded-md bg-muted/60 px-2 py-0.5 font-medium text-muted-foreground ring-1 ring-inset ring-border/70"
+              data-testid="execution-evidence-outcome"
+            >
+              evidence {execution.evidenceOutcome}
+            </span>
+          )}
           {totalInstances > 0 && (
             <span
               className="rounded-md bg-muted/60 px-2 py-0.5 text-muted-foreground ring-1 ring-inset ring-border/70"

@@ -178,6 +178,43 @@ func TestSecurityScanTaskConditionOmitsAgentRunAndPublishesOutput(t *testing.T) 
 	}
 }
 
+func TestSecurityScanReadinessGateFailureProducesBlockedEvidenceOutcome(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "preflight", Objective: "check runtime", OutputSchema: `{"type":"object"}`},
+		{
+			Name: "investigate", Objective: "investigate", DependsOn: []string{"preflight"},
+			OutputSchema: `{"type":"object"}`,
+			When: &triggersv1alpha1.SecurityScanTaskCondition{
+				Task: "preflight", Path: "conditions.ready", Equals: "true",
+				OtherwiseOutput: `{"conditions":{"ready":false}}`,
+			},
+		},
+		{Name: "report", Objective: "report", DependsOn: []string{"investigate"}},
+	}, 2)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	preflight := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "preflight")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, preflight.Name, platformv1alpha1.AgentRunPhaseSucceeded,
+		`{"conditions":{"ready":false}}`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	if len(updated.Status.LastExecution.CoverageGaps) != 1 || !strings.Contains(updated.Status.LastExecution.CoverageGaps[0], "preflight") {
+		t.Fatalf("coverage gaps = %#v, want one readiness blocker", updated.Status.LastExecution.CoverageGaps)
+	}
+	report := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "report")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, report.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	updated = getSecurityScan(t, k8sClient, scan)
+	exec := updated.Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseSucceeded || exec.EvidenceOutcome != triggersv1alpha1.SecurityScanEvidenceOutcomeBlocked {
+		t.Fatalf("execution phase=%q evidenceOutcome=%q, want Succeeded/blocked", exec.Phase, exec.EvidenceOutcome)
+	}
+}
+
 func TestSecurityScanSucceededWithCoverageGapsIsReadyButDegraded(t *testing.T) {
 	scan := deterministicSecurityScan(nil, 1)
 	scan.Generation = 7
@@ -678,6 +715,9 @@ func TestSecurityScanDeterministicResumeRestartsFailedAndSkippedTasks(t *testing
 	exec := updated.Status.LastExecution
 	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning || exec.LastResumeToken != "resume-1" {
 		t.Fatalf("resumed execution = %#v, want running execution that consumed token", exec)
+	}
+	if exec.EvidenceOutcome != "" {
+		t.Fatalf("resumed evidenceOutcome = %q, want empty while running", exec.EvidenceOutcome)
 	}
 	assertExecutionTaskState(t, exec, "source", 0, triggersv1alpha1.SecurityScanTaskStatePending)
 	assertExecutionTaskState(t, exec, "join", 0, triggersv1alpha1.SecurityScanTaskStatePending)
@@ -2012,6 +2052,28 @@ func TestSecurityScanDeterministicTaskRunsApplyDistinctRoleContracts(t *testing.
 	}
 }
 
+func TestSecurityScanArtifactWorkflowFailsPreflightWithoutDurableStore(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{
+		Name: "research", Objective: "persist with create_security_research_artifact",
+		OutputSchema: `{"type":"object","properties":{"artifact_ids":{"type":"array"}}}`,
+	}}, 1)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.LastExecution != nil {
+		t.Fatalf("lastExecution = %#v, want no execution without durable artifact capability", updated.Status.LastExecution)
+	}
+	if !strings.Contains(updated.Status.LastError, "durable security research") {
+		t.Fatalf("lastError = %q, want missing artifact capability", updated.Status.LastError)
+	}
+	if got := len(securityScanRuns(t, k8sClient, scan.Namespace)); got != 0 {
+		t.Fatalf("AgentRuns = %d, want no dispatch before capability readiness passes", got)
+	}
+}
+
 func TestSecurityScanDeterministicTaskDispatchFailsWhenRoleCannotBeResolved(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
@@ -2022,12 +2084,11 @@ func TestSecurityScanDeterministicTaskDispatchFailsWhenRoleCannotBeResolved(t *t
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	updated := getSecurityScan(t, k8sClient, scan)
-	entry := executionTask(t, updated.Status.LastExecution, "ghost", 0)
-	if entry.State != triggersv1alpha1.SecurityScanTaskStateFailed {
-		t.Fatalf("task state = %q, want Failed for an unresolvable role", entry.State)
+	if updated.Status.LastExecution != nil {
+		t.Fatalf("lastExecution = %#v, want no execution plan after static preflight failure", updated.Status.LastExecution)
 	}
-	if !strings.Contains(entry.LastError, `"ghost"`) || !strings.Contains(entry.LastError, "no-such-role") {
-		t.Fatalf("task lastError = %q, want it to name the task and the missing role", entry.LastError)
+	if !strings.Contains(updated.Status.LastError, `"ghost"`) || !strings.Contains(updated.Status.LastError, "no-such-role") {
+		t.Fatalf("lastError = %q, want it to name the task and the missing role", updated.Status.LastError)
 	}
 	if got := len(securityScanRuns(t, k8sClient, scan.Namespace)); got != 0 {
 		t.Fatalf("AgentRuns = %d, want no run dispatched without a role contract", got)
