@@ -280,7 +280,7 @@ func TestSecurityProgramLibrary(t *testing.T) {
 		"hackenproof-vechainthor":         1,
 		"shiftcrypto-bitbox":              2,
 		"hackerone-coinbase":              2,
-		"immunefi-filecoin":               28,
+		"immunefi-filecoin":               4,
 		"immunefi-cosmos":                 2,
 		"immunefi-etherfi":                2,
 		"immunefi-marinade":               1,
