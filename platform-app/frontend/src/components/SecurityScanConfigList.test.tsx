@@ -8,6 +8,7 @@ import {
   scheduleKind,
   SecurityScanConfigList,
   sortScanConfigs,
+  workflowFilterValue,
 } from "@/components/SecurityScanConfigList";
 import {
   SecurityScanConfigSchema,
@@ -87,6 +88,10 @@ function configFixture(overrides: {
   suspend?: boolean;
   securityProgramRef?: string;
   repoUrl?: string;
+  targetUrl?: string;
+  workflowRef?: string;
+  inlineWorkflow?: boolean;
+  policyPackRef?: string;
   schedule?: string;
   manualOnly?: boolean;
   conditionReady?: string;
@@ -99,7 +104,13 @@ function configFixture(overrides: {
     namespace: overrides.namespace ?? "user-alice",
     name: overrides.name ?? "nightly",
     spec: create(SecurityScanConfigSpecSchema, {
-      repoUrl: overrides.repoUrl ?? "https://github.com/acme/payments.git",
+      repoUrl: overrides.targetUrl
+        ? ""
+        : overrides.repoUrl ?? "https://github.com/acme/payments.git",
+      targetUrl: overrides.targetUrl ?? "",
+      workflowRef: overrides.workflowRef ?? "",
+      workflow: overrides.inlineWorkflow ? [{ name: "recon", objective: "recon" }] : [],
+      policyPackRef: overrides.policyPackRef ?? "",
       schedule: overrides.schedule ?? "@daily",
       manualOnly: overrides.manualOnly ?? false,
       suspend: overrides.suspend ?? false,
@@ -219,6 +230,29 @@ describe("filterScanConfigs", () => {
       .toEqual(["ready-critical", "paused"]);
   });
 
+  it("filters by workflow, target type and policy pack", () => {
+    const items = [
+      configFixture({ name: "ref-scan", workflowRef: "deep-audit", policyPackRef: "strict" }),
+      configFixture({ name: "inline-scan", inlineWorkflow: true }),
+      configFixture({ name: "web-scan", targetUrl: "https://example.com" }),
+    ];
+    const names = (overrides: Parameters<typeof filters>[0]) =>
+      filterScanConfigs(items, filters(overrides), now).map((c) => c.name);
+
+    // Named refs travel prefixed so a workflow literally called "inline" or
+    // "default" cannot collide with the built-in buckets.
+    expect(workflowFilterValue(items[0])).toBe("ref:deep-audit");
+    expect(names({ workflow: "ref:deep-audit" })).toEqual(["ref-scan"]);
+    expect(names({ workflow: "inline" })).toEqual(["inline-scan"]);
+    expect(names({ workflow: "default" })).toEqual(["web-scan"]);
+
+    expect(names({ target: "repository" })).toEqual(["ref-scan", "inline-scan"]);
+    expect(names({ target: "web" })).toEqual(["web-scan"]);
+
+    expect(names({ policy: "strict" })).toEqual(["ref-scan"]);
+    expect(names({ policy: "none" })).toEqual(["inline-scan", "web-scan"]);
+  });
+
   it("sorts by name, findings severity and last scan", () => {
     const nowUnix = BigInt(Math.floor(Date.now() / 1000));
     const items = [
@@ -238,8 +272,11 @@ function filters(overrides: Partial<Parameters<typeof filterScanConfigs>[1]> = {
     findings: "all",
     scanned: "all",
     schedule: "all",
+    workflow: "all",
     program: "all",
     repo: "all",
+    target: "all",
+    policy: "all",
     ...overrides,
   };
 }
