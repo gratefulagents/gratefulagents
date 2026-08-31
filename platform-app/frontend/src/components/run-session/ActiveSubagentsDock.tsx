@@ -18,6 +18,7 @@ import {
   buildLayout,
   isRunningSubagentNode,
   isWaitingStatus,
+  taskIDToNodeID,
   type LayoutDims,
 } from "@/lib/subagentGraphLayout";
 import { toneText } from "@/lib/status";
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils";
 import type { SubagentGraph, SubagentGraphNode } from "@/rpc/platform/service_pb";
 
 const STOPPED_STATUSES = new Set(["stopped", "cancelled", "canceled"]);
+const DOCK_EXPANDED_KEY = "gratefulagents.subagentDockExpanded";
 
 /** Geometry only feeds the layout pass we reuse for dependency depths. */
 const WAVE_DIMS: LayoutDims = { nodeW: 220, nodeH: 64, hGap: 44, vGap: 12 };
@@ -48,8 +50,29 @@ function agentType(node: SubagentGraphNode): string {
   return node.subtitle || (node.kind === "inline-subagent" ? "inline" : "agent");
 }
 
-function currentActivity(node: SubagentGraphNode, state: NodeState): string {
+/** One task's place in the roster: a stable ordinal plus exact dependencies. */
+interface RosterEntry {
+  node: SubagentGraphNode;
+  state: NodeState;
+  /** 1-based number shown as #n, assigned in visual (wave) order. */
+  ordinal: number;
+  /** Ordinals of the tasks this one runs after, e.g. [1, 3] → "after #1, #3". */
+  dependsOn: number[];
+  /** Labels of those dependency tasks, for the hover tooltip. */
+  dependsOnLabels: string[];
+  /** Ordinals of the dependencies that are still unfinished (gating this task). */
+  waitingRefs: number[];
+}
+
+function formatRefs(ordinals: number[]): string {
+  return ordinals.map((n) => `#${n}`).join(", ");
+}
+
+function currentActivity(entry: RosterEntry): string {
+  const { node, state, waitingRefs, dependsOn } = entry;
   if (state === "waiting") {
+    const refs = waitingRefs.length > 0 ? waitingRefs : dependsOn;
+    if (refs.length > 0) return `Waiting on ${formatRefs(refs)}`;
     return node.waitingOn.length > 0
       ? `Waiting on ${node.waitingOn.length} task${node.waitingOn.length === 1 ? "" : "s"}`
       : "Waiting to start";
@@ -86,7 +109,74 @@ function NodeStatusIcon({ state }: { state: NodeState }) {
   return <Check className={cn("size-3.5 shrink-0", toneText.success)} aria-hidden="true" />;
 }
 
-const DOCK_EXPANDED_KEY = "gratefulagents.subagentDockExpanded";
+/**
+ * Build the numbered roster: tasks bucketed into dependency waves, each task
+ * carrying a stable #ordinal (assigned top-to-bottom through the waves) and
+ * the exact ordinals of the tasks it runs after. Ordinals make dependencies
+ * unambiguous even when batch delegations share an identical prompt prefix.
+ */
+function buildWaves(graph: SubagentGraph): RosterEntry[][] {
+  const layout = buildLayout(graph, WAVE_DIMS);
+
+  // Bucket by dependency depth so parallel tasks share a wave.
+  const buckets = new Map<number, SubagentGraphNode[]>();
+  for (const laid of layout.order) {
+    const bucket = buckets.get(laid.depth);
+    if (bucket) bucket.push(laid.node);
+    else buckets.set(laid.depth, [laid.node]);
+  }
+  const nodeWaves = [...buckets.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, nodes]) => nodes);
+
+  // Ordinals follow the visual order (wave by wave, top to bottom).
+  const ordinalById = new Map<string, number>();
+  let next = 1;
+  for (const wave of nodeWaves) {
+    for (const node of wave) ordinalById.set(node.id, next++);
+  }
+
+  // Exact dependencies: depends-on edges, plus live waiting-on task ids.
+  const depIdsById = new Map<string, Set<string>>();
+  const addDep = (to: string, from: string) => {
+    if (!ordinalById.has(to) || !ordinalById.has(from) || to === from) return;
+    const set = depIdsById.get(to);
+    if (set) set.add(from);
+    else depIdsById.set(to, new Set([from]));
+  };
+  for (const edge of graph.edges) {
+    if (edge.kind === "depends-on") addDep(edge.to, edge.from);
+  }
+  const labelById = new Map(graph.nodes.map((node) => [node.id, node.label]));
+  const resolveWaitingId = (taskId: string) =>
+    ordinalById.has(taskId) ? taskId : taskIDToNodeID(taskId);
+  for (const node of graph.nodes) {
+    for (const taskId of node.waitingOn) addDep(node.id, resolveWaitingId(taskId));
+  }
+
+  return nodeWaves.map((wave) =>
+    wave.map((node) => {
+      const depIds = [...(depIdsById.get(node.id) ?? [])].sort(
+        (a, b) => ordinalById.get(a)! - ordinalById.get(b)!,
+      );
+      const waitingRefs = [
+        ...new Set(
+          node.waitingOn
+            .map((taskId) => ordinalById.get(resolveWaitingId(taskId)))
+            .filter((ordinal): ordinal is number => ordinal !== undefined),
+        ),
+      ].sort((a, b) => a - b);
+      return {
+        node,
+        state: nodeState(node),
+        ordinal: ordinalById.get(node.id)!,
+        dependsOn: depIds.map((id) => ordinalById.get(id)!),
+        dependsOnLabels: depIds.map((id) => labelById.get(id) ?? id),
+        waitingRefs,
+      } satisfies RosterEntry;
+    }),
+  );
+}
 
 /**
  * A pinned, compact rendering of the complete subagent DAG. It stays next to
@@ -94,8 +184,9 @@ const DOCK_EXPANDED_KEY = "gratefulagents.subagentDockExpanded";
  * delegation event to understand completed, running, and waiting branches.
  *
  * The expanded body groups tasks by dependency wave: each wave is a responsive
- * grid of full-width status cards (parallel work fills the row), and later
- * waves render below a divider so the execution order reads top to bottom.
+ * grid of numbered status cards (#1, #2, …), and every dependent task states
+ * exactly which tasks it runs after ("after #1, #3") so the execution order is
+ * unambiguous even when sibling tasks share near-identical titles.
  * Collapsed by default — the summary row stays visible and the roster is
  * revealed on demand (the choice persists across runs).
  */
@@ -123,60 +214,44 @@ export function ActiveSubagentsDock({
       }
       return next;
     });
-  const graphId = useId();
+  const rosterId = useId();
   const now = useNow(1_000);
 
-  const subagents = useMemo(
-    () => graph?.nodes.filter((node) => node.kind !== "root") ?? [],
-    [graph],
-  );
-  const active = useMemo(() => subagents.filter(isRunningSubagentNode), [subagents]);
-  const visibleGraph = useMemo(() => {
-    if (!graph || subagents.length === 0) return undefined;
+  const waves = useMemo(() => {
+    const subagents = graph?.nodes.filter((node) => node.kind !== "root") ?? [];
+    if (!graph || subagents.length === 0) return [] as RosterEntry[][];
     const ids = new Set(subagents.map((node) => node.id));
-    return {
+    return buildWaves({
       ...graph,
       rootId: "",
       nodes: subagents,
       edges: graph.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)),
-    } satisfies SubagentGraph;
-  }, [graph, subagents]);
-  const layout = useMemo(
-    () => (visibleGraph ? buildLayout(visibleGraph, WAVE_DIMS) : undefined),
-    [visibleGraph],
-  );
-
-  // Dependency waves: bucket nodes by their layout column so parallel tasks
-  // share a row and dependent tasks appear beneath the work they wait on.
-  const waves = useMemo(() => {
-    if (!layout) return [] as SubagentGraphNode[][];
-    const buckets = new Map<number, SubagentGraphNode[]>();
-    for (const laid of layout.order) {
-      const bucket = buckets.get(laid.depth);
-      if (bucket) bucket.push(laid.node);
-      else buckets.set(laid.depth, [laid.node]);
-    }
-    return [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([, nodes]) => nodes);
-  }, [layout]);
+    });
+  }, [graph]);
+  const roster = useMemo(() => waves.flat(), [waves]);
+  const active = roster.filter(({ state }) => state === "running" || state === "waiting");
 
   // Keep the complete roster pinned while any delegated work is live. Once all
   // tasks are terminal it remains available in the transcript and Graph tab.
-  if (active.length === 0 || !layout) return null;
+  if (active.length === 0) return null;
 
-  const states = subagents.map(nodeState);
-  const waiting = states.filter((state) => state === "waiting").length;
-  const running = states.filter((state) => state === "running").length;
-  const completed = states.filter((state) => state === "completed").length;
-  const failed = states.filter((state) => state === "failed").length;
-  const stopped = states.filter((state) => state === "stopped").length;
+  const count = (state: NodeState) =>
+    roster.filter((entry) => entry.state === state).length;
+  const running = count("running");
+  const waiting = count("waiting");
+  const completed = count("completed");
+  const failed = count("failed");
+  const stopped = count("stopped");
+
   // While collapsed the roster is hidden, so surface the most informative
   // live line (a running node's current step) directly in the summary row.
-  const livePreviewNode = expanded
+  const livePreviewEntry = expanded
     ? undefined
-    : subagents.find((node, i) => states[i] === "running" && (node.currentStep || node.lastTool)) ??
-      subagents.find((_, i) => states[i] === "running");
-  const livePreview = livePreviewNode
-    ? `${agentType(livePreviewNode)} · ${currentActivity(livePreviewNode, "running")}`
+    : roster.find(
+        ({ node, state }) => state === "running" && (node.currentStep || node.lastTool),
+      ) ?? roster.find(({ state }) => state === "running");
+  const livePreview = livePreviewEntry
+    ? `${agentType(livePreviewEntry.node)} · ${currentActivity(livePreviewEntry)}`
     : "";
 
   return (
@@ -193,13 +268,13 @@ export function ActiveSubagentsDock({
           type="button"
           className="flex min-w-0 flex-1 items-center gap-2 rounded-sm py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           aria-expanded={expanded}
-          aria-controls={graphId}
-          aria-label={`${active.length} active agent${active.length === 1 ? "" : "s"}; ${subagents.length} delegated task${subagents.length === 1 ? "" : "s"}`}
+          aria-controls={rosterId}
+          aria-label={`${active.length} active agent${active.length === 1 ? "" : "s"}; ${roster.length} delegated task${roster.length === 1 ? "" : "s"}`}
           onClick={toggleExpanded}
         >
           <GitFork className="size-3.5 shrink-0 rotate-90 text-muted-foreground" />
           <span className="shrink-0 text-xs font-medium text-foreground">
-            Delegated {subagents.length} task{subagents.length === 1 ? "" : "s"}
+            Delegated {roster.length} task{roster.length === 1 ? "" : "s"}
           </span>
           <span className="hidden min-w-0 items-center gap-2 overflow-hidden text-[11px] sm:flex">
             {running > 0 && (
@@ -262,7 +337,7 @@ export function ActiveSubagentsDock({
 
       {expanded && (
         <div
-          id={graphId}
+          id={rosterId}
           className="max-h-80 overflow-y-auto border-t border-border/50 px-3 py-2 md:px-4"
         >
           {waves.map((wave, waveIndex) => (
@@ -275,19 +350,19 @@ export function ActiveSubagentsDock({
                 >
                   <CornerDownRight className="size-3 shrink-0 text-muted-foreground/60" />
                   <span className="shrink-0 text-[10px] text-muted-foreground/70">
-                    runs after tasks above
+                    {(() => {
+                      const refs = unique(wave.flatMap((e) => e.dependsOn));
+                      return refs.length > 0
+                        ? `runs after ${formatRefs(refs)}`
+                        : "runs after tasks above";
+                    })()}
                   </span>
                   <span className="h-px flex-1 bg-border/60" />
                 </div>
               )}
               <ul className="grid list-none gap-1.5 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
-                {wave.map((node) => (
-                  <DockTaskCard
-                    key={node.id}
-                    node={node}
-                    state={nodeState(node)}
-                    now={now}
-                  />
+                {wave.map((entry) => (
+                  <DockTaskCard key={entry.node.id} entry={entry} now={now} />
                 ))}
               </ul>
             </div>
@@ -298,15 +373,12 @@ export function ActiveSubagentsDock({
   );
 }
 
-function DockTaskCard({
-  node,
-  state,
-  now,
-}: {
-  node: SubagentGraphNode;
-  state: NodeState;
-  now: number;
-}) {
+function unique(ordinals: number[]): number[] {
+  return [...new Set(ordinals)].sort((a, b) => a - b);
+}
+
+function DockTaskCard({ entry, now }: { entry: RosterEntry; now: number }) {
+  const { node, state, ordinal, dependsOn, dependsOnLabels } = entry;
   const color = getSubagentColor(agentType(node));
   const elapsed =
     state === "running" && node.timestampUnix > 0n
@@ -318,7 +390,7 @@ function DockTaskCard({
   return (
     <li
       data-testid="subagent-dock-card"
-      title={node.label}
+      title={`#${ordinal} ${node.label}`}
       className={cn(
         "relative flex flex-col justify-center gap-1 overflow-hidden rounded-md border border-border/60 border-l-2 bg-card/90 px-2.5 py-2",
         color.border,
@@ -332,6 +404,9 @@ function DockTaskCard({
       )}
       <span className="flex min-w-0 items-center gap-1.5">
         <NodeStatusIcon state={state} />
+        <span className="shrink-0 font-mono text-[10px] font-semibold tabular-nums text-muted-foreground/90">
+          #{ordinal}
+        </span>
         <span
           className={cn(
             "shrink-0 rounded border px-1 py-px font-mono text-[9.5px] font-semibold",
@@ -352,7 +427,22 @@ function DockTaskCard({
         )}
       </span>
       <span className="flex min-w-0 items-center gap-2 pl-5 text-[10px] text-muted-foreground">
-        <span className="min-w-0 flex-1 truncate">{currentActivity(node, state)}</span>
+        {dependsOn.length > 0 && (
+          <span
+            data-testid="subagent-dep-ref"
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1 font-mono text-[9.5px] tabular-nums",
+              state === "waiting" ? toneText.warning : "text-muted-foreground/70",
+            )}
+            title={`Runs after: ${dependsOnLabels
+              .map((label, i) => `#${dependsOn[i]} ${label}`)
+              .join(" · ")}`}
+          >
+            <CornerDownRight className="size-2.5" aria-hidden="true" />
+            after {formatRefs(dependsOn)}
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate">{currentActivity(entry)}</span>
         <span className="flex shrink-0 items-center gap-1.5 font-mono text-[9.5px] tabular-nums text-muted-foreground/80">
           {node.model && (
             <span className="max-w-28 truncate" title={node.model}>
