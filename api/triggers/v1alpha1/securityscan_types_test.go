@@ -91,6 +91,28 @@ func TestSecurityScanTaskEffectiveRole(t *testing.T) {
 	}
 }
 
+func TestSecurityScanTaskDockerInDockerJSONPreservesTriState(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value *bool
+		want  string
+	}{
+		{name: "inherit", want: `{"name":"task","objective":"test","timeout":"0s"}`},
+		{name: "disable", value: new(false), want: `{"name":"task","objective":"test","dockerInDocker":false,"timeout":"0s"}`},
+		{name: "enable", value: new(true), want: `{"name":"task","objective":"test","dockerInDocker":true,"timeout":"0s"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := json.Marshal(SecurityScanTask{Name: "task", Objective: "test", DockerInDocker: tc.value})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tc.want {
+				t.Fatalf("JSON = %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSecurityPostScriptEffectiveRunOn(t *testing.T) {
 	var script SecurityScanPostScript
 	if got := script.EffectiveRunOn(); got != "all" {

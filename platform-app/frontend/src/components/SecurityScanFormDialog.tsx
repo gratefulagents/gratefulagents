@@ -642,6 +642,7 @@ export function SecurityScanFormDialog({
                     timeout: t.base.timeout,
                     maxTurns: t.base.maxTurns,
                     maxCostUsd: t.base.maxCostUsd,
+                    dockerInDocker: t.base.dockerInDocker,
                     tools: t.base.tools,
                     outputSchema: t.base.outputSchema,
                     forEach: t.base.forEach,

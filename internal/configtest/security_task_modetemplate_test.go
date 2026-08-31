@@ -1,11 +1,13 @@
 package configtest
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	"sigs.k8s.io/yaml"
 )
 
 // TestSecurityScanTaskModeTemplateAsset validates the bootstrap ModeTemplate
@@ -82,5 +84,52 @@ func TestWebSecurityScanTaskModeTemplateIsFullAccess(t *testing.T) {
 	}
 	if mode.Spec.PermissionMode != platformv1alpha1.PermissionModeDangerFullAccess {
 		t.Errorf("permissionMode = %q, want danger-full-access", mode.Spec.PermissionMode)
+	}
+}
+
+func TestBlockchainProtocolLocalResearchDisablesDockerInDocker(t *testing.T) {
+	t.Parallel()
+
+	type rawTask struct {
+		Name           string `json:"name"`
+		DockerInDocker *bool  `json:"dockerInDocker"`
+	}
+	var workflow struct {
+		Spec struct {
+			Tasks []rawTask `json:"tasks"`
+		} `json:"spec"`
+	}
+	contents, err := os.ReadFile(repoPath("dist", "chart", "files", "bootstrap", "securityworkflows", "blockchain-protocol-audit.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(contents, &workflow); err != nil {
+		t.Fatalf("parse blockchain protocol workflow: %v", err)
+	}
+
+	byName := make(map[string]*bool, len(workflow.Spec.Tasks))
+	for _, task := range workflow.Spec.Tasks {
+		byName[task.Name] = task.DockerInDocker
+	}
+	for _, name := range []string{
+		"runtime-preflight-and-dossier",
+		"consensus-and-execution-investigator",
+		"network-and-state-investigator",
+		"cross-chain-and-custody-investigator",
+		"crypto-economics-and-release-investigator",
+		"challenge-and-variant-sweep",
+		"red-team-bounty-worthiness",
+	} {
+		value, ok := byName[name]
+		if !ok {
+			t.Errorf("local protocol research task %q is missing", name)
+			continue
+		}
+		if value == nil || *value {
+			t.Errorf("task %q dockerInDocker = %v, want explicit false", name, value)
+		}
+	}
+	if value := byName["run-bounded-native-fuzz"]; value != nil {
+		t.Errorf("pinned native fuzz task dockerInDocker = %v, want no task override", *value)
 	}
 }

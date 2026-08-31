@@ -117,6 +117,13 @@ spec:
                         type: string
                       type: array
                       x-kubernetes-list-type: atomic
+                    dockerInDocker:
+                      description: |-
+                        dockerInDocker optionally narrows spec.defaults.dockerInDocker for this
+                        task. False disables inherited DinD for native build/test tasks that need
+                        the private procfs command sandbox. True cannot enable DinD unless the
+                        admin-gated scan default already enables it. Nil preserves the scan default.
+                      type: boolean
                     forEach:
                       description: |-
                         forEach names a dependency task; this task fans out with one instance

@@ -164,6 +164,10 @@ func securityWorkflowTasksFromProto(
 			retries := t.GetMaxRetries()
 			task.MaxRetries = &retries
 		}
+		if t.DockerInDocker != nil {
+			dockerInDocker := t.GetDockerInDocker()
+			task.DockerInDocker = &dockerInDocker
+		}
 		if condition := t.GetWhen(); condition != nil {
 			task.When = &triggersv1alpha1.SecurityScanTaskCondition{
 				Task:            strings.TrimSpace(condition.GetTask()),
@@ -217,6 +221,10 @@ func securityScanTaskToProto(t triggersv1alpha1.SecurityScanTask) *platform.Secu
 	if t.MaxRetries != nil {
 		retries := *t.MaxRetries
 		pb.MaxRetries = &retries
+	}
+	if t.DockerInDocker != nil {
+		dockerInDocker := *t.DockerInDocker
+		pb.DockerInDocker = &dockerInDocker
 	}
 	if t.Timeout.Duration != 0 {
 		pb.Timeout = t.Timeout.Duration.String()

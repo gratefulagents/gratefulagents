@@ -558,6 +558,13 @@ type SecurityScanTask struct {
 	// +optional
 	Model string `json:"model,omitempty"`
 
+	// dockerInDocker optionally narrows spec.defaults.dockerInDocker for this
+	// task. False disables inherited DinD for native build/test tasks that need
+	// the private procfs command sandbox. True cannot enable DinD unless the
+	// admin-gated scan default already enables it. Nil preserves the scan default.
+	// +optional
+	DockerInDocker *bool `json:"dockerInDocker,omitempty"`
+
 	// maxRetries is this task's retry budget in deterministic execution:
 	// how many times a failed attempt is rescheduled before the task is
 	// marked Failed. Nil inherits spec.execution.taskMaxRetries (default 1).

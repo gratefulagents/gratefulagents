@@ -16,6 +16,7 @@ import (
 
 func testSecurityWorkflowResource(namespace string) *platform.SecurityWorkflowResource {
 	retries := int32(2)
+	disableDocker := false
 	return &platform.SecurityWorkflowResource{
 		Namespace:   namespace,
 		Name:        "payments-workflow",
@@ -26,13 +27,33 @@ func testSecurityWorkflowResource(namespace string) *platform.SecurityWorkflowRe
 				SkillRefs: []string{"api-authz-hunting"}, OutputSchema: `{"type":"array","items":{"type":"object"}}`},
 			{Name: "triage", Objective: "triage findings", Role: "finding-triager", Model: "gpt-5.2",
 				DependsOn: []string{"injection"}, MaxRetries: &retries, Timeout: "30m", MaxTurns: 40,
-				MaxCostUsd: "1.25", ForEach: "injection", MaxInstances: 8,
+				DockerInDocker: &disableDocker, MaxCostUsd: "1.25", ForEach: "injection", MaxInstances: 8,
 				Tools: &platform.SecurityScanTaskTools{Allowed: []string{"grep"}, Denied: []string{"web_fetch"}}},
 		},
 		Parameters: []*platform.SecurityWorkflowParameter{
 			{Name: "target_env", Description: "environment to scan", Default: "prod"},
 			{Name: "focus", Required: true},
 		},
+	}
+}
+
+func TestSecurityWorkflowTaskDockerInDockerTriStateConversions(t *testing.T) {
+	enabled := true
+	tasks, errs := securityWorkflowTasksFromProto([]*platform.SecurityScanTaskConfig{
+		{Name: "inherit", Objective: "test"},
+		{Name: "enabled", Objective: "test", DockerInDocker: &enabled},
+	})
+	if len(errs) != 0 {
+		t.Fatalf("conversion errors = %+v", errs)
+	}
+	if tasks[0].DockerInDocker != nil || tasks[1].DockerInDocker == nil || !*tasks[1].DockerInDocker {
+		t.Fatalf("converted task tri-state = %#v / %#v", tasks[0].DockerInDocker, tasks[1].DockerInDocker)
+	}
+	if got := securityScanTaskToProto(tasks[0]).DockerInDocker; got != nil {
+		t.Fatalf("inherited proto DockerInDocker = %#v, want nil", got)
+	}
+	if got := securityScanTaskToProto(tasks[1]).DockerInDocker; got == nil || !*got {
+		t.Fatalf("enabled proto DockerInDocker = %#v, want true", got)
 	}
 }
 
@@ -62,7 +83,7 @@ func TestSecurityWorkflowCRUDLifecycle(t *testing.T) {
 	task := cr.Spec.Tasks[1]
 	if task.MaxRetries == nil || *task.MaxRetries != 2 || task.Timeout.Duration != 30*time.Minute ||
 		task.MaxTurns != 40 || task.MaxCostUSD != "1.25" || task.ForEach != "injection" || task.MaxInstances != 8 ||
-		task.Tools == nil || task.Tools.Allowed[0] != "grep" || task.Tools.Denied[0] != "web_fetch" {
+		task.DockerInDocker == nil || *task.DockerInDocker || task.Tools == nil || task.Tools.Allowed[0] != "grep" || task.Tools.Denied[0] != "web_fetch" {
 		t.Fatalf("task execution fields = %+v", task)
 	}
 	if len(cr.Spec.Parameters) != 2 || cr.Spec.Parameters[0].Name != "target_env" ||
@@ -83,7 +104,7 @@ func TestSecurityWorkflowCRUDLifecycle(t *testing.T) {
 	pt := got.Tasks[1]
 	if pt.MaxRetries == nil || *pt.MaxRetries != 2 || pt.Timeout != "30m0s" || pt.MaxTurns != 40 ||
 		pt.MaxCostUsd != "1.25" || pt.ForEach != "injection" || pt.MaxInstances != 8 ||
-		pt.Tools == nil || len(pt.Tools.Allowed) != 1 || len(pt.Tools.Denied) != 1 {
+		pt.DockerInDocker == nil || pt.GetDockerInDocker() || pt.Tools == nil || len(pt.Tools.Allowed) != 1 || len(pt.Tools.Denied) != 1 {
 		t.Fatalf("proto task = %+v", pt)
 	}
 	if len(got.Parameters) != 2 || got.Parameters[0].Name != "target_env" || got.Parameters[0].Default != "prod" ||

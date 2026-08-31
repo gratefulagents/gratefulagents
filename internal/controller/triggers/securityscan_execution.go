@@ -2584,6 +2584,10 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 	}
 	d := base.defaults
 	d.SkillRefs = mergeSecurityScanTaskSkillRefs(d.SkillRefs, task.SkillRefs)
+	// Task policy may narrow the admin-gated scan default, never widen it.
+	if task.DockerInDocker != nil && !*task.DockerInDocker {
+		d.DockerInDocker = false
+	}
 	if model := strings.TrimSpace(task.Model); model != "" {
 		d.Model = model
 	}

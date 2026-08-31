@@ -3357,6 +3357,11 @@ func (in *SecurityScanTask) DeepCopyInto(out *SecurityScanTask) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.DockerInDocker != nil {
+		in, out := &in.DockerInDocker, &out.DockerInDocker
+		*out = new(bool)
+		**out = **in
+	}
 	if in.MaxRetries != nil {
 		in, out := &in.MaxRetries, &out.MaxRetries
 		*out = new(int32)

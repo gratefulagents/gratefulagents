@@ -31840,9 +31840,12 @@ type SecurityScanTaskConfig struct {
 	When *SecurityScanTaskCondition `protobuf:"bytes,19,opt,name=when,proto3" json:"when,omitempty"`
 	// reduce performs a controller-side deterministic aggregation instead of
 	// launching an AgentRun. Currently supported: concat.
-	Reduce        string `protobuf:"bytes,20,opt,name=reduce,proto3" json:"reduce,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Reduce string `protobuf:"bytes,20,opt,name=reduce,proto3" json:"reduce,omitempty"`
+	// docker_in_docker narrows the scan default for this task. False disables
+	// inherited DinD; true cannot enable it unless the admin-gated default does.
+	DockerInDocker *bool `protobuf:"varint,21,opt,name=docker_in_docker,json=dockerInDocker,proto3,oneof" json:"docker_in_docker,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SecurityScanTaskConfig) Reset() {
@@ -32006,6 +32009,13 @@ func (x *SecurityScanTaskConfig) GetReduce() string {
 		return x.Reduce
 	}
 	return ""
+}
+
+func (x *SecurityScanTaskConfig) GetDockerInDocker() bool {
+	if x != nil && x.DockerInDocker != nil {
+		return *x.DockerInDocker
+	}
+	return false
 }
 
 // SecurityScanTaskCondition is a controller-side launch predicate.
@@ -45570,7 +45580,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\rinclude_paths\x18\x02 \x03(\tR\fincludePaths\x12#\n" +
 	"\rexclude_paths\x18\x03 \x03(\tR\fexcludePaths\x12\x1c\n" +
 	"\tlanguages\x18\x04 \x03(\tR\tlanguages\x12<\n" +
-	"\x1aauthorized_network_targets\x18\x05 \x03(\tR\x18authorizedNetworkTargets\"\x9f\x05\n" +
+	"\x1aauthorized_network_targets\x18\x05 \x03(\tR\x18authorizedNetworkTargets\"\xe3\x05\n" +
 	"\x16SecurityScanTaskConfig\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
 	"\tobjective\x18\x02 \x01(\tR\tobjective\x12\x1a\n" +
@@ -45596,8 +45606,10 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\n" +
 	"skill_refs\x18\x12 \x03(\tR\tskillRefs\x12:\n" +
 	"\x04when\x18\x13 \x01(\v2&.platform.v1.SecurityScanTaskConditionR\x04when\x12\x16\n" +
-	"\x06reduce\x18\x14 \x01(\tR\x06reduceB\x0e\n" +
-	"\f_max_retriesJ\x04\b\a\x10\bR\fmax_findings\"\x86\x01\n" +
+	"\x06reduce\x18\x14 \x01(\tR\x06reduce\x12-\n" +
+	"\x10docker_in_docker\x18\x15 \x01(\bH\x01R\x0edockerInDocker\x88\x01\x01B\x0e\n" +
+	"\f_max_retriesB\x13\n" +
+	"\x11_docker_in_dockerJ\x04\b\a\x10\bR\fmax_findings\"\x86\x01\n" +
 	"\x19SecurityScanTaskCondition\x12\x12\n" +
 	"\x04task\x18\x01 \x01(\tR\x04task\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x16\n" +
