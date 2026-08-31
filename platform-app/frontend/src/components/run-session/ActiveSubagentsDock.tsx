@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   Clock3,
+  CornerDownRight,
   GitFork,
   Loader2,
   Maximize2,
@@ -15,19 +16,19 @@ import { formatDuration, formatTokens } from "@/lib/activityGrouping";
 import { getSubagentColor } from "@/lib/subagentColors";
 import {
   buildLayout,
-  edgePath,
   isRunningSubagentNode,
   isWaitingStatus,
   type LayoutDims,
 } from "@/lib/subagentGraphLayout";
+import { disambiguateSubagentTitles } from "@/lib/subagentTitles";
 import { toneText } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { SubagentGraph, SubagentGraphNode } from "@/rpc/platform/service_pb";
 
 const STOPPED_STATUSES = new Set(["stopped", "cancelled", "canceled"]);
 
-const MINI: LayoutDims = { nodeW: 220, nodeH: 64, hGap: 44, vGap: 12 };
-const MINI_PAD = 10;
+/** Geometry only feeds the layout pass we reuse for dependency depths. */
+const WAVE_DIMS: LayoutDims = { nodeW: 220, nodeH: 64, hGap: 44, vGap: 12 };
 
 type NodeState = "running" | "waiting" | "completed" | "failed" | "stopped";
 
@@ -92,7 +93,11 @@ const DOCK_EXPANDED_KEY = "gratefulagents.subagentDockExpanded";
  * A pinned, compact rendering of the complete subagent DAG. It stays next to
  * the composer while work is active, so users do not need to scroll back to a
  * delegation event to understand completed, running, and waiting branches.
- * Collapsed by default — the summary row stays visible and the DAG canvas is
+ *
+ * The expanded body groups tasks by dependency wave: each wave is a responsive
+ * grid of full-width status cards (parallel work fills the row), and later
+ * waves render below a divider so the execution order reads top to bottom.
+ * Collapsed by default — the summary row stays visible and the roster is
  * revealed on demand (the choice persists across runs).
  */
 export function ActiveSubagentsDock({
@@ -138,11 +143,41 @@ export function ActiveSubagentsDock({
     } satisfies SubagentGraph;
   }, [graph, subagents]);
   const layout = useMemo(
-    () => (visibleGraph ? buildLayout(visibleGraph, MINI) : undefined),
+    () => (visibleGraph ? buildLayout(visibleGraph, WAVE_DIMS) : undefined),
     [visibleGraph],
   );
 
-  // Keep the complete graph pinned while any delegated work is live. Once all
+  // Batches often share one prompt template, so raw labels are identical.
+  // Surface the part of each task that actually differs.
+  const titleById = useMemo(() => {
+    const titles = disambiguateSubagentTitles(
+      subagents.map((node) => ({
+        title: node.label,
+        detail:
+          node.description && node.description !== node.label
+            ? `${node.label} ${node.description}`
+            : node.label,
+      })),
+    );
+    const m = new Map<string, string>();
+    subagents.forEach((node, i) => m.set(node.id, titles[i] || node.label));
+    return m;
+  }, [subagents]);
+
+  // Dependency waves: bucket nodes by their layout column so parallel tasks
+  // share a row and dependent tasks appear beneath the work they wait on.
+  const waves = useMemo(() => {
+    if (!layout) return [] as SubagentGraphNode[][];
+    const buckets = new Map<number, SubagentGraphNode[]>();
+    for (const laid of layout.order) {
+      const bucket = buckets.get(laid.depth);
+      if (bucket) bucket.push(laid.node);
+      else buckets.set(laid.depth, [laid.node]);
+    }
+    return [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([, nodes]) => nodes);
+  }, [layout]);
+
+  // Keep the complete roster pinned while any delegated work is live. Once all
   // tasks are terminal it remains available in the transcript and Graph tab.
   if (active.length === 0 || !layout) return null;
 
@@ -152,9 +187,7 @@ export function ActiveSubagentsDock({
   const completed = states.filter((state) => state === "completed").length;
   const failed = states.filter((state) => state === "failed").length;
   const stopped = states.filter((state) => state === "stopped").length;
-  const canvasW = layout.width + MINI_PAD * 2;
-  const canvasH = layout.height + MINI_PAD * 2;
-  // While collapsed the DAG canvas is hidden, so surface the most informative
+  // While collapsed the roster is hidden, so surface the most informative
   // live line (a running node's current step) directly in the summary row.
   const livePreviewNode = expanded
     ? undefined
@@ -246,98 +279,111 @@ export function ActiveSubagentsDock({
       </div>
 
       {expanded && (
-        <div id={graphId} className="max-h-72 overflow-auto border-t border-border/50">
-          <div className="relative" style={{ width: canvasW, height: canvasH, minWidth: "100%" }}>
-            <svg
-              className="pointer-events-none absolute inset-0"
-              width={canvasW}
-              height={canvasH}
-              aria-hidden="true"
-            >
-              {layout.edges.map((edge) => {
-                const from = layout.nodes.get(edge.from);
-                const to = layout.nodes.get(edge.to);
-                if (!from || !to) return null;
-                return (
-                  <path
-                    key={edge.id}
-                    data-testid="subagent-dag-edge"
-                    d={edgePath(
-                      from.x + MINI.nodeW + MINI_PAD,
-                      from.y + MINI.nodeH / 2 + MINI_PAD,
-                      to.x + MINI_PAD,
-                      to.y + MINI.nodeH / 2 + MINI_PAD,
-                    )}
-                    fill="none"
-                    stroke={edge.kind === "depends-on" ? "var(--tone-warning)" : "currentColor"}
-                    className={edge.kind === "depends-on" ? undefined : "text-border"}
-                    strokeOpacity={edge.kind === "depends-on" ? 0.6 : 0.45}
-                    strokeWidth={1.25}
-                    strokeDasharray={edge.kind === "depends-on" ? "4 3" : undefined}
-                  />
-                );
-              })}
-            </svg>
-            {layout.order.map(({ node, x, y }) => {
-              const state = nodeState(node);
-              const color = getSubagentColor(agentType(node));
-              return (
+        <div
+          id={graphId}
+          className="max-h-80 overflow-y-auto border-t border-border/50 px-3 py-2 md:px-4"
+        >
+          {waves.map((wave, waveIndex) => (
+            <div key={waveIndex}>
+              {waveIndex > 0 && (
                 <div
-                  key={node.id}
-                  title={node.label}
-                  className={cn(
-                    "absolute flex flex-col justify-center gap-1 rounded-md border border-l-2 bg-card/95 px-2.5 py-1.5",
-                    color.border,
-                  )}
-                  style={{
-                    left: x + MINI_PAD,
-                    top: y + MINI_PAD,
-                    width: MINI.nodeW,
-                    height: MINI.nodeH,
-                  }}
+                  data-testid="subagent-wave-divider"
+                  className="my-2 flex items-center gap-2"
+                  aria-hidden="true"
                 >
-                  {state === "running" && (
-                    <span className="absolute inset-x-0 top-0 h-[2px] overflow-hidden rounded-t-md">
-                      <span className="block h-full w-full bg-[linear-gradient(90deg,transparent,var(--color-primary),transparent)] bg-[length:50%_100%] animate-[shimmer_1.6s_linear_infinite]" />
-                    </span>
-                  )}
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <NodeStatusIcon state={state} />
-                    <span
-                      className={cn(
-                        "shrink-0 rounded border px-1 py-px font-mono text-[9.5px] font-semibold",
-                        color.border,
-                        color.bg,
-                        color.text,
-                      )}
-                    >
-                      {agentType(node)}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/90">
-                      {node.label}
-                    </span>
+                  <CornerDownRight className="size-3 shrink-0 text-muted-foreground/60" />
+                  <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                    runs after tasks above
                   </span>
-                  <span className="flex min-w-0 items-center gap-2 pl-5 text-[10px] text-muted-foreground">
-                    <span className="min-w-0 flex-1 truncate">{currentActivity(node, state)}</span>
-                    <span className="flex shrink-0 items-center gap-1.5 font-mono text-[9.5px] tabular-nums text-muted-foreground/80">
-                      {state === "running" && node.timestampUnix > 0n && (
-                        <span>{formatDuration(Math.max(0, now - Number(node.timestampUnix) * 1_000))}</span>
-                      )}
-                      {node.model && (
-                        <span className="max-w-[72px] truncate" title={node.model}>
-                          {node.model}
-                        </span>
-                      )}
-                      {node.totalTokens > 0n && <span>{formatTokens(Number(node.totalTokens))} tok</span>}
-                      {node.costUsd > 0 && <span>${node.costUsd.toFixed(3)}</span>}
-                    </span>
-                  </span>
+                  <span className="h-px flex-1 bg-border/60" />
                 </div>
-              );
-            })}
-          </div>
+              )}
+              <ul className="grid list-none gap-1.5 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+                {wave.map((node) => (
+                  <DockTaskCard
+                    key={node.id}
+                    node={node}
+                    state={nodeState(node)}
+                    title={titleById.get(node.id) || node.label}
+                    now={now}
+                  />
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       )}
     </section>
+  );
+}
+
+function DockTaskCard({
+  node,
+  state,
+  title,
+  now,
+}: {
+  node: SubagentGraphNode;
+  state: NodeState;
+  title: string;
+  now: number;
+}) {
+  const color = getSubagentColor(agentType(node));
+  const elapsed =
+    state === "running" && node.timestampUnix > 0n
+      ? formatDuration(Math.max(0, now - Number(node.timestampUnix) * 1_000))
+      : node.durationMs > 0n
+        ? formatDuration(node.durationMs)
+        : "";
+
+  return (
+    <li
+      data-testid="subagent-dock-card"
+      title={node.label}
+      className={cn(
+        "relative flex flex-col justify-center gap-1 overflow-hidden rounded-md border border-border/60 border-l-2 bg-card/90 px-2.5 py-2",
+        color.border,
+        state === "failed" && "bg-red-500/5",
+      )}
+    >
+      {state === "running" && (
+        <span className="absolute inset-x-0 top-0 h-[2px] overflow-hidden rounded-t-md">
+          <span className="block h-full w-full bg-[linear-gradient(90deg,transparent,var(--color-primary),transparent)] bg-[length:50%_100%] animate-[shimmer_1.6s_linear_infinite] motion-reduce:animate-none" />
+        </span>
+      )}
+      <span className="flex min-w-0 items-center gap-1.5">
+        <NodeStatusIcon state={state} />
+        <span
+          className={cn(
+            "shrink-0 rounded border px-1 py-px font-mono text-[9.5px] font-semibold",
+            color.border,
+            color.bg,
+            color.text,
+          )}
+        >
+          {agentType(node)}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/90">
+          {title}
+        </span>
+        {elapsed && (
+          <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/80">
+            {elapsed}
+          </span>
+        )}
+      </span>
+      <span className="flex min-w-0 items-center gap-2 pl-5 text-[10px] text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate">{currentActivity(node, state)}</span>
+        <span className="flex shrink-0 items-center gap-1.5 font-mono text-[9.5px] tabular-nums text-muted-foreground/80">
+          {node.model && (
+            <span className="max-w-28 truncate" title={node.model}>
+              {node.model}
+            </span>
+          )}
+          {node.totalTokens > 0n && <span>{formatTokens(Number(node.totalTokens))} tok</span>}
+          {node.costUsd > 0 && <span>${node.costUsd.toFixed(3)}</span>}
+        </span>
+      </span>
+    </li>
   );
 }

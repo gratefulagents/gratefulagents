@@ -130,7 +130,7 @@ describe("ActiveSubagentsDock", () => {
     expect(toggle.textContent).toContain("1 failed");
     // The collapsed summary still surfaces what the busiest agent is doing.
     expect(toggle.textContent).toContain("executor · Editing the API");
-    expect(screen.queryByTestId("subagent-dag-edge")).toBeNull();
+    expect(screen.queryByTestId("subagent-dock-card")).toBeNull();
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
@@ -144,7 +144,55 @@ describe("ActiveSubagentsDock", () => {
     expect(screen.getByText("Task done")).toBeTruthy();
     expect(screen.getByText("Task failed")).toBeTruthy();
     expect(screen.queryByText("Main agent")).toBeNull();
-    expect(screen.getAllByTestId("subagent-dag-edge")).toHaveLength(1);
+
+    // The dependent task renders in a later wave, below a divider, and after
+    // the task it waits on in document order.
+    expect(screen.getAllByTestId("subagent-wave-divider")).toHaveLength(1);
+    const cards = screen.getAllByTestId("subagent-dock-card");
+    expect(cards).toHaveLength(4);
+    const order = cards.map((card) => card.getAttribute("title"));
+    expect(order.indexOf("Task waiting")).toBeGreaterThan(order.indexOf("Task running"));
+  });
+
+  it("lays out independent parallel tasks as a single wave without dividers", () => {
+    render(
+      <ActiveSubagentsDock
+        graph={graph([
+          node("a", "running"),
+          node("b", "running"),
+          node("c", "running"),
+        ])}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /3 active agents/i }));
+    expect(screen.getAllByTestId("subagent-dock-card")).toHaveLength(3);
+    expect(screen.queryByTestId("subagent-wave-divider")).toBeNull();
+  });
+
+  it("disambiguates identical task labels using their descriptions", () => {
+    const sharedLabel = "You are auditing screenshots of the dashboard for defects";
+    render(
+      <ActiveSubagentsDock
+        graph={graph([
+          node("a", "running", {
+            label: sharedLabel,
+            description: "Focus on the run list page",
+          }),
+          node("b", "running", {
+            label: sharedLabel,
+            description: "Focus on the settings page",
+          }),
+        ])}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /2 active agents/i }));
+    const cards = screen.getAllByTestId("subagent-dock-card");
+    expect(cards[0].textContent).toContain("run list page");
+    expect(cards[1].textContent).toContain("settings page");
+    // The full label stays reachable as a tooltip.
+    expect(cards[0].getAttribute("title")).toBe(sharedLabel);
   });
 
   it("lets the pinned DAG be expanded and collapsed again, remembering the choice", () => {
