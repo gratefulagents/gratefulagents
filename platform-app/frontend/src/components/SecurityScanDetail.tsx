@@ -763,9 +763,13 @@ export function SecurityScanDetail() {
         meta={<ScanStatusPill status={scan.status} />}
         subtitle={
           scan.repository ? (
-            <span className="font-mono text-[12.5px] text-muted-foreground">
+            <span className="break-all font-mono text-[12.5px] text-muted-foreground">
               {scan.repository}
-              {scan.revision && ` @ ${scan.revision.slice(0, 12)}`}
+              {scan.revision && (
+                // Non-breaking: on a phone the line otherwise breaks after
+                // the "@", stranding the commit hash on its own line.
+                <span className="whitespace-nowrap">{` @ ${scan.revision.slice(0, 12)}`}</span>
+              )}
             </span>
           ) : (
             <span className="text-[12.5px] text-muted-foreground">Repository not recorded</span>

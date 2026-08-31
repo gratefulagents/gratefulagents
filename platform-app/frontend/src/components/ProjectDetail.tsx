@@ -378,6 +378,9 @@ function ProjectStats({ metrics }: { metrics?: ProjectMetrics }) {
         mono={false}
         value={formatSuccessRate(metrics?.successfulRuns ?? 0, metrics?.failedRuns ?? 0)}
         sub={totalRuns > 0 ? `across ${totalRuns} runs` : undefined}
+        // Five cells in 2- and 3-column grids leave a blank track after the
+        // last one; span it so the band ends flush instead of with a hole.
+        className="col-span-2 lg:col-span-1"
       />
     </dl>
   );
@@ -388,14 +391,16 @@ function StatCell({
   value,
   sub,
   mono = true,
+  className,
 }: {
   label: string;
   value: React.ReactNode;
   sub?: React.ReactNode;
   mono?: boolean;
+  className?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 bg-background px-4 py-3">
+    <div className={cn("flex flex-col gap-1.5 bg-background px-4 py-3", className)}>
       <dt className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
         {label}
       </dt>

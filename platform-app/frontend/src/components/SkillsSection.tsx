@@ -252,7 +252,7 @@ export function SkillsSection() {
       title="Skills"
       description="Reusable agent instructions: write them inline or install from the skills.sh catalog. Every skill is discoverable in all of your projects and loaded on demand; required MCP servers are attached automatically."
       aside={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="outline"

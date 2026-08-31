@@ -296,7 +296,7 @@ function AppSidebar({
         )}
       </SidebarContent>
 
-      <SidebarFooter className="px-2 pb-3 pb-safe no-drag">
+      <SidebarFooter className="px-2 pb-[max(env(safe-area-inset-bottom),0.75rem)] no-drag">
         <Link
           to="/settings"
           className={cn(

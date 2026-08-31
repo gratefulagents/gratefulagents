@@ -44,8 +44,10 @@ export function TitleBar({ onOpenPalette, trail, right }: TitleBarProps) {
       )}
     >
       <div className="flex flex-1 items-center gap-2 min-w-0">
-        {/* App mark — quiet, inline */}
-        <div className="no-drag flex items-center gap-2 min-w-0">
+        {/* App mark — quiet, inline. shrink-0 so a narrow viewport (iPad)
+            truncates the breadcrumb instead of letting it render over the
+            overflowing brand text. */}
+        <div className="no-drag flex shrink-0 items-center gap-2">
           <img
             aria-hidden
             src="/logo.png"
@@ -89,7 +91,9 @@ export function TitleBar({ onOpenPalette, trail, right }: TitleBarProps) {
           onClick={onOpenPalette}
           className={cn(
             "group hidden md:inline-flex items-center gap-2",
-            "h-[28px] px-2.5 w-[clamp(160px,calc(100vw-380px),440px)] min-w-0 max-w-[440px]",
+            // 40vw (not 100vw-380px) so tablet widths leave the brand +
+            // breadcrumb on the left enough room to render without overlap.
+            "h-[28px] px-2.5 w-[clamp(160px,40vw,440px)] min-w-0 max-w-[440px]",
             "rounded-[8px]",
             "bg-muted/40 hover:bg-muted/60",
             "ring-1 ring-inset ring-border/60 hover:ring-border",
