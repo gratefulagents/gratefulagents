@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/go-github/v68/github"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -261,6 +264,137 @@ func TestSecurityScanScopeAuthorizedNetworkTargetsRoundTrip(t *testing.T) {
 	pb := securityScanSpecToProto(&triggersv1alpha1.SecurityScanSpec{Scope: scope})
 	if !slices.Equal(pb.GetScope().GetAuthorizedNetworkTargets(), want) {
 		t.Fatalf("proto AuthorizedNetworkTargets = %#v, want %#v", pb.GetScope().GetAuthorizedNetworkTargets(), want)
+	}
+}
+
+func TestSecurityScanGitHubResolutionErrorCode(t *testing.T) {
+	request, err := http.NewRequest(http.MethodGet, "https://api.github.test/repos/acme/widgets", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := func(status int) *http.Response { return &http.Response{StatusCode: status, Request: request} }
+	for _, tc := range []struct {
+		name string
+		err  error
+		want connect.Code
+	}{
+		{name: "primary rate limit", err: &github.RateLimitError{Response: response(http.StatusForbidden)}, want: connect.CodeResourceExhausted},
+		{name: "secondary rate limit", err: &github.AbuseRateLimitError{Response: response(http.StatusForbidden)}, want: connect.CodeResourceExhausted},
+		{name: "not found", err: &github.ErrorResponse{Response: response(http.StatusNotFound)}, want: connect.CodeFailedPrecondition},
+		{name: "server error", err: &github.ErrorResponse{Response: response(http.StatusInternalServerError)}, want: connect.CodeUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := securityScanGitHubResolutionErrorCode(tc.err); got != tc.want {
+				t.Fatalf("securityScanGitHubResolutionErrorCode() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCreateSecurityScanPinsSecurityProgramRepositoryRevision(t *testing.T) {
+	const resolvedSHA = "0123456789abcdef0123456789abcdef01234567"
+	var requestedPath string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath = r.URL.Path
+		if authorization := r.Header.Get("Authorization"); authorization != "" {
+			t.Errorf("unexpected Authorization header %q for public repository resolution", authorization)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"sha":%q}`, resolvedSHA)
+	}))
+	t.Cleanup(api.Close)
+
+	srv, c := newCronTestServer(t)
+	srv.githubHTTP = api.Client()
+	srv.githubAPIBase = api.URL + "/"
+	resp, err := srv.CreateSecurityScan(projectActorCtx(), &platform.CreateSecurityScanRequest{
+		Name: "program-scan",
+		Spec: &platform.SecurityScanConfigSpec{
+			RepoUrl:            "https://github.com/acme/widgets.git",
+			BaseBranch:         "release/v2",
+			SecurityProgramRef: "acme-bounty",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateSecurityScan() error = %v", err)
+	}
+	if requestedPath != "/repos/acme/widgets/commits/release/v2" {
+		t.Fatalf("GitHub request path = %q", requestedPath)
+	}
+	if resp.GetSpec().GetRevision() != resolvedSHA {
+		t.Fatalf("response revision = %q, want %q", resp.GetSpec().GetRevision(), resolvedSHA)
+	}
+	stored := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: testUserNS(), Name: "program-scan"}, stored); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if stored.Spec.Revision != resolvedSHA {
+		t.Fatalf("stored revision = %q, want %q", stored.Spec.Revision, resolvedSHA)
+	}
+}
+
+func TestCreateSecurityScanRevisionResolutionBypasses(t *testing.T) {
+	calls := 0
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		http.Error(w, "unexpected GitHub request", http.StatusInternalServerError)
+	}))
+	t.Cleanup(api.Close)
+
+	srv, _ := newCronTestServer(t)
+	srv.githubHTTP = api.Client()
+	srv.githubAPIBase = api.URL + "/"
+	for _, tc := range []struct {
+		name string
+		spec *platform.SecurityScanConfigSpec
+	}{
+		{name: "explicit", spec: &platform.SecurityScanConfigSpec{
+			RepoUrl: "https://github.com/acme/widgets", BaseBranch: "main",
+			Revision: "already-pinned", SecurityProgramRef: "acme-bounty",
+		}},
+		{name: "no-program", spec: &platform.SecurityScanConfigSpec{
+			RepoUrl: "https://github.com/acme/widgets", BaseBranch: "main",
+		}},
+		{name: "website", spec: &platform.SecurityScanConfigSpec{
+			TargetUrl: "https://app.example.test", SecurityProgramRef: "acme-bounty",
+		}},
+		{name: "other-git-host", spec: &platform.SecurityScanConfigSpec{
+			RepoUrl: "https://gitlab.com/acme/widgets", BaseBranch: "main", SecurityProgramRef: "acme-bounty",
+		}},
+	} {
+		if _, err := srv.CreateSecurityScan(projectActorCtx(), &platform.CreateSecurityScanRequest{
+			Name: "bypass-" + tc.name, Spec: tc.spec,
+		}); err != nil {
+			t.Fatalf("CreateSecurityScan(%s) error = %v", tc.name, err)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("GitHub requests = %d, want 0", calls)
+	}
+}
+
+func TestCreateSecurityScanResolutionFailurePreventsCreation(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+	}))
+	t.Cleanup(api.Close)
+
+	srv, c := newCronTestServer(t)
+	srv.githubHTTP = api.Client()
+	srv.githubAPIBase = api.URL + "/"
+	_, err := srv.CreateSecurityScan(projectActorCtx(), &platform.CreateSecurityScanRequest{
+		Name: "unresolved-program-scan",
+		Spec: &platform.SecurityScanConfigSpec{
+			RepoUrl: "https://github.com/acme/missing", BaseBranch: "release",
+			SecurityProgramRef: "acme-bounty",
+		},
+	})
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "verify the repository and branch") {
+		t.Fatalf("CreateSecurityScan() error = %v, want actionable FailedPrecondition", err)
+	}
+	getErr := c.Get(context.Background(), client.ObjectKey{Namespace: testUserNS(), Name: "unresolved-program-scan"}, &triggersv1alpha1.SecurityScan{})
+	if !apierrors.IsNotFound(getErr) {
+		t.Fatalf("SecurityScan was created despite resolution failure: %v", getErr)
 	}
 }
 
@@ -629,6 +763,75 @@ func TestUpdateSecurityScanReplacesSpecAndPreservesAdminDefaults(t *testing.T) {
 	}
 }
 
+func TestUpdateSecurityScanPreservesProgramRevisionForUnchangedTarget(t *testing.T) {
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "program-scan", Namespace: ns},
+		Spec: triggersv1alpha1.SecurityScanSpec{
+			RepoURL: "https://github.com/acme/widgets", BaseBranch: "main", Revision: "pinned-sha",
+			SecurityProgramRef: &triggersv1alpha1.SecurityResourceRef{Name: "acme-bounty"},
+		},
+	}
+	srv, c := newCronTestServer(t, existing)
+	_, err := srv.UpdateSecurityScan(projectActorCtx(), &platform.UpdateSecurityScanRequest{
+		Namespace: ns, Name: existing.Name,
+		Spec: &platform.SecurityScanConfigSpec{
+			RepoUrl: "https://github.com/acme/widgets", BaseBranch: "main", SecurityProgramRef: "acme-bounty",
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSecurityScan() error = %v", err)
+	}
+	stored := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: existing.Name}, stored); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if stored.Spec.Revision != "pinned-sha" {
+		t.Fatalf("stored revision = %q, want preserved pin", stored.Spec.Revision)
+	}
+}
+
+func TestUpdateSecurityScanRepinsChangedProgramTarget(t *testing.T) {
+	const resolvedSHA = "abcdef0123456789abcdef0123456789abcdef01"
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/next/commits/release" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"sha":%q}`, resolvedSHA)
+	}))
+	t.Cleanup(api.Close)
+
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "program-scan", Namespace: ns},
+		Spec: triggersv1alpha1.SecurityScanSpec{
+			RepoURL: "https://github.com/acme/widgets", BaseBranch: "main", Revision: "old-pinned-sha",
+			SecurityProgramRef: &triggersv1alpha1.SecurityResourceRef{Name: "acme-bounty"},
+		},
+	}
+	srv, c := newCronTestServer(t, existing)
+	srv.githubHTTP = api.Client()
+	srv.githubAPIBase = api.URL + "/"
+	_, err := srv.UpdateSecurityScan(projectActorCtx(), &platform.UpdateSecurityScanRequest{
+		Namespace: ns, Name: existing.Name,
+		Spec: &platform.SecurityScanConfigSpec{
+			RepoUrl: "https://github.com/acme/next", BaseBranch: "release", SecurityProgramRef: "acme-bounty",
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSecurityScan() error = %v", err)
+	}
+	stored := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: existing.Name}, stored); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if stored.Spec.Revision != resolvedSHA {
+		t.Fatalf("stored revision = %q, want repinned %q", stored.Spec.Revision, resolvedSHA)
+	}
+}
+
 func TestUpdateSecurityScanDockerInDockerAuthorization(t *testing.T) {
 	ns := testUserNS()
 	existing := &triggersv1alpha1.SecurityScan{
@@ -805,6 +1008,46 @@ func TestListAndGetSecurityScanConfigsExposeSpecAndStatus(t *testing.T) {
 	}
 	if len(list.Configs) != 1 || list.Configs[0].Name != "reader" || list.Configs[0].GetSpec() == nil {
 		t.Fatalf("ListSecurityScanConfigs = %+v", list.Configs)
+	}
+}
+
+func TestRunSecurityScanNowBackfillsImportedProgramRevision(t *testing.T) {
+	const resolvedSHA = "fedcba9876543210fedcba9876543210fedcba98"
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/widgets/commits/main" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"sha":%q}`, resolvedSHA)
+	}))
+	t.Cleanup(api.Close)
+
+	ns := testUserNS()
+	existing := &triggersv1alpha1.SecurityScan{
+		ObjectMeta: metav1.ObjectMeta{Name: "imported-manual", Namespace: ns},
+		Spec: triggersv1alpha1.SecurityScanSpec{
+			RepoURL: "https://github.com/acme/widgets.git", BaseBranch: "main", ManualOnly: true,
+			SecurityProgramRef: &triggersv1alpha1.SecurityResourceRef{Name: "acme-bounty"},
+		},
+	}
+	srv, c := newCronTestServer(t, existing)
+	srv.githubHTTP = api.Client()
+	srv.githubAPIBase = api.URL + "/"
+	if _, err := srv.RunSecurityScanNow(projectActorCtx(), &platform.RunSecurityScanNowRequest{
+		Namespace: ns, Name: existing.Name,
+	}); err != nil {
+		t.Fatalf("RunSecurityScanNow() error = %v", err)
+	}
+	stored := &triggersv1alpha1.SecurityScan{}
+	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: existing.Name}, stored); err != nil {
+		t.Fatalf("Get(SecurityScan) error = %v", err)
+	}
+	if stored.Spec.Revision != resolvedSHA {
+		t.Fatalf("stored revision = %q, want %q", stored.Spec.Revision, resolvedSHA)
+	}
+	if stored.Annotations[triggersv1alpha1.SecurityScanRunNowAnnotation] == "" {
+		t.Fatalf("run-now annotation not set: %#v", stored.Annotations)
 	}
 }
 

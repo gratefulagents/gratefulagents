@@ -2,14 +2,18 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
+	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/go-github/v68/github"
 	"google.golang.org/protobuf/types/known/emptypb"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +30,12 @@ const securityScanResourceType = "securityscan"
 // securityScanParameterNamePattern matches the identifier syntax accepted
 // for {{params.<name>}} parameter names (mirrors the SecurityWorkflow CRD).
 var securityScanParameterNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+var (
+	githubOwnerPattern     = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$`)
+	githubRepoPattern      = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}$`)
+	githubCommitSHAPattern = regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
+)
 
 // ListSecurityScanConfigs returns the configured SecurityScan CRs (the
 // triggers that create scan runs), optionally filtered by namespace. This is
@@ -135,6 +145,9 @@ func (s *Server) CreateSecurityScan(
 			return nil, err
 		}
 	}
+	if err := s.pinSecurityProgramScanRevision(ctx, spec); err != nil {
+		return nil, err
+	}
 	if req.GetUseSavedCredentials() {
 		secrets := triggersv1alpha1.AgentRunSecrets{}
 		if err := s.applyProjectSavedCredentials(ctx, namespace, provider, authMode, &secrets); err != nil {
@@ -241,6 +254,12 @@ func (s *Server) UpdateSecurityScan(
 		}
 		spec.Defaults.Secrets = secrets
 	}
+	if shouldPreserveSecurityProgramRevision(&existing.Spec, spec) {
+		spec.Revision = existing.Spec.Revision
+	}
+	if err := s.pinSecurityProgramScanRevision(ctx, spec); err != nil {
+		return nil, err
+	}
 
 	policyCleanup, err := s.applyTriggerPolicies(ctx, namespace, name, req.GetPolicies(), &spec.Defaults)
 	if err != nil {
@@ -299,6 +318,9 @@ func (s *Server) RunSecurityScanNow(
 			return connect.NewError(connect.CodeFailedPrecondition,
 				fmt.Errorf("security scan %s/%s is suspended; resume it before requesting a run", namespace, name))
 		}
+		if err := s.pinSecurityProgramScanRevision(ctx, &cr.Spec); err != nil {
+			return err
+		}
 		if len(paramValues) != 0 {
 			merged := make(map[string]string, len(cr.Spec.ParameterValues)+len(paramValues))
 			maps.Copy(merged, cr.Spec.ParameterValues)
@@ -328,6 +350,98 @@ func (s *Server) RunSecurityScanNow(
 	pb := securityScanConfigProto(updated)
 	pb.Owner, pb.MyPermission = s.resourceACL(ctx, securityScanResourceType, updated.Name, updated.Namespace)
 	return pb, nil
+}
+
+func (s *Server) pinSecurityProgramScanRevision(ctx context.Context, spec *triggersv1alpha1.SecurityScanSpec) error {
+	if spec == nil || spec.SecurityProgramRef == nil || spec.RepoURL == "" || spec.TargetURL != "" || spec.Revision != "" {
+		return nil
+	}
+
+	owner, repo, err := parseGitHubRepositoryURL(spec.RepoURL)
+	if err != nil {
+		parsed, parseErr := url.Parse(strings.TrimSpace(spec.RepoURL))
+		if parseErr == nil && !strings.EqualFold(parsed.Hostname(), "github.com") {
+			// SecurityProgram targets historically accepted any HTTPS Git host.
+			// Preserve that behavior; artifact-backed workflows will still fail
+			// closed in controller preflight until that provider has a resolver.
+			return nil
+		}
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"cannot pin SecurityProgram repository scan: repo_url %q must be https://github.com/<owner>/<repo>[.git]: %w",
+			spec.RepoURL, err))
+	}
+	branch := strings.TrimSpace(spec.BaseBranch)
+	if branch == "" {
+		branch = "main"
+	}
+	ghClient, err := s.githubClient("")
+	if err != nil {
+		return err
+	}
+	resolveCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	commit, _, err := ghClient.Repositories.GetCommit(resolveCtx, owner, repo, branch, nil)
+	if err != nil {
+		return connect.NewError(securityScanGitHubResolutionErrorCode(err), fmt.Errorf(
+			"cannot pin SecurityProgram repository scan: GitHub could not resolve branch %q for %s/%s: %w; verify the repository and branch are public and accessible",
+			branch, owner, repo, err))
+	}
+	sha := strings.TrimSpace(commit.GetSHA())
+	if !githubCommitSHAPattern.MatchString(sha) {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"cannot pin SecurityProgram repository scan: GitHub returned an invalid commit SHA for branch %q of %s/%s",
+			branch, owner, repo))
+	}
+	spec.BaseBranch = branch
+	spec.Revision = sha
+	return nil
+}
+
+func securityScanGitHubResolutionErrorCode(err error) connect.Code {
+	var rateLimitErr *github.RateLimitError
+	var abuseRateLimitErr *github.AbuseRateLimitError
+	if errors.As(err, &rateLimitErr) || errors.As(err, &abuseRateLimitErr) {
+		return connect.CodeResourceExhausted
+	}
+	var responseErr *github.ErrorResponse
+	if errors.As(err, &responseErr) && responseErr.Response != nil {
+		switch responseErr.Response.StatusCode {
+		case http.StatusNotFound, http.StatusUnprocessableEntity:
+			return connect.CodeFailedPrecondition
+		case http.StatusForbidden, http.StatusTooManyRequests:
+			return connect.CodeResourceExhausted
+		}
+	}
+	return connect.CodeUnavailable
+}
+
+func parseGitHubRepositoryURL(repoURL string) (string, string, error) {
+	parsed, err := url.ParseRequestURI(strings.TrimSpace(repoURL))
+	if err != nil {
+		return "", "", err
+	}
+	if parsed.Scheme != "https" || parsed.Host != "github.com" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" {
+		return "", "", fmt.Errorf("unsupported GitHub repository URL")
+	}
+	parts := strings.Split(strings.TrimPrefix(parsed.Path, "/"), "/")
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("expected exactly an owner and repository")
+	}
+	owner := parts[0]
+	repo := strings.TrimSuffix(parts[1], ".git")
+	if !githubOwnerPattern.MatchString(owner) || !githubRepoPattern.MatchString(repo) {
+		return "", "", fmt.Errorf("invalid GitHub owner or repository name")
+	}
+	return owner, repo, nil
+}
+
+func shouldPreserveSecurityProgramRevision(existing, replacement *triggersv1alpha1.SecurityScanSpec) bool {
+	if existing == nil || replacement == nil || existing.Revision == "" || replacement.Revision != "" ||
+		existing.SecurityProgramRef == nil || replacement.SecurityProgramRef == nil {
+		return false
+	}
+	return existing.SecurityProgramRef.Name == replacement.SecurityProgramRef.Name &&
+		existing.RepoURL == replacement.RepoURL && existing.BaseBranch == replacement.BaseBranch
 }
 
 // ResumeSecurityScan stamps a resume-scan annotation token on a SecurityScan
