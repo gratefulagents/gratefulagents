@@ -8,7 +8,7 @@ agentPrompt: >-
 
 # Projects
 
-A Project is the shared home for a codebase or workstream. It holds the defaults used by its runs, durable files and artifacts, dashboard chat, and automated **Entry points**. Use one Project when the same repository, model, runtime, credentials, tools, and instructions should apply to repeated work.
+A Project is the shared home for a codebase or workstream. It holds the defaults used by its runs, durable files and artifacts, its **Dashboard chat** entry point, and automated **Entry points**. Use one Project when the same repository, model, runtime, credentials, tools, and instructions should apply to repeated work.
 
 Related pages: [Run defaults](./run-defaults.md), [Cron schedules](./cron.md), [GitHub](../integrations/github.md), [Linear](../integrations/linear.md), and [Slack](../integrations/slack.md).
 

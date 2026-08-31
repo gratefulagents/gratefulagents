@@ -8,7 +8,7 @@ agentPrompt: >-
 
 # GitHub
 
-Use a GitHub connection and a GitHub Project Entry point for GitHub-originated work. Create them from **Project → Entry points**; the app no longer provides a standalone GitHub repository list or detail workflow for this setup.
+Use a GitHub connection and a GitHub Project Entry point for GitHub-originated work. Create them from **Project → Entry points**.
 
 Related pages: [Projects](../projects/projects.md), [Run defaults](../projects/run-defaults.md), [Cron schedules](../projects/cron.md), [Linear](./linear.md), and [Slack](./slack.md).
 

@@ -5,7 +5,7 @@ import '../styles/marketing.css';
 // Distinct from the homepage title on purpose: the homepage owns the product
 // query ("self-hosted coding agents for Kubernetes"), while this pillar page
 // targets the informational query. Identical titles would cannibalize both.
-const title = 'Self-Hosted Coding Agents: A Practical Guide | GratefulAgents';
+const title = 'Why Self-Host AI Coding Agents? A Practical Guide | GratefulAgents';
 const description =
   'Why engineering teams self-host AI coding agents for data residency, IP protection, and cost control, and how GratefulAgents implements it on Kubernetes.';
 
@@ -107,7 +107,7 @@ const structuredData = [
         </p>
         <div class="cta-row">
           <a href="/docs/getting-started/self-hosting-kind/" class="btn btn-primary">
-            Try GratefulAgents locally →
+            Run it locally with Kind →
           </a>
           <a href="/differences/" class="btn btn-quiet">What’s different</a>
         </div>
@@ -126,9 +126,9 @@ const structuredData = [
           <p>
             <em>Self-hosted</em> means every part of that loop runs on infrastructure you control.
             The agent process, the sandbox it executes in, and the credentials it uses all sit
-            inside your boundary. On a cloud-managed harness you grant the vendor access to your
-            repositories and the agent runs on their machines instead. Both produce pull requests;
-            they differ in who you have to trust.
+            inside your boundary. On a cloud-managed harness — the software loop that drives the
+            agent — you grant the vendor access to your repositories and the agent runs on their
+            machines instead. Both produce pull requests; they differ in who you have to trust.
           </p>
 
           <h2 id="why">Six reasons teams do it</h2>
@@ -142,14 +142,23 @@ const structuredData = [
             calls, and the run history stay on infrastructure you control.
           </p>
           <div class="mk-callout mk-callout-neutral">
-            <strong>Be precise about the inference boundary.</strong> Self-hosting the harness is
-            not the same as keeping every byte on your own hardware. Unless you point GratefulAgents
-            at a model endpoint you host yourself, prompts and the repository context inside them
-            still go to whichever provider you configure — Anthropic, OpenAI, OpenRouter, xAI, or
-            Copilot — under that provider's terms. What you gain is control of that boundary: you
-            choose the provider, you hold the contract and the key, and each run's trace shows
-            exactly what was sent. If your obligations forbid sending code to any third party, you
-            need a self-hosted inference endpoint too.
+            <p>
+              <strong>Be precise about the inference boundary.</strong> Self-hosting the harness is
+              not the same as keeping every byte on your own hardware. Unless you point
+              GratefulAgents at a model endpoint you host yourself, prompts and the repository
+              context inside them still go to whichever provider you configure — Claude
+              (Anthropic), OpenAI, OpenRouter, Grok (xAI), or GitHub Copilot — under that
+              provider's terms. What you gain is control of that boundary:
+            </p>
+            <ul>
+              <li>You choose the provider.</li>
+              <li>You hold the contract and the key.</li>
+              <li>Each run's trace shows exactly what was sent.</li>
+            </ul>
+            <p>
+              If your obligations forbid sending code to any third party, you need a self-hosted
+              inference endpoint too.
+            </p>
           </div>
 
           <h3>Intellectual property protection</h3>
@@ -163,7 +172,7 @@ const structuredData = [
           <h3>Private dependencies and internal registries</h3>
           <p>
             Real codebases pull from private package registries, internal APIs, and services that
-            are not routable from the public internet. A cloud agent needs tunnelling or firewall
+            are not routable from the public internet. A cloud agent needs tunneling or firewall
             exceptions to reach any of it. An agent running inside your network reaches them the
             same way a developer's laptop does.
           </p>
@@ -172,7 +181,7 @@ const structuredData = [
           <p>
             Cloud harnesses bundle inference into the subscription, so you pay their price with no
             view of the underlying calls. Bringing your own key means your existing Anthropic,
-            OpenAI, Bedrock, or OpenRouter agreement applies, volume discount included. Per-run cost
+            OpenAI, or OpenRouter agreement applies, volume discount included. Per-run cost
             and token counts then show you where the spend actually goes.
           </p>
 
@@ -227,8 +236,8 @@ const structuredData = [
               <p class="mk-answer">
                 <span class="mk-answer-label">In GratefulAgents</span>
                 Keys are Kubernetes secrets in your own cluster, scoped per project. Model calls are
-                never proxied — agents reach Claude, OpenAI, OpenRouter, Grok, or Copilot directly
-                with your key, so no usage data leaves your cluster on the way.
+                never proxied — agents reach Claude (Anthropic), OpenAI, OpenRouter, Grok (xAI), or
+                GitHub Copilot directly with your key, so no usage data leaves your cluster on the way.
               </p>
             </div>
             <div class="mk-feature-card">
@@ -251,7 +260,7 @@ const structuredData = [
               <p>
                 Agents earn their keep when real events start them: a GitHub issue, a review
                 comment, a Linear ticket, a Slack message, a nightly schedule. Every source needs a
-                webhook receiver, event normalisation, and signature validation.
+                webhook receiver, event normalization, and signature validation.
               </p>
               <p class="mk-answer">
                 <span class="mk-answer-label">In GratefulAgents</span>
@@ -263,7 +272,7 @@ const structuredData = [
             <div class="mk-feature-card">
               <h3>An observability path</h3>
               <p>
-                Without a structured record of each run, debugging a regression in agent behaviour
+                Without a structured record of each run, debugging a regression in agent behavior
                 is guesswork. You want steps, tool calls, model exchanges, token counts, costs, and
                 errors — not a summary feed.
               </p>
@@ -279,8 +288,8 @@ const structuredData = [
               <h3>A human-in-the-loop surface</h3>
               <p>
                 Autonomous agents make mistakes. You need to watch a run in progress, steer it,
-                stop it, and resume from a checkpoint — and that rarely happens while you are sat
-                at your desk.
+                stop it, and resume from a checkpoint — and that rarely happens while you're at
+                your desk.
               </p>
               <p class="mk-answer">
                 <span class="mk-answer-label">In GratefulAgents</span>
@@ -291,7 +300,7 @@ const structuredData = [
             </div>
           </div>
 
-          <h2 id="start">Your first run, in fifteen minutes</h2>
+          <h2 id="start">Your first run, in about fifteen minutes</h2>
           <p>
             The fastest way to judge any of this is to run it. A local Kind cluster needs no cloud
             account and no server — just Docker.
@@ -383,12 +392,12 @@ const structuredData = [
             <div class="mk-sidebar-card">
               <h3>Try it now</h3>
               <p>
-                Run your first self-hosted coding agent in under fifteen minutes using Kind on your
+                Run your first self-hosted coding agent in about fifteen minutes using Kind on your
                 local machine.
               </p>
               <div class="cta-row">
                 <a href="/docs/getting-started/self-hosting-kind/" class="btn btn-primary">
-                  Kind quick-start →
+                  Run it locally with Kind →
                 </a>
                 <a href="/docs/getting-started/self-hosting-k3s/" class="btn btn-quiet">
                   k3s on a server

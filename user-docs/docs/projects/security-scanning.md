@@ -8,7 +8,7 @@ agentPrompt: >-
 
 # Security scanning
 
-A **SecurityScan** is a cluster resource that runs an autonomous, agent-driven security review of a git repository. Each scan creates an agent run that fans out focused vulnerability-hunting sub-agents, collects structured findings, deduplicates and ranks them, and produces a Markdown report and a SARIF file. Scans run once per spec change or on a cron schedule.
+A **SecurityScan** is a cluster resource that runs an autonomous, agent-driven security review of a git repository. Each scan creates an agent run that fans out focused vulnerability-hunting subagents, collects structured findings, deduplicates and ranks them, and produces a Markdown report and a SARIF file. Scans run once per spec change or on a cron schedule.
 
 You create and edit SecurityScans from the dashboard's **Security** pages (**Scan configurations** → **New scan**), or with `kubectl apply` if you prefer manifests. Findings and reports appear on the same pages and in the resource's status.
 
@@ -68,7 +68,7 @@ spec:
     excludePaths: ["**/testdata/**"]     # globs the scan should skip
     languages: ["go", "typescript"]      # restrict analysis to these languages
 
-  # Workflow: the sub-agent research plan. Omit to use the built-in default workflow.
+  # Workflow: the subagent research plan. Omit to use the built-in default workflow.
   workflow:
     - name: recon
       objective: "Map entry points, trust boundaries, and data flows from untrusted input to sensitive sinks."
@@ -77,7 +77,7 @@ spec:
       objective: "Hunt for SQL/command/template injection and unsanitized input reaching interpreters."
       category: injection
       dependsOn: [recon]                # waits until "recon" completes
-      role: security-reviewer           # RoleInstruction for this task's sub-agent (default "security-reviewer")
+      role: security-reviewer           # RoleInstruction for this task's subagent (default "security-reviewer")
       model: claude-opus-4-6            # optional per-task model override
     - name: authz-hunt
       objective: "Hunt for missing ownership checks, IDOR, and cross-tenant leakage."
@@ -155,7 +155,7 @@ spec:
 
 ## How a scan runs
 
-The controller seeds each scan run with a generated prompt containing the target, scope, the workflow as an explicit sub-agent plan, the machine-readable finding contract, ranking rules, and the reporting policy. The coordinating agent then spawns **one sub-agent per workflow task**, runs tasks whose dependencies are complete in parallel (never more than `parallelism` at a time), and holds back a task until everything in its `dependsOn` list has finished.
+The controller seeds each scan run with a generated prompt containing the target, scope, the workflow as an explicit subagent plan, the machine-readable finding contract, ranking rules, and the reporting policy. The coordinating agent then spawns **one subagent per workflow task**, runs tasks whose dependencies are complete in parallel (never more than `parallelism` at a time), and holds back a task until everything in its `dependsOn` list has finished.
 
 When `workflow` is empty, the built-in default plan is used: eleven focused hunting tasks plus conditional execution of repository-maintained Rust and Go fuzz targets, followed by a final triage task that depends on all of them.
 
@@ -208,7 +208,11 @@ Smart-contract bounty targets are not interchangeable: the toolchain, the harnes
 - `near-contract-review` — NEAR Rust/wasm contracts (NEAR core contracts, Sputnik DAO, NEAR Intents). Aimed at asynchronous promise and callback safety, `predecessor` versus `signer` authorization, storage staking, and NEP-141/NEP-171 receiver flows.
 - `flow-cadence-review` — Flow core Cadence contracts and the mixed Flow EVM bridge. Aimed at resource/capability authority, transaction authorization, staking and epoch state machines, and cross-VM escrow, type-isolation, onboarding, pause and value-conversion boundaries.
 
-All seven share one spine: pin the revision and repository-native harness, fan out independent protocol-specific discovery lanes, then let one write-capable validator reproduce or refute their candidates. Compatible EVM reproductions use the registered deterministic Forge tool packs. A lane that cannot be bootstrapped is reported as blocked instead of quietly disappearing. Technical validity is kept separate from provider eligibility: a confirmed defect remains in the internal report when an impact clause, release check, novelty check, human-authorship requirement, KYC step, or provider-required PoC is missing; those gaps make it not submission-ready. When `pocRequired` is true, submission readiness also requires a runnable coded proof in the environment allowed by `pocEnvironment`.
+All seven share one spine:
+
+- **Execution model.** Pin the revision and repository-native harness, fan out independent protocol-specific discovery lanes, then let one write-capable validator reproduce or refute their candidates. Compatible EVM reproductions use the registered deterministic Forge tool packs. A lane that cannot be bootstrapped is reported as blocked instead of quietly disappearing.
+- **Validity versus eligibility.** Technical validity is kept separate from provider eligibility: a confirmed defect remains in the internal report when an impact clause, release check, novelty check, human-authorship requirement, KYC step, or provider-required PoC is missing; those gaps make it not submission-ready.
+- **PoC gating.** When `pocRequired` is true, submission readiness also requires a runnable coded proof in the environment allowed by `pocEnvironment`.
 
 `bounty-hunt-evm`, `smart-contract-review`, `blockchain-protocol-audit` and the chain-specific reviews remain available for targets outside these families.
 
@@ -301,7 +305,11 @@ Deleting a workflow, ranker, post-script, or security program through the dashbo
 
 ### The library and the visual workflow builder
 
-The dashboard's **Security → Library** page (`/security/library`) lists workflows, rankers, post-scripts, and programs with usage counts, and supports create, edit, duplicate where applicable, and guarded delete. Workflows are edited in a visual builder: structured task cards (name, objective, category, specialist role picker, model override, max findings), dependency selection limited to the other task names, and a live read-only graph of the dependency DAG. The builder refuses to save cycles, dangling or self dependencies, duplicate names, invalid roles/models, or an empty workflow — the same validation the server enforces on create/update and exposes through the `ValidateSecurityWorkflow` RPC. The scan form's *Workflow tasks* section lets you pick a library workflow (or keep editing inline), its *Rankers & post-scripts* section attaches library rankers and post-scripts, and its *Scope* section attaches an optional security program.
+The dashboard's **Security → Library** page (`/security/library`) lists workflows, rankers, post-scripts, and programs with usage counts, and supports create, edit, duplicate where applicable, and guarded delete.
+
+- Workflows are edited in a visual builder: structured task cards (name, objective, category, specialist role picker, model override, max findings), dependency selection limited to the other task names, and a live read-only graph of the dependency DAG.
+- The builder refuses to save cycles, dangling or self dependencies, duplicate names, invalid roles/models, or an empty workflow — the same validation the server enforces on create/update and exposes through the `ValidateSecurityWorkflow` RPC.
+- The scan form's *Workflow tasks* section lets you pick a library workflow (or keep editing inline), its *Rankers & post-scripts* section attaches library rankers and post-scripts, and its *Scope* section attaches an optional security program.
 
 ### AI-assisted authoring
 
@@ -456,7 +464,17 @@ When the scan submits its report, two artifacts are saved on the scan's agent ru
 
 In the dashboard, **Security** in the sidebar opens an overview of active and recent scans, open critical/high finding counts, and any scan configurations that are failing, blocked, or suspended, with shortcuts to the full run history and to scan configurations. Each scan run links to a detail page where you can filter findings by severity, status, category, and text search, change a finding's status inline — for example, marking a validated non-issue as `false_positive` or a real one as `confirmed` — download the Markdown report and SARIF artifact, and jump to the underlying agent run.
 
-While a scan is running, the detail page also shows the live state of the run behind it: the workflow's sub-agent graph (pending, running, completed, failed), run phase, retries, model, runtime, token/cost usage, and the most recent error. Collaborators can stop an active scan run from this panel. Stopping cancels every running child AgentRun, marks the deterministic execution **Cancelled** (running tasks become **Failed** and unstarted tasks **Skipped**), settles the scan-run record as `cancelled`, and prevents further work from being scheduled. Stop is rejected when nothing is running. Findings recorded before the stop remain available. A cancelled execution cannot be resumed; start a new run instead. **Resume** applies only to a **Failed** deterministic execution.
+While a scan is running, the detail page also shows the live state of the run behind it: the workflow's subagent graph (pending, running, completed, failed), run phase, retries, model, runtime, token/cost usage, and the most recent error.
+
+Collaborators can stop an active scan run from this panel. Stopping cancels every running child AgentRun, settles the scan-run record as `cancelled`, and prevents further work from being scheduled. The resulting states are:
+
+| State | Applies to | Meaning |
+| --- | --- | --- |
+| **Cancelled** | Deterministic execution | The stopped execution as a whole. A cancelled execution cannot be resumed; start a new run instead. |
+| **Failed** | Tasks | Tasks that were running when the scan was stopped. |
+| **Skipped** | Tasks | Tasks that had not started when the scan was stopped. |
+
+Stop is rejected when nothing is running. Findings recorded before the stop remain available. **Resume** applies only to a **Failed** deterministic execution.
 
 ### Scan configurations
 
@@ -520,11 +538,11 @@ Every count must be between 0 and 3650 days (10 years).
 ```yaml
 spec:
   budgets:
-    maxModelJobs: 16       # sub-agent runs the scan run may spawn
+    maxModelJobs: 16       # subagent runs the scan run may spawn
     maxCostUSD: "5"        # decimal USD ceiling on LLM spend
     maxTokens: 500000      # total tokens (input + output)
     maxRuntime: 2h         # wall-clock cap on the scan run
-    maxValidationJobs: 8   # post-script (validation/PoC) sub-agent runs
+    maxValidationJobs: 8   # post-script (validation/PoC) subagent runs
   enforced: ["budgets"]
 ```
 
@@ -538,8 +556,8 @@ Enforcement is entirely platform-side and model output can never relax it:
 
 ## Operational guidance
 
-**Cost and models.** A scan is expensive relative to a normal run: every workflow task is its own sub-agent that reads the repository, so cost scales with the number of tasks, repository size, and model choice. The default workflow launches twelve sub-agents. To control spend: narrow `scope.includePaths` and `scope.languages`, replace the default workflow with fewer targeted tasks, use a cheaper `defaults.model` and reserve a stronger per-task `model` override for the triage task, and set `maxRuntime` as a hard stop.
+**Cost and models.** A scan is expensive relative to a normal run: every workflow task is its own subagent that reads the repository, so cost scales with the number of tasks, repository size, and model choice. The default workflow launches twelve subagents. To control spend: narrow `scope.includePaths` and `scope.languages`, replace the default workflow with fewer targeted tasks, use a cheaper `defaults.model` and reserve a stronger per-task `model` override for the triage task, and set `maxRuntime` as a hard stop.
 
-**Parallelism.** `parallelism` (default 4) trades wall-clock time against concurrent load: each in-flight task is a live sub-agent consuming provider rate limits and sandbox resources. Raise it toward 16 for wide, independent workflows when your provider limits allow; lower it to 1–2 on constrained clusters or strict rate limits.
+**Parallelism.** `parallelism` (default 4) trades wall-clock time against concurrent load: each in-flight task is a live subagent consuming provider rate limits and sandbox resources. Raise it toward 16 for wide, independent workflows when your provider limits allow; lower it to 1–2 on constrained clusters or strict rate limits.
 
 **Triage discipline.** Treat a fresh scan as a candidate list, not a report you forward. Validate each finding against the cited evidence, mark non-issues `false_positive` (the audit trail keeps them from being re-litigated on the next scan — reported duplicates merge into the existing finding instead of reopening it), mark real issues `confirmed`, and move them to `fixed` or `accepted_risk` once resolved. Changing a false positive, or any other finding, away from `open` updates the scan's open counts and clears its contribution to `failOnSeverity`. Use `postScripts` with `runOn: high-and-above` to make the scan itself re-verify its most important findings before they reach you, and ranker `exclude:` directives to silence categories that are consistently noise in your codebase.

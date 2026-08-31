@@ -8,7 +8,7 @@ agentPrompt: >-
 
 # Run defaults
 
-A Project owns the defaults for its dashboard chat, **New Run** runs, and all of its automated Entry points. Configure them in **Project → Settings** when you create or edit the Project. GitHub, Slack, Linear, and Cron triggers inherit these values; their trigger dialogs only configure how work enters the Project.
+A Project owns the defaults for its **Dashboard chat** entry point, **New Run** runs, and all of its automated Entry points. Configure them in **Project → Settings** when you create or edit the Project. GitHub, Slack, Linear, and Cron triggers inherit these values; their trigger dialogs only configure how work enters the Project.
 
 Related pages: [Projects](./projects.md), [Cron schedules](./cron.md), [GitHub](../integrations/github.md), [Linear](../integrations/linear.md), and [Slack](../integrations/slack.md).
 

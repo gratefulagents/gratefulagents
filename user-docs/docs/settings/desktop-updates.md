@@ -8,7 +8,7 @@ agentPrompt: >-
 
 # Desktop updates
 
-**Desktop updates** is a desktop-app setting. The web app is served at its current deployment version and does not use this updater.
+**Desktop updates** is a desktop-app setting. The dashboard is served at its current deployment version and does not use this updater.
 
 ## Add the update token
 

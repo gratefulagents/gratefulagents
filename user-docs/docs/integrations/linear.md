@@ -8,7 +8,7 @@ agentPrompt: >-
 
 # Linear
 
-Create Linear connections and Linear Entry points from **Project → Entry points**. The app no longer uses a standalone Linear sidebar, detail page, run table, or instructions page for this workflow.
+Create Linear connections and Linear Entry points from **Project → Entry points**.
 
 Related pages: [Projects](../projects/projects.md), [Run defaults](../projects/run-defaults.md), [Cron schedules](../projects/cron.md), and [GitHub](./github.md).
 

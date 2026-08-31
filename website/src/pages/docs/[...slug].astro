@@ -1,5 +1,8 @@
 ---
 import {getCollection, render} from 'astro:content';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {execFileSync} from 'node:child_process';
 import Base from '../../layouts/Base.astro';
 import {sections, orderedIds, docPath, sectionOf, repositoryUrl} from '../../data/sidebar';
 
@@ -45,8 +48,35 @@ function summarize(markdown: string): string {
 }
 
 const description = entry.data.description ?? summarize(entry.body ?? '');
-const pageTitle = entry.data.seoTitle ?? `${title} | GratefulAgents Docs`;
+const pageTitle = entry.data.seoTitle ?? `${title} | GratefulAgents`;
 const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url).toString();
+
+const sourceFile = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../../user-docs/docs',
+  `${entry.id}.md`,
+);
+let datePublished: string | undefined;
+let dateModified: string | undefined;
+try {
+  dateModified =
+    execFileSync('git', ['log', '-1', '--format=%cI', '--', sourceFile], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim() || undefined;
+  datePublished =
+    execFileSync(
+      'git',
+      ['log', '--diff-filter=A', '--follow', '--format=%aI', '--', sourceFile],
+      {encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']},
+    )
+      .trim()
+      .split('\n')
+      .pop() || undefined;
+} catch {
+  // No git available (e.g. a tarball build) — omit the dates.
+}
+
 const breadcrumbItems = [
   {name: 'GratefulAgents', item: new URL('/', Astro.site ?? Astro.url).toString()},
   {name: 'Documentation', item: new URL('/docs/', Astro.site ?? Astro.url).toString()},
@@ -59,6 +89,8 @@ const structuredData = [
     headline: title,
     description,
     url: canonical,
+    ...(datePublished && {datePublished}),
+    ...(dateModified && {dateModified}),
     isPartOf: {'@id': new URL('/#website', Astro.site ?? Astro.url).toString()},
     author: {'@id': new URL('/#organization', Astro.site ?? Astro.url).toString()},
     publisher: {'@id': new URL('/#organization', Astro.site ?? Astro.url).toString()},
@@ -80,7 +112,7 @@ const structuredData = [
     <nav class="sidebar" aria-label="User guide">
       {sections.map((s) => (
         <section class="nav-group">
-          <h2 class="nav-key">kind: <b>{s.kind}</b></h2>
+          <p class="nav-key">kind: <b>{s.kind}</b></p>
           <ul>
             {s.items.map((id) => (
               <li>

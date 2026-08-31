@@ -1,3 +1,11 @@
+---
+title: Deterministic security tool packs
+seoTitle: Deterministic Security Tool Packs | GratefulAgents
+description: How GratefulAgents pins and sandboxes security scanners, from the tool registry and digest-pinned images to replay records and result semantics.
+agentPrompt: >-
+  Read https://gratefulagents.dev/docs/projects/security-tool-packs/ and explain how gratefulagents runs pinned security scanners deterministically and how I configure the security-tools image for my deployment.
+---
+
 # Deterministic security tool packs
 
 The `internal/securitytoolpacks` package is the controller-owned execution contract for web/API, cryptography, network/protocol, and blockchain/smart-contract tools. It prevents an agent from choosing an executable or assembling a shell command. A scan selects a statically registered tool and provides only values accepted by that tool's typed argument declarations; the registry produces an argv vector and an immutable OCI digest for a sandbox executor.
@@ -13,7 +21,26 @@ This is an execution primitive, not evidence that a clean target is secure. Huma
 - network/protocol: Nmap, tshark, Zeek, Suricata, Scapy, boofuzz, testssl.sh, and Naabu;
 - blockchain/smart-contract: fixed Foundry security tests, Echidna, Medusa (amd64), Slither, and Halmos.
 
-The catalog distinguishes executable entries from catalog-only entries. Catalog-only tools remain visible with a reason but cannot produce an invocation. The `security-tools` image (`Dockerfile.security-tools`) carries checksum-locked Nuclei, Naabu, Foundry, and Echidna binaries on amd64 and arm64, plus Medusa on amd64. It also includes the built-in authorization-matrix and crypto-vector runners and complete digest-pinned OCI runtime closures for OWASP ZAP, Schemathesis, SSLyze, Nmap, Zeek, Suricata, Slither, and Halmos. Those closures execute as ordinary tools inside an unprivileged Bubblewrap root filesystem; they require neither Docker nor a container socket, and the agent cannot replace their executable or arguments. Nuclei uses the single reviewed template committed under `security-knowledge`; automatic template updates and caller-selected templates are disabled. Slither uses the immutable multi-architecture Trail of Bits toolbox index. Halmos uses a hash-locked Python/Forge/compiler closure with Z3 4.13.0.0, the first compatible Z3 release that publishes both Linux amd64 and arm64 wheels. Its replay record carries architecture-specific closure digests derived from the Python platform manifest, Forge binary, Slither compiler-root manifest, and both hashed Python lock files rather than mislabeling the Python base digest as the scanner closure.
+The catalog distinguishes executable entries from catalog-only entries. Catalog-only tools remain visible with a reason but cannot produce an invocation.
+
+### Image contents
+
+The `security-tools` image (`Dockerfile.security-tools`) carries:
+
+| Tools | Pinning mechanism | Architecture support |
+| --- | --- | --- |
+| Nuclei, Naabu, Foundry, Echidna | Checksum-locked binaries | amd64 and arm64 |
+| Medusa | Checksum-locked binary | amd64 |
+| Authorization-matrix and crypto-vector runners | Built into the image | — |
+| OWASP ZAP, Schemathesis, SSLyze, Nmap, Zeek, Suricata, Slither, Halmos | Complete digest-pinned OCI runtime closures | — |
+
+Those closures execute as ordinary tools inside an unprivileged Bubblewrap root filesystem; they require neither Docker nor a container socket, and the agent cannot replace their executable or arguments.
+
+### Tool-specific pinning
+
+- **Nuclei** uses the single reviewed template committed under `security-knowledge`; automatic template updates and caller-selected templates are disabled.
+- **Slither** uses the immutable multi-architecture Trail of Bits toolbox index.
+- **Halmos** uses a hash-locked Python/Forge/compiler closure with Z3 4.13.0.0, the first compatible Z3 release that publishes both Linux amd64 and arm64 wheels. Its replay record carries architecture-specific closure digests derived from the Python platform manifest, Forge binary, Slither compiler-root manifest, and both hashed Python lock files rather than mislabeling the Python base digest as the scanner closure.
 
 None of this payload is injected into ordinary agent runs. The injector toolkit carries the agent binary, the fallback tools (`git`, `gh`, `rg`, `fd`, `jq`, `curl`, `bwrap`) and a CA bundle — several gigabytes of scanner root filesystems no longer ride along with every run, and they are pulled only when a scan actually needs them.
 
@@ -58,11 +85,22 @@ securityTools:
 
 The chart automatically permits its manager-derived release tag. Explicit image overrides remain digest-only by default; set `securityTools.allowUnpinnedImage: true` only when an explicit mutable tag is intentional.
 
-The configured image is the trust anchor for every scanner argv, and it is recorded on each `SecurityToolRun` status as the image actually used. `Dockerfile.security-tools` is the reproducible build of that image. `security-tools.lock.json` records exact architecture-specific archive and extracted-binary hashes; the build-time Go installer verifies both before installing a binary and supports tar.gz, tar.xz, and zip without floating package indexes. An enabled entry may explicitly document an unsupported release architecture; the installer skips it only on that architecture, while undeclared missing artifacts still fail closed. Medusa 1.5.1 is therefore installed and enabled on amd64 and remains catalog-only on arm64 because upstream publishes no Linux arm64 asset. On amd64 it executes inside the pinned Slither/Crytic Compile compiler root, and its replay metadata binds the verified Medusa binary and compiler root as one closure. Entries that cannot be installed reproducibly are disabled with a reason. CI validates the lock and builds the image without contacting scan targets.
+The configured image is the trust anchor for every scanner argv, and it is recorded on each `SecurityToolRun` status as the image actually used.
+
+- `Dockerfile.security-tools` is the reproducible build of that image.
+- `security-tools.lock.json` records exact architecture-specific archive and extracted-binary hashes; the build-time Go installer verifies both before installing a binary and supports tar.gz, tar.xz, and zip without floating package indexes.
+- An enabled entry may explicitly document an unsupported release architecture; the installer skips it only on that architecture, while undeclared missing artifacts still fail closed. Medusa 1.5.1 is therefore installed and enabled on amd64 and remains catalog-only on arm64 because upstream publishes no Linux arm64 asset. On amd64 it executes inside the pinned Slither/Crytic Compile compiler root, and its replay metadata binds the verified Medusa binary and compiler root as one closure.
+- Entries that cannot be installed reproducibly are disabled with a reason.
+- CI validates the lock and builds the image without contacting scan targets.
 
 ## Inputs and replay
 
-Every run requires a target type, locator, immutable revision, and SHA-256 input digest. Domain-specific target types include base URLs/OpenAPI, authorization matrices, crypto vectors/binaries/models, TLS services, address scopes, pcaps, packet assertions, resettable protocol fixtures, Solidity projects, and Foundry security projects. The canonical digest of a source tree is computed when the target is staged and recorded on the `SecurityToolRun`; the Job recomputes it before the scanner sees the content. Live targets must also be contained by an explicit URL/host/address/prefix scope; a syntactically valid but unrelated scope is rejected. Tools with stochastic behavior require an explicit seed.
+Every run requires a target type, locator, immutable revision, and SHA-256 input digest.
+
+- Domain-specific target types include base URLs/OpenAPI, authorization matrices, crypto vectors/binaries/models, TLS services, address scopes, pcaps, packet assertions, resettable protocol fixtures, Solidity projects, and Foundry security projects.
+- The canonical digest of a source tree is computed when the target is staged and recorded on the `SecurityToolRun`; the Job recomputes it before the scanner sees the content.
+- Live targets must also be contained by an explicit URL/host/address/prefix scope; a syntactically valid but unrelated scope is rejected.
+- Tools with stochastic behavior require an explicit seed.
 
 The replay record contains:
 
@@ -87,7 +125,12 @@ A result is exactly one of:
 
 A failure, unknown exit code, skipped asset, or coverage gap can never become `pass`. Coverage records independently list examined, skipped, and uncovered assets.
 
-Native output is retained as a content-addressed artifact with media type, size, and SHA-256 digest. Binary pcaps remain separate artifacts. Every object for one run lives under `security-tool-runs/<namespace>/<name>/`: the staged `target.tar.gz`, and under `output/` the Job's `manifest.json`, the normalized `result.json`, and the `raw-NN` artifacts. `status.result.resultObjectKey`/`resultDigest` and each entry in `status.result.artifacts` (name, media type, size, digest, object key) point at them, and they outlive the Job and its TTL. Only redacted evidence is copied into finding/report fields. Authorization and proxy-authorization values, cookies, private keys, JWTs, and configured sensitive fields are removed. Raw artifacts can still contain sensitive packet or application content and therefore must use the same restricted artifact-store authorization and retention controls as scan source material.
+Native output is retained as a content-addressed artifact with media type, size, and SHA-256 digest. Binary pcaps remain separate artifacts.
+
+- Every object for one run lives under `security-tool-runs/<namespace>/<name>/`: the staged `target.tar.gz`, and under `output/` the Job's `manifest.json`, the normalized `result.json`, and the `raw-NN` artifacts.
+- `status.result.resultObjectKey`/`resultDigest` and each entry in `status.result.artifacts` (name, media type, size, digest, object key) point at them, and they outlive the Job and its TTL.
+- Only redacted evidence is copied into finding/report fields. Authorization and proxy-authorization values, cookies, private keys, JWTs, and configured sensitive fields are removed.
+- Raw artifacts can still contain sensitive packet or application content and therefore must use the same restricted artifact-store authorization and retention controls as scan source material.
 
 Adapters produce `security.ScannerRecord` values. These feed the existing `NormalizeScannerRecord` → persistence/upsert → correlation/deduplication → confidence/ranking → Markdown/SARIF report pipeline. Each record cites its raw artifact digest in `extra.raw_artifact_digest` while preserving tool/version/rule provenance.
 
@@ -103,7 +146,13 @@ A machine-readable specification should state algorithm/mode, key sizes, nonce r
 
 ## Network scope
 
-Live discovery receives explicit addresses/prefixes, ports, protocols, rates, concurrency, and request limits. Naabu and Nmap accept only literal IP/CIDR targets, require an explicit validated port list, use unprivileged connect scans, and reject address/port combinations beyond the request budget. The sandbox must enforce this scope independently of model output. Nmap XML normalization excludes addresses outside the supplied target prefix; the run records them as skipped. Offline Zeek/Suricata/tshark analysis accepts a content-addressed pcap and OCI-root execution disables networking. ZAP plans reject substitutions, unknown job types, out-of-scope URLs, and reports not fixed to `/work/zap-report.json`. boofuzz requires a resettable fixture plus reset/health hooks; it must not target production.
+Live discovery receives explicit addresses/prefixes, ports, protocols, rates, concurrency, and request limits. The sandbox must enforce this scope independently of model output.
+
+- Naabu and Nmap accept only literal IP/CIDR targets, require an explicit validated port list, use unprivileged connect scans, and reject address/port combinations beyond the request budget.
+- Nmap XML normalization excludes addresses outside the supplied target prefix; the run records them as skipped.
+- Offline Zeek/Suricata/tshark analysis accepts a content-addressed pcap and OCI-root execution disables networking.
+- ZAP plans reject substitutions, unknown job types, out-of-scope URLs, and reports not fixed to `/work/zap-report.json`.
+- boofuzz requires a resettable fixture plus reset/health hooks; it must not target production.
 
 Slither, Forge, Echidna, Medusa (amd64 only), and Halmos are a separate staged-build exception: they receive outbound access for compiler and project dependency resolution without treating the local staged path as a remote scan target. Their fixed registry invocations expose no caller-supplied RPC URL, raw scanner flags, or FFI. Other network tools still require explicit target scope and operator-authorized destinations.
 
@@ -113,7 +162,10 @@ Echidna, Slither, and Medusa (amd64 only) accept canonical-digest Solidity proje
 
 `forge-security-tests` accepts only media type `application/vnd.gratefulagents.foundry-security-project.v1+directory`, requires an explicit fuzz seed, and invokes the fixed `forge test --junit --threads 1` operation. Its child environment disables FFI while removing ambient RPC URLs and credentials. Forge may resolve compiler and project dependencies over the network, but the fixed invocation cannot inject a caller-supplied RPC endpoint. Foundry tests must encode the intended fuzz/invariant properties; a passing suite does not imply that unexpressed smart-contract properties are safe.
 
-Slither 0.11.3 accepts a digest-verified Solidity project and compiles only from an ephemeral writable copy inside its OCI root. The pinned upstream toolbox currently embeds an amd64 `solc` artifact in its arm64 manifest, so arm64 Slither compilation fails closed as unsupported instead of attempting to execute the wrong architecture; the arm64 image still verifies the packaged root and Slither version. Halmos 0.3.3 accepts Foundry projects with existing symbolic tests and executes in a single-concurrency closure with fixed Z3, loop, width, and depth bounds. Slither, Forge, Echidna, Medusa (amd64 only), and Halmos have egress for compiler and project dependency resolution; none accepts caller-supplied RPC flags. Halmos exit code 1 is a counterexample; timeout, stuck, revert-all, and exception states are operationally incomplete and never findings or proofs. Missing compiler/dependency closures remain unsupported rather than passing.
+- **Slither 0.11.3** accepts a digest-verified Solidity project and compiles only from an ephemeral writable copy inside its OCI root. The pinned upstream toolbox currently embeds an amd64 `solc` artifact in its arm64 manifest, so arm64 Slither compilation fails closed as unsupported instead of attempting to execute the wrong architecture; the arm64 image still verifies the packaged root and Slither version.
+- **Halmos 0.3.3** accepts Foundry projects with existing symbolic tests and executes in a single-concurrency closure with fixed Z3, loop, width, and depth bounds. Halmos exit code 1 is a counterexample; timeout, stuck, revert-all, and exception states are operationally incomplete and never findings or proofs.
+- Slither, Forge, Echidna, Medusa (amd64 only), and Halmos have egress for compiler and project dependency resolution; none accepts caller-supplied RPC flags.
+- Missing compiler/dependency closures remain unsupported rather than passing.
 
 ### Durable Rust fuzz campaigns
 

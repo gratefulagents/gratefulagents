@@ -16,7 +16,7 @@ Run sessions use tabs to separate the conversation from supporting evidence. **C
 
 ## Graph
 
-**Graph** visualizes delegated and sub-agent work. Use it to see parallel tasks, dependencies, and the status of child work. It is most useful when a run delegates research, implementation, testing, or review.
+**Graph** visualizes delegated and subagent work. Use it to see parallel tasks, dependencies, and the status of child work. It is most useful when a run delegates research, implementation, testing, or review.
 
 ## Diff
 

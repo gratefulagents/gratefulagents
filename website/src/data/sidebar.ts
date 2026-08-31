@@ -42,7 +42,15 @@ export const sections: SidebarSection[] = [
       'projects/projects',
       'projects/run-defaults',
       'projects/cron',
+    ],
+  },
+  {
+    label: 'Security',
+    kind: 'Security',
+    items: [
       'projects/security-scanning',
+      'projects/security-tool-packs',
+      'projects/security-skill-sources',
     ],
   },
   {
@@ -51,7 +59,6 @@ export const sections: SidebarSection[] = [
     items: [
       'integrations/connection-secrets',
       'integrations/github',
-      'integrations/maintainer-work-item-cutover',
       'integrations/linear',
       'integrations/slack',
     ],
@@ -59,7 +66,7 @@ export const sections: SidebarSection[] = [
   {
     label: 'Resources',
     kind: 'Resource',
-    items: ['settings/resources', 'settings/skill-packages'],
+    items: ['settings/resources', 'settings/skill-packages', 'settings/ssh-tunnels'],
   },
   {
     label: 'Settings',

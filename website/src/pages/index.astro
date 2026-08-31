@@ -20,8 +20,8 @@ const providers: {mark: MarkName; name: string}[] = [
 ];
 
 const kindGuidePath = '/docs/getting-started/self-hosting-kind/';
-const kindInstallPrompt = 'Read https://gratefulagents.dev/docs/getting-started/self-hosting-kind/ and install gratefulagents on my laptop with Kind. Verify Docker and the other prerequisites first, run the installer, then give me the URL and the credentials I need to sign in.';
-const homepageDescription = 'Run open-source coding agents in your Kubernetes cluster. Trigger work from GitHub, Linear, Slack, or schedules; bring your own models and inspect every run.';
+const kindInstallPrompt = 'Read https://gratefulagents.dev/docs/getting-started/self-hosting-kind/ and install GratefulAgents on my laptop with Kind. Verify Docker and the other prerequisites first, run the installer, then give me the URL and the credentials I need to sign in.';
+const homepageDescription = 'Open-source control plane for coding agents on your Kubernetes cluster. Trigger from GitHub, Linear, Slack, or cron; bring your own models; inspect every run.';
 
 const faqItems: {q: string; a: string}[] = [
   {
@@ -30,7 +30,7 @@ const faqItems: {q: string; a: string}[] = [
   },
   {
     q: 'Do I need Kubernetes experience to get started?',
-    a: 'You need a working cluster, but not deep expertise. The fastest path is the Kind guide: one script spins up a local cluster on a macOS or Linux laptop in minutes. For a persistent server install, the k3s guide walks through a fresh Debian or Ubuntu machine end to end. Both guides cover every prerequisite.',
+    a: 'You need a working cluster, but not deep expertise. The fastest path is the Kind guide: one script spins up a local cluster on a macOS or Linux laptop in about fifteen minutes. For a persistent server install, the k3s guide walks through a fresh Debian or Ubuntu machine end to end. Both guides cover every prerequisite.',
   },
   {
     q: 'Which AI models can I use?',
@@ -46,11 +46,11 @@ const faqItems: {q: string; a: string}[] = [
   },
   {
     q: 'What does GratefulAgents cost?',
-    a: 'The software is free and open source under the AGPL-3.0 licence. You pay only for the model-provider API calls your agents make — charged directly by Anthropic, OpenAI, or whichever provider you configure — and for the compute running your Kubernetes cluster. There is no GratefulAgents subscription or per-seat fee.',
+    a: 'The software is free and open source under the AGPL-3.0 license. You pay only for the model-provider API calls your agents make — charged directly by Anthropic, OpenAI, or whichever provider you configure — and for the compute running your Kubernetes cluster. There is no GratefulAgents subscription or per-seat fee.',
   },
   {
     q: 'Is it ready for production use?',
-    a: 'GratefulAgents is in active early development. It works well for evaluation, prototyping, and internal team use, but you should expect bugs and breaking changes between releases. High availability, managed hosting, and a production support SLA are not documented. We recommend starting with the Kind local demo before committing to a persistent server deployment.',
+    a: 'GratefulAgents is in active early development. It works for evaluation, prototyping, and internal team use, but you should expect bugs and breaking changes between releases. High availability, managed hosting, and a production support SLA are not documented. We recommend starting with the Kind local demo before committing to a persistent server deployment.',
   },
 ];
 
@@ -60,10 +60,10 @@ const structuredData = [
     '@id': 'https://gratefulagents.dev/#software',
     name: 'GratefulAgents',
     applicationCategory: 'DeveloperApplication',
-    operatingSystem: 'Kubernetes, Web, macOS, Windows, Linux, iOS, Android',
+    operatingSystem: 'macOS, Linux, iOS, Android',
     url: 'https://gratefulagents.dev/',
     description: homepageDescription,
-    codeRepository: repositoryUrl,
+    sameAs: [repositoryUrl],
     license: 'https://www.gnu.org/licenses/agpl-3.0.html',
     isAccessibleForFree: true,
     offers: {'@type': 'Offer', price: '0', priceCurrency: 'USD'},
@@ -94,12 +94,13 @@ const structuredData = [
     // Commit date of website/public/screens/run-recording.mp4 (28a75fe).
     // Keep this in sync if the recording is replaced.
     uploadDate: '2026-07-20',
+    duration: 'PT39S',
   },
 ];
 
 const slides = [
   {
-    kind: 'Sheet 02 · Operate',
+    kind: 'Operate',
     title: 'Every run on one board',
     desc: 'See live work, blockers, cost, and recent outcomes across the workspace. Step in only when a run needs you.',
     href: '/docs/runs/review-activity/',
@@ -107,15 +108,15 @@ const slides = [
     alt: 'Agent Ops board listing live runs with state, mode, latest activity, cost, and age columns',
   },
   {
-    kind: 'Sheet 03 · Measure',
+    kind: 'Measure',
     title: 'Reliability across runs',
-    desc: 'Compare cost, tokens, tools, subagents, compactions, and errors across models and time.',
+    desc: 'Compare cost, tokens, tools, subagents, context compactions, and errors across models and time.',
     href: '/docs/results/observability/',
     shot: '/screens/observability.webp?v=5',
     alt: 'Observability dashboard showing generation spend, run cost, tokens, tool calls, subagents, reliability, and model breakdowns',
   },
   {
-    kind: 'Sheet 04 · Orchestrate',
+    kind: 'Orchestrate',
     title: 'Fan out, stay in control',
     desc: 'Delegate to specialist subagents and watch the dependency graph run — every node inspectable while it works.',
     href: '/docs/runs/review-activity/',
@@ -123,20 +124,20 @@ const slides = [
     alt: 'Subagent graph view showing a root run spawning writer and explore subagents with live status',
   },
   {
-    kind: 'Sheet 05 · Inspect',
+    kind: 'Inspect',
     title: 'Every turn has a trace',
-    desc: 'Open timing, tool calls, token usage, cost, and errors for any run. The harness never becomes a black box.',
+    desc: 'Open timing, tool calls, token usage, cost, and errors for any run. The harness — the software loop that drives the agent — never becomes a black box.',
     href: '/docs/runs/meta-harness-traces/',
     shot: '/screens/trace.webp?v=5',
     alt: 'Trace timeline of a run showing per-turn LLM calls, WebFetch tool spans, durations, and costs',
   },
   {
-    kind: 'Sheet 06 · Move',
+    kind: 'Move',
     title: 'The run stays with you',
     desc: 'Follow, steer, and review from iOS or Android while the compute keeps running in your cluster.',
     href: '/docs/getting-started/web-desktop-workspaces/',
     shots: ['/screens/tablet-1.webp?v=5', '/screens/tablet-2.webp?v=5'],
-    alt: 'iPad views of the gratefulagents app following and steering a live agent run',
+    alt: 'iPad views of the GratefulAgents app following and steering a live agent run',
   },
 ];
 
@@ -167,7 +168,7 @@ const stations = [
           <h1 id="hero-title">self-hosted coding agents <span>for Kubernetes teams</span></h1>
           <p class="hero-sub">Run, steer, and audit agent work in your own infrastructure. Connect engineering tools and your preferred model providers to one observable execution platform.</p>
           <div class="cta-row">
-            <a class="btn btn-primary" href={kindGuidePath}>Run the Kind demo <span aria-hidden="true">→</span></a>
+            <a class="btn btn-primary" href={kindGuidePath}>Run it locally with Kind <span aria-hidden="true">→</span></a>
             <a class="btn btn-quiet" href={repositoryUrl}>View source <span aria-hidden="true">↗</span></a>
             <a class="hero-clients" href="/docs/getting-started/web-desktop-workspaces/">
               <span>Clients</span>
@@ -225,7 +226,7 @@ const stations = [
                 alt="Desktop run view with chat, steering, and a subagent dependency graph"
                 width="3024"
                 height="1898"
-                loading="eager"
+                loading="lazy"
                 decoding="async"
               />
             </div>
@@ -243,7 +244,7 @@ const stations = [
                 alt="iPad view of a live agent run delegating work to a subagent graph"
                 width="2752"
                 height="2064"
-                loading="eager"
+                loading="lazy"
                 decoding="async"
               />
             </div>
@@ -261,7 +262,7 @@ const stations = [
                 alt="iPad view of the delegated task list for a live agent run"
                 width="2752"
                 height="2064"
-                loading="eager"
+                loading="lazy"
                 decoding="async"
               />
             </div>
@@ -346,7 +347,7 @@ const stations = [
         <div class="why-grid">
           <article class="why-card">
             <h3>Source code and prompts stay inside your network</h3>
-            <p>When an agent runs in a cloud SaaS harness, your repository content, file diffs, and the natural-language prompts you write all travel to a third-party data centre. With GratefulAgents, every agent run executes inside a sandbox in your own Kubernetes cluster. The only outbound connections are the inference requests your agents make directly to the model provider whose API key you supply — and those requests go straight from your cluster to Anthropic, OpenAI, or whoever you choose.</p>
+            <p>When an agent runs in a cloud SaaS harness, your repository content, file diffs, and the natural-language prompts you write all travel to a third-party data center. With GratefulAgents, every agent run executes inside a sandbox in your own Kubernetes cluster. The only outbound connections are the inference requests your agents make directly to the model provider whose API key you supply — and those requests go straight from your cluster to Anthropic, OpenAI, or whoever you choose.</p>
           </article>
           <article class="why-card">
             <h3>You own the model credentials — and the costs that come with them</h3>
@@ -358,11 +359,15 @@ const stations = [
           </article>
           <article class="why-card">
             <h3>Agent compute sits next to your private infrastructure</h3>
-            <p>Agents frequently need to read internal packages, query private databases, or call APIs that are not reachable from the public internet. When the agent sandbox runs inside the same cluster (or the same VPC) as those resources, latency is low and no ingress rules or tunnels are required. You apply the same Kubernetes network policies, RBAC, and pod security standards you already use for the rest of your workloads. For on-premise or air-gapped environments, this is the only viable option. See <a href="/self-hosted-coding-agents/">the full case for self-hosted coding agents</a>.</p>
+            <p>Agents frequently need to read internal packages, query private databases, or call APIs that are not reachable from the public internet. When the agent sandbox runs inside the same cluster (or the same VPC) as those resources, latency is low and no ingress rules or tunnels are required.</p>
+            <p>You apply the same Kubernetes network policies, RBAC, and pod security standards you already use for the rest of your workloads. For on-premise or air-gapped environments, this is the only viable option. See <a href="/self-hosted-coding-agents/">the full case for self-hosted coding agents</a>.</p>
           </article>
         </div>
         <p class="why-links">
-          Devin and GitHub Copilot's coding agent are cloud services: the checkout, the agent process, and the model credentials live on the vendor's infrastructure. GratefulAgents is the <a href="/differences/">self-hosted alternative</a> — all three stay inside your cluster. Get started with the <a href="/docs/getting-started/self-hosting-kind/">Kind local demo</a> (macOS or Linux laptop, five minutes) or the <a href="/docs/getting-started/self-hosting-k3s/">k3s server install</a> for a persistent deployment.
+          Devin and GitHub Copilot's coding agent are cloud services: the checkout, the agent process, and the model credentials live on the vendor's infrastructure. GratefulAgents is the <a href="/differences/">self-hosted alternative</a> — all three stay inside your cluster.
+        </p>
+        <p class="why-links">
+          Get started with the <a href="/docs/getting-started/self-hosting-kind/">Kind local demo</a> (macOS or Linux laptop, about fifteen minutes) or the <a href="/docs/getting-started/self-hosting-k3s/">k3s server install</a> for a persistent deployment.
         </p>
       </div>
     </section>
@@ -412,14 +417,14 @@ const stations = [
         <div class="closing-side">
           <p>Own the runtime, choose the models, and see the work. Start with the local Kind demo.</p>
           <div class="cta-row">
-            <a class="btn btn-primary" href={kindGuidePath}>Run the Kind demo <span aria-hidden="true">→</span></a>
+            <a class="btn btn-primary" href={kindGuidePath}>Run it locally with Kind <span aria-hidden="true">→</span></a>
             <a class="btn btn-quiet" href={repositoryUrl}>Star on GitHub <span aria-hidden="true">↗</span></a>
           </div>
         </div>
       </div>
       <div class="title-block closing-block">
-        <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">07 — closeout</span></div>
-        <div><span class="tb-key">Project</span><span class="tb-val">gratefulagents</span></div>
+        <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">10 — closeout</span></div>
+        <div><span class="tb-key">Project</span><span class="tb-val">GratefulAgents</span></div>
         <div><span class="tb-key">License</span><span class="tb-val">AGPL-3.0</span></div>
         <div><span class="tb-key">Runtime</span><span class="tb-val">your cluster</span></div>
         <div><span class="tb-key">Clients</span><span class="tb-val">Web · Desktop · iOS · Android</span></div>

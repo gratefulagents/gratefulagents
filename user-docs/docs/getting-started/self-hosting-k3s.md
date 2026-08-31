@@ -21,7 +21,7 @@ The default `LoadBalancer` service makes the dashboard available over plain HTTP
 Use a dedicated server or VM with:
 
 - Debian 12+ or Ubuntu 22.04+;
-- `x86_64` or `arm64`;
+- AMD64 or ARM64;
 - systemd and root or sudo access;
 - 4 or more CPUs, 8 GiB or more RAM, and 50 GiB or more free root disk; and
 - outbound HTTPS to GitHub, `get.k3s.io`, `get.helm.sh`, container registries, configured AI providers, repositories, and MCP services.
