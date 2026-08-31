@@ -181,12 +181,12 @@ func TestSecurityScanTaskConditionOmitsAgentRunAndPublishesOutput(t *testing.T) 
 func TestSecurityScanReadinessGateFailureProducesBlockedEvidenceOutcome(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
-		{Name: "preflight", Objective: "check runtime", OutputSchema: `{"type":"object"}`},
+		{Name: securityScanRuntimePreflightTaskName, Objective: "check runtime", OutputSchema: `{"type":"object"}`},
 		{
-			Name: "investigate", Objective: "investigate", DependsOn: []string{"preflight"},
+			Name: "investigate", Objective: "investigate", DependsOn: []string{securityScanRuntimePreflightTaskName},
 			OutputSchema: `{"type":"object"}`,
 			When: &triggersv1alpha1.SecurityScanTaskCondition{
-				Task: "preflight", Path: "conditions.ready", Equals: "true",
+				Task: securityScanRuntimePreflightTaskName, Path: "conditions.ready", Equals: "true",
 				OtherwiseOutput: `{"conditions":{"ready":false}}`,
 			},
 		},
@@ -195,7 +195,7 @@ func TestSecurityScanReadinessGateFailureProducesBlockedEvidenceOutcome(t *testi
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
-	preflight := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "preflight")
+	preflight := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), securityScanRuntimePreflightTaskName)
 	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, preflight.Name, platformv1alpha1.AgentRunPhaseSucceeded,
 		`{"conditions":{"ready":false}}`, "")
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
@@ -212,6 +212,32 @@ func TestSecurityScanReadinessGateFailureProducesBlockedEvidenceOutcome(t *testi
 	exec := updated.Status.LastExecution
 	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseSucceeded || exec.EvidenceOutcome != triggersv1alpha1.SecurityScanEvidenceOutcomeBlocked {
 		t.Fatalf("execution phase=%q evidenceOutcome=%q, want Succeeded/blocked", exec.Phase, exec.EvidenceOutcome)
+	}
+}
+
+func TestSecurityScanGenericReadyConditionDoesNotBlockEvidence(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "candidate-router", Objective: "route candidates", OutputSchema: `{"type":"object"}`},
+		{
+			Name: "optional", Objective: "optional investigation", DependsOn: []string{"candidate-router"},
+			When: &triggersv1alpha1.SecurityScanTaskCondition{
+				Task: "candidate-router", Path: "conditions.ready", Equals: "true",
+				OtherwiseOutput: `{"conditions":{"ready":false}}`,
+			},
+		},
+	}, 1)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	router := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "candidate-router")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, router.Name, platformv1alpha1.AgentRunPhaseSucceeded,
+		`{"conditions":{"ready":false}}`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if len(exec.CoverageGaps) != 0 || exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseSucceeded || exec.EvidenceOutcome != triggersv1alpha1.SecurityScanEvidenceOutcomeComplete {
+		t.Fatalf("generic conditional execution = phase %q outcome %q gaps %#v, want Succeeded/complete without gaps", exec.Phase, exec.EvidenceOutcome, exec.CoverageGaps)
 	}
 }
 
@@ -538,7 +564,7 @@ func TestSecurityScanDeterministicExecutionRetriesRetryableFailuresUntilBudgetIs
 func TestSecurityScanRecoversRetryWaiterWhenRunLaterSucceeds(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	one := int32(1)
-	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect", MaxRetries: &one}}, 1)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect", MaxRetries: &one, OutputSchema: `{"type":"object"}`}}, 1)
 	scan.Spec.Execution.RetryBackoff = metav1.Duration{Duration: time.Minute}
 	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
 
@@ -555,7 +581,8 @@ func TestSecurityScanRecoversRetryWaiterWhenRunLaterSucceeds(t *testing.T) {
 
 	// The worker later publishes the run's authoritative Succeeded state
 	// while the task is still waiting out its retry backoff.
-	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhaseSucceeded,
+		`{"version":1,"blocker_ids":["blocker-a"],"coverage_ids":{"not_tested":["coverage-a"]}}`, "")
 	reconcileDeterministicSecurityScan(t, reconciler, scan)
 
 	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
@@ -568,6 +595,24 @@ func TestSecurityScanRecoversRetryWaiterWhenRunLaterSucceeds(t *testing.T) {
 	}
 	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseSucceeded {
 		t.Fatalf("execution phase = %q, want Succeeded", exec.Phase)
+	}
+	if len(exec.CoverageGaps) != 2 || exec.EvidenceOutcome != triggersv1alpha1.SecurityScanEvidenceOutcomePartial {
+		t.Fatalf("recovered evidence outcome = %q with gaps %#v, want partial with blocker and not-tested gaps", exec.EvidenceOutcome, exec.CoverageGaps)
+	}
+}
+
+func TestSecurityScanChunkHandoffsRecordCoverageGaps(t *testing.T) {
+	exec := &triggersv1alpha1.SecurityScanExecutionStatus{
+		FanOuts: []triggersv1alpha1.SecurityScanFanOutExecutionStatus{{Name: "chunk", Strategy: "chunk-v1"}},
+	}
+	engine := &securityScanExecutionEngine{exec: exec}
+	entry := &triggersv1alpha1.SecurityScanTaskExecutionStatus{Name: "chunk", RecordStart: 0, RecordEnd: 2}
+	engine.recordCompactHandoffCoverage(entry, `[
+		{"recordIndex":0,"result":{"version":1,"blocker_ids":["blocker-a"],"coverage_ids":{"inadequately_tested":["coverage-a"]}}},
+		{"recordIndex":1,"result":{"version":1,"coverage_ids":{"not_tested":["coverage-b"]}}}
+	]`)
+	if len(exec.CoverageGaps) != 3 {
+		t.Fatalf("chunk coverage gaps = %#v, want blocker and both negative coverage classes", exec.CoverageGaps)
 	}
 }
 
@@ -2049,6 +2094,62 @@ func TestSecurityScanDeterministicTaskRunsApplyDistinctRoleContracts(t *testing.
 		if run.Spec.ToolPolicy == nil || !slices.Contains(run.Spec.ToolPolicy.DeniedTools, "Write") || !slices.Contains(run.Spec.ToolPolicy.DeniedTools, "git_push") {
 			t.Fatalf("run %s tool policy = %#v, want write tools denied for a read-only role", run.Name, run.Spec.ToolPolicy)
 		}
+	}
+}
+
+func TestSecurityScanExecutionKeepsEventRevisionWhenAnnotationChanges(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	const originalRevision = "0123456789abcdef0123456789abcdef01234567"
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "first", Objective: "first", OutputSchema: `{"type":"object"}`},
+		{Name: "second", Objective: "second", DependsOn: []string{"first"}},
+	}, 1)
+	scan.Annotations = map[string]string{
+		triggersv1alpha1.SecurityScanEventAnnotation: `{"token":"event-1","revision":"` + originalRevision + `"}`,
+	}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+	externalID := "event-" + securityScanManualRunSuffix("event-1")
+	if _, err := reconciler.startDeterministicExecution(context.Background(), scan, externalID, func(*triggersv1alpha1.SecurityScan) {}); err != nil {
+		t.Fatal(err)
+	}
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.LastExecution.ResolvedRevision != originalRevision {
+		t.Fatalf("resolved revision = %q, want %q", updated.Status.LastExecution.ResolvedRevision, originalRevision)
+	}
+	first := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "first")
+	if first.Spec.Repository.Revision != originalRevision {
+		t.Fatalf("first run revision = %q, want %q", first.Spec.Repository.Revision, originalRevision)
+	}
+
+	updated.Annotations[triggersv1alpha1.SecurityScanEventAnnotation] = `{"token":"event-2","revision":"fedcba9876543210fedcba9876543210fedcba98"}`
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatal(err)
+	}
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, first.Name, platformv1alpha1.AgentRunPhaseSucceeded, `{}`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	second := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "second")
+	if second.Spec.Repository.Revision != originalRevision || second.Annotations[triggersv1alpha1.SecurityScanRevisionAnnotation] != originalRevision {
+		t.Fatalf("second run revision = spec %q annotation %q, want persisted %q", second.Spec.Repository.Revision, second.Annotations[triggersv1alpha1.SecurityScanRevisionAnnotation], originalRevision)
+	}
+}
+
+func TestSecurityScanArtifactWorkflowRequiresPinnedRepositoryRevision(t *testing.T) {
+	scan := deterministicSecurityScan(nil, 1)
+	if err := validateSecurityScanArtifactRevision(scan); err == nil || !strings.Contains(err.Error(), "immutable spec.revision") {
+		t.Fatalf("unpinned artifact workflow revision error = %v, want an immutable revision requirement", err)
+	}
+	scan.Spec.Revision = "0123456789abcdef0123456789abcdef01234567"
+	if err := validateSecurityScanArtifactRevision(scan); err != nil {
+		t.Fatalf("pinned artifact workflow revision rejected: %v", err)
+	}
+	scan.Spec.Revision = ""
+	scan.Annotations = map[string]string{
+		triggersv1alpha1.SecurityScanEventAnnotation: `{"token":"event-1","revision":"fedcba9876543210fedcba9876543210fedcba98"}`,
+	}
+	if err := validateSecurityScanArtifactRevision(scan); err != nil {
+		t.Fatalf("revision-pinned event workflow rejected: %v", err)
 	}
 }
 

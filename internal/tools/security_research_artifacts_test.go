@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -61,27 +62,11 @@ func (s *fakeSecurityResearchStore) ListSecurityResearchArtifacts(_ context.Cont
 }
 
 func artifactUUIDSelected(value uuid.UUID, selected []uuid.UUID) bool {
-	if len(selected) == 0 {
-		return true
-	}
-	for _, candidate := range selected {
-		if candidate == value {
-			return true
-		}
-	}
-	return false
+	return len(selected) == 0 || slices.Contains(selected, value)
 }
 
 func artifactStringSelected(value string, selected []string) bool {
-	if len(selected) == 0 {
-		return true
-	}
-	for _, candidate := range selected {
-		if candidate == value {
-			return true
-		}
-	}
-	return false
+	return len(selected) == 0 || slices.Contains(selected, value)
 }
 
 func TestSecurityResearchArtifactToolsUseTrustedScopeAndCompactHandoff(t *testing.T) {

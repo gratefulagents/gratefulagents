@@ -1521,6 +1521,12 @@ spec:
                     - blocked
                     - failed
                     type: string
+                  resolvedRevision:
+                    description: |-
+                      resolvedRevision is the immutable primary-repository revision shared by
+                      every task run in this execution.
+                    maxLength: 256
+                    type: string
                   effectiveParallelism:
                     description: effectiveParallelism is the concurrency bound actually
                       applied.

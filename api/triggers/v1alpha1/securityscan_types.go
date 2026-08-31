@@ -1191,6 +1191,12 @@ type SecurityScanExecutionStatus struct {
 	// +optional
 	EvidenceOutcome SecurityScanEvidenceOutcome `json:"evidenceOutcome,omitempty"`
 
+	// resolvedRevision is the immutable primary-repository revision shared by
+	// every task run in this execution.
+	// +kubebuilder:validation:MaxLength=256
+	// +optional
+	ResolvedRevision string `json:"resolvedRevision,omitempty"`
+
 	// effectiveParallelism is the concurrency bound actually applied.
 	// +optional
 	EffectiveParallelism int32 `json:"effectiveParallelism,omitempty"`

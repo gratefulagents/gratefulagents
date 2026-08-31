@@ -4760,6 +4760,9 @@ message SecurityScanExecutionState {
   // completeness: complete | partial | blocked | failed. It remains empty
   // while the execution is running.
   string evidence_outcome = 15;
+  // resolved_revision is the immutable primary-repository revision used by
+  // every task run in this execution.
+  string resolved_revision = 16;
 }
 
 // SecurityScanFanOutState is the immutable expansion metadata captured for

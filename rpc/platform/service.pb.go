@@ -33091,8 +33091,11 @@ type SecurityScanExecutionState struct {
 	// completeness: complete | partial | blocked | failed. It remains empty
 	// while the execution is running.
 	EvidenceOutcome string `protobuf:"bytes,15,opt,name=evidence_outcome,json=evidenceOutcome,proto3" json:"evidence_outcome,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// resolved_revision is the immutable primary-repository revision used by
+	// every task run in this execution.
+	ResolvedRevision string `protobuf:"bytes,16,opt,name=resolved_revision,json=resolvedRevision,proto3" json:"resolved_revision,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *SecurityScanExecutionState) Reset() {
@@ -33226,6 +33229,13 @@ func (x *SecurityScanExecutionState) GetFanOuts() []*SecurityScanFanOutState {
 func (x *SecurityScanExecutionState) GetEvidenceOutcome() string {
 	if x != nil {
 		return x.EvidenceOutcome
+	}
+	return ""
+}
+
+func (x *SecurityScanExecutionState) GetResolvedRevision() string {
+	if x != nil {
+		return x.ResolvedRevision
 	}
 	return ""
 }
@@ -45678,7 +45688,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\frecord_start\x18\f \x01(\x05R\vrecordStart\x12\x1d\n" +
 	"\n" +
 	"record_end\x18\r \x01(\x05R\trecordEnd\x12!\n" +
-	"\finput_sha256\x18\x0e \x01(\tR\vinputSha256\"\xf0\x05\n" +
+	"\finput_sha256\x18\x0e \x01(\tR\vinputSha256\"\x9d\x06\n" +
 	"\x1aSecurityScanExecutionState\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04mode\x18\x02 \x01(\tR\x04mode\x12\x14\n" +
@@ -45695,7 +45705,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\rcoverage_gaps\x18\f \x03(\tR\fcoverageGaps\x12>\n" +
 	"\x04plan\x18\r \x03(\v2*.platform.v1.SecurityScanExecutionPlanNodeR\x04plan\x12?\n" +
 	"\bfan_outs\x18\x0e \x03(\v2$.platform.v1.SecurityScanFanOutStateR\afanOuts\x12)\n" +
-	"\x10evidence_outcome\x18\x0f \x01(\tR\x0fevidenceOutcome\"\x88\x02\n" +
+	"\x10evidence_outcome\x18\x0f \x01(\tR\x0fevidenceOutcome\x12+\n" +
+	"\x11resolved_revision\x18\x10 \x01(\tR\x10resolvedRevision\"\x88\x02\n" +
 	"\x17SecurityScanFanOutState\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1f\n" +
 	"\vsource_task\x18\x02 \x01(\tR\n" +

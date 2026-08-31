@@ -151,6 +151,7 @@ func ValidateSecurityTaskHandoff(value SecurityTaskHandoff) error {
 	return nil
 }
 
+//nolint:gocyclo // Keeping the complete artifact validation contract in one function makes its bounds auditable.
 func ValidateSecurityResearchArtifact(value *SecurityResearchArtifact) error {
 	if value == nil {
 		return errors.New("security research artifact is required")

@@ -83,6 +83,7 @@ const (
 	// without publishing the structured output its schema requires.
 	securityScanReasonOutputContractUnmet  = "OutputContractUnmet"
 	securityScanReadinessCoverageGapPrefix = "runtime readiness gate "
+	securityScanRuntimePreflightTaskName   = "runtime-preflight-and-dossier"
 )
 
 // securityScanExecutionTerminal reports whether an execution phase is final.
@@ -532,6 +533,7 @@ func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context
 
 	now := metav1.NewTime(r.now())
 	exec := planSecurityScanExecution(workflow, externalID, resolved.spec.EffectiveParallelism(), now)
+	exec.ResolvedRevision = securityScanExecutionRevision(scan)
 	if resolved.program != nil {
 		programSnapshot := *resolved.program
 		exec.SecurityProgramSnapshot = &programSnapshot
@@ -592,6 +594,13 @@ func (r *SecurityScanReconciler) preflightDeterministicExecution(ctx context.Con
 				message: "workflow requires durable security research and artifact stores, but the configured stores do not provide both capabilities",
 			}
 		}
+		// Artifact IDs are revision-scoped and tasks execute in independent
+		// checkouts. A non-event repository scan therefore needs an explicit
+		// immutable pin; otherwise a moving base branch could bind later tasks
+		// to a different revision than the task that created the artifact.
+		if err := validateSecurityScanArtifactRevision(scan); err != nil {
+			return err
+		}
 	}
 	if err := validateSecurityScanTaskSkillRefs(ctx, r.Client, scan.Namespace, scan.Spec.Defaults.SkillRefs, workflow); err != nil {
 		return err
@@ -630,6 +639,30 @@ func (r *SecurityScanReconciler) preflightDeterministicExecution(ctx context.Con
 		}
 	}
 	return nil
+}
+
+func securityScanExecutionRevision(scan *triggersv1alpha1.SecurityScan) string {
+	if scan == nil || strings.TrimSpace(scan.Spec.TargetURL) != "" {
+		return ""
+	}
+	if event := pendingTriggerEvent(scan); event != nil {
+		return strings.TrimSpace(event.Revision)
+	}
+	return strings.TrimSpace(scan.Spec.Revision)
+}
+
+func validateSecurityScanArtifactRevision(scan *triggersv1alpha1.SecurityScan) error {
+	if scan == nil || strings.TrimSpace(scan.Spec.RepoURL) == "" || strings.TrimSpace(scan.Spec.Revision) != "" {
+		return nil
+	}
+	event := pendingTriggerEvent(scan)
+	if event != nil && strings.TrimSpace(event.Revision) != "" {
+		return nil
+	}
+	return &securityScanRefError{
+		reason:  securityScanReasonUnresolvedReference,
+		message: "workflow uses revision-scoped research artifacts; repository scans must set an immutable spec.revision or be started by a revision-pinned repository event",
+	}
 }
 
 func securityScanWorkflowRequiresResearchArtifacts(workflow []triggersv1alpha1.SecurityScanTask) bool {
@@ -1283,7 +1316,7 @@ func (e *securityScanExecutionEngine) observe(ctx context.Context) {
 			entry.LastError = ""
 			entry.NextRetryTime = nil
 			entry.FinishedAt = &e.now
-			e.recordCompactHandoffCoverage(entry.Name, run.Status.StructuredOutput)
+			e.recordCompactHandoffCoverage(entry, run.Status.StructuredOutput)
 		case platformv1alpha1.AgentRunPhaseFailed, platformv1alpha1.AgentRunPhaseCancelled,
 			platformv1alpha1.AgentRunPhasePaused:
 			reason := securityScanAgentRunFailureReason(run, "task")
@@ -1296,23 +1329,51 @@ func (e *securityScanExecutionEngine) observe(ctx context.Context) {
 // summary into controller assurance semantics. Artifact bodies remain in the
 // research store; the controller needs only explicit blockers and negative
 // coverage classes to avoid advertising a false all-clear.
-func (e *securityScanExecutionEngine) recordCompactHandoffCoverage(taskName, output string) {
+func (e *securityScanExecutionEngine) recordCompactHandoffCoverage(entry *triggersv1alpha1.SecurityScanTaskExecutionStatus, output string) {
+	if entry == nil || strings.TrimSpace(output) == "" {
+		return
+	}
+	outputs := []json.RawMessage{json.RawMessage(output)}
+	if plan := e.fanOutStatus(entry.Name); plan != nil && plan.Strategy == "chunk-v1" {
+		var err error
+		outputs, err = validateSecurityScanChunkOutput(output, entry.RecordStart, entry.RecordEnd)
+		if err != nil {
+			return // taskRunOutputUnmet records malformed chunk envelopes
+		}
+	}
+	blockers := 0
+	coverage := map[string]int{}
+	for _, result := range outputs {
+		blockerCount, coverageCounts := compactHandoffGapCounts(result)
+		blockers += blockerCount
+		for verdict, count := range coverageCounts {
+			coverage[verdict] += count
+		}
+	}
+	if blockers > 0 {
+		appendSecurityScanCoverageGap(e.exec, fmt.Sprintf("task %q retained %d durable blocker(s)", entry.Name, blockers))
+	}
+	for _, verdict := range []string{"inadequately_tested", "not_tested"} {
+		if count := coverage[verdict]; count > 0 {
+			appendSecurityScanCoverageGap(e.exec, fmt.Sprintf("task %q retained %d %s coverage record(s)", entry.Name, count, verdict))
+		}
+	}
+}
+
+func compactHandoffGapCounts(output []byte) (int, map[string]int) {
 	var handoff struct {
 		Version     int                 `json:"version"`
 		BlockerIDs  []string            `json:"blocker_ids"`
 		CoverageIDs map[string][]string `json:"coverage_ids"`
 	}
-	if strings.TrimSpace(output) == "" || json.Unmarshal([]byte(output), &handoff) != nil || handoff.Version != 1 {
-		return
+	if json.Unmarshal(output, &handoff) != nil || handoff.Version != 1 {
+		return 0, nil
 	}
-	if len(handoff.BlockerIDs) > 0 {
-		appendSecurityScanCoverageGap(e.exec, fmt.Sprintf("task %q retained %d durable blocker(s)", taskName, len(handoff.BlockerIDs)))
-	}
+	counts := map[string]int{}
 	for _, verdict := range []string{"inadequately_tested", "not_tested"} {
-		if count := len(handoff.CoverageIDs[verdict]); count > 0 {
-			appendSecurityScanCoverageGap(e.exec, fmt.Sprintf("task %q retained %d %s coverage record(s)", taskName, count, verdict))
-		}
+		counts[verdict] = len(handoff.CoverageIDs[verdict])
 	}
+	return len(handoff.BlockerIDs), counts
 }
 
 // taskRunOutputUnmet returns a non-empty failure reason when a Succeeded task
@@ -1363,6 +1424,7 @@ func (e *securityScanExecutionEngine) recoverRetryWaiters(ctx context.Context) {
 		entry.LastError = ""
 		entry.NextRetryTime = nil
 		entry.FinishedAt = &e.now
+		e.recordCompactHandoffCoverage(entry, run.Status.StructuredOutput)
 	}
 }
 
@@ -2006,7 +2068,7 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 				// as a coverage gap so terminal EvidenceOutcome cannot become a
 				// misleading complete result merely because the fallback output was
 				// schema-valid. Other conditional routing remains a normal no-op.
-				if task.When.Path == "conditions.ready" && strings.EqualFold(strings.TrimSpace(task.When.Equals), "true") {
+				if task.When.Task == securityScanRuntimePreflightTaskName && task.When.Path == "conditions.ready" && strings.EqualFold(strings.TrimSpace(task.When.Equals), "true") {
 					appendSecurityScanCoverageGap(e.exec, fmt.Sprintf("runtime readiness gate %q did not pass", task.When.Task))
 				}
 				continue
@@ -2575,6 +2637,10 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 	}
 
 	annotations := base.annotations
+	if revision := strings.TrimSpace(exec.ResolvedRevision); revision != "" {
+		base.revision = revision
+		annotations[triggersv1alpha1.SecurityScanRevisionAnnotation] = revision
+	}
 	annotations[securityScanTaskLabel] = task.Name
 	// The execution id is the aggregation key agent-side finding tools use:
 	// every run of one execution reports into the SAME campaign, so the scan's
