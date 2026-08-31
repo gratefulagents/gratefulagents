@@ -271,7 +271,10 @@ func (s *Server) githubClient(token string) (*github.Client, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	client := github.NewClient(httpClient).WithAuthToken(token)
+	client := github.NewClient(httpClient)
+	if token != "" {
+		client = client.WithAuthToken(token)
+	}
 	if s.githubAPIBase != "" {
 		base, err := url.Parse(s.githubAPIBase)
 		if err != nil {
