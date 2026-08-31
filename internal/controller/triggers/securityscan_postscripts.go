@@ -905,6 +905,10 @@ func (r *SecurityScanReconciler) createScanPostScriptRun(ctx context.Context, sc
 		return false, err
 	}
 	annotations := base.annotations
+	if revision := strings.TrimSpace(exec.ResolvedRevision); revision != "" {
+		base.revision = revision
+		annotations[triggersv1alpha1.SecurityScanRevisionAnnotation] = revision
+	}
 	// The execution id keeps the run inside the same finding campaign as the
 	// research runs, so its update lands on the findings this execution owns.
 	annotations[triggersv1alpha1.SecurityScanExecutionIDAnnotation] = exec.ID

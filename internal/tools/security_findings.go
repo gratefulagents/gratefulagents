@@ -232,6 +232,11 @@ func RegisterSecurityScanTools(registry *Registry, findingStore store.SecurityFi
 		// configured SecurityFindingStore; do not make the tools disappear.
 		state.researchStore = researchStore
 	}
+	if artifactStore, ok := findingStore.(store.SecurityResearchArtifactStore); ok {
+		state.researchArtifactStore = artifactStore
+	} else if artifactStore, ok := stateStore.(store.SecurityResearchArtifactStore); ok {
+		state.researchArtifactStore = artifactStore
+	}
 	registry.Register(&reportSecurityFindingTool{state: state})
 	registry.Register(&listSecurityFindingsTool{state: state})
 	registry.Register(&getSecurityFindingTool{state: state})
@@ -246,10 +251,11 @@ func RegisterSecurityScanTools(registry *Registry, findingStore store.SecurityFi
 // is nil it degrades to an in-memory buffer with the same upsert/list/status
 // semantics, so the tools work without Postgres.
 type securityScanState struct {
-	findingStore  store.SecurityFindingStore
-	researchStore store.SecurityResearchStore
-	stateStore    store.StateStore
-	scanCtx       SecurityScanContext
+	findingStore          store.SecurityFindingStore
+	researchStore         store.SecurityResearchStore
+	researchArtifactStore store.SecurityResearchArtifactStore
+	stateStore            store.StateStore
+	scanCtx               SecurityScanContext
 
 	mu        sync.Mutex
 	mem       []*store.SecurityFindingRecord

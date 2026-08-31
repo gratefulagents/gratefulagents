@@ -254,3 +254,24 @@ func TestSecurityScanTaskEffectiveRepeats(t *testing.T) {
 		}
 	}
 }
+
+func TestSecurityScanExecutionDerivedEvidenceOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		exec SecurityScanExecutionStatus
+		want SecurityScanEvidenceOutcome
+	}{
+		{name: "running", exec: SecurityScanExecutionStatus{Phase: SecurityScanExecutionPhaseRunning}},
+		{name: "complete", exec: SecurityScanExecutionStatus{Phase: SecurityScanExecutionPhaseSucceeded}, want: SecurityScanEvidenceOutcomeComplete},
+		{name: "partial", exec: SecurityScanExecutionStatus{Phase: SecurityScanExecutionPhaseSucceeded, CoverageGaps: []string{"tests unavailable"}}, want: SecurityScanEvidenceOutcomePartial},
+		{name: "readiness blocked", exec: SecurityScanExecutionStatus{Phase: SecurityScanExecutionPhaseSucceeded, CoverageGaps: []string{"runtime readiness gate preflight did not pass"}}, want: SecurityScanEvidenceOutcomeBlocked},
+		{name: "cancelled", exec: SecurityScanExecutionStatus{Phase: SecurityScanExecutionPhaseCancelled}, want: SecurityScanEvidenceOutcomeBlocked},
+		{name: "failed", exec: SecurityScanExecutionStatus{Phase: SecurityScanExecutionPhaseFailed}, want: SecurityScanEvidenceOutcomeFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.exec.DerivedEvidenceOutcome(); got != tc.want {
+				t.Fatalf("DerivedEvidenceOutcome() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

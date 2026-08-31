@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
@@ -227,10 +228,15 @@ func TestSecurityWorkflowsRedTeamBountyWorthiness(t *testing.T) {
 				return name == gate.Name
 			})
 			gatePrerequisites := slices.Clone(gate.DependsOn)
-			slices.Sort(triagePrerequisites)
-			slices.Sort(gatePrerequisites)
-			if !slices.Equal(gatePrerequisites, triagePrerequisites) {
-				t.Errorf("red-team prerequisites = %v, want original triage prerequisites %v", gatePrerequisites, triagePrerequisites)
+			for _, prerequisite := range triagePrerequisites {
+				if !slices.Contains(gatePrerequisites, prerequisite) {
+					t.Errorf("red-team prerequisites = %v, missing triage prerequisite %q", gatePrerequisites, prerequisite)
+				}
+			}
+			for _, prerequisite := range gatePrerequisites {
+				if !slices.Contains(triagePrerequisites, prerequisite) && (gate.When == nil || gate.When.Task != prerequisite) {
+					t.Errorf("red-team prerequisite %q is neither a triage prerequisite nor its readiness gate", prerequisite)
+				}
 			}
 		})
 	}
@@ -768,8 +774,8 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 }
 
 // TestBlockchainProtocolAuditComposition keeps the generic protocol workflow
-// chain-aware: platform detection must feed each specialist and dormant chain
-// skills must remain attached to the matching review task.
+// compact and evidence-driven: a readiness gate feeds four persistent
+// investigators, and only selected leads fan out for independent challenge.
 func TestBlockchainProtocolAuditComposition(t *testing.T) {
 	t.Parallel()
 
@@ -780,96 +786,59 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 	for _, task := range workflow.Spec.Tasks {
 		byName[task.Name] = task
 	}
-	if _, ok := byName["detect-platforms-and-components"]; !ok {
-		t.Fatal("blockchain protocol workflow must begin with platform detection")
+	if len(workflow.Spec.Tasks) != 11 {
+		t.Fatalf("protocol workflow has %d static tasks, want the compact 11-task graph", len(workflow.Spec.Tasks))
 	}
-	criticalSurfaceReview, ok := byName["review-critical-surface"]
+	preflight, ok := byName["runtime-preflight-and-dossier"]
 	if !ok {
-		t.Fatal("blockchain protocol workflow must review every mapped critical surface")
+		t.Fatal("protocol workflow must begin with a runtime readiness gate")
 	}
-	if criticalSurfaceReview.ForEach != "map-protocol-surfaces" || criticalSurfaceReview.TargetRuns != 12 {
-		t.Errorf("critical surface review fan-out = forEach %q across %d runs, want complete map-protocol-surfaces input across 12 runs", criticalSurfaceReview.ForEach, criticalSurfaceReview.TargetRuns)
+	for _, marker := range []string{"conditions.ready", "build_ready", "test_ready", "blocker artifact"} {
+		if !strings.Contains(strings.ToLower(preflight.Objective), marker) {
+			t.Errorf("runtime preflight must require %q", marker)
+		}
 	}
-	requiredSkills := map[string][]string{
-		"solana-anchor-specialist":            {"trail-of-bits-solana-vulnerability-scanner"},
-		"cosmos-cosmwasm-ibc-specialist":      {"trail-of-bits-cosmos-vulnerability-scanner"},
-		"substrate-polkadot-xcm-specialist":   {"trail-of-bits-substrate-vulnerability-scanner"},
-		"aptos-move-specialist":               {"move-chain-security-review"},
-		"sui-move-specialist":                 {"move-chain-security-review"},
-		"cairo-starknet-specialist":           {"trail-of-bits-cairo-vulnerability-scanner"},
-		"ton-specialist":                      {"trail-of-bits-ton-vulnerability-scanner"},
-		"algorand-specialist":                 {"trail-of-bits-algorand-vulnerability-scanner"},
-		"bitcoin-lightning-specialist":        {"bitcoin-lightning-security-review"},
-		"bridge-l2-zk-specialist":             {"trail-of-bits-property-based-testing"},
-		"wallet-mpc-cryptography-specialist":  {"trail-of-bits-constant-time-analysis"},
-		"economics-mev-governance-specialist": {"evm-economic-and-mev-review"},
+
+	investigators := []string{
+		"consensus-and-execution-investigator",
+		"network-and-state-investigator",
+		"cross-chain-and-custody-investigator",
+		"crypto-economics-and-release-investigator",
 	}
-	for name, skills := range requiredSkills {
+	for _, name := range investigators {
 		task, ok := byName[name]
 		if !ok {
-			t.Errorf("required chain-aware task %q is missing", name)
+			t.Errorf("persistent investigator %q is missing", name)
 			continue
 		}
-		if !slices.Contains(task.DependsOn, "detect-platforms-and-components") {
-			t.Errorf("task %q does not consume platform detection", name)
+		if !slices.Contains(task.DependsOn, "runtime-preflight-and-dossier") || task.When == nil || task.When.Path != "conditions.ready" {
+			t.Errorf("investigator %q is not gated by runtime readiness", name)
 		}
-		refs := make([]string, 0, len(task.SkillRefs))
-		for _, ref := range task.SkillRefs {
-			refs = append(refs, ref.Name)
+		if task.Timeout.Duration < 60*time.Minute || task.MaxTurns < 100 {
+			t.Errorf("investigator %q is not persistent enough: timeout=%s maxTurns=%d", name, task.Timeout.Duration, task.MaxTurns)
 		}
-		for _, skill := range skills {
-			if !slices.Contains(refs, skill) {
-				t.Errorf("task %q does not attach skill %q", name, skill)
+		objective := strings.ToLower(task.Objective)
+		for _, marker := range []string{"create_security_hypothesis", "local", "create_security_research_artifact", "record_security_coverage"} {
+			if !strings.Contains(objective, marker) {
+				t.Errorf("investigator %q must require %q", name, marker)
 			}
 		}
 	}
 
-	cardinalities := map[string]int{
-		"account-chain-coverage-a":        3,
-		"account-chain-coverage-b":        3,
-		"account-chain-coverage-c":        4,
-		"account-cross-system-coverage-a": 3,
-		"account-cross-system-coverage-b": 1,
-		"account-chain-coverage":          10,
-		"account-cross-system-coverage":   4,
-		"account-domain-coverage-a":       3,
-		"account-domain-coverage-b":       3,
-		"account-domain-coverage-c":       3,
-		"account-domain-coverage-d":       3,
-		"account-domain-coverage-ab":      6,
-		"account-domain-coverage-cd":      6,
-		"account-domain-coverage":         12,
+	challenge := byName["challenge-and-variant-sweep"]
+	if challenge.ForEach != "select-adaptive-challenges" || challenge.MaxInstances != 8 {
+		t.Errorf("adaptive challenge fan-out = forEach %q maxInstances %d, want selected leads capped at 8", challenge.ForEach, challenge.MaxInstances)
 	}
-	for name, want := range cardinalities {
-		task, ok := byName[name]
-		if !ok {
-			t.Errorf("coverage ledger task %q is missing", name)
-			continue
-		}
-		if task.Reduce != "concat" {
-			t.Errorf("coverage ledger task %q uses reduce %q, want deterministic concat", name, task.Reduce)
-		}
-		var schema struct {
-			MinItems int `json:"minItems"`
-			MaxItems int `json:"maxItems"`
-		}
-		if err := json.Unmarshal([]byte(task.OutputSchema), &schema); err != nil {
-			t.Errorf("%s output schema: %v", name, err)
-		} else if schema.MinItems != want || schema.MaxItems != want {
-			t.Errorf("%s output cardinality = %d..%d, want exactly %d", name, schema.MinItems, schema.MaxItems, want)
+	for _, name := range append([]string{"runtime-preflight-and-dossier"}, investigators...) {
+		schema := byName[name].OutputSchema
+		for _, field := range []string{"artifact_ids", "candidate_fingerprints", "coverage_ids", "blocker_ids"} {
+			if !strings.Contains(schema, `"`+field+`"`) {
+				t.Errorf("task %q handoff schema lacks %q", name, field)
+			}
 		}
 	}
-
-	triage := byName["triage-and-report"]
-	for _, ledger := range []string{"account-complete-protocol-coverage", "account-chain-coverage", "account-cross-system-coverage"} {
-		if !slices.Contains(triage.DependsOn, ledger) || !strings.Contains(triage.Objective, "{{tasks."+ledger+".output}}") {
-			t.Errorf("triage-and-report does not consume %q", ledger)
-		}
-	}
-	for _, status := range []string{"errors", "timeouts", "unsupported", "skipped", "inconclusive", "retest"} {
-		if !strings.Contains(strings.ToLower(triage.Objective), status) {
-			t.Errorf("triage-and-report must account for %q", status)
-		}
+	if strings.Contains(byName["collect-investigator-handoffs"].Objective, "include_payload") {
+		t.Error("handoff collector must not recursively load durable artifact bodies")
 	}
 }
 
@@ -979,35 +948,28 @@ func TestNativeFuzzBaselineWorkflows(t *testing.T) {
 
 	t.Run("blockchain-protocol-audit", func(t *testing.T) {
 		t.Parallel()
-		task := assertBaseline(t, "blockchain-protocol-audit", "run-upstream-fuzz-campaigns")
-		if !slices.Equal(task.DependsOn, []string{"detect-platforms-and-components", "map-protocol-surfaces"}) {
-			t.Errorf("fuzz dependencies = %v", task.DependsOn)
-		}
-
 		var workflow triggersv1alpha1.SecurityWorkflow
 		readBootstrapAsset(t, "securityworkflows", "blockchain-protocol-audit", &workflow)
 		byName := make(map[string]triggersv1alpha1.SecurityScanTask, len(workflow.Spec.Tasks))
 		for _, workflowTask := range workflow.Spec.Tasks {
 			byName[workflowTask.Name] = workflowTask
 		}
-		for _, consumer := range []string{"validate-high-impact-findings", "account-complete-protocol-coverage"} {
-			if !slices.Contains(byName[consumer].DependsOn, task.Name) ||
-				!strings.Contains(byName[consumer].Objective, "{{tasks."+task.Name+".output}}") {
-				t.Errorf("%s must consume native fuzz output", consumer)
+		task, ok := byName["run-bounded-native-fuzz"]
+		if !ok {
+			t.Fatal("blockchain protocol audit is missing run-bounded-native-fuzz")
+		}
+		if !slices.Equal(task.DependsOn, []string{"runtime-preflight-and-dossier"}) || task.When == nil || task.When.Path != "conditions.ready" {
+			t.Errorf("native fuzz task is not readiness-gated: dependencies=%v when=%#v", task.DependsOn, task.When)
+		}
+		objective := strings.ToLower(task.Objective)
+		for _, marker := range []string{"at most two", "two minutes", "corpus provenance", "not_found_under", "null seed"} {
+			if !strings.Contains(objective, marker) {
+				t.Errorf("native fuzz objective must require %q", marker)
 			}
 		}
-		var aggregateSchema struct {
-			Properties map[string]struct {
-				Required []string `json:"required"`
-			} `json:"properties"`
-		}
-		if err := json.Unmarshal([]byte(byName["account-complete-protocol-coverage"].OutputSchema), &aggregateSchema); err != nil {
-			t.Fatalf("decode complete protocol coverage schema: %v", err)
-		}
-		for _, field := range []string{"inventory", "runs", "uncovered", "limitations"} {
-			if !slices.Contains(aggregateSchema.Properties["native_fuzz"].Required, field) {
-				t.Errorf("native_fuzz aggregation must preserve %q", field)
-			}
+		collector := byName["collect-investigator-handoffs"]
+		if !slices.Contains(collector.DependsOn, task.Name) {
+			t.Error("compact handoff collector must include native fuzz evidence IDs")
 		}
 	})
 
@@ -1257,40 +1219,27 @@ func TestHuntObjectivesFollowDisclosedPayoutOrder(t *testing.T) {
 			},
 		},
 		"blockchain-protocol-audit": {
-			"review-critical-surface": slices.Concat(payoutOrderMarkers, []string{
-				"naming the invariant you are trying to break",
-				"chain-read and deployed-bytecode-diff packs can settle",
-				"operator-authorized fork endpoint alias",
-				"rather than assuming the deployed value",
-				"bot-findable means unpayable",
-			}),
-			"consensus-finality-and-state-transition": {
-				"Payout-ordered priority 3 is owned here",
-				"name upstream-fork-diff",
+			"consensus-and-execution-investigator": {
+				"Payout-ordered priority 3 is owned here:",
+				"Name upstream-fork-diff",
 				"the invariant the upstream code used to satisfy",
-				"Record an unavailable upstream revision as a limitation",
+				"record an unavailable upstream revision as a limitation",
 			},
-			"cross-chain-bridge-and-custody": {
-				"Payout-ordered priority 2 is owned here, cross-chain proof and identity binding",
+			"cross-chain-and-custody-investigator": {
+				"Payout-ordered priority 2 is owned here: Priority 2",
 				"who is allowed to have produced this proof",
 				"what msg.sender becomes on the far side after relaying",
 			},
-			"transaction-crypto-and-accounting": {
-				"Payout-ordered priorities 4, 5 and 6 are owned here",
+			"crypto-economics-and-release-investigator": {
+				"Payout-ordered priorities 1, 4, 5, 6, and 7 are owned here",
+				"Priority 1, initialization and upgrade state",
 				"Priority 4, encoding and decoding round trips and replay",
 				"Priority 5, missing balance and state validation",
 				"Priority 6, accounting, rounding, precision and decimals",
-				"non-18-decimal representations",
-			},
-			"genesis-deployment-and-upgrades": {
-				"Payout-ordered priority 1 is owned here",
+				"Priority 7, access control",
 				"the chain-read pack reads the EIP-1967 implementation, admin and beacon slots",
-				"deployed-bytecode-diff",
 				"operator-authorized fork endpoint alias",
-				"rather than assuming the deployed value",
-			},
-			"economics-mev-governance-specialist": {
-				"Templated flash-loan oracle manipulation stays available but is off the default path",
+				"Templated flash-loan oracle manipulation stays AVAILABLE but is off the default bounty path",
 				"bot-findable means unpayable",
 			},
 		},

@@ -896,6 +896,17 @@ const (
 	SecurityScanExecutionPhaseResuming = "Resuming"
 )
 
+// SecurityScanEvidenceOutcome distinguishes orchestration delivery from
+// security assurance. It is additive to the legacy execution phase.
+type SecurityScanEvidenceOutcome string
+
+const (
+	SecurityScanEvidenceOutcomeComplete SecurityScanEvidenceOutcome = "complete"
+	SecurityScanEvidenceOutcomePartial  SecurityScanEvidenceOutcome = "partial"
+	SecurityScanEvidenceOutcomeBlocked  SecurityScanEvidenceOutcome = "blocked"
+	SecurityScanEvidenceOutcomeFailed   SecurityScanEvidenceOutcome = "failed"
+)
+
 // SecurityScanTaskAttempt records one finished attempt of a task instance in
 // deterministic execution.
 type SecurityScanTaskAttempt struct {
@@ -1173,6 +1184,19 @@ type SecurityScanExecutionStatus struct {
 	// +optional
 	Phase string `json:"phase,omitempty"`
 
+	// evidenceOutcome is the security-assurance result derived from phase and
+	// coverageGaps. It does not replace phase: a delivered execution remains
+	// Succeeded for compatibility while its evidence outcome may be partial.
+	// +kubebuilder:validation:Enum=complete;partial;blocked;failed
+	// +optional
+	EvidenceOutcome SecurityScanEvidenceOutcome `json:"evidenceOutcome,omitempty"`
+
+	// resolvedRevision is the immutable primary-repository revision shared by
+	// every task run in this execution.
+	// +kubebuilder:validation:MaxLength=256
+	// +optional
+	ResolvedRevision string `json:"resolvedRevision,omitempty"`
+
 	// effectiveParallelism is the concurrency bound actually applied.
 	// +optional
 	EffectiveParallelism int32 `json:"effectiveParallelism,omitempty"`
@@ -1244,14 +1268,39 @@ type SecurityScanExecutionStatus struct {
 	PostScriptsMaterialized bool `json:"postScriptsMaterialized,omitempty"`
 
 	// coverageGaps records why this execution's results are not complete:
-	// truncated fan-out inventories and post-script jobs that could not be
-	// materialized or did not reach a successful terminal state. A non-empty
+	// failed runtime readiness gates, truncated fan-out inventories, and
+	// post-script jobs that could not be materialized or did not reach a
+	// successful terminal state. A non-empty
 	// list means the report must be read as partial coverage rather than as
 	// an authoritative all-clear.
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=50
 	// +optional
 	CoverageGaps []string `json:"coverageGaps,omitempty"`
+}
+
+// DerivedEvidenceOutcome computes the security-assurance result without
+// trusting the persisted derived field, so executions written by older
+// controllers receive the same semantics.
+func (s SecurityScanExecutionStatus) DerivedEvidenceOutcome() SecurityScanEvidenceOutcome {
+	switch s.Phase {
+	case SecurityScanExecutionPhaseSucceeded:
+		for _, gap := range s.CoverageGaps {
+			if strings.HasPrefix(gap, "runtime readiness gate ") {
+				return SecurityScanEvidenceOutcomeBlocked
+			}
+		}
+		if len(s.CoverageGaps) > 0 {
+			return SecurityScanEvidenceOutcomePartial
+		}
+		return SecurityScanEvidenceOutcomeComplete
+	case SecurityScanExecutionPhaseCancelled:
+		return SecurityScanEvidenceOutcomeBlocked
+	case SecurityScanExecutionPhaseFailed:
+		return SecurityScanEvidenceOutcomeFailed
+	default:
+		return ""
+	}
 }
 
 // SecurityScanStatus defines the observed state of SecurityScan.

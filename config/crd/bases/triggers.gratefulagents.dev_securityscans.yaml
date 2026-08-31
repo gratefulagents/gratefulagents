@@ -1500,8 +1500,9 @@ spec:
                   coverageGaps:
                     description: |-
                       coverageGaps records why this execution's results are not complete:
-                      truncated fan-out inventories and post-script jobs that could not be
-                      materialized or did not reach a successful terminal state. A non-empty
+                      failed runtime readiness gates, truncated fan-out inventories, and
+                      post-script jobs that could not be materialized or did not reach a
+                      successful terminal state. A non-empty
                       list means the report must be read as partial coverage rather than as
                       an authoritative all-clear.
                     items:
@@ -1509,6 +1510,23 @@ spec:
                     maxItems: 50
                     type: array
                     x-kubernetes-list-type: atomic
+                  evidenceOutcome:
+                    description: |-
+                      evidenceOutcome is the security-assurance result derived from phase and
+                      coverageGaps. It does not replace phase: a delivered execution remains
+                      Succeeded for compatibility while its evidence outcome may be partial.
+                    enum:
+                    - complete
+                    - partial
+                    - blocked
+                    - failed
+                    type: string
+                  resolvedRevision:
+                    description: |-
+                      resolvedRevision is the immutable primary-repository revision shared by
+                      every task run in this execution.
+                    maxLength: 256
+                    type: string
                   effectiveParallelism:
                     description: effectiveParallelism is the concurrency bound actually
                       applied.

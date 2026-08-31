@@ -34,6 +34,7 @@ func registerSecurityResearchTools(registry *Registry, state *securityScanState)
 	registry.Register(&createSecurityVariantSweepTool{state: state})
 	registry.Register(&completeSecurityVariantSweepTool{state: state})
 	registry.Register(&getSecurityCampaignStatusTool{state: state})
+	registerSecurityResearchArtifactTools(registry, state)
 }
 
 func resolveSecurityResearchCheckoutRevision(ctx context.Context, checkoutDir string) (string, error) {

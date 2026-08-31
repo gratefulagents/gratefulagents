@@ -1092,6 +1092,8 @@ func securityScanExecutionStateProto(e *triggersv1alpha1.SecurityScanExecutionSt
 		Id:                       e.ID,
 		Mode:                     e.Mode,
 		Phase:                    e.Phase,
+		EvidenceOutcome:          string(e.DerivedEvidenceOutcome()),
+		ResolvedRevision:         e.ResolvedRevision,
 		EffectiveParallelism:     e.EffectiveParallelism,
 		EffectiveParallelismNote: e.EffectiveParallelismNote,
 		LastResumeToken:          e.LastResumeToken,

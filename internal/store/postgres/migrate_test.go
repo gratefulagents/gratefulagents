@@ -146,6 +146,22 @@ func TestMigration056Registered(t *testing.T) {
 	t.Fatal("migration 056 is not registered in orderedMigrations and would never be applied")
 }
 
+func TestMigration058Registered(t *testing.T) {
+	for _, migration := range orderedMigrations() {
+		if migration.version != 58 {
+			continue
+		}
+		if migration.sql == "" || migration.sql != migration058Up {
+			t.Fatal("migration 058 must carry the embedded security research artifact SQL")
+		}
+		if migration.optional || noTxMigrations[58] {
+			t.Fatal("migration 058 is required and must run transactionally")
+		}
+		return
+	}
+	t.Fatal("migration 058 is not registered in orderedMigrations and would never be applied")
+}
+
 // Every registered migration version must be unique and strictly increasing:
 // a duplicate registration would re-apply DDL on startup, and an out-of-order
 // entry silently changes the effective schema on fresh installs.

@@ -21,6 +21,7 @@ function execution(): SecurityScanExecutionState {
     id: "20260101-abc",
     mode: "deterministic",
     phase: "Running",
+    evidenceOutcome: "partial",
     effectiveParallelism: 3,
     effectiveParallelismNote: "capped by policy pack",
     startedAtUnix: 1767225600n,
@@ -124,6 +125,7 @@ describe("ExecutionProgressPanel", () => {
     renderPanel();
     const panel = screen.getByTestId("execution-progress");
     expect(panel.textContent).toContain("Running");
+    expect(screen.getByTestId("execution-evidence-outcome").textContent).toBe("evidence partial");
     const parallelism = screen.getByTestId("execution-parallelism");
     expect(parallelism.textContent).toContain("parallelism 3");
     expect(parallelism.textContent).toContain("capped by policy pack");

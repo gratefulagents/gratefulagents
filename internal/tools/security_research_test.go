@@ -18,36 +18,39 @@ type fakeSecurityResearchStore struct {
 	*bountyLaneStore
 	store.SecurityResearchStore
 
-	target       *store.SecurityResearchTarget
-	revision     *store.SecurityResearchRevision
-	dossiers     map[string]*store.SecurityResearchDossier
-	hypotheses   map[string]*store.SecurityResearchHypothesis
-	transitions  map[string]*store.SecurityResearchHypothesis
-	coverage     map[string]*store.SecurityResearchCoverage
-	sweeps       map[string]*store.SecurityResearchVariantSweep
-	completions  map[string]*store.SecurityResearchVariantSweep
-	submissions  map[string]*store.SecurityResearchSubmission
-	reservations map[string]*store.SecuritySubmissionReservationResult
-	decisions    map[string]*store.SecurityResearchDecisionSnapshot
-	precision    store.SecuritySubmissionPrecision
-	exhausted    bool
+	target            *store.SecurityResearchTarget
+	revision          *store.SecurityResearchRevision
+	dossiers          map[string]*store.SecurityResearchDossier
+	hypotheses        map[string]*store.SecurityResearchHypothesis
+	transitions       map[string]*store.SecurityResearchHypothesis
+	coverage          map[string]*store.SecurityResearchCoverage
+	sweeps            map[string]*store.SecurityResearchVariantSweep
+	completions       map[string]*store.SecurityResearchVariantSweep
+	submissions       map[string]*store.SecurityResearchSubmission
+	reservations      map[string]*store.SecuritySubmissionReservationResult
+	decisions         map[string]*store.SecurityResearchDecisionSnapshot
+	researchArtifacts map[string]*store.SecurityResearchArtifact
+	precision         store.SecuritySubmissionPrecision
+	exhausted         bool
 
-	lastNamespace string
-	lastActor     string
+	lastNamespace      string
+	lastActor          string
+	lastArtifactFilter store.SecurityResearchArtifactFilter
 }
 
 func newFakeSecurityResearchStore() *fakeSecurityResearchStore {
 	return &fakeSecurityResearchStore{
-		bountyLaneStore: newBountyLaneStore(),
-		dossiers:        map[string]*store.SecurityResearchDossier{},
-		hypotheses:      map[string]*store.SecurityResearchHypothesis{},
-		transitions:     map[string]*store.SecurityResearchHypothesis{},
-		coverage:        map[string]*store.SecurityResearchCoverage{},
-		sweeps:          map[string]*store.SecurityResearchVariantSweep{},
-		completions:     map[string]*store.SecurityResearchVariantSweep{},
-		submissions:     map[string]*store.SecurityResearchSubmission{},
-		reservations:    map[string]*store.SecuritySubmissionReservationResult{},
-		decisions:       map[string]*store.SecurityResearchDecisionSnapshot{},
+		bountyLaneStore:   newBountyLaneStore(),
+		dossiers:          map[string]*store.SecurityResearchDossier{},
+		hypotheses:        map[string]*store.SecurityResearchHypothesis{},
+		transitions:       map[string]*store.SecurityResearchHypothesis{},
+		coverage:          map[string]*store.SecurityResearchCoverage{},
+		sweeps:            map[string]*store.SecurityResearchVariantSweep{},
+		completions:       map[string]*store.SecurityResearchVariantSweep{},
+		submissions:       map[string]*store.SecurityResearchSubmission{},
+		reservations:      map[string]*store.SecuritySubmissionReservationResult{},
+		decisions:         map[string]*store.SecurityResearchDecisionSnapshot{},
+		researchArtifacts: map[string]*store.SecurityResearchArtifact{},
 	}
 }
 
@@ -291,6 +294,7 @@ func TestSecurityResearchToolsUseTrustedContextAndAreIdempotent(t *testing.T) {
 		"get_security_research_context", "amend_security_dossier", "create_security_hypothesis",
 		"transition_security_hypothesis", "record_security_coverage", "create_security_variant_sweep",
 		"complete_security_variant_sweep", "get_security_campaign_status",
+		"create_security_research_artifact", "get_security_research_artifacts",
 	} {
 		if registry.Get(name) == nil {
 			t.Fatalf("tool %q was not registered", name)
