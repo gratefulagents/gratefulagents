@@ -96,6 +96,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the backend-generation boundaries, UI
 
 For non-security bugs and feature requests, use the [GitHub issue tracker](https://github.com/gratefulagents/gratefulagents/issues). Do not include credentials, tokens, private keys, webhook secrets, or private repository data in public reports.
 
-## License
+## License 
 
 [GNU Affero General Public License v3.0](LICENSE).
