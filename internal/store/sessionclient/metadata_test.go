@@ -320,6 +320,24 @@ func TestClearIdleUserInputRequestClearsKickoffIdleBoundary(t *testing.T) {
 	}
 }
 
+func TestClearIdleUserInputRequestClearsStoppedBoundary(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	testStore := &metadataTestStore{
+		session:     &store.Session{ID: sessionID, PendingInputType: "stopped", PendingRequestID: "stopped-request"},
+		clearResult: true,
+	}
+	client := &Client{store: testStore, sessionID: sessionID}
+
+	if err := client.ClearIdleUserInputRequest(context.Background()); err != nil {
+		t.Fatalf("ClearIdleUserInputRequest() error = %v", err)
+	}
+	if testStore.session.PendingInputType != "" || testStore.session.PendingRequestID != "" {
+		t.Fatalf("stopped request was not cleared: %#v", testStore.session)
+	}
+}
+
 func TestClearIdleUserInputRequestPreservesNonIdleRequest(t *testing.T) {
 	t.Parallel()
 

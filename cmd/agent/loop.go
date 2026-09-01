@@ -740,8 +740,15 @@ messageLoop:
 				state.LastStoppedUserMessageID = currentUserMessageID
 				return nil
 			})
-			_ = sc.WriteActivity(ctx, "turn_interrupted", "Stopped by user before the replacement runtime started the turn.", nil)
-			_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputStopped, "Stopped by user.", nil)
+			// A newer message queued behind the stopped one continues
+			// directly instead of parking the session in the Stopped
+			// awaiting-input state.
+			if queuedUserMessageWaiting(ctx, sc, handledImmediate) {
+				_ = sc.WriteActivity(ctx, "turn_interrupted", "Stopped by user before the replacement runtime started the turn — continuing with the next queued message.", nil)
+			} else {
+				_ = sc.WriteActivity(ctx, "turn_interrupted", "Stopped by user before the replacement runtime started the turn.", nil)
+				_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputStopped, "Stopped by user.", nil)
+			}
 			continue messageLoop
 		}
 
@@ -1418,7 +1425,16 @@ messageLoop:
 						return nil
 					})
 					_ = sc.WriteActivity(ctx, "turn_interrupted", turnInterruptNotice(stoppedTasks), nil)
-					_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputStopped, "Stopped by user.", nil)
+					// A steered message the user queued before (or while)
+					// stopping must flow directly into the next turn instead
+					// of bouncing the session through the Stopped
+					// awaiting-input state.
+					if queuedUserMessageWaiting(ctx, sc, handledImmediate) {
+						log.Printf("Turn %d: queued user message found after stop — continuing with it directly", turnNumber)
+						_ = sc.WriteActivity(ctx, "turn_interrupted", "A queued message is waiting — continuing with it now.", nil)
+					} else {
+						_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputStopped, "Stopped by user.", nil)
+					}
 					releaseFailedRun()
 					break agentLoop
 				}
@@ -1655,8 +1671,16 @@ messageLoop:
 					state.LastStoppedUserMessageID = currentUserMessageID
 					return nil
 				})
-				_ = sc.WriteActivity(ctx, "turn_interrupted", "Stopped by user — the turn had just completed; send a message to continue.", nil)
-				_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputStopped, "Stopped by user.", nil)
+				// Same as the mid-turn stop: a message the user queued
+				// alongside the stop continues directly instead of parking
+				// the session in the Stopped awaiting-input state.
+				if queuedUserMessageWaiting(ctx, sc, handledImmediate) {
+					log.Printf("Turn %d: queued user message found after stop — continuing with it directly", turnNumber)
+					_ = sc.WriteActivity(ctx, "turn_interrupted", "Stopped by user as the turn completed — a queued message is waiting; continuing with it now.", nil)
+				} else {
+					_ = sc.WriteActivity(ctx, "turn_interrupted", "Stopped by user — the turn had just completed; send a message to continue.", nil)
+					_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputStopped, "Stopped by user.", nil)
+				}
 				break agentLoop
 			}
 
@@ -1829,6 +1853,29 @@ func latestUserMessageID(messages []sessionclient.UserMessage, fallback int64) i
 		return fallback
 	}
 	return messages[len(messages)-1].ID
+}
+
+// queuedUserMessageWaiting reports whether an undelivered, turn-starting user
+// message is already queued for this session — e.g. steering the user sent
+// just before stopping the turn. When one is waiting, the loop should break
+// straight back to the message loop and consume it instead of parking the
+// session in the Stopped awaiting-input state: the user's clear intent is
+// "stop what you are doing and do this instead", not "stop and wait".
+func queuedUserMessageWaiting(ctx context.Context, sc *sessionclient.Client, handledImmediate map[int64]struct{}) bool {
+	peeked, err := sc.PeekForUserMessages(ctx)
+	if err != nil || len(peeked) == 0 {
+		return false
+	}
+	msg, ok, _, _ := nextPendingUserMessage(peeked, handledImmediate)
+	if !ok {
+		return false
+	}
+	content := strings.TrimSpace(msg.Content)
+	if content == "" && len(msg.Images) == 0 {
+		return false
+	}
+	// Control commands never start a turn; a lone /stop must still park.
+	return !isControlSlashCommand(content)
 }
 
 func waitForNextUserReply(
