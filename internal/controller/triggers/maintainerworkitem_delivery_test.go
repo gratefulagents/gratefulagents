@@ -307,6 +307,39 @@ func TestRequestMergeRejectsBypassCapableActor(t *testing.T) {
 	}
 }
 
+// TestRequestMergeAllowsBypassCapableActorWithoutConfiguredGates reproduces a
+// standing maintainer running with the repository owner's admin token (always
+// bypass-capable) against a repository with no branch protection or rulesets:
+// with no server-side gates to bypass, the merge must proceed.
+func TestRequestMergeAllowsBypassCapableActorWithoutConfiguredGates(t *testing.T) {
+	reconciler, repository, item, command := newMaintainerMergeFixture(t)
+	repository.Spec.Maintainer.FullControl = true
+	if err := reconciler.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	head := command.Spec.RequestMerge.ExpectedHeadSHA
+	mergedAt := time.Now().UTC()
+	githubClient := &fakeMaintainerDeliveryClient{
+		pulls:            []*polledPullRequest{{State: monitorTestOpen, MergeableKnown: true, Mergeable: true, HeadSHA: head}, {State: monitorTestClosed, Merged: true, MergedAt: mergedAt, HeadSHA: head}},
+		checks:           polledHeadRollup{HeadSHA: head, State: gitHubRollupNone},
+		statuses:         polledHeadRollup{HeadSHA: head, State: gitHubRollupNone},
+		unsafePolicy:     true,
+		noRequiredReview: true,
+		noRequiredChecks: true,
+	}
+	item.Status.PullRequests[0].CheckState = triggersv1alpha1.MaintainerWorkItemCheckStateNone
+	item.Status.PullRequests[0].ReviewDecision = ""
+	if err := reconciler.Status().Update(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.processMaintainerRequestMerge(context.Background(), repository, command, item, githubClient, true); err != nil {
+		t.Fatal(err)
+	}
+	if phase := commandPhase(t, reconciler, command); phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded || githubClient.mergeCalls != 1 {
+		t.Fatalf("phase=%s mergeCalls=%d", phase, githubClient.mergeCalls)
+	}
+}
+
 func TestRequestMergeFullControlDoesNotRequireHumanApproval(t *testing.T) {
 	reconciler, repository, item, command := newMaintainerMergeFixture(t)
 	repository.Spec.Maintainer.AllowPullRequestMerge = false
