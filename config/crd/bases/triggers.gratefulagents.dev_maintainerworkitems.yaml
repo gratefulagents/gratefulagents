@@ -227,6 +227,17 @@ spec:
                   description: MaintainerWorkItemAgentRunProjection summarizes an
                     AgentRun associated through work-item identity labels.
                   properties:
+                    episodeState:
+                      description: |-
+                        EpisodeState distinguishes a run that is actively progressing on its own
+                        from one that has ended its current execution episode (or is waiting on
+                        external input) while remaining non-terminal and wakeable. AgentRun phase
+                        alone must never be used to infer activity: a Running run whose episode
+                        is Finished will not produce further work until it is woken.
+                      enum:
+                      - Active
+                      - Finished
+                      type: string
                     name:
                       minLength: 1
                       type: string

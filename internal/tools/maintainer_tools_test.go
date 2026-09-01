@@ -237,6 +237,31 @@ func TestDescribeFleetRunExposesPRLoopStateAndRound(t *testing.T) {
 	}
 }
 
+func TestDescribeFleetRunExposesEpisodeState(t *testing.T) {
+	t.Parallel()
+	maintainer := maintainerRun()
+	active := fleetRun("active-implementer", platformv1alpha1.AgentRunPhaseRunning)
+	idle := fleetRun("idle-implementer", platformv1alpha1.AgentRunPhaseRunning)
+	idle.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: string(platformv1alpha1.AgentRunPhaseRunning), BlockedReason: "idle"}
+	idle.Status.CurrentStep = "awaiting-user"
+	base, _, _ := newMaintainerToolBase(t, maintainer, active, idle)
+	tool := &getFleetRunsTool{maintainerToolBase: base}
+	activeEntry, err := tool.describeFleetRun(context.Background(), active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activeEntry.Episode != string(triggersv1alpha1.MaintainerWorkItemAgentRunEpisodeActive) {
+		t.Fatalf("active run episode = %q, want Active", activeEntry.Episode)
+	}
+	idleEntry, err := tool.describeFleetRun(context.Background(), idle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idleEntry.Phase != platformv1alpha1.AgentRunPhaseRunning || idleEntry.Episode != string(triggersv1alpha1.MaintainerWorkItemAgentRunEpisodeFinished) {
+		t.Fatalf("idle run phase/episode = %q/%q, want Running/Finished", idleEntry.Phase, idleEntry.Episode)
+	}
+}
+
 func TestGetFleetRunsExposesEffectiveDispatchMode(t *testing.T) {
 	t.Parallel()
 

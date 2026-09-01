@@ -10,6 +10,7 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -174,7 +175,11 @@ func projectMaintainerRunsAndPRs(item *triggersv1alpha1.MaintainerWorkItem, runs
 		if run.Labels[triggersv1alpha1.PRLoopRoleLabelKey] == triggersv1alpha1.PRLoopRoleReviewerValue {
 			role = triggersv1alpha1.MaintainerWorkItemAgentRunRoleReviewer
 		}
-		item.Status.AgentRuns = append(item.Status.AgentRuns, triggersv1alpha1.MaintainerWorkItemAgentRunProjection{Name: run.Name, UID: run.UID, Role: role, Phase: string(run.Status.Phase), PRLoopState: run.Labels[PRLoopStateLabel], ObservedAt: &observed})
+		episode := triggersv1alpha1.MaintainerWorkItemAgentRunEpisodeActive
+		if orchestration.AgentRunEpisodeFinished(run) {
+			episode = triggersv1alpha1.MaintainerWorkItemAgentRunEpisodeFinished
+		}
+		item.Status.AgentRuns = append(item.Status.AgentRuns, triggersv1alpha1.MaintainerWorkItemAgentRunProjection{Name: run.Name, UID: run.UID, Role: role, Phase: string(run.Status.Phase), EpisodeState: episode, PRLoopState: run.Labels[PRLoopStateLabel], ObservedAt: &observed})
 		if role == triggersv1alpha1.MaintainerWorkItemAgentRunRoleImplementer {
 			runNames[run.Name] = true
 			// Bind only runs created for the current reservation (with a small

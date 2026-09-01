@@ -70,6 +70,37 @@ func TestMaintainerProjectionDuplicatePullRequestMonitorsDoNotChurnSequence(t *t
 	}
 }
 
+// A dispatched implementer that calls finish stays phase=Running so review
+// feedback can wake it, while the session client mirrors the idle boundary
+// into the queue and current step. The projection must expose that episode
+// transition and treat it as a semantic change so waiter v2 wakes instead of
+// livelocking on a "Running" run that will never produce another event.
+func TestMaintainerProjectionTreatsFinishedEpisodeAsWaiterEvent(t *testing.T) {
+	t.Parallel()
+
+	itemName, itemUID := "mwi-item-7", types.UID("item-uid")
+	run := platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "impl-run", UID: types.UID("run-uid"), Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemNameLabelKey: itemName, triggersv1alpha1.MaintainerWorkItemUIDLabelKey: string(itemUID)}},
+		Status:     platformv1alpha1.AgentRunStatus{Phase: platformv1alpha1.AgentRunPhaseRunning, CurrentStep: "implementing"},
+	}
+	item := &triggersv1alpha1.MaintainerWorkItem{ObjectMeta: metav1.ObjectMeta{Name: itemName, UID: itemUID}}
+	projectMaintainerRunsAndPRs(item, []platformv1alpha1.AgentRun{run}, nil, time.Now())
+	if len(item.Status.AgentRuns) != 1 || item.Status.AgentRuns[0].EpisodeState != triggersv1alpha1.MaintainerWorkItemAgentRunEpisodeActive {
+		t.Fatalf("active run projection = %#v, want EpisodeState Active", item.Status.AgentRuns)
+	}
+	before := item.Status.DeepCopy()
+
+	run.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: string(platformv1alpha1.AgentRunPhaseRunning), BlockedReason: "idle"}
+	run.Status.CurrentStep = "awaiting-user"
+	projectMaintainerRunsAndPRs(item, []platformv1alpha1.AgentRun{run}, nil, time.Now())
+	if item.Status.AgentRuns[0].Phase != string(platformv1alpha1.AgentRunPhaseRunning) || item.Status.AgentRuns[0].EpisodeState != triggersv1alpha1.MaintainerWorkItemAgentRunEpisodeFinished {
+		t.Fatalf("idle run projection = %#v, want phase Running with EpisodeState Finished", item.Status.AgentRuns)
+	}
+	if maintainerWorkItemStatusSemanticallyEqual(before, &item.Status) {
+		t.Fatal("finished episode of a still-Running implementer would not advance the waiter projection sequence")
+	}
+}
+
 // projectMaintainerRunsAndPRs must emit the same pull-request order regardless
 // of the (arbitrary) monitor list order, including when two monitors observe
 // the same repository and number.

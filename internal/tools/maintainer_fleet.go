@@ -115,8 +115,14 @@ func (t *maintainerRepositoryScopedTool) Execute(ctx context.Context, input json
 }
 
 type fleetRunOutput struct {
-	Name            string                          `json:"name"`
-	Phase           platformv1alpha1.AgentRunPhase  `json:"phase"`
+	Name  string                         `json:"name"`
+	Phase platformv1alpha1.AgentRunPhase `json:"phase"`
+	// Episode reports whether the run is progressing on its own ("Active") or
+	// has finished its current execution episode / is waiting on external
+	// input ("Finished"). Phase alone never proves activity: a Running run
+	// with a Finished episode is idle-but-wakeable and will not produce more
+	// work until woken.
+	Episode         string                          `json:"episode"`
 	Mode            string                          `json:"mode"`
 	Role            string                          `json:"role,omitempty"`
 	IssueRef        *platformv1alpha1.ExternalRef   `json:"issue_ref,omitempty"`
@@ -157,7 +163,7 @@ type getFleetRunsTool struct{ maintainerToolBase }
 
 func (t *getFleetRunsTool) Name() string { return "get_fleet_runs" }
 func (t *getFleetRunsTool) Description() string {
-	return "List the maintained repository's controller-owned dispatch mode, capacity caps, merge permissions (merge_allowed/full_control), and dispatched implementer/reviewer runs with lifecycle, artifacts, queue state, and pending input."
+	return "List the maintained repository's controller-owned dispatch mode, capacity caps, merge permissions (merge_allowed/full_control), and dispatched implementer/reviewer runs with lifecycle, artifacts, queue state, and pending input. Each run reports episode \"Active\" or \"Finished\": phase never proves activity — a Running run with episode Finished has ended its execution episode, is only idle-but-wakeable, and will not produce more work until woken."
 }
 func (t *getFleetRunsTool) InputSchema() json.RawMessage {
 	// Keep an explicit empty properties object: bare {"type":"object"} trips a
@@ -219,7 +225,7 @@ func (t *getFleetRunsTool) Execute(ctx context.Context, _ json.RawMessage, _ str
 }
 
 func (t *getFleetRunsTool) describeFleetRun(ctx context.Context, run *platformv1alpha1.AgentRun) (fleetRunOutput, error) {
-	entry := fleetRunOutput{Name: run.Name, Phase: run.Status.Phase, Mode: run.Status.ModeName, CreatedAt: run.CreationTimestamp.Time}
+	entry := fleetRunOutput{Name: run.Name, Phase: run.Status.Phase, Episode: maintainerEpisodeState(run), Mode: run.Status.ModeName, CreatedAt: run.CreationTimestamp.Time}
 	if run.Spec.Trigger.ExternalRef != nil {
 		ref := *run.Spec.Trigger.ExternalRef
 		entry.IssueRef = &ref

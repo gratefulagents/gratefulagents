@@ -70,13 +70,17 @@ type maintainerRepoEventIssue struct {
 }
 
 type maintainerRepoFleetEvent struct {
-	Name            string                         `json:"name"`
-	Phase           platformv1alpha1.AgentRunPhase `json:"phase"`
-	PullRequestURLs []string                       `json:"pull_request_urls"`
-	BlockedReason   string                         `json:"blocked_reason,omitempty"`
-	PendingInput    bool                           `json:"pending_input"`
-	PRLoopState     string                         `json:"pr_loop_state,omitempty"`
-	PRLoopRound     string                         `json:"pr_loop_round,omitempty"`
+	Name  string                         `json:"name"`
+	Phase platformv1alpha1.AgentRunPhase `json:"phase"`
+	// Episode is "Active" while the run progresses on its own and "Finished"
+	// once its current execution episode has ended, even when phase is still
+	// Running (finished-but-wakeable implementer).
+	Episode         string   `json:"episode"`
+	PullRequestURLs []string `json:"pull_request_urls"`
+	BlockedReason   string   `json:"blocked_reason,omitempty"`
+	PendingInput    bool     `json:"pending_input"`
+	PRLoopState     string   `json:"pr_loop_state,omitempty"`
+	PRLoopRound     string   `json:"pr_loop_round,omitempty"`
 }
 
 type maintainerRepoPullRequestEvent struct {
@@ -549,9 +553,10 @@ func (t *waitForRepoEventsTool) fleetEventsSnapshot(ctx context.Context) (mainta
 		pendingInput := orchestration.PendingUserInputForSession(session) != nil
 		loopState := run.Labels[maintainerPRLoopStateLabel]
 		loopRound := run.Annotations[maintainerPRLoopRoundAnnotation]
-		signature := string(run.Status.Phase) + "|" + strings.Join(urls, "\x00") + "|" + blockedReason + "|" + strconv.FormatBool(pendingInput) + "|" + loopState + "|" + loopRound
+		episode := maintainerEpisodeState(run)
+		signature := string(run.Status.Phase) + "|" + episode + "|" + strings.Join(urls, "\x00") + "|" + blockedReason + "|" + strconv.FormatBool(pendingInput) + "|" + loopState + "|" + loopRound
 		signatures[run.Name] = maintainerRepoEventSignature(signature)
-		events[run.Name] = maintainerRepoFleetEvent{Name: run.Name, Phase: run.Status.Phase, PullRequestURLs: urls, BlockedReason: blockedReason, PendingInput: pendingInput, PRLoopState: loopState, PRLoopRound: loopRound}
+		events[run.Name] = maintainerRepoFleetEvent{Name: run.Name, Phase: run.Status.Phase, Episode: episode, PullRequestURLs: urls, BlockedReason: blockedReason, PendingInput: pendingInput, PRLoopState: loopState, PRLoopRound: loopRound}
 	}
 	return maintainerRepoEventsSnapshot{fleetSignatures: signatures, fleet: events, pullRequestSignatures: map[string]string{}, pullRequests: map[string]maintainerRepoPullRequestEvent{}}, nil
 }
