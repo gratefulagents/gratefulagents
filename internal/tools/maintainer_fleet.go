@@ -152,7 +152,12 @@ func (t *getFleetRunsTool) Name() string { return "get_fleet_runs" }
 func (t *getFleetRunsTool) Description() string {
 	return "List the maintained repository's controller-owned dispatch mode, capacity caps, and dispatched implementer/reviewer runs with lifecycle, artifacts, queue state, and pending input."
 }
-func (t *getFleetRunsTool) InputSchema() json.RawMessage          { return json.RawMessage(`{"type":"object"}`) }
+func (t *getFleetRunsTool) InputSchema() json.RawMessage {
+	// Keep an explicit empty properties object: bare {"type":"object"} trips a
+	// serialization gap in older SDK builds where the Anthropic tool converter
+	// drops input_schema entirely (API 400 "input_schema: Field required").
+	return json.RawMessage(`{"type":"object","properties":{}}`)
+}
 func (t *getFleetRunsTool) IsReadOnly() bool                      { return true }
 func (t *getFleetRunsTool) IsEnabled(_ *agentsdk.RunContext) bool { return true }
 func (t *getFleetRunsTool) NeedsApproval() bool                   { return false }
