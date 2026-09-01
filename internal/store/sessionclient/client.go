@@ -553,15 +553,22 @@ func (c *Client) SetUserInputRequest(ctx context.Context, inputType platformv1al
 	})
 }
 
-// ClearIdleUserInputRequest consumes the current idle boundary, if any. It is
-// used for kickoff/legacy messages that predate request-bound message metadata.
-// The nonce-based clear keeps a concurrently published replacement request safe.
+// ClearIdleUserInputRequest consumes the current idle or stopped boundary, if
+// any. It is used for kickoff/legacy messages that predate request-bound
+// message metadata and for messages queued before the boundary was published
+// (e.g. steering sent just before a user stop) — consuming any such message
+// means the session is running again, so a stale Stopped banner must not
+// linger over the new turn. The nonce-based clear keeps a concurrently
+// published replacement request safe.
 func (c *Client) ClearIdleUserInputRequest(ctx context.Context) error {
 	sess, err := c.store.GetSession(ctx, c.sessionID)
 	if err != nil {
 		return err
 	}
-	if !strings.EqualFold(strings.TrimSpace(sess.PendingInputType), string(platformv1alpha1.UserInputIdle)) || strings.TrimSpace(sess.PendingRequestID) == "" {
+	pendingType := strings.TrimSpace(sess.PendingInputType)
+	resumable := strings.EqualFold(pendingType, string(platformv1alpha1.UserInputIdle)) ||
+		strings.EqualFold(pendingType, string(platformv1alpha1.UserInputStopped))
+	if !resumable || strings.TrimSpace(sess.PendingRequestID) == "" {
 		return nil
 	}
 	return c.ClearUserInputRequestIfID(ctx, sess.PendingRequestID)
