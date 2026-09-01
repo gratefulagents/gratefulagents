@@ -111,6 +111,15 @@ func (h *GitHubWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Acknowledge but ignore deliveries while the trigger is suspended so
+	// GitHub does not retry them; issue polling backfills anything missed
+	// once the repository resumes.
+	if gh.Spec.Suspend {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("suspended"))
+		return
+	}
+
 	// Read the request body (bounded).
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBodyBytes))
 	if err != nil {
