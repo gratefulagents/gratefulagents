@@ -117,8 +117,16 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 		// unproven policy is a terminal rejection.
 		return r.failMaintainerWorkItemCommand(ctx, command, fresh, "pre-merge GitHub merge policy read failed: "+err.Error())
 	}
-	if !policy.CanMerge || policy.ActorCanBypass {
-		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "repository merge permission for a non-bypass actor could not be proven")
+	if !policy.CanMerge {
+		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "repository merge permission could not be proven")
+	}
+	// A bypass-capable actor (for example a repository owner's admin token)
+	// only weakens the merge proof when branch protection or rulesets define
+	// gates GitHub would otherwise enforce at merge time. With no required
+	// reviews and no required checks configured there is nothing to bypass,
+	// and the controller has already re-read every gate itself.
+	if policy.ActorCanBypass && (policy.RequiredReviews || policy.RequiredChecks) {
+		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "required review/check gates are configured but the merge actor can bypass them; a non-bypass merge cannot be proven")
 	}
 	if fullControl && policy.RequiredReviews {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "full control requires branch protection or rulesets without required approving reviews")
