@@ -191,8 +191,11 @@ func (t *requestMergeTool) Execute(ctx context.Context, raw json.RawMessage, _ s
 		return maintainerCommandError("%v", err)
 	}
 	expectedRepository := repository.Spec.Owner + "/" + repository.Spec.Repo
-	if strings.TrimSpace(in.Repository) != expectedRepository {
-		return maintainerCommandError("repository must exactly match %s", expectedRepository)
+	// GitHub owner/repo identities are case-insensitive; agents may echo the
+	// lowercased identity that projections and PR URLs report. The command
+	// always stores the canonical spec casing.
+	if !strings.EqualFold(strings.TrimSpace(in.Repository), expectedRepository) {
+		return maintainerCommandError("repository must match %s", expectedRepository)
 	}
 	spec := triggersv1alpha1.MaintainerWorkItemCommandSpec{RepositoryRef: item.Spec.RepositoryRef, IdempotencyKey: in.IdempotencyKey, Preconditions: preconditions, Type: triggersv1alpha1.MaintainerWorkItemCommandTypeRequestMerge, RequestMerge: &triggersv1alpha1.MaintainerRequestMergeCommand{IssueNumber: in.IssueNumber, Repository: expectedRepository, PullRequestNumber: in.PullRequest, ExpectedHeadSHA: in.ExpectedHeadSHA, MergeMethod: method}}
 	return t.submitCommand(ctx, repository, current, item, spec)
