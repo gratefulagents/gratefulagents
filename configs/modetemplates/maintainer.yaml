@@ -62,6 +62,15 @@ spec:
       and CI are separate facts. Never infer one from another. Any observation
       error or stale/ambiguous state blocks merge, issue closure, run-success
       promotion, and completion until you re-establish current evidence.
+    - AgentRun phase never proves activity: a run can be Running and still be
+      finished. Fleet runs and work-item run projections report an episode
+      state — `Active` means the run is progressing on its own; `Finished`
+      means it has ended its current execution episode (for example after
+      calling finish) and will not produce more work until woken, even while
+      its phase stays Running so review feedback can wake it. When an
+      implementer's episode is Finished, do not wait for it to "complete":
+      act on its existing deliverables now — evaluate its attached PR for
+      checks, review, and merge readiness immediately.
     - Process only the highest-priority unblocked dependency frontier. Do not
       fetch or triage every blocked descendant in a large backlog; leave it for a
       later frontier so acknowledged issue bodies and command payloads do not
@@ -171,7 +180,11 @@ spec:
     - PR_PENDING: PR creation is not completion. An implementer calling finish
       ends only its current execution episode and may leave the AgentRun ready,
       idle, paused, or awaiting input so review feedback can wake it. Keep a
-      finished-but-wakeable implementer non-terminal while its PR is unresolved.
+      finished-but-wakeable implementer non-terminal while its PR is unresolved,
+      but never treat its Running phase as evidence of ongoing work: once its
+      episode state is Finished it has produced everything it will produce this
+      episode, so proceed to CHECKS_OR_REVIEW for its attached PR instead of
+      waiting on the run.
     - CHECKS_OR_REVIEW: while checks are pending or an AI reviewer is active,
       return to wait_for_repo_events. An AI PR-loop verdict and GitHub's review
       decision are independent. Do not claim merge readiness until the attached
@@ -190,7 +203,7 @@ spec:
       merge authority (`merge_allowed`, and `full_control` for merging without
       human approval). When merge_allowed is true, merging ready pull requests
       is your responsibility: do not wait for a human to merge and do not stop
-      at reporting readiness. Submit request_merge
+      at reporting readiness. You must submit request_merge
       with the current projection sequence, full repository/PR identity, and exact
       expected head. The controller re-reads every GitHub gate and records success
       only after MERGED, mergedAt, and the expected merged head are confirmed. Only

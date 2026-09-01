@@ -287,6 +287,18 @@ func maintainerBlockedReason(run *platformv1alpha1.AgentRun) string {
 	return ""
 }
 
+// maintainerEpisodeState renders orchestration.AgentRunEpisodeFinished as the
+// canonical "Active"/"Finished" strings shared by fleet and event outputs.
+// "Finished" means the run has ended its current execution episode (or waits
+// on external input) and will not progress until woken, even when its phase
+// is still Running.
+func maintainerEpisodeState(run *platformv1alpha1.AgentRun) string {
+	if orchestration.AgentRunEpisodeFinished(run) {
+		return string(triggersv1alpha1.MaintainerWorkItemAgentRunEpisodeFinished)
+	}
+	return string(triggersv1alpha1.MaintainerWorkItemAgentRunEpisodeActive)
+}
+
 func maintainerDispatchCaps(repository *triggersv1alpha1.GitHubRepository) (int32, int32) {
 	concurrent, perDay := defaultMaintainerConcurrentDispatches, defaultMaintainerDispatchesPerDay
 	if repository != nil && repository.Spec.Maintainer != nil {

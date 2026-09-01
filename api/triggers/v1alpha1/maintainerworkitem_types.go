@@ -284,6 +284,14 @@ type MaintainerWorkItemAgentRunProjection struct {
 	Role MaintainerWorkItemAgentRunRole `json:"role"`
 	// +optional
 	Phase string `json:"phase,omitempty"`
+	// EpisodeState distinguishes a run that is actively progressing on its own
+	// from one that has ended its current execution episode (or is waiting on
+	// external input) while remaining non-terminal and wakeable. AgentRun phase
+	// alone must never be used to infer activity: a Running run whose episode
+	// is Finished will not produce further work until it is woken.
+	// +kubebuilder:validation:Enum=Active;Finished
+	// +optional
+	EpisodeState MaintainerWorkItemAgentRunEpisodeState `json:"episodeState,omitempty"`
 	// +optional
 	PRLoopState string `json:"prLoopState,omitempty"`
 	// +optional
@@ -291,6 +299,23 @@ type MaintainerWorkItemAgentRunProjection struct {
 	// +optional
 	ObservedAt *metav1.Time `json:"observedAt,omitempty"`
 }
+
+// MaintainerWorkItemAgentRunEpisodeState reports whether a projected AgentRun
+// is actively executing or will progress without maintainer intervention
+// (Active), or has finished its current execution episode / is blocked on
+// external input and will not progress until woken (Finished).
+type MaintainerWorkItemAgentRunEpisodeState string
+
+const (
+	// MaintainerWorkItemAgentRunEpisodeActive marks a run that is executing or
+	// will start executing on its own.
+	MaintainerWorkItemAgentRunEpisodeActive MaintainerWorkItemAgentRunEpisodeState = "Active"
+	// MaintainerWorkItemAgentRunEpisodeFinished marks a run whose current
+	// execution episode has ended (for example an implementer that called
+	// finish and went idle) or that is otherwise waiting on external input.
+	// The run may still be non-terminal and wakeable.
+	MaintainerWorkItemAgentRunEpisodeFinished MaintainerWorkItemAgentRunEpisodeState = "Finished"
+)
 
 // MaintainerWorkItemPullRequestProjection summarizes the monitor facts required for readiness.
 type MaintainerWorkItemPullRequestProjection struct {

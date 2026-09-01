@@ -444,6 +444,43 @@ func TestParseMaintainerPullRequestURLMatchesArtifactNormalization(t *testing.T)
 	}
 }
 
+func TestFleetEventDetectsFinishedEpisodeWhileRunning(t *testing.T) {
+	maintainer := maintainerRun()
+	run := fleetRun("implementer", platformv1alpha1.AgentRunPhaseRunning)
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainer, run)
+	tool := &waitForRepoEventsTool{maintainerToolBase: base}
+
+	previous, err := tool.fleetEventsSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := previous.fleet[run.Name].Episode; got != string(triggersv1alpha1.MaintainerWorkItemAgentRunEpisodeActive) {
+		t.Fatalf("baseline episode = %q, want Active", got)
+	}
+	updated := &platformv1alpha1.AgentRun{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: run.Name, Namespace: run.Namespace}, updated); err != nil {
+		t.Fatal(err)
+	}
+	// An implementer that called finish keeps phase Running but records the
+	// idle input boundary in the queue mirror and current step.
+	updated.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: string(platformv1alpha1.AgentRunPhaseRunning), BlockedReason: "idle"}
+	updated.Status.CurrentStep = "awaiting-user"
+	if err := k8sClient.Update(context.Background(), updated); err != nil {
+		t.Fatal(err)
+	}
+	current, err := tool.fleetEventsSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repoEventsChanged(previous, current) {
+		t.Fatal("finished episode of a still-Running run did not wake the waiter")
+	}
+	change := changedRepoFleetEvents(previous, current)
+	if len(change) != 1 || change[0].Phase != platformv1alpha1.AgentRunPhaseRunning || change[0].Episode != string(triggersv1alpha1.MaintainerWorkItemAgentRunEpisodeFinished) {
+		t.Fatalf("fleet changes = %#v", change)
+	}
+}
+
 func TestFleetEventDetectsPRLoopStateAndRound(t *testing.T) {
 	maintainer := maintainerRun()
 	run := fleetRun("reviewer", platformv1alpha1.AgentRunPhaseRunning)
