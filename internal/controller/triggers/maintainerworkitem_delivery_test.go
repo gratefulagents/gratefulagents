@@ -224,6 +224,42 @@ func TestRequestMergeMergesApprovedPullRequestWithoutBranchPolicy(t *testing.T) 
 	}
 }
 
+// TestRequestMergeMatchesProjectionCaseInsensitively reproduces the stalled
+// maintainer merge for repositories whose owner/repo contains uppercase
+// characters: the pull-request monitor records a lowercased repository
+// identity in the projection while the merge request carries the
+// GitHubRepository spec casing. GitHub identities are case-insensitive, so the
+// merge must still find the projection and succeed.
+func TestRequestMergeMatchesProjectionCaseInsensitively(t *testing.T) {
+	reconciler, repository, item, command := newMaintainerMergeFixture(t)
+	repository.Spec.Owner = "Octo"
+	if err := reconciler.Update(context.Background(), repository); err != nil {
+		t.Fatal(err)
+	}
+	// Projection keeps the monitor's lowercased identity ("octo/widgets");
+	// the request carries the spec casing, as request_merge enforces.
+	command.Spec.RequestMerge.Repository = "Octo/" + maintainerDeliveryTestRepo
+	if err := reconciler.Update(context.Background(), command); err != nil {
+		t.Fatal(err)
+	}
+	head := command.Spec.RequestMerge.ExpectedHeadSHA
+	mergedAt := time.Now().UTC()
+	githubClient := &fakeMaintainerDeliveryClient{
+		pulls:             []*polledPullRequest{{State: monitorTestOpen, MergeableKnown: true, Mergeable: true, HeadSHA: head}, {State: monitorTestClosed, Merged: true, MergedAt: mergedAt, HeadSHA: head}},
+		individualReviews: []polledPullRequestReview{{CommitSHA: head, AuthorLogin: "reviewer", AuthorAssociation: "MEMBER", State: "APPROVED"}},
+		checks:            polledHeadRollup{HeadSHA: head, State: gitHubRollupSuccess, Count: 1},
+		statuses:          polledHeadRollup{HeadSHA: head, State: gitHubRollupNone},
+		noRequiredReview:  true,
+		noRequiredChecks:  true,
+	}
+	if err := reconciler.processMaintainerRequestMerge(context.Background(), repository, command, item, githubClient, true); err != nil {
+		t.Fatal(err)
+	}
+	if phase := commandPhase(t, reconciler, command); phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded || githubClient.mergeCalls != 1 {
+		t.Fatalf("phase=%s mergeCalls=%d", phase, githubClient.mergeCalls)
+	}
+}
+
 func TestRequestMergeRejectsHeadChangedAtPreflight(t *testing.T) {
 	reconciler, repository, item, command := newMaintainerMergeFixture(t)
 	head := command.Spec.RequestMerge.ExpectedHeadSHA

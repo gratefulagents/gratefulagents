@@ -144,13 +144,20 @@ type getFleetRunsOutput struct {
 	Caps                      fleetCapsOutput  `json:"caps"`
 	DispatchMode              string           `json:"dispatch_mode"`
 	PlatformBugReportsAllowed bool             `json:"platform_bug_reports_allowed"`
+	// MergeAllowed reports whether the repository grants the maintainer
+	// permission to merge attached pull requests via request_merge. When true,
+	// merging ready pull requests is the maintainer's responsibility.
+	MergeAllowed bool `json:"merge_allowed"`
+	// FullControl reports whether the repository grants the maintainer full
+	// control (merge without human approval when GitHub gates pass).
+	FullControl bool `json:"full_control"`
 }
 
 type getFleetRunsTool struct{ maintainerToolBase }
 
 func (t *getFleetRunsTool) Name() string { return "get_fleet_runs" }
 func (t *getFleetRunsTool) Description() string {
-	return "List the maintained repository's controller-owned dispatch mode, capacity caps, and dispatched implementer/reviewer runs with lifecycle, artifacts, queue state, and pending input."
+	return "List the maintained repository's controller-owned dispatch mode, capacity caps, merge permissions (merge_allowed/full_control), and dispatched implementer/reviewer runs with lifecycle, artifacts, queue state, and pending input."
 }
 func (t *getFleetRunsTool) InputSchema() json.RawMessage {
 	// Keep an explicit empty properties object: bare {"type":"object"} trips a
@@ -180,7 +187,9 @@ func (t *getFleetRunsTool) Execute(ctx context.Context, _ json.RawMessage, _ str
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
 	allowPlatformReports := repository.Spec.Maintainer != nil && repository.Spec.Maintainer.AllowPlatformBugReports
-	out := getFleetRunsOutput{Runs: make([]fleetRunOutput, 0, len(fleet)), DispatchMode: dispatchMode, PlatformBugReportsAllowed: allowPlatformReports}
+	fullControl := repository.Spec.Maintainer != nil && repository.Spec.Maintainer.FullControl
+	mergeAllowed := fullControl || (repository.Spec.Maintainer != nil && repository.Spec.Maintainer.AllowPullRequestMerge)
+	out := getFleetRunsOutput{Runs: make([]fleetRunOutput, 0, len(fleet)), DispatchMode: dispatchMode, PlatformBugReportsAllowed: allowPlatformReports, MergeAllowed: mergeAllowed, FullControl: fullControl}
 	for i := range fleet {
 		run := &fleet[i]
 		entry, err := t.describeFleetRun(ctx, run)

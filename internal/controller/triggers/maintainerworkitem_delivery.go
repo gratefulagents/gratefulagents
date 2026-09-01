@@ -44,7 +44,10 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "repository does not grant maintainer merge permission")
 	}
 	fullControl := repository.Spec.Maintainer.FullControl
-	if request.Repository != repository.Spec.Owner+"/"+repository.Spec.Repo {
+	// GitHub owner/repo identities are case-insensitive; observers (for example
+	// the pull-request monitor) may record a lowercased form while the request
+	// carries the GitHubRepository spec casing.
+	if !strings.EqualFold(request.Repository, repository.Spec.Owner+"/"+repository.Spec.Repo) {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "request repository identity does not match GitHubRepository")
 	}
 	fresh := &triggersv1alpha1.MaintainerWorkItem{}
@@ -80,7 +83,7 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 	}
 	projection := projectedMaintainerPullRequest(fresh, request.Repository, request.PullRequestNumber)
 	if projection == nil {
-		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "pull request is not required by this work item")
+		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, fmt.Sprintf("pull request is not required by this work item (requested %s#%d; projected pull requests: %s)", request.Repository, request.PullRequestNumber, projectedMaintainerPullRequestIdentities(fresh)))
 	}
 	if projection.HeadSHA != request.ExpectedHeadSHA {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "expected head SHA does not match the current projection")
@@ -203,11 +206,25 @@ func (r *GitHubRepositoryReconciler) reserveMaintainerMergeAttempt(ctx context.C
 
 func projectedMaintainerPullRequest(item *triggersv1alpha1.MaintainerWorkItem, repository string, number int32) *triggersv1alpha1.MaintainerWorkItemPullRequestProjection {
 	for i := range item.Status.PullRequests {
-		if item.Status.PullRequests[i].Repository == repository && item.Status.PullRequests[i].Number == number {
+		// GitHub repository identities are case-insensitive: projections built
+		// from pull-request monitors store a lowercased owner/repo while merge
+		// requests carry the GitHubRepository spec casing.
+		if strings.EqualFold(item.Status.PullRequests[i].Repository, repository) && item.Status.PullRequests[i].Number == number {
 			return &item.Status.PullRequests[i]
 		}
 	}
 	return nil
+}
+
+func projectedMaintainerPullRequestIdentities(item *triggersv1alpha1.MaintainerWorkItem) string {
+	if len(item.Status.PullRequests) == 0 {
+		return "none"
+	}
+	identities := make([]string, 0, len(item.Status.PullRequests))
+	for i := range item.Status.PullRequests {
+		identities = append(identities, fmt.Sprintf("%s#%d", item.Status.PullRequests[i].Repository, item.Status.PullRequests[i].Number))
+	}
+	return strings.Join(identities, ", ")
 }
 
 func projectedPullRequestsReadyForPolicyVerification(pullRequests []triggersv1alpha1.MaintainerWorkItemPullRequestProjection, now time.Time) bool {
@@ -241,7 +258,7 @@ func projectedPullRequestReady(pr *triggersv1alpha1.MaintainerWorkItemPullReques
 
 func verifiedMaintainerMerge(item *triggersv1alpha1.MaintainerWorkItem, repository string, number int32) *triggersv1alpha1.MaintainerVerifiedPullRequestMerge {
 	for i := range item.Status.VerifiedMerges {
-		if item.Status.VerifiedMerges[i].Repository == repository && item.Status.VerifiedMerges[i].PullRequestNumber == number {
+		if strings.EqualFold(item.Status.VerifiedMerges[i].Repository, repository) && item.Status.VerifiedMerges[i].PullRequestNumber == number {
 			return &item.Status.VerifiedMerges[i]
 		}
 	}
