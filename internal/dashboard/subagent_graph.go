@@ -52,19 +52,6 @@ var subagentEvidenceTypes = map[string]bool{
 	"subagent_completed":    true,
 }
 
-var terminalSubagentStatuses = map[string]bool{
-	"completed": true,
-	"succeeded": true,
-	"failed":    true,
-	"stopped":   true,
-	"cancelled": true,
-	"canceled":  true,
-}
-
-func isTerminalSubagentStatus(status string) bool {
-	return terminalSubagentStatuses[status]
-}
-
 // subagentStatusNoise are lifecycle/status strings that ride in the event
 // Message field for registry task snapshots. They must never be promoted to a
 // node title — the task's objective (SubagentPrompt) is the real description.

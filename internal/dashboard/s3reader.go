@@ -159,23 +159,18 @@ func contentEventToActivityEntry(ev *agent.ContentEvent) *platform.ActivityEntry
 		entry.SubagentMessagesReceived = int32(ev.SubagentMessagesReceived)
 		entry.SubagentLastParentMessage = ev.SubagentLastParentMessage
 		entry.LastToolName = ev.SubagentLastTool
-		switch ev.Status {
-		case "started":
+		entry.SubagentStatus = ev.Status
+		entry.SubagentDescription = ev.Message
+		switch {
+		case ev.Status == "started":
 			entry.Type = "subagent_started"
-			entry.SubagentStatus = "started"
-			entry.SubagentDescription = ev.Message
-		case "completed", "stopped":
+		case isTerminalSubagentStatus(ev.Status):
+			// Any terminal category (including failure spellings such as
+			// timeout or error) closes the task; routing them as progress
+			// would leave the task live forever in every view.
 			entry.Type = "subagent_completed"
-			entry.SubagentStatus = ev.Status
-			entry.SubagentDescription = ev.Message
-		case "failed", "cancelled":
-			entry.Type = "subagent_completed"
-			entry.SubagentStatus = ev.Status
-			entry.SubagentDescription = ev.Message
 		default:
 			entry.Type = "subagent_progress"
-			entry.SubagentStatus = ev.Status
-			entry.SubagentDescription = ev.Message
 		}
 	case "session_end":
 		entry.Type = "result"

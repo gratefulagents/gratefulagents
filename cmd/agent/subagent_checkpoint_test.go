@@ -166,3 +166,81 @@ func TestSubAgentCheckpointPreservesOptedInParentContext(t *testing.T) {
 		t.Fatalf("restored parent context = %+v", got)
 	}
 }
+
+// A restored task whose child checkpoint sits at an unreconcilable boundary is
+// attempted exactly once, reported as stuck, and never retried on later turns.
+func TestResumeReconcilingSubAgentTasksAttemptsOnceAndReportsStuck(t *testing.T) {
+	registry := agent.NewSubAgentScheduler(agent.SubAgentSchedulerConfig{
+		Checkpoint: func(agent.SubAgentSchedulerCheckpoint) error { return nil },
+	})
+	record := agent.SubAgentSchedulerCheckpointRecord{
+		Task: agent.SubAgentTask{ID: "task_stuck", AgentName: "executor", Status: agent.SubAgentTaskRunning, Message: "finish work"},
+		DurableCheckpoint: &agent.DurableCheckpoint{
+			SchemaVersion: agent.DurableCheckpointSchemaVersion,
+			Boundary:      agent.DurableBoundaryModelCompleted,
+		},
+	}
+	// The baseline type is not re-exported by pkg/agentsdk; populate it through
+	// JSON so the resume passes the security check and reaches the boundary
+	// decision.
+	if err := json.Unmarshal([]byte(`{"security_baseline":{"tool_access_level":"full"}}`), &record); err != nil {
+		t.Fatal(err)
+	}
+	state := agent.SubAgentSchedulerCheckpoint{Records: []agent.SubAgentSchedulerCheckpointRecord{record}}
+	if err := registry.RestoreSchedulerCheckpoint(state); err != nil {
+		t.Fatal(err)
+	}
+	attempted := map[string]struct{}{}
+
+	stuck := resumeReconcilingSubAgentTasks(context.Background(), registry, attempted)
+	if len(stuck) != 1 || stuck[0].ID != "task_stuck" || stuck[0].AgentName != "executor" {
+		t.Fatalf("stuck = %+v", stuck)
+	}
+	if !strings.Contains(stuck[0].Reason, "reconciliation") {
+		t.Fatalf("reason = %q", stuck[0].Reason)
+	}
+	if _, ok := attempted["task_stuck"]; !ok {
+		t.Fatal("failed resume was not recorded as attempted")
+	}
+
+	// Second turn: still reconciling, but not retried and not re-reported.
+	if again := resumeReconcilingSubAgentTasks(context.Background(), registry, attempted); len(again) != 0 {
+		t.Fatalf("second attempt re-reported stuck tasks: %+v", again)
+	}
+	task, _ := registry.GetStatus("task_stuck")
+	if task.Status != agent.SubAgentTaskReconciling {
+		t.Fatalf("status = %q, want reconciling", task.Status)
+	}
+
+	notice := stuckSubAgentNotice(stuck)
+	for _, want := range []string{"[SYSTEM]", "task_stuck", "executor", `subagent_control action="cancel"`} {
+		if !strings.Contains(notice, want) {
+			t.Fatalf("notice missing %q:\n%s", want, notice)
+		}
+	}
+	if activity := stuckSubAgentActivity(stuck); !strings.Contains(activity, "task_stuck") {
+		t.Fatalf("activity = %q", activity)
+	}
+	if stuckSubAgentNotice(nil) != "" || stuckSubAgentActivity(nil) != "" {
+		t.Fatal("empty stuck list must produce no notice")
+	}
+}
+
+func TestResumeReconcilingSubAgentTasksSkipsTerminalAndNilRegistry(t *testing.T) {
+	if got := resumeReconcilingSubAgentTasks(context.Background(), nil, map[string]struct{}{}); got != nil {
+		t.Fatalf("nil registry returned %+v", got)
+	}
+	registry := agent.NewSubAgentScheduler(agent.SubAgentSchedulerConfig{
+		Checkpoint: func(agent.SubAgentSchedulerCheckpoint) error { return nil },
+	})
+	state := agent.SubAgentSchedulerCheckpoint{Records: []agent.SubAgentSchedulerCheckpointRecord{
+		{Task: agent.SubAgentTask{ID: "task_done", AgentName: "reviewer", Status: agent.SubAgentTaskCompleted, Result: "ok"}},
+	}}
+	if err := registry.RestoreSchedulerCheckpoint(state); err != nil {
+		t.Fatal(err)
+	}
+	attempted := map[string]struct{}{}
+	if got := resumeReconcilingSubAgentTasks(context.Background(), registry, attempted); len(got) != 0 || len(attempted) != 0 {
+		t.Fatalf("terminal task was touched: stuck=%+v attempted=%v", got, attempted)
+	}
+}
