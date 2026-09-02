@@ -1,5 +1,8 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useId } from "react";
+import { motion } from "framer-motion";
 
+import { moveTabFocus } from "@/components/run-session/RunInspector";
+import { transitions } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -25,6 +28,7 @@ export function InspectorSubnav<T extends string>({
   onChange,
   trailing,
   className,
+  panelId,
 }: {
   items: SubnavItem<T>[];
   value: T;
@@ -32,13 +36,21 @@ export function InspectorSubnav<T extends string>({
   /** Right-aligned controls (refresh, filters) that belong to the whole pane. */
   trailing?: ReactNode;
   className?: string;
+  /** `id` of the `role="tabpanel"` the pane renders below the strip, if it has one. */
+  panelId?: string;
 }) {
+  const baseId = useId();
+  const ids = items.map((item) => item.id);
   return (
     <div className={cn("flex h-9 shrink-0 items-center gap-2 border-b px-2", className)}>
       <div
         role="tablist"
         aria-label="Pane sections"
-        className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        onKeyDown={(event) => moveTabFocus(event, ids, value, onChange)}
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          "[mask-image:linear-gradient(to_right,black_92%,transparent)]",
+        )}
       >
         {items.map(({ id, label, count, alert }) => {
           const active = id === value;
@@ -47,14 +59,24 @@ export function InspectorSubnav<T extends string>({
               key={id}
               type="button"
               role="tab"
+              id={`${baseId}-tab-${id}`}
               aria-selected={active}
+              aria-controls={panelId}
+              tabIndex={active ? 0 : -1}
               onClick={() => onChange(id)}
               className={cn(
-                "flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs whitespace-nowrap transition-colors",
+                "relative isolate flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs whitespace-nowrap transition-colors",
                 "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                active ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:text-foreground",
+                active ? "font-medium text-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >
+              {active && (
+                <motion.span
+                  layoutId={`${baseId}-indicator`}
+                  transition={transitions.subtle}
+                  className="absolute inset-0 -z-10 rounded-md bg-muted"
+                />
+              )}
               {label}
               {count ? (
                 <span

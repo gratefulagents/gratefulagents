@@ -1,16 +1,21 @@
 import { memo, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, Check, ChevronDown, ChevronRight, Clock3, Loader2, XCircle } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Clock3, Loader2, XCircle } from "lucide-react";
 
 import { MarkdownViewer } from "@/components/MarkdownViewer";
+import { AgentTypeChip } from "@/components/ui/agent-type-chip";
+import { LiveDot } from "@/components/ui/live-dot";
+import { Collapse } from "./Collapse";
 import { CodePane } from "./DetailPanes";
 import { useResolvedEntry } from "./detailContext";
+import { useSubagentContext } from "./subagentContext";
 import { entryIdentity, groupsToUnits, workUnitKey } from "./feedModel";
 import { WorkUnitView } from "./WorkRows";
-import { groupActivityEntries, formatDuration, formatTokens, subagentPromptMarkdown, subagentTitleFromPrompt, type ActivityGroup } from "@/lib/activityGrouping";
+import { cleanSubagentDescription, groupActivityEntries, formatDuration, formatTokens, subagentPromptMarkdown, subagentTitleFromPrompt, type ActivityGroup } from "@/lib/activityGrouping";
 import { firstLine, formatClock, formatUsd } from "@/lib/activityLogFormat";
 import { getSubagentColor } from "@/lib/subagentColors";
 import { isWaitingStatus } from "@/lib/subagentGraphLayout";
 import { toneSoft, toneText } from "@/lib/status";
+import { cn } from "@/lib/utils";
 import type { ActivityEntry } from "@/rpc/platform/service_pb";
 
 export function subagentLiveLine(entries: ActivityEntry[]): string {
@@ -33,7 +38,11 @@ export function isLiveSubagentStatus(status: string): boolean {
 
 export function SubagentStatusIcon({ status }: { status: string }) {
   if (isLiveSubagentStatus(status))
-    return <Loader2 className={`size-3.5 shrink-0 animate-spin ${toneText.running}`} />;
+    return (
+      <span className="flex size-3.5 shrink-0 items-center justify-center">
+        <LiveDot tone="running" pulse />
+      </span>
+    );
   if (isWaitingStatus(status))
     return <Clock3 className={`size-3.5 shrink-0 ${toneText.warning}`} />;
   if (status === "failed")
@@ -53,10 +62,13 @@ export function SubagentShell({
   timestamp,
   children,
   defaultOpen = false,
+  ordinal,
 }: {
   name: string;
   status: string;
   title: string;
+  /** Run-wide `#n`, when the run's graph knows this task. */
+  ordinal?: number;
   liveLine?: string;
   /** One-line outcome shown on the collapsed card once the subagent finished. */
   resultPreview?: string;
@@ -79,26 +91,25 @@ export function SubagentShell({
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         title={formatClock(timestamp)}
-        className="flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/30 cursor-pointer"
+        className="flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/30 cursor-pointer focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2"
       >
         <span className="mt-0.5">
           <SubagentStatusIcon status={status} />
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            {name && (
-              <span
-                className={`inline-flex items-center rounded-[5px] border px-1.5 py-px text-[11px] font-semibold ${color.border} ${color.bg} ${color.text}`}
-              >
-                {name}
+            {ordinal !== undefined && (
+              <span className="shrink-0 font-mono text-3xs font-semibold tabular-nums text-muted-foreground/80">
+                #{ordinal}
               </span>
             )}
+            {name && <AgentTypeChip type={name} />}
             <span className="min-w-0 truncate text-xs font-medium text-foreground/90">
               {title}
             </span>
             {(status === "failed" || status === "stopped" || isWaiting) && (
               <span
-                className={`rounded-[4px] px-1.5 py-px text-[10px] font-semibold uppercase tracking-wider ${
+                className={`rounded-sm px-1.5 py-px text-3xs font-semibold uppercase tracking-wider ${
                   status === "failed" ? toneSoft.danger : toneSoft.warning
                 }`}
               >
@@ -107,11 +118,12 @@ export function SubagentShell({
             )}
           </span>
           {isRunning && liveLine && (
-            <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span
-                className={`size-1.5 animate-pulse rounded-full bg-current ${toneText.running}`}
-              />
-              {liveLine}
+            <span
+              className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"
+              title={liveLine}
+            >
+              <LiveDot tone="running" pulse size="xs" />
+              <span className="min-w-0 line-clamp-1">{liveLine}</span>
             </span>
           )}
           {!isRunning && !open && resultPreview && (
@@ -120,29 +132,29 @@ export function SubagentShell({
             </span>
           )}
           {metrics.length > 0 && (
-            <span className="mt-1 block truncate font-mono text-[10px] tabular-nums text-muted-foreground/60">
+            <span className="mt-1 block truncate font-mono text-3xs tabular-nums text-muted-foreground/60">
               {metrics.join(" · ")}
             </span>
           )}
         </span>
-        <ChevronDown
-          className={`mt-0.5 size-3.5 shrink-0 text-muted-foreground/50 transition-transform ${
-            open ? "rotate-180" : ""
-          }`}
+        <ChevronRight
+          aria-hidden="true"
+          className={cn(
+            "mt-0.5 size-3.5 shrink-0 text-muted-foreground/50 transition-transform",
+            open && "rotate-90",
+          )}
         />
       </button>
-      {open && (
-        <div className="space-y-3 border-t border-border/40 px-3 py-2.5">
-          {children}
-        </div>
-      )}
+      <Collapse open={open} className="space-y-3 border-t border-border/40 px-3 py-2.5">
+        {children}
+      </Collapse>
     </div>
   );
 }
 
 export function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+    <p className="text-3xs font-medium uppercase tracking-wider text-muted-foreground/60">
       {children}
     </p>
   );
@@ -156,9 +168,12 @@ export function PromptToggle({ prompt }: { prompt: string }) {
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60 transition-colors hover:text-muted-foreground cursor-pointer"
+        className="flex min-h-6 items-center gap-1.5 rounded-sm text-3xs font-medium uppercase tracking-wider text-muted-foreground/60 transition-colors hover:text-muted-foreground cursor-pointer focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
       >
-        <ChevronRight className={`size-3 transition-transform ${open ? "rotate-90" : ""}`} />
+        <ChevronRight
+          aria-hidden="true"
+          className={`size-3 transition-transform ${open ? "rotate-90" : ""}`}
+        />
         Prompt
         {!open && (
           <span className="normal-case tracking-normal font-normal text-muted-foreground/50 truncate max-w-[24rem]">
@@ -166,11 +181,12 @@ export function PromptToggle({ prompt }: { prompt: string }) {
           </span>
         )}
       </button>
-      {open && (
-        <div className="mt-1.5 max-h-80 overflow-y-auto rounded-md border border-border/50 bg-muted/15 px-3 py-2 text-sm">
-          <MarkdownViewer content={prompt} />
-        </div>
-      )}
+      <Collapse
+        open={open}
+        className="mt-1.5 max-h-80 overflow-y-auto rounded-md border border-border/50 bg-muted/15 px-3 py-2 text-sm"
+      >
+        <MarkdownViewer content={prompt} />
+      </Collapse>
     </div>
   );
 }
@@ -253,6 +269,7 @@ export const SubagentCard = memo(function SubagentCard({
   const waitingOn = liveEntry?.subagentWaitingOn ?? [];
   const dependsOn = liveEntry?.subagentDependsOn ?? [];
 
+  const shared = useSubagentContext();
   const metrics: string[] = [];
   if (group.subagentModel) metrics.push(group.subagentModel);
   if (group.toolCount > 0) metrics.push(`${group.toolCount} tools`);
@@ -262,19 +279,19 @@ export const SubagentCard = memo(function SubagentCard({
   if (group.subagentCostKnown) metrics.push(formatUsd(group.subagentCostUsd));
 
   const title =
-    (group.subagentDescription && group.subagentDescription !== "spawned"
-      ? group.subagentDescription
-      : "") ||
+    cleanSubagentDescription(group.subagentDescription) ||
     subagentTitleFromPrompt(group.subagentPrompt) ||
     (group.toolCount > 0
       ? `${group.toolCount} tool ${group.toolCount === 1 ? "call" : "calls"}`
       : "Subagent task");
+  const ordinal = group.taskId ? shared.ordinalByTaskId.get(group.taskId) : undefined;
 
   return (
     <SubagentShell
       name={group.subagentType}
       status={group.subagentStatus}
       title={title}
+      ordinal={ordinal}
       liveLine={liveLine}
       resultPreview={resultIsError ? "" : firstLine(resultContent)}
       metrics={metrics}
@@ -286,7 +303,7 @@ export const SubagentCard = memo(function SubagentCard({
           {dependsOn.map((d) => (
             <span
               key={`dep-${d}`}
-              className={`rounded-[4px] px-1.5 py-px font-mono text-[10px] ${toneSoft.neutral}`}
+              className={`rounded-sm px-1.5 py-px font-mono text-3xs ${toneSoft.neutral}`}
             >
               {d}
             </span>
@@ -294,7 +311,7 @@ export const SubagentCard = memo(function SubagentCard({
           {waitingOn.map((w) => (
             <span
               key={`wait-${w}`}
-              className={`rounded-[4px] px-1.5 py-px font-mono text-[10px] ${toneSoft.warning}`}
+              className={`rounded-sm px-1.5 py-px font-mono text-3xs ${toneSoft.warning}`}
             >
               waiting {w}
             </span>
@@ -438,13 +455,13 @@ function SubagentResultSection({
       <SectionLabel>{isError ? "Error" : "Result"}</SectionLabel>
       <div className="mt-1 space-y-1.5">
         {resolved.loading && (
-          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-1.5 text-2xs text-muted-foreground">
             <Loader2 className="size-3 animate-spin" />
             <span>Loading full payload…</span>
           </div>
         )}
         {resolved.failed && (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-2xs text-muted-foreground">
             Couldn't load the full payload — showing the truncated preview.
           </p>
         )}

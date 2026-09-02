@@ -1,7 +1,6 @@
 import { Pencil, X } from "lucide-react";
 
-import { toneText } from "@/lib/status";
-import { cn } from "@/lib/utils";
+import { LiveDot } from "@/components/ui/live-dot";
 import type { ChatMessage } from "@/rpc/platform/service_pb";
 
 /**
@@ -93,21 +92,11 @@ export function PendingMessages({
             key={`${message.id.toString()}:${message.timestampUnix.toString()}:${index}`}
             className="group flex min-h-6 items-center gap-2 text-xs text-muted-foreground"
           >
-            <span className="relative flex size-1.5 shrink-0" aria-hidden="true">
-              <span
-                className={cn(
-                  "absolute inline-flex size-full rounded-full bg-current opacity-75",
-                  !terminal && "animate-ping",
-                  toneText[terminal ? "neutral" : steering ? "warning" : "info"],
-                )}
-              />
-              <span
-                className={cn(
-                  "relative inline-flex size-1.5 rounded-full bg-current",
-                  toneText[terminal ? "neutral" : steering ? "warning" : "info"],
-                )}
-              />
-            </span>
+            <LiveDot
+              tone={terminal ? "idle" : steering ? "waiting" : "info"}
+              pulse={!terminal}
+              size="xs"
+            />
             <span className="shrink-0 font-medium text-muted-foreground/70">{label}</span>
             <span className="min-w-0 flex-1 truncate">{preview}</span>
             {!terminal && actionable && (onEdit || onCancel) && (
@@ -119,7 +108,7 @@ export function PendingMessages({
                     disabled={busy}
                     aria-label="Edit message"
                     title="Edit — move this message back into the composer"
-                    className="rounded p-1 text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-40"
+                    className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-40"
                   >
                     <Pencil className="size-3" />
                   </button>
@@ -131,7 +120,7 @@ export function PendingMessages({
                     disabled={busy}
                     aria-label="Cancel message"
                     title="Cancel — the agent will never see this message"
-                    className="rounded p-1 text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-40"
+                    className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2 disabled:pointer-events-none disabled:opacity-40"
                   >
                     <X className="size-3" />
                   </button>
@@ -146,15 +135,7 @@ export function PendingMessages({
           key={`outbound:${message.clientMessageId}`}
           className="flex min-h-6 items-center gap-2 text-xs text-muted-foreground"
         >
-          <span className="relative flex size-1.5 shrink-0" aria-hidden="true">
-            <span
-              className={cn(
-                "absolute inline-flex size-full animate-ping rounded-full bg-current opacity-75",
-                toneText.neutral,
-              )}
-            />
-            <span className={cn("relative inline-flex size-1.5 rounded-full bg-current", toneText.neutral)} />
-          </span>
+          <LiveDot tone="idle" pulse size="xs" />
           <span className="shrink-0 font-medium text-muted-foreground/70">Sending…</span>
           <span className="min-w-0 flex-1 truncate">
             {message.content ||

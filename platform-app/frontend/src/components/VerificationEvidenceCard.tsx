@@ -25,37 +25,34 @@ export function EvidenceGatesCard({ gates, finishAttempts }: Props) {
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger>
-        <button
-          type="button"
-          className="w-full flex items-center gap-2 text-left py-1 hover:bg-muted/30 rounded -mx-1 px-1 transition-colors"
-        >
-          <ChevronRight className={`w-3 h-3 shrink-0 text-muted-foreground transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
-          {allPassed ? (
-            <CheckCircle2 className={`w-3.5 h-3.5 ${toneText.success} shrink-0`} />
-          ) : (
-            <XCircle className={`w-3.5 h-3.5 ${toneText.danger} shrink-0`} />
-          )}
-          <span className="text-xs font-medium text-foreground">Evidence Gates</span>
-          <Badge variant="secondary" className="text-[10px] font-mono">
-            {passedCount}/{gates.length} passed
+      <CollapsibleTrigger className="-mx-1 flex w-full items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted/30">
+        <ChevronRight
+          className={`w-3 h-3 shrink-0 text-muted-foreground transition-transform duration-[var(--dur-fast)] ${open ? "rotate-90" : ""}`}
+        />
+        {allPassed ? (
+          <CheckCircle2 className={`w-3.5 h-3.5 ${toneText.success} shrink-0`} />
+        ) : (
+          <XCircle className={`w-3.5 h-3.5 ${toneText.danger} shrink-0`} />
+        )}
+        <span className="text-xs font-medium text-foreground">Evidence Gates</span>
+        <Badge variant="secondary" className="text-[10px] font-mono">
+          {passedCount}/{gates.length} passed
+        </Badge>
+        {skippedCount > 0 && (
+          <Badge variant="outline" className="text-[10px] font-mono text-muted-foreground">
+            {skippedCount} skipped
           </Badge>
-          {skippedCount > 0 && (
-            <Badge variant="outline" className="text-[10px] font-mono text-muted-foreground">
-              {skippedCount} skipped
-            </Badge>
-          )}
-          <span className="ml-auto text-[10px] text-muted-foreground font-mono">
-            attempt {finishAttempts}
-          </span>
-        </button>
+        )}
+        <span className="ml-auto text-[10px] text-muted-foreground font-mono">
+          attempt {finishAttempts}
+        </span>
       </CollapsibleTrigger>
 
       <CollapsibleContent>
         <div className="ml-5 mt-1 space-y-0.5 pb-1">
-          {gates.map((gate, i) => (
+          {gates.map((gate) => (
             <div
-              key={i}
+              key={gate.gate}
               className={`flex items-center gap-2 py-0.5 text-xs ${gate.skipped ? "opacity-50" : ""}`}
             >
               {gate.skipped ? (

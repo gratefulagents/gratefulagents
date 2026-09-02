@@ -4,7 +4,7 @@ import { AlertTriangle, CircleDot, Loader2 } from "lucide-react";
 import { RunAttemptDetailsTable } from "@/components/RunAttemptDetailsTable";
 import { RunUsageBreakdownTable } from "@/components/RunUsageBreakdownTable";
 import { RunUsageSummary } from "@/components/RunUsageSummary";
-import { TraceWaterfallView } from "@/components/TraceWaterfallView";
+import { TraceWaterfallSkeleton, TraceWaterfallView } from "@/components/TraceWaterfallView";
 import { InspectorSubnav } from "@/components/run-session/InspectorSubnav";
 import type { AgentRunUsageResponse, GetAgentTraceResponse } from "@/rpc/platform/service_pb";
 
@@ -55,15 +55,16 @@ export function RunSessionTracePane({
 }: RunSessionTracePaneProps) {
   const [section, setSection] = useState<TraceSection>("timeline");
 
-  const spans = trace?.spans ?? [];
-  const errorCount = useMemo(() => spans.reduce((total, span) => total + (span.isError ? 1 : 0), 0), [spans]);
+  const spans = trace?.spans;
+  const spanCount = spans?.length ?? 0;
+  const errorCount = useMemo(() => (spans ?? []).reduce((total, span) => total + (span.isError ? 1 : 0), 0), [spans]);
   const usageTaskCount = (usage?.topLevelTasks?.length ?? 0) + (usage?.subagentTasks?.length ?? 0);
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col">
+    <div className="@container flex h-full min-h-0 min-w-0 flex-col">
       <InspectorSubnav<TraceSection>
         items={[
-          { id: "timeline", label: "Timeline", count: spans.length, alert: errorCount > 0 },
+          { id: "timeline", label: "Timeline", count: spanCount, alert: errorCount > 0 },
           { id: "usage", label: "Usage", count: usageTaskCount },
         ]}
         value={section}
@@ -71,7 +72,7 @@ export function RunSessionTracePane({
       />
 
       {section === "timeline" ? (
-        spans.length > 0 && trace ? (
+        spanCount > 0 && trace ? (
           // The waterfall manages its own scrolling, sticky ruler and stat
           // header, so it takes the pane's height instead of sitting inside a
           // scroller, and drops its card chrome because the pane already frames it.
@@ -85,10 +86,7 @@ export function RunSessionTracePane({
             detail={traceError}
           />
         ) : traceLoading || !trace ? (
-          <div className="flex flex-1 items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            Loading trace…
-          </div>
+          <TraceWaterfallSkeleton className="flex-1" />
         ) : (
           <PaneMessage
             icon={<CircleDot className="size-5 animate-pulse text-muted-foreground" />}
@@ -97,7 +95,7 @@ export function RunSessionTracePane({
           />
         )
       ) : (
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 md:p-4">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 @lg:p-4">
           {usageLoading && !usage ? (
             <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />

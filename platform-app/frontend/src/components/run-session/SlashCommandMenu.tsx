@@ -1,9 +1,12 @@
 import { useEffect, useRef } from "react";
 
 import { cn } from "@/lib/utils";
+import { optionId } from "@/components/run-session/composer";
 import type { SlashCommand } from "@/components/run-session/slashCommands";
 
 interface SlashCommandMenuProps {
+  /** Listbox id the composer's `aria-controls` points at. */
+  id: string;
   commands: SlashCommand[];
   activeIndex: number;
   onHover: (index: number) => void;
@@ -11,9 +14,11 @@ interface SlashCommandMenuProps {
 }
 
 // SlashCommandMenu renders the reactive command palette anchored above the
-// composer. Keyboard navigation is driven by the parent (the textarea keeps
-// focus); this component only renders the list and reports hover/selection.
+// composer (the parent positions it). Keyboard navigation is driven by the
+// parent (the textarea keeps focus); this component only renders the list and
+// reports hover/selection.
 export function SlashCommandMenu({
+  id,
   commands,
   activeIndex,
   onHover,
@@ -32,11 +37,11 @@ export function SlashCommandMenu({
   return (
     <div
       role="listbox"
-      id="slash-command-menu"
+      id={id}
       aria-label="Slash commands"
-      className="absolute bottom-full left-0 z-50 mb-2 w-full max-w-md overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg"
+      className="w-full max-w-md overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg"
     >
-      <div className="border-b px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="border-b px-3 py-1.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
         Commands
       </div>
       <ul className="max-h-64 overflow-y-auto py-1">
@@ -46,6 +51,7 @@ export function SlashCommandMenu({
             <li key={command.id}>
               <button
                 ref={active ? activeRef : undefined}
+                id={optionId(id, index)}
                 type="button"
                 role="option"
                 aria-selected={active}
@@ -66,7 +72,7 @@ export function SlashCommandMenu({
                 </code>
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate text-sm text-foreground">{command.title}</span>
-                  <span className="truncate text-[11px] text-muted-foreground">
+                  <span className="truncate text-2xs text-muted-foreground">
                     {command.description}
                   </span>
                 </span>

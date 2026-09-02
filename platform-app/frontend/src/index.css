@@ -65,6 +65,75 @@
     --dur-fast: 120ms;
     --dur-base: 180ms;
     --dur-slow: 260ms;
+    /* Every `transition-*` utility defaults to the base token pair, so a bare
+       `transition-colors` already speaks the system's motion language. */
+    --default-transition-duration: var(--dur-base);
+    --default-transition-timing-function: var(--ease-out-quart);
+    --animate-shimmer: shimmer 1.6s linear infinite;
+    --animate-dash-flow: dash-flow 1.2s linear infinite;
+    --animate-row-in: row-in var(--dur-slow) var(--ease-out-quart) both;
+    --animate-edge-glow: edge-glow 1.2s var(--ease-out-quart) both;
+
+    /* Micro type scale for dense chrome (chips, gutters, meta rows). Use these
+       instead of scattering `text-[10px]`/`text-[11px]` literals. */
+    --text-2xs: 0.6875rem;
+    --text-2xs--line-height: 1rem;
+    --text-3xs: 0.625rem;
+    --text-3xs--line-height: 0.875rem;
+
+    /* Semantic tone utilities: `bg-tone-success/12`, `text-tone-danger-fg`. */
+    --color-tone-info: var(--tone-info);
+    --color-tone-info-fg: var(--tone-info-fg);
+    --color-tone-running: var(--tone-running);
+    --color-tone-running-fg: var(--tone-running-fg);
+    --color-tone-success: var(--tone-success);
+    --color-tone-success-fg: var(--tone-success-fg);
+    --color-tone-warning: var(--tone-warning);
+    --color-tone-warning-fg: var(--tone-warning-fg);
+    --color-tone-danger: var(--tone-danger);
+    --color-tone-danger-fg: var(--tone-danger-fg);
+    --color-tone-purple: var(--tone-purple);
+    --color-tone-purple-fg: var(--tone-purple-fg);
+
+    /* Diff colours (theme-aware; see components/diff). */
+    --color-diff-add: var(--diff-add);
+    --color-diff-add-fg: var(--diff-add-fg);
+    --color-diff-del: var(--diff-del);
+    --color-diff-del-fg: var(--diff-del-fg);
+    --color-diff-hunk: var(--diff-hunk);
+    --color-diff-hunk-fg: var(--diff-hunk-fg);
+    --color-diff-file: var(--diff-file);
+    --color-diff-file-fg: var(--diff-file-fg);
+
+    /* Trace span kinds (see TraceWaterfallView KIND_META). */
+    --color-kind-llm: var(--kind-llm);
+    --color-kind-tool: var(--kind-tool);
+    --color-kind-agent: var(--kind-agent);
+    --color-kind-subagent: var(--kind-subagent);
+    --color-kind-session: var(--kind-session);
+    --color-kind-handoff: var(--kind-handoff);
+    --color-kind-control: var(--kind-control);
+    --color-kind-other: var(--kind-other);
+
+    /* Sub-agent identity palette (lib/subagentColors.ts): hue anchor + AA text. */
+    --color-agent-blue: var(--agent-blue);
+    --color-agent-blue-fg: var(--agent-blue-fg);
+    --color-agent-amber: var(--agent-amber);
+    --color-agent-amber-fg: var(--agent-amber-fg);
+    --color-agent-red: var(--agent-red);
+    --color-agent-red-fg: var(--agent-red-fg);
+    --color-agent-teal: var(--agent-teal);
+    --color-agent-teal-fg: var(--agent-teal-fg);
+    --color-agent-yellow: var(--agent-yellow);
+    --color-agent-yellow-fg: var(--agent-yellow-fg);
+    --color-agent-purple: var(--agent-purple);
+    --color-agent-purple-fg: var(--agent-purple-fg);
+    --color-agent-pink: var(--agent-pink);
+    --color-agent-pink-fg: var(--agent-pink-fg);
+    --color-agent-cyan: var(--agent-cyan);
+    --color-agent-cyan-fg: var(--agent-cyan-fg);
+    --color-agent-gray: var(--agent-gray);
+    --color-agent-gray-fg: var(--agent-gray-fg);
 
     /* Focus + muted-accent aliases — used by shell chrome and form fields. */
     --focus-ring: var(--ring);
@@ -142,6 +211,37 @@
     --tone-danger-fg: oklch(0.8 0.14 22);
     --tone-purple: oklch(0.7 0.16 300);
     --tone-purple-fg: oklch(0.82 0.13 300);
+
+    /* Diff */
+    --diff-add: oklch(0.72 0.15 160);
+    --diff-add-fg: oklch(0.85 0.12 160);
+    --diff-del: oklch(0.68 0.18 22);
+    --diff-del-fg: oklch(0.84 0.12 22);
+    --diff-hunk: oklch(0.7 0.14 300);
+    --diff-hunk-fg: oklch(0.83 0.11 300);
+    --diff-file: oklch(0.7 0.12 230);
+    --diff-file-fg: oklch(0.84 0.1 230);
+
+    /* Trace span kinds */
+    --kind-llm: oklch(0.72 0.16 300);
+    --kind-tool: oklch(0.72 0.14 160);
+    --kind-agent: oklch(0.7 0.14 262);
+    --kind-subagent: oklch(0.74 0.12 220);
+    --kind-session: oklch(0.72 0.1 200);
+    --kind-handoff: oklch(0.74 0.12 180);
+    --kind-control: oklch(0.76 0.14 75);
+    --kind-other: oklch(0.7 0.02 265);
+
+    /* Sub-agent identity palette */
+    --agent-blue: oklch(0.7 0.14 250);   --agent-blue-fg: oklch(0.82 0.11 250);
+    --agent-amber: oklch(0.74 0.15 70);  --agent-amber-fg: oklch(0.84 0.12 70);
+    --agent-red: oklch(0.68 0.18 22);    --agent-red-fg: oklch(0.82 0.13 22);
+    --agent-teal: oklch(0.72 0.12 185);  --agent-teal-fg: oklch(0.83 0.1 185);
+    --agent-yellow: oklch(0.8 0.15 95);  --agent-yellow-fg: oklch(0.86 0.12 95);
+    --agent-purple: oklch(0.7 0.16 300); --agent-purple-fg: oklch(0.83 0.12 300);
+    --agent-pink: oklch(0.72 0.17 340);  --agent-pink-fg: oklch(0.84 0.12 340);
+    --agent-cyan: oklch(0.76 0.12 215);  --agent-cyan-fg: oklch(0.85 0.1 215);
+    --agent-gray: oklch(0.7 0.02 265);   --agent-gray-fg: oklch(0.8 0.02 265);
 }
 
 /* ─── Light mode (supported, not default) ─── */
@@ -197,6 +297,37 @@
     --tone-danger-fg: oklch(0.49 0.18 22);
     --tone-purple: oklch(0.58 0.15 300);
     --tone-purple-fg: oklch(0.45 0.14 300);
+
+    /* Diff — anchors stay saturated for tints, text passes AA on white. */
+    --diff-add: oklch(0.6 0.15 160);
+    --diff-add-fg: oklch(0.4 0.12 160);
+    --diff-del: oklch(0.6 0.2 22);
+    --diff-del-fg: oklch(0.46 0.17 22);
+    --diff-hunk: oklch(0.58 0.15 300);
+    --diff-hunk-fg: oklch(0.44 0.13 300);
+    --diff-file: oklch(0.58 0.12 230);
+    --diff-file-fg: oklch(0.42 0.11 230);
+
+    /* Trace span kinds */
+    --kind-llm: oklch(0.55 0.17 300);
+    --kind-tool: oklch(0.55 0.13 160);
+    --kind-agent: oklch(0.52 0.15 262);
+    --kind-subagent: oklch(0.55 0.12 220);
+    --kind-session: oklch(0.55 0.1 200);
+    --kind-handoff: oklch(0.55 0.12 180);
+    --kind-control: oklch(0.6 0.14 75);
+    --kind-other: oklch(0.55 0.02 265);
+
+    /* Sub-agent identity palette */
+    --agent-blue: oklch(0.55 0.15 250);   --agent-blue-fg: oklch(0.42 0.13 250);
+    --agent-amber: oklch(0.62 0.15 70);   --agent-amber-fg: oklch(0.46 0.13 70);
+    --agent-red: oklch(0.58 0.2 22);      --agent-red-fg: oklch(0.47 0.17 22);
+    --agent-teal: oklch(0.56 0.12 185);   --agent-teal-fg: oklch(0.42 0.1 185);
+    --agent-yellow: oklch(0.68 0.15 95);  --agent-yellow-fg: oklch(0.48 0.12 95);
+    --agent-purple: oklch(0.56 0.16 300); --agent-purple-fg: oklch(0.44 0.14 300);
+    --agent-pink: oklch(0.6 0.18 340);    --agent-pink-fg: oklch(0.47 0.15 340);
+    --agent-cyan: oklch(0.58 0.12 215);   --agent-cyan-fg: oklch(0.44 0.1 215);
+    --agent-gray: oklch(0.55 0.02 265);   --agent-gray-fg: oklch(0.42 0.02 265);
 }
 
 @layer base {
@@ -337,9 +468,12 @@
   .press\:scale:active { transform: scale(0.985); transition: transform 80ms var(--ease-out-quart); }
 }
 
-/* Prefers-reduced-motion respect */
+/* Prefers-reduced-motion respect. Progress indicators are exempt: a frozen
+   spinner is indistinguishable from a hung one. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *:not(.animate-spin):not([data-motion-essential]),
+  *:not(.animate-spin):not([data-motion-essential])::before,
+  *:not(.animate-spin):not([data-motion-essential])::after {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
   }
@@ -372,9 +506,26 @@
   100% { background-position: -200% 0; }
 }
 
+/* Dashed edge "flow" for live graph edges (parent → working child). */
+@keyframes dash-flow {
+  to { stroke-dashoffset: -16; }
+}
+
+/* Entrance for freshly arrived rows / hunks / nodes. */
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* One-shot left-edge glow that fades — marks content that just arrived. */
+@keyframes edge-glow {
+  from { box-shadow: inset 3px 0 0 var(--tone-success); }
+  to   { box-shadow: inset 3px 0 0 transparent; }
+}
+
 /* ─── Active overseer: compact header control ─── */
 .overseer-presence-control {
-  --overseer-color: #0864b8;
+  --overseer-color: var(--tone-info);
 }
 
 .overseer-presence-control {

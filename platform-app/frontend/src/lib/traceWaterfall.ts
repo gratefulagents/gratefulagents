@@ -438,16 +438,41 @@ const TICK_STEPS_US: number[] = (() => {
   return steps;
 })();
 
-/** Compute nice ticks (offsets relative to view start) for a µs range. */
-export function computeTicks(rangeUs: number, maxTicks = 8): TimeTick[] {
+/**
+ * Compute nice ticks (offsets relative to view start) for a µs range. When
+ * `viewStartUs` is given, ticks snap to absolute multiples of the step so a
+ * zoomed ruler reads "1.2s, 1.4s" instead of "1.137s, 1.337s".
+ */
+export function computeTicks(rangeUs: number, maxTicks = 8, viewStartUs = 0): TimeTick[] {
   if (!(rangeUs > 0)) return [{ offsetUs: 0, label: fmtOffsetUs(0) }];
   const step = TICK_STEPS_US.find((s) => rangeUs / s <= maxTicks) ?? TICK_STEPS_US[TICK_STEPS_US.length - 1];
   const ticks: TimeTick[] = [];
-  for (let t = 0; t <= rangeUs; t += step) {
-    ticks.push({ offsetUs: t, label: fmtOffsetUs(t) });
+  const first = viewStartUs > 0 ? Math.ceil(viewStartUs / step) * step - viewStartUs : 0;
+  for (let t = first; t <= rangeUs; t += step) {
+    ticks.push({ offsetUs: t, label: fmtOffsetUs(viewStartUs + t) });
   }
   return ticks;
 }
+
+/**
+ * The eight colour tokens the theme defines for trace kinds (`--kind-*`).
+ * Kinds without a token of their own share one and differ by opacity.
+ */
+export type KindToken = "llm" | "tool" | "agent" | "subagent" | "session" | "handoff" | "control" | "other";
+
+export const KIND_TOKEN: Record<BaseKind, { token: KindToken; muted?: boolean }> = {
+  llm: { token: "llm" },
+  tool: { token: "tool" },
+  subagent: { token: "subagent" },
+  agent: { token: "agent" },
+  session: { token: "session" },
+  handoff: { token: "handoff" },
+  guardrail: { token: "control" },
+  retry: { token: "control", muted: true },
+  compaction: { token: "other" },
+  phase: { token: "other", muted: true },
+  other: { token: "other", muted: true },
+};
 
 // ---------------------------------------------------------------------------
 // Formatting

@@ -285,3 +285,13 @@ describe("formatting + classification", () => {
     expect(spanCostUsd(mkSpan({ id: "t2", kind: "tool.Bash" }))).toBeUndefined();
   });
 });
+
+describe("computeTicks snapping", () => {
+  it("snaps zoomed ticks to absolute nice values", () => {
+    const ticks = computeTicks(2_000_000, 8, 1_137_000); // view 1.137s → 3.137s
+    expect(ticks.length).toBeGreaterThan(2);
+    const step = ticks[1].offsetUs - ticks[0].offsetUs;
+    for (const t of ticks) expect((1_137_000 + t.offsetUs) % step).toBe(0);
+    expect(ticks[0].offsetUs).toBeGreaterThanOrEqual(0);
+  });
+});

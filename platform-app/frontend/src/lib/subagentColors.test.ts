@@ -4,9 +4,9 @@ import { getSubagentColor } from "@/lib/subagentColors";
 
 describe("getSubagentColor", () => {
   it("returns the curated color for well-known agents", () => {
-    expect(getSubagentColor("Explore").text).toBe("text-blue-400");
-    expect(getSubagentColor("Plan").text).toBe("text-cyan-400");
-    expect(getSubagentColor("general-purpose").text).toBe("text-purple-400");
+    expect(getSubagentColor("Explore").text).toBe("text-agent-blue-fg");
+    expect(getSubagentColor("Plan").text).toBe("text-agent-cyan-fg");
+    expect(getSubagentColor("general-purpose").text).toBe("text-agent-purple-fg");
   });
 
   it("is deterministic regardless of call/encounter order", () => {
@@ -25,8 +25,8 @@ describe("getSubagentColor", () => {
   });
 
   it("falls back to a neutral color when the type is missing", () => {
-    expect(getSubagentColor(undefined).text).toBe("text-gray-400");
-    expect(getSubagentColor("").text).toBe("text-gray-400");
+    expect(getSubagentColor(undefined).text).toBe("text-agent-gray-fg");
+    expect(getSubagentColor("").text).toBe("text-agent-gray-fg");
   });
 
   it("distributes distinct types across the palette", () => {

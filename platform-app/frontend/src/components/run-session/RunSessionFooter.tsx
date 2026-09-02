@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { CircleStop, Clock, Loader2, Paperclip, RotateCcw, Send } from "lucide-react";
 
 import { ImageAttachmentStrip } from "@/components/ImageAttachmentStrip";
 import { ContextUsageBar } from "@/components/run-session/ContextUsageBar";
 import { FileMentionMenu } from "@/components/run-session/FileMentionMenu";
+import { composerFocusRing, optionId } from "@/components/run-session/composer";
+import { useRunActions } from "@/components/run-session/RunActionsContext";
 import { RunModelSwitcher, type RuntimeConfigUpdate } from "@/components/run-session/RunModelSwitcher";
 import { SlashCommandMenu } from "@/components/run-session/SlashCommandMenu";
 import { filterSlashCommands, type SlashCommand } from "@/components/run-session/slashCommands";
@@ -12,8 +15,14 @@ import { useAutosizeTextarea } from "@/hooks/useAutosizeTextarea";
 import { useWorkspaceFiles } from "@/hooks/useWorkspaceFiles";
 import type { ImageAttachment, VideoAttachment } from "@/hooks/useImageAttachments";
 import { getMentionQuery, matchWorkspaceFiles, type FileMatch } from "@/lib/fileMentions";
+import { fade, lift } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { AgentRunMessageMode, type AgentRun } from "@/rpc/platform/service_pb";
+
+const deliveryModes = [
+  { value: AgentRunMessageMode.IMMEDIATE, label: "Steer" },
+  { value: AgentRunMessageMode.ENQUEUE, label: "Queue" },
+] as const;
 
 export interface RunSessionFooterAttachments {
   images: ImageAttachment[];
@@ -25,14 +34,8 @@ export interface RunSessionFooterAttachments {
   onPaste: (event: ClipboardEvent) => boolean;
 }
 
-interface RunSessionFooterProps {
-  isActive: boolean;
-  isViewer: boolean;
-  sending: boolean;
-  canSendMessage: boolean;
-  startupCopy: string;
-  attachments: RunSessionFooterAttachments;
-  fileInputRef: RefObject<HTMLInputElement | null>;
+/** The composer's text, delivery mode, and send/slash handlers. */
+export interface RunSessionComposer {
   reply: string;
   setReply: Dispatch<SetStateAction<string>>;
   handleSend: () => void | Promise<void>;
@@ -40,88 +43,77 @@ interface RunSessionFooterProps {
   setSendMode: Dispatch<SetStateAction<AgentRunMessageMode>>;
   slashCommands: SlashCommand[];
   onRunSlashCommand: (command: SlashCommand) => void | Promise<void>;
-  phase: string;
-  blockedReason: string;
-  canExtendRuntime: boolean;
-  setExtendRuntimeOpen: Dispatch<SetStateAction<boolean>>;
-  extendingRuntime: boolean;
-  canRetry: boolean;
-  handleRetry: () => void | Promise<void>;
-  retrying: boolean;
-  /** Turn is live: swap the send button for a stop-turn button while the
-   * composer is empty. Stops the in-flight turn without killing the run. */
-  canInterrupt?: boolean;
-  interrupting?: boolean;
-  /** An interrupt was accepted and the turn hasn't ended yet: the stop control
-   * stays disabled as "Stopping…" so repeat clicks don't pile up requests. */
-  interruptPending?: boolean;
-  /** The accepted interrupt has not taken effect for a while; surface the
-   * "Stop run" fallback hint. */
-  interruptStalled?: boolean;
-  onInterrupt?: () => void | Promise<void>;
   /** Steer vs. Queue only differs while the agent is mid-turn; hidden otherwise. */
   showSendMode?: boolean;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  fileInputRef: RefObject<HTMLInputElement | null>;
+  attachments: RunSessionFooterAttachments;
+}
+
+/** Provider/model readout + switcher; the switcher hides when the handler is omitted. */
+export interface RunSessionRuntimeConfig {
+  canUpdate: boolean;
+  updating: boolean;
+  onUpdate?: (update: RuntimeConfigUpdate) => void | Promise<void>;
+}
+
+/** Context-window meter data; the bar hides itself when unknown. */
+export interface RunSessionContextWindow {
+  tokens: number | null;
+  triggerTokens: number;
+  targetTokens: number;
+}
+
+interface RunSessionFooterProps {
+  run: AgentRun;
+  isActive: boolean;
+  isViewer: boolean;
+  sending: boolean;
+  canSendMessage: boolean;
+  startupCopy: string;
+  composer: RunSessionComposer;
   /** Run identity for the "@" workspace file picker. When omitted the picker is disabled. */
   namespace?: string;
   name?: string;
   resourceType?: string;
-  /** Context-window meter data; the bar hides itself when unknown. */
-  contextTokens?: number | null;
-  contextTriggerTokens?: number;
-  contextTargetTokens?: number;
-  /** Provider/model readout + switcher; hidden when the run is unknown. */
-  run?: AgentRun;
-  canUpdateRuntimeConfig?: boolean;
-  updatingRuntimeConfig?: boolean;
-  onUpdateRuntimeConfig?: (update: RuntimeConfigUpdate) => void | Promise<void>;
+  contextWindow?: RunSessionContextWindow;
+  runtimeConfig?: RunSessionRuntimeConfig;
 }
 
 export function RunSessionFooter({
+  run,
   isActive,
   isViewer,
   sending,
   canSendMessage,
   startupCopy,
-  attachments,
-  fileInputRef,
-  reply,
-  setReply,
-  handleSend,
-  sendMode,
-  setSendMode,
-  slashCommands,
-  onRunSlashCommand,
-  phase,
-  blockedReason,
-  canExtendRuntime,
-  setExtendRuntimeOpen,
-  extendingRuntime,
-  canRetry,
-  handleRetry,
-  retrying,
-  canInterrupt = false,
-  interrupting = false,
-  interruptPending = false,
-  interruptStalled = false,
-  onInterrupt,
-  showSendMode = true,
-  textareaRef,
+  composer: {
+    reply,
+    setReply,
+    handleSend,
+    sendMode,
+    setSendMode,
+    showSendMode = true,
+    slashCommands,
+    onRunSlashCommand,
+    textareaRef,
+    fileInputRef,
+    attachments,
+  },
   namespace,
   name,
   resourceType = "AgentRun",
-  contextTokens,
-  contextTriggerTokens,
-  contextTargetTokens,
-  run: agentRun,
-  canUpdateRuntimeConfig = false,
-  updatingRuntimeConfig = false,
-  onUpdateRuntimeConfig,
+  contextWindow,
+  runtimeConfig,
 }: RunSessionFooterProps) {
-  const run = { phase, blockedReason };
+  const { retry, interrupt, extendRuntime } = useRunActions();
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const resolvedTextareaRef = textareaRef ?? internalTextareaRef;
   useAutosizeTextarea(resolvedTextareaRef, reply, 120);
+  const menuId = useId();
+  const slashMenuId = `${menuId}-slash`;
+  const fileMenuId = `${menuId}-files`;
+  const deliveryLabelId = `${menuId}-delivery`;
 
   // Reactive slash-command palette. The menu opens the moment the composer
   // starts with "/", filters as the user types, and stays dismissed (per
@@ -206,6 +198,20 @@ export function RunSessionFooter({
     fileMatches.length === 0 ? 0 : Math.min(mentionIndex, fileMatches.length - 1);
   const mentionMenuOpen =
     mention !== null && !menuOpen && !mentionDismissed && !filesError && (filesLoading || filesLoaded);
+  const anyMenuOpen = menuOpen || mentionMenuOpen;
+  // The textarea is only a combobox while a listbox is actually mounted;
+  // otherwise screen readers would announce a popup that never opens.
+  const activeOptionId = menuOpen
+    ? optionId(slashMenuId, safeActiveIndex)
+    : mentionMenuOpen && fileMatches.length > 0
+      ? optionId(fileMenuId, safeMentionIndex)
+      : undefined;
+  const showInterrupt =
+    interrupt.can &&
+    !reply.trim() &&
+    attachments.images.length === 0 &&
+    attachments.videos.length === 0 &&
+    !attachments.processing;
 
   function applyMention(match: FileMatch) {
     if (!mention) {
@@ -257,28 +263,36 @@ export function RunSessionFooter({
                       }}
                     />
                     <div className="relative flex items-end gap-2">
-                      {menuOpen && (
-                        <SlashCommandMenu
-                          commands={filteredCommands}
-                          activeIndex={safeActiveIndex}
-                          onHover={setActiveIndex}
-                          onSelect={runCommand}
-                        />
-                      )}
-                      {mentionMenuOpen && (
-                        <FileMentionMenu
-                          matches={fileMatches}
-                          activeIndex={safeMentionIndex}
-                          loading={filesLoading}
-                          hasQuery={(mention?.query.length ?? 0) > 0}
-                          onHover={setMentionIndex}
-                          onSelect={applyMention}
-                        />
-                      )}
+                      <AnimatePresence>
+                        {menuOpen && (
+                          <motion.div key="slash" className="absolute bottom-full left-0 z-50 mb-2 w-full" {...lift}>
+                            <SlashCommandMenu
+                              id={slashMenuId}
+                              commands={filteredCommands}
+                              activeIndex={safeActiveIndex}
+                              onHover={setActiveIndex}
+                              onSelect={runCommand}
+                            />
+                          </motion.div>
+                        )}
+                        {mentionMenuOpen && (
+                          <motion.div key="files" className="absolute bottom-full left-0 z-50 mb-2 w-full" {...lift}>
+                            <FileMentionMenu
+                              id={fileMenuId}
+                              matches={fileMatches}
+                              activeIndex={safeMentionIndex}
+                              loading={filesLoading}
+                              hasQuery={(mention?.query.length ?? 0) > 0}
+                              onHover={setMentionIndex}
+                              onSelect={applyMention}
+                            />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                       <Button
                         size="icon"
                         variant="outline"
-                        className="size-10 md:size-8"
+                        className={cn("size-10 md:size-8", composerFocusRing)}
                         onClick={() => fileInputRef.current?.click()}
                         disabled={sending || attachments.processing || !canSendMessage}
                         aria-label="Attach image or video"
@@ -289,10 +303,16 @@ export function RunSessionFooter({
                       <textarea
                         ref={resolvedTextareaRef}
                         aria-label="Type your reply"
-                        role="combobox"
-                        aria-expanded={menuOpen || mentionMenuOpen}
-                        aria-controls={mentionMenuOpen ? "file-mention-menu" : "slash-command-menu"}
-                        className="min-h-[38px] max-h-[120px] flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
+                        role={anyMenuOpen ? "combobox" : undefined}
+                        aria-expanded={anyMenuOpen ? true : undefined}
+                        aria-haspopup={anyMenuOpen ? "listbox" : undefined}
+                        aria-controls={menuOpen ? slashMenuId : mentionMenuOpen ? fileMenuId : undefined}
+                        aria-activedescendant={activeOptionId}
+                        aria-autocomplete={anyMenuOpen ? "list" : undefined}
+                        className={cn(
+                          "min-h-[38px] max-h-[120px] flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground/60",
+                          composerFocusRing,
+                        )}
                         placeholder={canSendMessage ? "Type your reply, / for commands, @ for files…" : startupCopy}
                         value={reply}
                         onChange={(e) => {
@@ -325,6 +345,11 @@ export function RunSessionFooter({
                                 if (match) applyMention(match);
                                 return;
                               }
+                            } else if (filesLoading && e.key === "Enter" && !e.shiftKey) {
+                              // The picker is still fetching; Enter here means
+                              // "pick the file", not "send the message".
+                              e.preventDefault();
+                              return;
                             }
                             if (e.key === "Escape") {
                               e.preventDefault();
@@ -364,91 +389,102 @@ export function RunSessionFooter({
                         }}
                         disabled={sending || !canSendMessage}
                       />
-                      {canInterrupt &&
-                      onInterrupt &&
-                      !reply.trim() &&
-                      attachments.images.length === 0 &&
-                      attachments.videos.length === 0 &&
-                      !attachments.processing ? (
-                        interruptPending ? (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="h-10 gap-1.5 md:h-8"
-                            disabled
-                            aria-label="Stopping the current turn"
-                            title="Waiting for the agent to stop the current turn"
-                          >
-                            <Loader2 className="size-4 animate-spin" />
-                            Stopping…
-                          </Button>
+                      {/* While a turn is live and the composer is empty the
+                          send slot becomes "stop this turn". Cross-fade the
+                          swap so the button does not pop. */}
+                      <AnimatePresence mode="wait" initial={false}>
+                        {showInterrupt ? (
+                          <motion.span key="interrupt" className="inline-flex" {...fade}>
+                            {interrupt.pending ? (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className={cn("h-10 gap-1.5 md:h-8", composerFocusRing)}
+                                disabled
+                                aria-label="Stopping the current turn"
+                                title="Waiting for the agent to stop the current turn"
+                              >
+                                <Loader2 className="size-4 animate-spin" />
+                                Stopping…
+                              </Button>
+                            ) : (
+                              <Button
+                                size="icon"
+                                variant="destructive"
+                                className={cn("size-10 md:size-8", composerFocusRing)}
+                                onClick={interrupt.run}
+                                disabled={interrupt.busy}
+                                aria-label="Stop the current turn"
+                                title="Stop the current turn without stopping the run"
+                              >
+                                <CircleStop className="size-4" />
+                              </Button>
+                            )}
+                          </motion.span>
                         ) : (
-                          <Button
-                            size="icon"
-                            variant="destructive"
-                            className="size-10 md:size-8"
-                            onClick={onInterrupt}
-                            disabled={interrupting}
-                            aria-label="Stop the current turn"
-                            title="Stop the current turn without stopping the run"
-                          >
-                            <CircleStop className="size-4" />
-                          </Button>
-                        )
-                      ) : (
-                        <Button
-                          size="icon"
-                          className="size-10 md:size-8"
-                          onClick={handleSend}
-                          disabled={
-                            (!reply.trim() &&
-                              attachments.images.length === 0 &&
-                              attachments.videos.length === 0) ||
-                            sending ||
-                            attachments.processing ||
-                            !canSendMessage
-                          }
-                          aria-label="Send message"
-                        >
-                          <Send className="size-4" />
-                        </Button>
-                      )}
+                          <motion.span key="send" className="inline-flex" {...fade}>
+                            <Button
+                              size="icon"
+                              className={cn("size-10 md:size-8", composerFocusRing)}
+                              onClick={handleSend}
+                              disabled={
+                                (!reply.trim() &&
+                                  attachments.images.length === 0 &&
+                                  attachments.videos.length === 0) ||
+                                sending ||
+                                attachments.processing ||
+                                !canSendMessage
+                              }
+                              aria-label="Send message"
+                            >
+                              <Send className="size-4" />
+                            </Button>
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
                     </div>
-                    {interruptStalled && (
-                      <p className="text-[11px] text-muted-foreground" role="status">
+                    {interrupt.stalled && (
+                      <p className="text-2xs text-muted-foreground" role="status">
                         Still running — the stop request hasn't taken effect yet. Use Stop run from the
                         header to end the run, or try again.
                       </p>
                     )}
-                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
                       {showSendMode && (
                         <div className="flex items-center gap-1.5">
-                          <span className="mr-0.5">Delivery</span>
-                          <div className="flex items-center rounded-md bg-muted p-0.5">
-                            <button
-                              type="button"
-                              onClick={() => setSendMode(AgentRunMessageMode.IMMEDIATE)}
-                              className={cn(
-                                "rounded-sm px-2.5 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 md:px-2 md:py-0.5",
-                                sendMode === AgentRunMessageMode.IMMEDIATE
-                                  ? "bg-background text-foreground shadow-sm"
-                                  : "hover:text-foreground",
-                              )}
-                            >
-                              Steer
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setSendMode(AgentRunMessageMode.ENQUEUE)}
-                              className={cn(
-                                "rounded-sm px-2.5 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 md:px-2 md:py-0.5",
-                                sendMode === AgentRunMessageMode.ENQUEUE
-                                  ? "bg-background text-foreground shadow-sm"
-                                  : "hover:text-foreground",
-                              )}
-                            >
-                              Queue
-                            </button>
+                        <span id={deliveryLabelId} className="mr-0.5">Delivery</span>
+                        <div
+                          role="radiogroup"
+                          aria-labelledby={deliveryLabelId}
+                          className="flex items-center rounded-md bg-muted p-0.5"
+                        >
+                          {deliveryModes.map((mode) => {
+                            const checked = sendMode === mode.value;
+                            return (
+                              <button
+                                key={mode.label}
+                                type="button"
+                                role="radio"
+                                aria-checked={checked}
+                                tabIndex={checked ? 0 : -1}
+                                onClick={() => setSendMode(mode.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                                    e.preventDefault();
+                                    const other = deliveryModes.find((m) => m.value !== mode.value);
+                                    if (other) setSendMode(other.value);
+                                  }
+                                }}
+                                className={cn(
+                                  "rounded-sm px-2.5 py-1.5 transition-colors md:px-2 md:py-0.5",
+                                  composerFocusRing,
+                                  checked ? "bg-background text-foreground shadow-sm" : "hover:text-foreground",
+                                )}
+                              >
+                                {mode.label}
+                              </button>
+                            );
+                          })}
                           </div>
                         </div>
                       )}
@@ -457,18 +493,18 @@ export function RunSessionFooter({
                         <kbd className="rounded border bg-muted px-1 font-mono">@</kbd> for files
                       </span>
                       <span className="ml-auto flex flex-wrap items-center gap-2">
-                        {agentRun && onUpdateRuntimeConfig && (
+                        {runtimeConfig?.onUpdate && (
                           <RunModelSwitcher
-                            run={agentRun}
-                            canUpdate={canUpdateRuntimeConfig}
-                            updating={updatingRuntimeConfig}
-                            onUpdate={onUpdateRuntimeConfig}
+                            run={run}
+                            canUpdate={runtimeConfig.canUpdate}
+                            updating={runtimeConfig.updating}
+                            onUpdate={runtimeConfig.onUpdate}
                           />
                         )}
                         <ContextUsageBar
-                          usedTokens={contextTokens ?? null}
-                          triggerTokens={contextTriggerTokens ?? 0}
-                          targetTokens={contextTargetTokens ?? 0}
+                          usedTokens={contextWindow?.tokens ?? null}
+                          triggerTokens={contextWindow?.triggerTokens ?? 0}
+                          targetTokens={contextWindow?.targetTokens ?? 0}
                         />
                       </span>
                     </div>
@@ -497,29 +533,29 @@ export function RunSessionFooter({
                         return startupCopy;
                       })()}
                     </span>
-                    {run.phase === "Paused" && canExtendRuntime && (
+                    {run.phase === "Paused" && extendRuntime.can && (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => setExtendRuntimeOpen(true)}
-                        disabled={extendingRuntime}
+                        onClick={() => extendRuntime.setOpen(true)}
+                        disabled={extendRuntime.busy}
                         className="h-7 gap-1.5 px-2 text-xs"
                       >
                         <Clock className="size-3.5" />
                         Extend Runtime
                       </Button>
                     )}
-                    {(run.phase === "Failed" || run.phase === "Cancelled") && canRetry && (
+                    {(run.phase === "Failed" || run.phase === "Cancelled") && retry.can && (
                       <Button
                         type="button"
                         size="sm"
-                        onClick={handleRetry}
-                        disabled={retrying}
+                        onClick={retry.run}
+                        disabled={retry.busy}
                         className="h-7 gap-1.5 px-2 text-xs"
                       >
                         <RotateCcw className="size-3.5" />
-                        {retrying ? "Retrying..." : "Retry"}
+                        {retry.busy ? "Retrying..." : "Retry"}
                       </Button>
                     )}
                   </div>

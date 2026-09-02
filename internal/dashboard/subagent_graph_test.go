@@ -477,3 +477,16 @@ func TestBuildSubagentGraphTitleTruncationIsUTF8Safe(t *testing.T) {
 		t.Fatalf("label rune length = %d, want 90 (89 + ellipsis)", len(got))
 	}
 }
+
+func TestCleanSubagentDescriptionRejectsLifecycleMarkers(t *testing.T) {
+	for _, noise := range []string{"parent_wait", "dependency_wait", "spawned", "some_future_marker", " Running "} {
+		if got := cleanSubagentDescription(noise); got != "" {
+			t.Fatalf("cleanSubagentDescription(%q) = %q, want empty", noise, got)
+		}
+	}
+	for _, real := range []string{"Review the diff viewer", "fix_bug in parser", "Audit"} {
+		if got := cleanSubagentDescription(real); got == "" {
+			t.Fatalf("cleanSubagentDescription(%q) dropped a real description", real)
+		}
+	}
+}

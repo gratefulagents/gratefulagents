@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 
 import {
@@ -8,7 +8,7 @@ import {
   SubagentGraphSchema,
   type SubagentGraphNode,
 } from "@/rpc/platform/service_pb";
-import { ActiveSubagentsDock } from "./ActiveSubagentsDock";
+import { ActiveSubagentsDock, DOCK_LINGER_MS } from "./ActiveSubagentsDock";
 
 // Node ≥22 ships an experimental global localStorage stub that shadows
 // jsdom's; a Map-backed fake keeps expansion-persistence assertions
@@ -260,5 +260,50 @@ describe("ActiveSubagentsDock", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "View full subagent graph" }));
     expect(onOpenGraph).toHaveBeenCalledOnce();
+  });
+
+  it("opens the graph from a task's #n chip", () => {
+    const onOpenGraph = vi.fn();
+    render(
+      <ActiveSubagentsDock
+        graph={graph([node("running", "running")])}
+        onOpenGraph={onOpenGraph}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /1 active agent/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Open task #1 in graph" }));
+    expect(onOpenGraph).toHaveBeenCalledOnce();
+  });
+
+  it("lingers briefly with a finished line once the last agent completes", () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(
+        <ActiveSubagentsDock graph={graph([node("a", "running"), node("b", "completed")])} />,
+      );
+      expect(screen.getByRole("region", { name: "Active delegated agents" })).toBeTruthy();
+
+      rerender(
+        <ActiveSubagentsDock
+          graph={graph([node("a", "completed", { durationMs: 1_000n }), node("b", "completed")])}
+        />,
+      );
+      expect(screen.getByRole("region", { name: "Active delegated agents" })).toBeTruthy();
+      expect(screen.getByText("All agents finished")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /delegated task/i })).toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(DOCK_LINGER_MS - 50);
+      });
+      expect(screen.getByText("All agents finished")).toBeTruthy();
+
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(screen.queryByRole("region", { name: "Active delegated agents" })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -1,20 +1,22 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
-  ChevronDown,
+  ChevronRight,
   Clock3,
   CornerDownRight,
   GitFork,
-  Loader2,
   Maximize2,
   XCircle,
 } from "lucide-react";
 
+import { AgentTypeChip } from "@/components/ui/agent-type-chip";
+import { LiveDot } from "@/components/ui/live-dot";
 import { useNow } from "@/hooks/useNow";
 import { formatDuration, formatTokens } from "@/lib/activityGrouping";
 import { getSubagentColor } from "@/lib/subagentColors";
 import {
+  assignOrdinals,
   buildLayout,
   isRunningSubagentNode,
   isWaitingStatus,
@@ -27,6 +29,10 @@ import type { SubagentGraph, SubagentGraphNode } from "@/rpc/platform/service_pb
 
 const STOPPED_STATUSES = new Set(["stopped", "cancelled", "canceled"]);
 const DOCK_EXPANDED_KEY = "gratefulagents.subagentDockExpanded";
+/** How long the dock stays visible after the last agent finishes. */
+export const DOCK_LINGER_MS = 1_200;
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2";
 
 /** Geometry only feeds the layout pass we reuse for dependency depths. */
 const WAVE_DIMS: LayoutDims = { nodeW: 220, nodeH: 64, hGap: 44, vGap: 12 };
@@ -92,10 +98,9 @@ function NodeStatusIcon({ state }: { state: NodeState }) {
   }
   if (state === "running") {
     return (
-      <Loader2
-        className={cn("size-3.5 shrink-0 animate-spin", toneText.running)}
-        aria-hidden="true"
-      />
+      <span className="flex size-3.5 shrink-0 items-center justify-center">
+        <LiveDot tone="running" pulse />
+      </span>
     );
   }
   if (state === "failed") {
@@ -117,24 +122,21 @@ function NodeStatusIcon({ state }: { state: NodeState }) {
  */
 function buildWaves(graph: SubagentGraph): RosterEntry[][] {
   const layout = buildLayout(graph, WAVE_DIMS);
+  // Shared numbering with the transcript DAG card and the graph tab.
+  const ordinalById = assignOrdinals(layout);
 
-  // Bucket by dependency depth so parallel tasks share a wave.
+  // Bucket by dependency depth so parallel tasks share a wave, ordered by
+  // ordinal within each wave.
   const buckets = new Map<number, SubagentGraphNode[]>();
   for (const laid of layout.order) {
+    if (!ordinalById.has(laid.node.id)) continue;
     const bucket = buckets.get(laid.depth);
     if (bucket) bucket.push(laid.node);
     else buckets.set(laid.depth, [laid.node]);
   }
   const nodeWaves = [...buckets.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([, nodes]) => nodes);
-
-  // Ordinals follow the visual order (wave by wave, top to bottom).
-  const ordinalById = new Map<string, number>();
-  let next = 1;
-  for (const wave of nodeWaves) {
-    for (const node of wave) ordinalById.set(node.id, next++);
-  }
+    .map(([, nodes]) => nodes.sort((a, b) => ordinalById.get(a.id)! - ordinalById.get(b.id)!));
 
   // Exact dependencies: depends-on edges, plus live waiting-on task ids.
   const depIdsById = new Map<string, Set<string>>();
@@ -230,10 +232,39 @@ export function ActiveSubagentsDock({
   }, [graph]);
   const roster = useMemo(() => waves.flat(), [waves]);
   const active = roster.filter(({ state }) => state === "running" || state === "waiting");
+  const hasActive = active.length > 0;
+
+  // Linger briefly after the last agent finishes so the completion registers
+  // instead of the dock vanishing mid-glance: active → finished (1.2s) → gone.
+  const [wasActive, setWasActive] = useState(hasActive);
+  const [finishedVisible, setFinishedVisible] = useState(false);
+  if (hasActive !== wasActive) {
+    setWasActive(hasActive);
+    setFinishedVisible(!hasActive);
+  }
+  useEffect(() => {
+    if (!finishedVisible) return;
+    const timer = setTimeout(() => setFinishedVisible(false), DOCK_LINGER_MS);
+    return () => clearTimeout(timer);
+  }, [finishedVisible]);
 
   // Keep the complete roster pinned while any delegated work is live. Once all
   // tasks are terminal it remains available in the transcript and Graph tab.
-  if (active.length === 0) return null;
+  if (!hasActive && !finishedVisible) return null;
+
+  if (!hasActive) {
+    return (
+      <section
+        className="shrink-0 border-t border-border/70 bg-card/35"
+        aria-label="Active delegated agents"
+      >
+        <div className="flex min-h-9 items-center gap-2 px-3 text-xs text-muted-foreground md:px-4">
+          <LiveDot tone="success" />
+          <span role="status">All agents finished</span>
+        </div>
+      </section>
+    );
+  }
 
   const count = (state: NodeState) =>
     roster.filter((entry) => entry.state === state).length;
@@ -266,9 +297,9 @@ export function ActiveSubagentsDock({
       <div className="flex min-h-9 items-center gap-1 px-3 md:px-4">
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-sm py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          className={cn("flex min-w-0 flex-1 items-center gap-2 rounded-sm py-1.5 text-left", FOCUS_RING)}
           aria-expanded={expanded}
-          aria-controls={rosterId}
+          aria-controls={expanded ? rosterId : undefined}
           aria-label={`${active.length} active agent${active.length === 1 ? "" : "s"}; ${roster.length} delegated task${roster.length === 1 ? "" : "s"}`}
           onClick={toggleExpanded}
         >
@@ -276,10 +307,10 @@ export function ActiveSubagentsDock({
           <span className="shrink-0 text-xs font-medium text-foreground">
             Delegated {roster.length} task{roster.length === 1 ? "" : "s"}
           </span>
-          <span className="hidden min-w-0 items-center gap-2 overflow-hidden text-[11px] sm:flex">
+          <span className="hidden min-w-0 items-center gap-2 overflow-hidden text-2xs sm:flex">
             {running > 0 && (
               <span className={cn("inline-flex shrink-0 items-center gap-1", toneText.running)}>
-                <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+                <LiveDot tone="running" pulse size="xs" />
                 {running} running
               </span>
             )}
@@ -313,10 +344,10 @@ export function ActiveSubagentsDock({
               </span>
             )}
           </span>
-          <ChevronDown
+          <ChevronRight
             className={cn(
               "ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform",
-              expanded && "rotate-180",
+              expanded && "rotate-90",
             )}
             aria-hidden="true"
           />
@@ -324,7 +355,10 @@ export function ActiveSubagentsDock({
         {onOpenGraph && (
           <button
             type="button"
-            className="ml-1 inline-flex shrink-0 items-center gap-1 rounded p-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 sm:px-2"
+            className={cn(
+              "ml-1 inline-flex min-h-6 shrink-0 items-center gap-1 rounded p-1.5 text-2xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:px-2",
+              FOCUS_RING,
+            )}
             onClick={onOpenGraph}
             aria-label="View full subagent graph"
             title="View full subagent graph"
@@ -349,7 +383,7 @@ export function ActiveSubagentsDock({
                   aria-hidden="true"
                 >
                   <CornerDownRight className="size-3 shrink-0 text-muted-foreground/60" />
-                  <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                  <span className="shrink-0 text-3xs text-muted-foreground/70">
                     {(() => {
                       const refs = unique(wave.flatMap((e) => e.dependsOn));
                       return refs.length > 0
@@ -362,7 +396,12 @@ export function ActiveSubagentsDock({
               )}
               <ul className="grid list-none gap-1.5 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
                 {wave.map((entry) => (
-                  <DockTaskCard key={entry.node.id} entry={entry} now={now} />
+                  <DockTaskCard
+                    key={entry.node.id}
+                    entry={entry}
+                    now={now}
+                    onOpenGraph={onOpenGraph}
+                  />
                 ))}
               </ul>
             </div>
@@ -377,7 +416,15 @@ function unique(ordinals: number[]): number[] {
   return [...new Set(ordinals)].sort((a, b) => a - b);
 }
 
-function DockTaskCard({ entry, now }: { entry: RosterEntry; now: number }) {
+function DockTaskCard({
+  entry,
+  now,
+  onOpenGraph,
+}: {
+  entry: RosterEntry;
+  now: number;
+  onOpenGraph?: () => void;
+}) {
   const { node, state, ordinal, dependsOn, dependsOnLabels } = entry;
   const color = getSubagentColor(agentType(node));
   const elapsed =
@@ -394,44 +441,51 @@ function DockTaskCard({ entry, now }: { entry: RosterEntry; now: number }) {
       className={cn(
         "relative flex flex-col justify-center gap-1 overflow-hidden rounded-md border border-border/60 border-l-2 bg-card/90 px-2.5 py-2",
         color.border,
-        state === "failed" && "bg-red-500/5",
+        state === "failed" && "bg-tone-danger/5",
       )}
     >
       {state === "running" && (
         <span className="absolute inset-x-0 top-0 h-[2px] overflow-hidden rounded-t-md">
-          <span className="block h-full w-full bg-[linear-gradient(90deg,transparent,var(--color-primary),transparent)] bg-[length:50%_100%] animate-[shimmer_1.6s_linear_infinite] motion-reduce:animate-none" />
+          <span className="block h-full w-full bg-[linear-gradient(90deg,transparent,var(--color-primary),transparent)] bg-[length:50%_100%] animate-shimmer motion-reduce:animate-none" />
         </span>
       )}
       <span className="flex min-w-0 items-center gap-1.5">
         <NodeStatusIcon state={state} />
-        <span className="shrink-0 font-mono text-[10px] font-semibold tabular-nums text-muted-foreground/90">
-          #{ordinal}
-        </span>
-        <span
-          className={cn(
-            "shrink-0 rounded border px-1 py-px font-mono text-[9.5px] font-semibold",
-            color.border,
-            color.bg,
-            color.text,
-          )}
-        >
-          {agentType(node)}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/90">
+        {onOpenGraph ? (
+          <button
+            type="button"
+            onClick={onOpenGraph}
+            aria-label={`Open task #${ordinal} in graph`}
+            title="Open in graph"
+            className={cn(
+              "inline-flex min-h-6 shrink-0 items-center gap-0.5 rounded-sm px-0.5 font-mono text-3xs font-semibold tabular-nums text-muted-foreground/90 hover:text-foreground",
+              FOCUS_RING,
+            )}
+          >
+            #{ordinal}
+            <Maximize2 className="size-2.5" aria-hidden="true" />
+          </button>
+        ) : (
+          <span className="shrink-0 font-mono text-3xs font-semibold tabular-nums text-muted-foreground/90">
+            #{ordinal}
+          </span>
+        )}
+        <AgentTypeChip type={agentType(node)} className="shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-2xs font-medium text-foreground/90">
           {node.label}
         </span>
         {elapsed && (
-          <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/80">
+          <span className="shrink-0 font-mono text-3xs tabular-nums text-muted-foreground/80">
             {elapsed}
           </span>
         )}
       </span>
-      <span className="flex min-w-0 items-center gap-2 pl-5 text-[10px] text-muted-foreground">
+      <span className="flex min-w-0 items-center gap-2 pl-5 text-3xs text-muted-foreground">
         {dependsOn.length > 0 && (
           <span
             data-testid="subagent-dep-ref"
             className={cn(
-              "inline-flex shrink-0 items-center gap-1 font-mono text-[9.5px] tabular-nums",
+              "inline-flex shrink-0 items-center gap-1 font-mono text-3xs tabular-nums",
               state === "waiting" ? toneText.warning : "text-muted-foreground/70",
             )}
             title={`Runs after: ${dependsOnLabels
@@ -443,7 +497,7 @@ function DockTaskCard({ entry, now }: { entry: RosterEntry; now: number }) {
           </span>
         )}
         <span className="min-w-0 flex-1 truncate">{currentActivity(entry)}</span>
-        <span className="flex shrink-0 items-center gap-1.5 font-mono text-[9.5px] tabular-nums text-muted-foreground/80">
+        <span className="flex shrink-0 items-center gap-1.5 font-mono text-3xs tabular-nums text-muted-foreground/80">
           {node.model && (
             <span className="max-w-28 truncate" title={node.model}>
               {node.model}

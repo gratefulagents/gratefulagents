@@ -1,19 +1,38 @@
-/** Color system for subagent types. */
+/**
+ * Color system for subagent types.
+ *
+ * Every entry resolves to the theme-aware `--agent-<hue>` / `--agent-<hue>-fg`
+ * tokens in index.css, so chips pass contrast in both light and dark mode.
+ */
 
+// Class names are spelled out literally so Tailwind's scanner emits them.
 const AGENT_COLORS = [
-  { text: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/30", dot: "bg-blue-500" },
-  { text: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/30", dot: "bg-amber-500" },
-  { text: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/30", dot: "bg-red-500" },
-  { text: "text-teal-400", bg: "bg-teal-500/10", border: "border-teal-500/30", dot: "bg-teal-500" },
-  { text: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/30", dot: "bg-yellow-500" },
-  { text: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/30", dot: "bg-purple-500" },
-  { text: "text-pink-400", bg: "bg-pink-500/10", border: "border-pink-500/30", dot: "bg-pink-500" },
-  { text: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/30", dot: "bg-cyan-500" },
+  { text: "text-agent-blue-fg", bg: "bg-agent-blue/10", border: "border-agent-blue/30", ring: "ring-agent-blue/30", dot: "bg-agent-blue", cssVar: "var(--agent-blue)" },
+  { text: "text-agent-amber-fg", bg: "bg-agent-amber/10", border: "border-agent-amber/30", ring: "ring-agent-amber/30", dot: "bg-agent-amber", cssVar: "var(--agent-amber)" },
+  { text: "text-agent-red-fg", bg: "bg-agent-red/10", border: "border-agent-red/30", ring: "ring-agent-red/30", dot: "bg-agent-red", cssVar: "var(--agent-red)" },
+  { text: "text-agent-teal-fg", bg: "bg-agent-teal/10", border: "border-agent-teal/30", ring: "ring-agent-teal/30", dot: "bg-agent-teal", cssVar: "var(--agent-teal)" },
+  { text: "text-agent-yellow-fg", bg: "bg-agent-yellow/10", border: "border-agent-yellow/30", ring: "ring-agent-yellow/30", dot: "bg-agent-yellow", cssVar: "var(--agent-yellow)" },
+  { text: "text-agent-purple-fg", bg: "bg-agent-purple/10", border: "border-agent-purple/30", ring: "ring-agent-purple/30", dot: "bg-agent-purple", cssVar: "var(--agent-purple)" },
+  { text: "text-agent-pink-fg", bg: "bg-agent-pink/10", border: "border-agent-pink/30", ring: "ring-agent-pink/30", dot: "bg-agent-pink", cssVar: "var(--agent-pink)" },
+  { text: "text-agent-cyan-fg", bg: "bg-agent-cyan/10", border: "border-agent-cyan/30", ring: "ring-agent-cyan/30", dot: "bg-agent-cyan", cssVar: "var(--agent-cyan)" },
 ] as const;
 
-export type SubagentColor = { text: string; bg: string; border: string; dot: string };
+export type SubagentColor = {
+  /** AA-readable text (`--agent-*-fg`). */
+  text: string;
+  /** Soft tinted fill. */
+  bg: string;
+  /** Tinted border; callers may swap the `border-` prefix for `ring-`. */
+  border: string;
+  /** Tinted focus/inset ring, same hue as `border`. */
+  ring: string;
+  /** Solid hue anchor for dots and bars. */
+  dot: string;
+  /** Raw CSS variable of the hue anchor for inline styles (SVG, gradients). */
+  cssVar: string;
+};
 
-const DEFAULT_COLOR: SubagentColor = { text: "text-gray-400", bg: "bg-gray-500/10", border: "border-gray-500/30", dot: "bg-gray-500" };
+const DEFAULT_COLOR: SubagentColor = { text: "text-agent-gray-fg", bg: "bg-agent-gray/10", border: "border-agent-gray/30", ring: "ring-agent-gray/30", dot: "bg-agent-gray", cssVar: "var(--agent-gray)" };
 
 /** Well-known agent types get stable, hand-picked color assignments. */
 const KNOWN_AGENTS: Record<string, number> = {

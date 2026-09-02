@@ -38,7 +38,7 @@ export function DiffRepoSelector({ repositories, value, onChange }: DiffRepoSele
       <SelectTrigger
         size="sm"
         aria-label="Repository to diff"
-        className="h-7 max-w-56 gap-1.5 text-xs"
+        className="h-6 max-w-44 gap-1 px-2 text-xs font-medium"
       >
         <SelectValue placeholder="Repository" />
       </SelectTrigger>

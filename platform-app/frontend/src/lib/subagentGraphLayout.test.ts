@@ -1,7 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
 
-import { buildLayout } from "@/lib/subagentGraphLayout";
+import { buildLayout, COMPACT_DIMS, DEFAULT_DIMS } from "@/lib/subagentGraphLayout";
 import {
   SubagentGraphSchema,
   SubagentGraphNodeSchema,
@@ -99,7 +99,6 @@ describe("buildLayout", () => {
     const layout = buildLayout(graph);
     expect(layout.nodes.size).toBe(3);
   });
-});
 
   it("centers a fan-in join on its dependencies instead of stacking it below them", () => {
     // root spawns 5 parallel researchers + 1 writer that depends on all 5 —
@@ -143,3 +142,24 @@ describe("buildLayout", () => {
       expect(sorted[i] - sorted[i - 1]).toBeGreaterThanOrEqual(96); // ≥ NODE_H
     }
   });
+
+  it("lays out tighter with COMPACT_DIMS", () => {
+    const graph = create(SubagentGraphSchema, {
+      rootId: "root",
+      hasSubagents: true,
+      nodes: [
+        node({ id: "root", kind: "root", status: "running" }),
+        node({ id: "a", parentId: "root", timestampUnix: 1 }),
+        node({ id: "b", parentId: "root", timestampUnix: 2 }),
+      ],
+      edges: [spawnEdge("root", "a"), spawnEdge("root", "b")],
+    });
+
+    const full = buildLayout(graph, DEFAULT_DIMS);
+    const compact = buildLayout(graph, COMPACT_DIMS);
+    expect(compact.nodes.get("a")!.x).toBe(COMPACT_DIMS.nodeW + COMPACT_DIMS.hGap);
+    expect(compact.nodes.get("b")!.y).toBe(COMPACT_DIMS.nodeH + COMPACT_DIMS.vGap);
+    expect(compact.width).toBeLessThan(full.width);
+    expect(compact.height).toBeLessThan(full.height);
+  });
+});

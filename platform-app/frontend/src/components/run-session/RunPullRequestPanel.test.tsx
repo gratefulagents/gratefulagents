@@ -191,6 +191,104 @@ describe("RunPullRequestPanel", () => {
   });
 });
 
+describe("RunPullRequestPanel checks verdict", () => {
+  it("shows a CI verdict pill, humanises labels and does not count warnings as failing", async () => {
+    getPullRequestsMock.mockResolvedValue(
+      create(GetAgentRunPullRequestsResponseSchema, {
+        pullRequests: [
+          makePR({
+            checks: [
+              { name: "build", status: "completed", conclusion: "failure" },
+              { name: "flaky", status: "completed", conclusion: "cancelled" },
+              { name: "deploy", status: "in_progress", conclusion: "" },
+              { name: "lint", status: "completed", conclusion: "success" },
+            ],
+          }),
+        ],
+      }),
+    );
+    render(<RunPullRequestPanel namespace="ns" name="run" canSend />);
+
+    const pill = await screen.findByTestId("ci-verdict");
+    expect(pill.textContent).toBe("CI failing · 1");
+
+    fireEvent.click(screen.getByRole("tab", { name: /Checks/ }));
+    expect(screen.getByText("1 failing")).toBeTruthy();
+    expect(screen.getByText("1 running")).toBeTruthy();
+    expect(screen.getByText("In progress")).toBeTruthy();
+    expect(screen.getByText("Cancelled")).toBeTruthy();
+    expect(screen.queryByText("in_progress")).toBeNull();
+  });
+
+  it("reports CI running / CI green when nothing fails", async () => {
+    mockResponse([
+      makePR({ checks: [{ name: "deploy", status: "queued", conclusion: "" }] }),
+    ]);
+    render(<RunPullRequestPanel namespace="ns" name="run" />);
+    expect((await screen.findByTestId("ci-verdict")).textContent).toBe("CI running · 1");
+    cleanup();
+
+    mockResponse([makePR({ checks: [{ name: "lint", status: "completed", conclusion: "success" }] })]);
+    render(<RunPullRequestPanel namespace="ns" name="run" />);
+    expect((await screen.findByTestId("ci-verdict")).textContent).toBe("CI green");
+  });
+
+  it("sends failing checks to the agent", async () => {
+    mockResponse([
+      makePR({
+        checks: [
+          { name: "build", status: "completed", conclusion: "failure", detailsUrl: "https://ci/build/1" },
+          { name: "flaky", status: "completed", conclusion: "cancelled" },
+        ],
+      }),
+    ]);
+    sendMessageMock.mockResolvedValue({});
+    render(<RunPullRequestPanel namespace="ns" name="run" canSend />);
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Checks/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Send failing checks to agent/ }));
+
+    await waitFor(() => expect(sendMessageMock).toHaveBeenCalledTimes(1));
+    const { message } = sendMessageMock.mock.calls[0][0];
+    expect(message).toContain("acme/widgets#7");
+    expect(message).toContain("1. build (Failure) — https://ci/build/1");
+    expect(message).not.toContain("flaky");
+  });
+
+  it("marks threads as sent after sending and links each thread to GitHub", async () => {
+    mockResponse([
+      makePR({
+        reviewThreads: [
+          {
+            id: "PRRT_1",
+            resolved: false,
+            path: "src/widget.ts",
+            line: 12,
+            comments: [
+              {
+                author: "alice",
+                body: "Rename this variable.",
+                url: "https://github.com/acme/widgets/pull/7#discussion_r1",
+                createdAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+              },
+            ],
+          },
+        ],
+      }),
+    ]);
+    sendMessageMock.mockResolvedValue({});
+    render(<RunPullRequestPanel namespace="ns" name="run" canSend />);
+
+    const link = await screen.findByRole("link", { name: "Open thread src/widget.ts:12 on GitHub" });
+    expect(link.getAttribute("href")).toBe("https://github.com/acme/widgets/pull/7#discussion_r1");
+    expect(screen.getByText("5m ago")).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText("Select review thread src/widget.ts:12"));
+    fireEvent.click(screen.getByRole("button", { name: /Send to agent/ }));
+    await waitFor(() => expect(screen.getByText(/sent just now/)).toBeTruthy());
+  });
+});
+
 describe("buildReviewFixMessage", () => {
   it("numbers threads across PRs and flags outdated ones", () => {
     const prA = makePR();
