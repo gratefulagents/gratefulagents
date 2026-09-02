@@ -484,6 +484,13 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	runtimeCfg.ExtraTools = agentTools
 	runtimeCfg.TracingProcessor = tp
 	runtimeCfg.Debug = cfg.Debug
+	// Own the session state so the runtime does not register it in
+	// Bundle.Closers (SDK v0.0.111+ closes a runtime-owned state with the
+	// bundle, cancelling every managed child). This process exits between user
+	// messages and on pod recycles while children must stay resumable as
+	// reconciling; the loop cancels children explicitly on the exits where
+	// that is the intended outcome (user stop, cost cap, turn failure).
+	runtimeCfg.SessionState = sdkruntime.NewSessionState()
 	runtimeBundle, err := sdkruntime.NewBuilder(runtimeCfg).Build(ctx)
 	if err != nil {
 		return runResult{Status: "failed", Error: fmt.Sprintf("build runtime: %v", err)}
@@ -811,7 +818,8 @@ messageLoop:
 							nextMsg = claimed
 							trimmed := strings.TrimSpace(nextMsg.Content)
 							if strings.EqualFold(trimmed, "/stop") {
-								log.Printf("Autonomous run: /stop received from user — pausing")
+								stoppedTasks := cancelActiveSubAgentTasks(subAgentRegistry)
+								log.Printf("Autonomous run: /stop received from user — pausing (cancelled %d sub-agent tasks)", stoppedTasks)
 								_ = sc.WriteActivity(ctx, "auto_stop", "User requested stop — pausing autonomous work", nil)
 								noteUserStop(nextMsg.ID)
 								_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputStopped, "Stopped by user. Send a message to resume.", nil)
@@ -947,8 +955,12 @@ messageLoop:
 			if capConfigured {
 				spentUSD := costBaselineUSD + tracker.Snapshot().CostUsd
 				if spentUSD >= capUSD {
+					// Background children would keep spending against a cap
+					// that is already exhausted; the pause must stop them too.
+					stoppedTasks := cancelActiveSubAgentTasks(subAgentRegistry)
 					msg := fmt.Sprintf("Cost cap reached: $%.4f spent of the $%.2f limit — increase spec.limits.maxCostUsd to resume.", spentUSD, capUSD)
-					log.Printf("Cost cap reached ($%.4f >= $%.2f) — pausing run", spentUSD, capUSD)
+					log.Printf("Cost cap reached ($%.4f >= $%.2f) — pausing run (cancelled %d sub-agent tasks)",
+						spentUSD, capUSD, stoppedTasks)
 					_ = sc.WriteActivity(ctx, "cost_cap", msg, nil)
 					_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak, msg, nil)
 					if err := patchAgentRunStatus(ctx, crdClient, cfg.TaskName, cfg.Namespace, func(fresh *platformv1alpha1.AgentRun) {
@@ -1341,23 +1353,16 @@ messageLoop:
 					CompactionModelResolver: compactionResolver,
 					Checkpoint:              subAgentCheckpoints.persistCheckpoint,
 				})
-				for _, task := range subAgentRegistry.ListTasks() {
-					if task.Status != agent.SubAgentTaskReconciling {
-						continue
-					}
-					if _, attempted := resumeAttempted[task.ID]; attempted {
-						continue
-					}
-					resumeCtx := agent.WithNestedRunConfig(ctx, runCfg)
-					if err := subAgentRegistry.ResumeRestoredTask(resumeCtx, task.ID); err != nil {
-						log.Printf("Sub-agent task %s remains reconciling: %v", task.ID, err)
-						if strings.Contains(err.Error(), "reconciliation required") {
-							resumeAttempted[task.ID] = struct{}{}
-						}
-					} else {
-						resumeAttempted[task.ID] = struct{}{}
-						log.Printf("Resumed durable sub-agent task %s", task.ID)
-					}
+				// One automatic resume attempt per restored task. Tasks the
+				// SDK refuses to resume are surfaced to the model and the
+				// user exactly once instead of being retried every turn.
+				resumeCtx := agent.WithNestedRunConfig(ctx, runCfg)
+				if stuck := resumeReconcilingSubAgentTasks(resumeCtx, subAgentRegistry, resumeAttempted); len(stuck) > 0 {
+					_ = sc.WriteActivity(ctx, "subagent_reconcile_required", stuckSubAgentActivity(stuck), nil)
+					inputItems = append(inputItems, agent.RunItem{
+						Type:    agent.RunItemMessage,
+						Message: &agent.MessageOutput{Text: stuckSubAgentNotice(stuck)},
+					})
 				}
 			}
 
@@ -1549,8 +1554,12 @@ messageLoop:
 				// on an SDK without partial-result support) must not kill
 				// the session: stop, surface the error, and wait for the
 				// user's next message to retry.
+				// The parent turn is gone, so nothing will join or steer the
+				// children it spawned; stop them before parking the session.
+				stoppedTasks := cancelActiveSubAgentTasks(subAgentRegistry)
 				notice := turnFailureNotice(turnNumber, err)
-				log.Printf("ERROR: chat session %d failed (recoverable, awaiting user): %v", turnNumber, err)
+				log.Printf("ERROR: chat session %d failed (recoverable, awaiting user; cancelled %d sub-agent tasks): %v",
+					turnNumber, stoppedTasks, err)
 				_ = sc.WriteActivity(ctx, "turn_failed", notice, nil)
 				_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak, notice, nil)
 				// Newer SDKs hand the failed turn's accumulated conversation

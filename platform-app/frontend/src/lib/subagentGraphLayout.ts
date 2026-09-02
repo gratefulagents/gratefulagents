@@ -5,6 +5,7 @@
  * isolation and reused by other clients. The component layer
  * (SubagentGraphView.tsx) consumes these helpers for rendering.
  */
+import { isTerminalSubagentStatus, isWaitingSubagentStatus } from "@/lib/subagentStatus";
 import type { SubagentGraph, SubagentGraphEdge, SubagentGraphNode } from "@/rpc/platform/service_pb";
 
 // ───────────────────────── layout constants ──────────────────────
@@ -43,14 +44,7 @@ export function nodeIDToTaskID(id: string): string {
 }
 
 export function isTerminalStatus(s: string): boolean {
-  return (
-    s === "completed" ||
-    s === "succeeded" ||
-    s === "failed" ||
-    s === "stopped" ||
-    s === "cancelled" ||
-    s === "canceled"
-  );
+  return isTerminalSubagentStatus(s);
 }
 
 /** Match the graph renderer's definition of live work. Duration is populated
@@ -63,8 +57,7 @@ export function isRunningSubagentNode(
 
 /** Statuses for tasks that are alive but gated on other work (DAG scheduling). */
 export function isWaitingStatus(s: string): boolean {
-  const status = s.toLowerCase();
-  return status === "waiting" || status === "pending" || status === "queued";
+  return isWaitingSubagentStatus(s);
 }
 
 export function dependencyIdsForNode(

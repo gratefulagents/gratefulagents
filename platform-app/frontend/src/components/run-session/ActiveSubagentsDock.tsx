@@ -1,20 +1,12 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  Check,
-  ChevronRight,
-  Clock3,
-  CornerDownRight,
-  GitFork,
-  Maximize2,
-  XCircle,
-} from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Clock3, CornerDownRight, GitFork, HelpCircle, Maximize2, XCircle } from "lucide-react";
 
 import { AgentTypeChip } from "@/components/ui/agent-type-chip";
 import { LiveDot } from "@/components/ui/live-dot";
 import { useNow } from "@/hooks/useNow";
 import { formatDuration, formatTokens } from "@/lib/activityGrouping";
 import { getSubagentColor } from "@/lib/subagentColors";
+import { classifySubagentStatus } from "@/lib/subagentStatus";
 import {
   assignOrdinals,
   buildLayout,
@@ -27,7 +19,6 @@ import { toneText } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { SubagentGraph, SubagentGraphNode } from "@/rpc/platform/service_pb";
 
-const STOPPED_STATUSES = new Set(["stopped", "cancelled", "canceled"]);
 const DOCK_EXPANDED_KEY = "gratefulagents.subagentDockExpanded";
 /** How long the dock stays visible after the last agent finishes. */
 export const DOCK_LINGER_MS = 1_200;
@@ -37,7 +28,7 @@ const FOCUS_RING =
 /** Geometry only feeds the layout pass we reuse for dependency depths. */
 const WAVE_DIMS: LayoutDims = { nodeW: 220, nodeH: 64, hGap: 44, vGap: 12 };
 
-type NodeState = "running" | "waiting" | "completed" | "failed" | "stopped";
+type NodeState = "running" | "waiting" | "completed" | "failed" | "stopped" | "unknown";
 
 function nodeState(node: SubagentGraphNode): NodeState {
   if (isRunningSubagentNode(node)) {
@@ -45,11 +36,22 @@ function nodeState(node: SubagentGraphNode): NodeState {
       ? "waiting"
       : "running";
   }
-  const status = node.status.toLowerCase();
-  if (status === "failed") return "failed";
-  if (STOPPED_STATUSES.has(status)) return "stopped";
-  // A duration is authoritative completion evidence even if status delivery is stale.
-  return "completed";
+  switch (classifySubagentStatus(node.status)) {
+    case "failed":
+      return "failed";
+    case "stopped":
+      return "stopped";
+    case "succeeded":
+    case "live":
+    case "waiting":
+      // The node stopped running (it carries a duration), so a stale live or
+      // waiting status is completion evidence; only a real failure/stop
+      // string changes the outcome.
+      return "completed";
+    default:
+      // A status this build cannot interpret must not be shown as success.
+      return "unknown";
+  }
 }
 
 function agentType(node: SubagentGraphNode): string {
@@ -86,6 +88,7 @@ function currentActivity(entry: RosterEntry): string {
   if (state === "completed") return "Completed";
   if (state === "failed") return "Failed";
   if (state === "stopped") return "Stopped";
+  if (state === "unknown") return `Finished with unrecognised status "${node.status}"`;
   if (node.currentStep) return node.currentStep;
   if (node.lastTool) return `Using ${node.lastTool}`;
   if (node.description && node.description !== node.label) return node.description;
@@ -110,6 +113,9 @@ function NodeStatusIcon({ state }: { state: NodeState }) {
     return (
       <AlertTriangle className={cn("size-3.5 shrink-0", toneText.warning)} aria-hidden="true" />
     );
+  }
+  if (state === "unknown") {
+    return <HelpCircle className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />;
   }
   return <Check className={cn("size-3.5 shrink-0", toneText.success)} aria-hidden="true" />;
 }
@@ -273,6 +279,7 @@ export function ActiveSubagentsDock({
   const completed = count("completed");
   const failed = count("failed");
   const stopped = count("stopped");
+  const unknown = count("unknown");
 
   // While collapsed the roster is hidden, so surface the most informative
   // live line (a running node's current step) directly in the summary row.
@@ -333,6 +340,11 @@ export function ActiveSubagentsDock({
             {stopped > 0 && (
               <span className={cn("hidden shrink-0 lg:inline", toneText.warning)}>
                 {stopped} stopped
+              </span>
+            )}
+            {unknown > 0 && (
+              <span className="hidden shrink-0 text-muted-foreground lg:inline">
+                {unknown} unknown
               </span>
             )}
             {livePreview && (

@@ -1,5 +1,5 @@
 import { memo, useMemo, useState, type ReactNode } from "react";
-import { AlertTriangle, Check, ChevronRight, Clock3, Loader2, XCircle } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Clock3, HelpCircle, Loader2, XCircle } from "lucide-react";
 
 import { MarkdownViewer } from "@/components/MarkdownViewer";
 import { AgentTypeChip } from "@/components/ui/agent-type-chip";
@@ -13,7 +13,11 @@ import { WorkUnitView } from "./WorkRows";
 import { cleanSubagentDescription, groupActivityEntries, formatDuration, formatTokens, subagentPromptMarkdown, subagentTitleFromPrompt, type ActivityGroup } from "@/lib/activityGrouping";
 import { firstLine, formatClock, formatUsd } from "@/lib/activityLogFormat";
 import { getSubagentColor } from "@/lib/subagentColors";
-import { isWaitingStatus } from "@/lib/subagentGraphLayout";
+import {
+  classifySubagentStatus,
+  isLiveSubagentStatus as isLiveStatus,
+  subagentStatusLabel,
+} from "@/lib/subagentStatus";
 import { toneSoft, toneText } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { ActivityEntry } from "@/rpc/platform/service_pb";
@@ -33,23 +37,41 @@ export function subagentLiveLine(entries: ActivityEntry[]): string {
 
 /** Non-terminal statuses that mean the subagent is actively working. */
 export function isLiveSubagentStatus(status: string): boolean {
-  return status === "running" || status === "initializing" || status === "started" || !status;
+  return isLiveStatus(status);
 }
 
 export function SubagentStatusIcon({ status }: { status: string }) {
-  if (isLiveSubagentStatus(status))
-    return (
-      <span className="flex size-3.5 shrink-0 items-center justify-center">
-        <LiveDot tone="running" pulse />
-      </span>
-    );
-  if (isWaitingStatus(status))
-    return <Clock3 className={`size-3.5 shrink-0 ${toneText.warning}`} />;
-  if (status === "failed")
-    return <XCircle className={`size-3.5 shrink-0 ${toneText.danger}`} />;
-  if (status === "stopped" || status === "cancelled" || status === "canceled")
-    return <AlertTriangle className={`size-3.5 shrink-0 ${toneText.warning}`} />;
-  return <Check className={`size-3.5 shrink-0 ${toneText.success}`} />;
+  const label = subagentStatusLabel(status);
+  switch (classifySubagentStatus(status)) {
+    case "live":
+      return (
+        <span
+          className="flex size-3.5 shrink-0 items-center justify-center"
+          role="img"
+          aria-label={label}
+        >
+          <LiveDot tone="running" pulse />
+        </span>
+      );
+    case "waiting":
+      return <Clock3 className={`size-3.5 shrink-0 ${toneText.warning}`} aria-label={label} />;
+    case "failed":
+      return <XCircle className={`size-3.5 shrink-0 ${toneText.danger}`} aria-label={label} />;
+    case "stopped":
+      return (
+        <AlertTriangle className={`size-3.5 shrink-0 ${toneText.warning}`} aria-label={label} />
+      );
+    case "succeeded":
+      return <Check className={`size-3.5 shrink-0 ${toneText.success}`} aria-label={label} />;
+    default:
+      // A status this build does not recognise: show it as such rather than
+      // as a green check.
+      return (
+        <span className="flex size-3.5 shrink-0 items-center justify-center" title={label}>
+          <HelpCircle className="size-3.5 text-muted-foreground" aria-label={label} />
+        </span>
+      );
+  }
 }
 
 export function SubagentShell({
@@ -80,7 +102,10 @@ export function SubagentShell({
   const [open, setOpen] = useState(defaultOpen);
   const color = getSubagentColor(name || undefined);
   const isRunning = isLiveSubagentStatus(status);
-  const isWaiting = isWaitingStatus(status);
+  const category = classifySubagentStatus(status);
+  const isWaiting = category === "waiting";
+  const showBadge =
+    category === "failed" || category === "stopped" || category === "unknown" || isWaiting;
 
   return (
     <div
@@ -107,13 +132,17 @@ export function SubagentShell({
             <span className="min-w-0 truncate text-xs font-medium text-foreground/90">
               {title}
             </span>
-            {(status === "failed" || status === "stopped" || isWaiting) && (
+            {showBadge && (
               <span
                 className={`rounded-sm px-1.5 py-px text-3xs font-semibold uppercase tracking-wider ${
-                  status === "failed" ? toneSoft.danger : toneSoft.warning
+                  category === "failed"
+                    ? toneSoft.danger
+                    : category === "unknown"
+                      ? toneSoft.neutral
+                      : toneSoft.warning
                 }`}
               >
-                {isWaiting ? "waiting" : status}
+                {subagentStatusLabel(status)}
               </span>
             )}
           </span>

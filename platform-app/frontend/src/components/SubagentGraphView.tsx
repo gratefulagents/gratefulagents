@@ -6,6 +6,7 @@ import { AgentTypeChip } from "@/components/ui/agent-type-chip";
 import { LiveDot, type LiveDotTone } from "@/components/ui/live-dot";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useNow } from "@/hooks/useNow";
+import { classifySubagentStatus } from "@/lib/subagentStatus";
 import { formatDuration, formatTokens } from "@/lib/activityGrouping";
 import { getSubagentColor } from "@/lib/subagentColors";
 import {
@@ -14,7 +15,6 @@ import {
   COMPACT_DIMS,
   DEFAULT_DIMS,
   edgePath,
-  isTerminalStatus,
   isWaitingStatus,
   type LaidNode,
   type Layout,
@@ -81,11 +81,18 @@ function toneFor(laid: LaidNode): { tone: LiveDotTone; pulse: boolean } {
   const { status } = laid.node;
   if (isWaitingNode(laid)) return { tone: "waiting", pulse: true };
   if (laid.running) return { tone: "running", pulse: true };
-  if (status === "failed") return { tone: "danger", pulse: false };
-  if (status === "stopped" || status === "cancelled" || status === "canceled")
-    return { tone: "waiting", pulse: false };
-  if (isTerminalStatus(status)) return { tone: "success", pulse: false };
-  return { tone: "idle", pulse: false };
+  switch (classifySubagentStatus(status)) {
+    case "failed":
+      return { tone: "danger", pulse: false };
+    case "stopped":
+      return { tone: "waiting", pulse: false };
+    case "succeeded":
+      return { tone: "success", pulse: false };
+    default:
+      // Stale live/waiting strings on a finished node and unrecognised
+      // statuses are shown neutrally, never as success.
+      return { tone: "idle", pulse: false };
+  }
 }
 
 function durationText(laid: LaidNode, now: number): string {
@@ -815,8 +822,8 @@ function RunSummary({ graph, layout }: { graph: SubagentGraph; layout: Layout })
   const subs = layout.order.filter((n) => n.node.kind !== "root");
   const working = subs.filter(isWorkingNode).length;
   const waiting = subs.filter(isWaitingNode).length;
-  const failed = subs.filter((n) => n.node.status === "failed").length;
-  const done = subs.filter((n) => !n.running && isTerminalStatus(n.node.status) && n.node.status !== "failed").length;
+  const failed = subs.filter((n) => classifySubagentStatus(n.node.status) === "failed").length;
+  const done = subs.filter((n) => !n.running && classifySubagentStatus(n.node.status) === "succeeded").length;
   const tokens = subs.reduce((a, n) => a + Number(n.node.totalTokens || 0n), 0);
 
   const stats: { label: string; value: string; className?: string }[] = [

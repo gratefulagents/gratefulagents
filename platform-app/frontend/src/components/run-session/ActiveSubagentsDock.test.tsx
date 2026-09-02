@@ -233,6 +233,27 @@ describe("ActiveSubagentsDock", () => {
     expect(stale.textContent).not.toContain("An outdated running step");
   });
 
+  it("renders timeout-style statuses as failures and unrecognised statuses neutrally", () => {
+    render(
+      <ActiveSubagentsDock
+        graph={graph([
+          node("active", "running"),
+          node("timed", "timeout", { durationMs: 4_000n }),
+          node("odd", "something_new", { durationMs: 4_000n }),
+        ])}
+      />,
+    );
+
+    const toggle = screen.getByRole("button", { name: /1 active agent; 3 delegated tasks/i });
+    expect(toggle.textContent).toContain("1 failed");
+    expect(toggle.textContent).not.toContain("2 completed");
+    fireEvent.click(toggle);
+    expect(screen.getByTitle(/Task timed/).textContent).toContain("Failed");
+    const odd = screen.getByTitle(/Task odd/);
+    expect(odd.textContent).toContain('unrecognised status "something_new"');
+    expect(odd.textContent).not.toContain("Completed");
+  });
+
   it("announces only a concise status summary", () => {
     render(
       <ActiveSubagentsDock
