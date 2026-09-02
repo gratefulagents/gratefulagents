@@ -337,3 +337,28 @@ export function buildLayout(graph: SubagentGraph, dims: LayoutDims = DEFAULT_DIM
     criticalDurationMs: critical.durationMs,
   };
 }
+
+// ───────────────────────── ordinals ──────────────────────────────
+
+/**
+ * Stable `#n` numbering shared by every surface that names sub-agents (the
+ * inline DAG card, the active-agents dock, the graph tab). Ordinals follow the
+ * visual order of the laid-out graph — wave by wave (dependency depth), top to
+ * bottom within a wave — so "after #3" refers to the same task everywhere.
+ *
+ * Root nodes are skipped; only sub-agent nodes are numbered.
+ */
+export function assignOrdinals(layout: Layout): Map<string, number> {
+  const ranked = layout.order
+    .filter((laid) => laid.node.kind !== "root")
+    .slice()
+    .sort((a, b) => (a.depth - b.depth) || (a.y - b.y) || (a.x - b.x));
+  const out = new Map<string, number>();
+  ranked.forEach((laid, index) => out.set(laid.node.id, index + 1));
+  return out;
+}
+
+/** Convenience: build the layout and number it in one call. */
+export function ordinalsForGraph(graph: SubagentGraph, dims: LayoutDims = DEFAULT_DIMS): Map<string, number> {
+  return assignOrdinals(buildLayout(graph, dims));
+}
