@@ -67,11 +67,9 @@ export function SubagentStatusIcon({ status }: { status: string }) {
       // A status this build does not recognise: show it as such rather than
       // as a green check.
       return (
-        <HelpCircle
-          className="size-3.5 shrink-0 text-muted-foreground"
-          aria-label={label}
-          title={label}
-        />
+        <span className="flex size-3.5 shrink-0 items-center justify-center" title={label}>
+          <HelpCircle className="size-3.5 text-muted-foreground" aria-label={label} />
+        </span>
       );
   }
 }
