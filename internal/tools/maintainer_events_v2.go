@@ -25,6 +25,9 @@ const (
 	maintainerSemanticLatestHandle   = "latest"
 	maintainerSemanticOpaquePrefix   = "mh2_"
 	maintainerSemanticHandleLifetime = 30 * 24 * time.Hour
+
+	maintainerSemanticWatchReconnectAttempts = 5
+	maintainerSemanticWatchReconnectBackoff  = 200 * time.Millisecond
 )
 
 type maintainerSemanticCursor struct {
@@ -60,7 +63,6 @@ type maintainerSemanticWaitOutput struct {
 	ReconnectRequired bool                          `json:"reconnect_required,omitempty"`
 	WatchError        string                        `json:"watch_error,omitempty"`
 	CursorHandle      string                        `json:"cursor_handle"`
-	Cursor            string                        `json:"cursor"` // Deprecated: encoded v2 compatibility cursor.
 }
 
 // executeSemanticWorkItemWait implements waiter v2. The durable source of truth
@@ -105,7 +107,7 @@ func (t *waitForRepoEventsTool) executeSemanticWorkItemWait(ctx context.Context,
 	if err != nil {
 		return Result{Content: "failed to establish semantic work-item snapshot/watch: " + err.Error(), IsError: true}, nil
 	}
-	defer watcher.Stop()
+	defer func() { watcher.Stop() }()
 	if err := validateSemanticWorkItemIdentities(t.repositoryName, snapshot.workItems); err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
@@ -119,20 +121,43 @@ func (t *waitForRepoEventsTool) executeSemanticWorkItemWait(ctx context.Context,
 		return t.semanticWaitResult(ctx, run.UID, repository.UID, expectedState, changes, current, identities, true, false, time.Time{})
 	}
 	started := time.Now()
-	timer := time.NewTimer(time.Duration(timeout) * time.Second)
-	defer timer.Stop()
+	waitCtx, cancelWait := context.WithDeadline(ctx, started.Add(time.Duration(timeout)*time.Second))
+	defer cancelWait()
 	for {
 		select {
-		case <-ctx.Done():
-			return Result{}, ctx.Err()
-		case <-timer.C:
+		case <-waitCtx.Done():
+			if ctx.Err() != nil {
+				return Result{}, ctx.Err()
+			}
 			return t.semanticWaitResult(ctx, run.UID, repository.UID, expectedState, nil, current, identities, false, true, started)
 		case event, ok := <-watcher.ResultChan():
-			if !ok {
-				return t.semanticWatchReconnectResult(ctx, run.UID, repository.UID, expectedState, current, identities, started, "semantic work-item watch closed")
-			}
-			if event.Type == watch.Error {
-				return t.semanticWatchReconnectResult(ctx, run.UID, repository.UID, expectedState, current, identities, started, "semantic work-item watch reported an error")
+			if !ok || event.Type == watch.Error {
+				watchError := "semantic work-item watch closed"
+				if ok {
+					watchError = "semantic work-item watch reported an error"
+				}
+				watcher.Stop()
+				fresh, reconnected, err := t.reconnectWorkItemSnapshotAndWatch(waitCtx)
+				if err != nil {
+					if ctx.Err() != nil {
+						return Result{}, ctx.Err()
+					}
+					if waitCtx.Err() != nil {
+						return t.semanticWaitResult(ctx, run.UID, repository.UID, expectedState, nil, current, identities, false, true, started)
+					}
+					return t.semanticWatchReconnectResult(ctx, run.UID, repository.UID, expectedState, current, identities, started, watchError+": "+err.Error())
+				}
+				watcher = reconnected
+				if err := validateSemanticWorkItemIdentities(t.repositoryName, fresh.workItems); err != nil {
+					return Result{Content: err.Error(), IsError: true}, nil
+				}
+				changes := semanticSnapshotChanges(current, fresh.workItems, false)
+				current = semanticSequences(fresh.workItems)
+				identities = semanticIdentities(fresh.workItems)
+				if len(changes) > 0 {
+					return t.semanticWaitResult(ctx, run.UID, repository.UID, expectedState, changes, current, identities, true, false, started)
+				}
+				continue
 			}
 			item, ok := event.Object.(*triggersv1alpha1.MaintainerWorkItem)
 			if !ok || item.Spec.RepositoryRef.Name != t.repositoryName {
@@ -159,6 +184,28 @@ func (t *waitForRepoEventsTool) executeSemanticWorkItemWait(ctx context.Context,
 			return t.semanticWaitResult(ctx, run.UID, repository.UID, expectedState, []maintainerRepoWorkItemEvent{maintainerWorkItemEvent(item)}, current, identities, true, false, started)
 		}
 	}
+}
+
+// reconnectWorkItemSnapshotAndWatch re-lists and re-watches after the API
+// server closed the watch. Idle closes are routine, so they are absorbed here
+// instead of surfacing as a reconnect_required turn for the model.
+func (t *waitForRepoEventsTool) reconnectWorkItemSnapshotAndWatch(ctx context.Context) (maintainerRepoEventsSnapshot, watch.Interface, error) {
+	var lastErr error
+	for attempt := range maintainerSemanticWatchReconnectAttempts {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return maintainerRepoEventsSnapshot{}, nil, ctx.Err()
+			case <-time.After(time.Duration(attempt) * maintainerSemanticWatchReconnectBackoff):
+			}
+		}
+		snapshot, watcher, err := t.workItemSnapshotAndWatch(ctx)
+		if err == nil {
+			return snapshot, watcher, nil
+		}
+		lastErr = err
+	}
+	return maintainerRepoEventsSnapshot{}, nil, fmt.Errorf("reconnect failed after %d attempts: %w", maintainerSemanticWatchReconnectAttempts, lastErr)
 }
 
 func semanticSequences(items map[string]maintainerRepoWorkItemEvent) map[string]int64 {
@@ -215,10 +262,6 @@ func (t *waitForRepoEventsTool) semanticWatchReconnectResult(ctx context.Context
 
 func (t *waitForRepoEventsTool) semanticWaitResult(ctx context.Context, runUID, repositoryUID types.UID, expectedState string, changes []maintainerRepoWorkItemEvent, sequences map[string]int64, identities map[string]int32, changed, timedOut bool, started time.Time) (Result, error) {
 	semanticCursor := maintainerSemanticCursor{Version: 2, Sequences: sequences, Identities: identities}
-	cursor, err := encodeMaintainerSemanticCursor(semanticCursor)
-	if err != nil {
-		return Result{}, err
-	}
 	if err := t.persistMaintainerSemanticCursorState(ctx, runUID, repositoryUID, expectedState, semanticCursor); err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
@@ -226,7 +269,7 @@ func (t *waitForRepoEventsTool) semanticWaitResult(ctx context.Context, runUID, 
 	if !started.IsZero() {
 		elapsed = int(time.Since(started).Seconds())
 	}
-	output := maintainerSemanticWaitOutput{Changed: changed, TimedOut: timedOut, ElapsedSeconds: elapsed, MigrationMode: string(triggersv1alpha1.MaintainerWorkItemCutoverController), WorkItems: changes, CursorHandle: maintainerSemanticLatestHandle, Cursor: cursor}
+	output := maintainerSemanticWaitOutput{Changed: changed, TimedOut: timedOut, ElapsedSeconds: elapsed, MigrationMode: string(triggersv1alpha1.MaintainerWorkItemCutoverController), WorkItems: changes, CursorHandle: maintainerSemanticLatestHandle}
 	encoded, err := json.Marshal(output)
 	if err != nil {
 		return Result{}, err

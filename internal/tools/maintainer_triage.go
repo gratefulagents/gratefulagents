@@ -49,11 +49,18 @@ type triageIssueOutput struct {
 	PayloadHash string                                            `json:"payload_hash"`
 	WorkItem    triageIssueWorkItemOutput                         `json:"work_item"`
 	Result      *triggersv1alpha1.MaintainerWorkItemCommandResult `json:"result,omitempty"`
+	Applied     bool                                              `json:"applied"`
+	Message     string                                            `json:"message,omitempty"`
+	// AwaitingController is set when the controller had not recorded a
+	// terminal phase within the bounded await; Hint tells the model how to
+	// observe the outcome.
+	AwaitingController bool   `json:"awaiting_controller,omitempty"`
+	Hint               string `json:"hint,omitempty"`
 }
 
 func (t *triageIssueTool) Name() string { return "triage_issue" }
 func (t *triageIssueTool) Description() string {
-	return "Submit an immutable, idempotent triage command for one maintained repository issue. Pending is only a durable receipt; wait for latest_command.phase Succeeded before treating triage as applied."
+	return "Submit an immutable, idempotent triage command for one maintained repository issue. The receipt awaits the controller and normally returns the terminal phase (Succeeded/Rejected/Failed); only when awaiting_controller is set must you wait for latest_command.phase before treating triage as applied."
 }
 func (t *triageIssueTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"disposition":{"type":"string","enum":["NotActionable","Bounded","Decomposable","Discovery","Escalated"]},"evidence_summary":{"type":"string","minLength":1},"accepted_scope":{"type":"object","properties":{"statement":{"type":"string"},"acceptance_criteria":{"type":"array","items":{"type":"string"}}}},"close_reason":{"type":"string","enum":["not_planned","completed"]},"idempotency_key":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]*$"},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","disposition","evidence_summary","accepted_scope","idempotency_key","expected_projection_sequence"]}`)
@@ -164,9 +171,9 @@ func (t *triageIssueTool) Execute(ctx context.Context, input json.RawMessage, _ 
 		if existing.Spec.IdempotencyKey != in.IdempotencyKey || existing.Spec.PayloadHash != payloadHash || existing.Spec.Issuer == nil || existing.Spec.Issuer.UID != current.UID || existing.Spec.Issuer.Proof != proof || existing.Spec.RepositoryRef.Name != workItem.Spec.RepositoryRef.Name {
 			return triageIssueError("idempotency payload mismatch for triage command %q", command.Name)
 		}
-		return triageIssueResult(existing, workItem, true)
+		return t.commandReceipt(ctx, existing, workItem, true)
 	}
-	return triageIssueResult(command, workItem, false)
+	return t.commandReceipt(ctx, command, workItem, false)
 }
 
 func validateTriageIssueInput(in triageIssueInput) error {
@@ -209,29 +216,6 @@ func validateTriageIssueInput(in triageIssueInput) error {
 
 func triageIssuePayloadHash(triage *triggersv1alpha1.MaintainerTriageCommand, preconditions triggersv1alpha1.MaintainerWorkItemCommandPreconditions) string {
 	return triggersv1alpha1.MaintainerWorkItemCommandPayloadHash(triggersv1alpha1.MaintainerWorkItemCommandTypeTriageIssue, triage, preconditions)
-}
-
-func triageIssueResult(command *triggersv1alpha1.MaintainerWorkItemCommand, workItem *triggersv1alpha1.MaintainerWorkItem, replayed bool) (Result, error) {
-	phase := command.Status.Phase
-	if phase == "" {
-		phase = triggersv1alpha1.MaintainerWorkItemCommandPhasePending
-	}
-	encoded, err := json.Marshal(triageIssueOutput{
-		CommandName: command.Name,
-		Phase:       phase,
-		Replayed:    replayed,
-		PayloadHash: command.Spec.PayloadHash,
-		WorkItem: triageIssueWorkItemOutput{
-			Name:               workItem.Name,
-			ResourceVersion:    workItem.ResourceVersion,
-			ProjectionSequence: workItem.Status.ProjectionSequence,
-		},
-		Result: command.Status.Result,
-	})
-	if err != nil {
-		return triageIssueError("failed to encode triage command receipt: %v", err)
-	}
-	return Result{Content: string(encoded)}, nil
 }
 
 func triageIssueError(format string, args ...any) (Result, error) {

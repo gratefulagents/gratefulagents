@@ -577,7 +577,18 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		log.Printf("SubAgentScheduler disabled for standing overseer run")
 	}
 
+	// A read-only standing maintainer cannot fetch from its own Bash, so the
+	// runtime keeps its checkout at the base-branch tip after each waiter
+	// wake that reports changes (see maintainer_workspace.go).
+	var standingRefreshHooks *standingWorkspaceRefreshHooks
+	if maintainedRepositoryName != "" && !cfg.Repoless && !cfg.PermissionMode.AllowsWriteTools() {
+		standingRefreshHooks = newStandingWorkspaceRefreshHooks(cfg.RepoDir, cfg.BaseBranch)
+	}
+
 	var turnNumber int32
+	// Consecutive automatic budget rollovers for a standing maintainer; reset
+	// whenever a genuine (non-rollover) message starts a turn.
+	standingRollovers := 0
 	handledImmediate := make(map[int64]struct{})
 	handoffHistoryConfig := resolveHandoffHistoryConfig()
 
@@ -730,6 +741,9 @@ messageLoop:
 			}
 		}
 		reply := strings.TrimSpace(nextReply.Content)
+		if reply != standingBudgetRolloverPrompt {
+			standingRollovers = 0
+		}
 		currentUserMessageID := nextReply.ID
 		if reply == "" && len(nextReply.Images) == 0 {
 			continue messageLoop
@@ -1056,6 +1070,9 @@ messageLoop:
 			var runHooks agent.RunHooks = agent.NewCompositeHooks(platformHooks, checkpointHooks, ctxUsageHooks)
 			if metaharnessWriter != nil {
 				runHooks = agent.NewCompositeHooks(platformHooks, checkpointHooks, ctxUsageHooks, metaharnessWriter)
+			}
+			if standingRefreshHooks != nil {
+				runHooks = agent.NewCompositeHooks(runHooks, standingRefreshHooks)
 			}
 
 			// Phases were removed; tool access is governed by mode and session
@@ -1536,6 +1553,30 @@ messageLoop:
 						releaseFailedRun()
 						return runResult{Status: "failed", Error: msg}
 					}
+					// A standing maintainer lives in an event loop where every
+					// wake is a turn, so the per-message budget is an episode
+					// boundary, not a reason to wait for a human. Roll over:
+					// enqueue a durable continuation prompt so the next
+					// messageLoop pass resumes on the preserved transcript with
+					// a fresh budget (continue-as-new). Bounded so a maintainer
+					// that burns whole budgets without ever blocking on the
+					// event wait still ends up parked for a human.
+					if maintainedRepositoryName != "" && standingRollovers < maxStandingBudgetRollovers {
+						standingRollovers++
+						notice := standingBudgetRolloverNotice(
+							turnNumber, budgetErr.MaxTurns, standingRollovers, maxStandingBudgetRollovers)
+						log.Printf("Turn %d exhausted the %d-turn budget — standing maintainer rollover %d/%d",
+							turnNumber, budgetErr.MaxTurns, standingRollovers, maxStandingBudgetRollovers)
+						_ = sc.WriteActivity(ctx, "turn_budget_rollover", notice, nil)
+						if _, appendErr := sc.AppendUserMessageWithMode(
+							ctx, standingBudgetRolloverPrompt, sessionclient.UserMessageModeEnqueue); appendErr != nil {
+							log.Printf("WARN: failed to enqueue standing maintainer continuation: %v", appendErr)
+							_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak,
+								turnBudgetNotice(turnNumber, budgetErr.MaxTurns), nil)
+						}
+						releaseFailedRun()
+						break agentLoop
+					}
 					notice := turnBudgetNotice(turnNumber, budgetErr.MaxTurns)
 					log.Printf("Turn %d exhausted the %d-turn budget — transcript preserved (%d items), awaiting user", turnNumber, budgetErr.MaxTurns, len(sessionTranscript))
 					_ = sc.WriteActivity(ctx, "turn_budget_exhausted", notice, nil)
@@ -1839,6 +1880,29 @@ func turnFailureNotice(turnNumber int32, err error) string {
 // continues from exactly where the turn stopped with a fresh budget.
 func turnBudgetNotice(turnNumber int32, maxTurns int) string {
 	return fmt.Sprintf("Turn %d used its entire %d-turn budget and was stopped. All progress is preserved — send a message (e.g. \"continue\") to pick up exactly where it left off with a fresh budget.", turnNumber, maxTurns)
+}
+
+// maxStandingBudgetRollovers bounds consecutive automatic turn-budget
+// rollovers for a standing maintainer before it parks for a human. Each
+// rollover is a whole exhausted budget (hundreds of LLM steps); reaching the
+// cap without a human or controller message in between means the loop is
+// spinning rather than waiting on events.
+const maxStandingBudgetRollovers = 12
+
+// standingBudgetRolloverPrompt is the durable continuation the runtime
+// enqueues for a standing maintainer whose episode budget ran out. It is a
+// runtime-authored user message so the resume path is identical to a human
+// "continue", and it names the exact re-entry step so the model does not
+// replay the whole snapshot.
+const standingBudgetRolloverPrompt = "Standing maintainer: the previous episode reached its turn budget " +
+	"and was rolled over automatically. The transcript is preserved. Do not repeat completed commands. " +
+	"Re-establish state with wait_for_repo_events using cursor \"latest\" (it returns every projection " +
+	"change since your last successful wait, including receipts for commands you had in flight), " +
+	"act on the highest-priority frontier, and return to the event wait."
+
+func standingBudgetRolloverNotice(turnNumber int32, maxTurns, rollover, maxRollovers int) string {
+	return fmt.Sprintf("Turn %d used its entire %d-turn budget; standing maintainer rolled over automatically "+
+		"(%d/%d consecutive) and continues on the preserved transcript.", turnNumber, maxTurns, rollover, maxRollovers)
 }
 
 func firstNonEmptyRunMode(run *platformv1alpha1.AgentRun) string {

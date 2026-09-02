@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -418,6 +419,51 @@ func TestRequestMergeDoesNotResubmitQueuedMerge(t *testing.T) {
 	}
 	if githubClient.mergeCalls != 1 {
 		t.Fatalf("queued merge was resubmitted: calls=%d", githubClient.mergeCalls)
+	}
+}
+
+// TestRequestMergeNotifiesOpenFleetPullRequestsOnce reproduces the fleet
+// conflict churn: after a merge lands, sibling implementers with open PRs must
+// be told by the controller to merge the base branch, exactly once, even when
+// the merge command is replayed.
+func TestRequestMergeNotifiesOpenFleetPullRequestsOnce(t *testing.T) {
+	sibling := rebaseSibling{name: "sibling", prNumber: 83, prState: triggersv1alpha1.MaintainerWorkItemPullRequestStateOpen, runName: "sibling-implementer", runPhase: platformv1alpha1.AgentRunPhaseRunning, role: triggersv1alpha1.MaintainerWorkItemAgentRunRoleImplementer}
+	reconciler, repository, item, stateStore := newRebaseFixture(t, sibling)
+	ctx := context.Background()
+	command := &triggersv1alpha1.MaintainerWorkItemCommand{ObjectMeta: metav1.ObjectMeta{Name: "merge-command", Namespace: maintainerWorkItemTestNamespace}, Spec: triggersv1alpha1.MaintainerWorkItemCommandSpec{Preconditions: triggersv1alpha1.MaintainerWorkItemCommandPreconditions{WorkItemName: item.Name, WorkItemUID: item.UID}, Type: triggersv1alpha1.MaintainerWorkItemCommandTypeRequestMerge, RequestMerge: &triggersv1alpha1.MaintainerRequestMergeCommand{IssueNumber: 7, Repository: projectionTestRepository, PullRequestNumber: 11, ExpectedHeadSHA: rebaseTestMergedHead, MergeMethod: triggersv1alpha1.MaintainerWorkItemMergeMethodSquash}}}
+	if err := reconciler.Create(ctx, command); err != nil {
+		t.Fatal(err)
+	}
+	head := rebaseTestMergedHead
+	mergedAt := time.Now().UTC()
+	githubClient := &fakeMaintainerDeliveryClient{
+		pulls:             []*polledPullRequest{{State: monitorTestOpen, MergeableKnown: true, Mergeable: true, HeadSHA: head, BaseRef: "develop"}, {State: monitorTestClosed, Merged: true, MergedAt: mergedAt, HeadSHA: head, BaseRef: "develop"}},
+		individualReviews: []polledPullRequestReview{{CommitSHA: head, AuthorLogin: "reviewer", AuthorAssociation: "MEMBER", State: "APPROVED"}},
+		checks:            polledHeadRollup{HeadSHA: head, State: gitHubRollupSuccess, Count: 1},
+		statuses:          polledHeadRollup{HeadSHA: head, State: gitHubRollupNone},
+		noRequiredReview:  true,
+		noRequiredChecks:  true,
+	}
+	if err := reconciler.processMaintainerRequestMerge(ctx, repository, command, item, githubClient, true); err != nil {
+		t.Fatal(err)
+	}
+	if phase := commandPhase(t, reconciler, command); phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded || githubClient.mergeCalls != 1 {
+		t.Fatalf("phase=%s mergeCalls=%d", phase, githubClient.mergeCalls)
+	}
+	messages := rebaseMessagesFor(t, stateStore, sibling.runName)
+	if len(messages) != 1 {
+		t.Fatalf("expected one rebase notification after merge, got %d: %v", len(messages), messages)
+	}
+	if !strings.Contains(messages[0], "origin/develop") || !strings.Contains(messages[0], "PR #83") {
+		t.Fatalf("notification must name the merged base branch and the sibling PR: %s", messages[0])
+	}
+	// Replaying the completed command takes the already-verified path and must
+	// not notify again.
+	if err := reconciler.processMaintainerRequestMerge(ctx, repository, command, item, githubClient, false); err != nil {
+		t.Fatal(err)
+	}
+	if messages := rebaseMessagesFor(t, stateStore, sibling.runName); len(messages) != 1 {
+		t.Fatalf("replay must not re-notify, got %d messages", len(messages))
 	}
 }
 

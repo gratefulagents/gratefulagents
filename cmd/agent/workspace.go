@@ -15,6 +15,15 @@ import (
 
 const workspaceScratchDir = "/workspace/scratch"
 
+// skipReadOnlyCheckpointRestore reports whether the pod should keep its fresh
+// base-branch clone instead of rewinding to the previous pod's checkpoint. Only
+// runs that are read-only by configuration qualify; a degraded read-only
+// fallback of a write-capable run may still hold WIP worth restoring.
+func skipReadOnlyCheckpointRestore(cfg *runConfig) bool {
+	return cfg != nil && cfg.WorkspaceCheckpoint != nil &&
+		!cfg.PermissionMode.AllowsWriteTools() && !cfg.PermissionModeDegraded
+}
+
 // setupWorkspace clones the repo and builds the task context.
 func setupWorkspace(cfg *runConfig) error {
 	log.Println("Setting up workspace...")
@@ -53,7 +62,13 @@ func setupWorkspace(cfg *runConfig) error {
 	}
 
 	// Re-apply any tracked WIP and local commits from the last object-storage checkpoint.
-	if err := restorePrimaryWorkspaceCheckpoint(*cfg, remoteExists); err != nil {
+	if skipReadOnlyCheckpointRestore(cfg) {
+		// A run whose mode is read-only by configuration never produced WIP;
+		// its checkpoint only pins the tree to the base-branch tip of an
+		// earlier pod. Keeping the fresh clone is what a standing maintainer
+		// resumed hours later actually needs.
+		log.Printf("Skipping workspace checkpoint restore for read-only run; keeping fresh %s checkout", cfg.BaseBranch)
+	} else if err := restorePrimaryWorkspaceCheckpoint(*cfg, remoteExists); err != nil {
 		return fmt.Errorf("restoring workspace checkpoint: %w", err)
 	}
 

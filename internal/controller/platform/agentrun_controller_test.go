@@ -516,6 +516,16 @@ func TestRunPastTimeoutRestartsWindowOnWake(t *testing.T) {
 			Spec:   platformv1alpha1.AgentRunSpec{Limits: limits},
 			Status: platformv1alpha1.AgentRunStatus{StartedAt: &staleStart, LastWakeTime: &staleWake},
 		}, true},
+		{"standing maintainer never times out", &platformv1alpha1.AgentRun{
+			ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{orchestration.StandingRunRoleLabel: orchestration.StandingRunRoleMaintainer}},
+			Spec:       platformv1alpha1.AgentRunSpec{Limits: limits},
+			Status:     platformv1alpha1.AgentRunStatus{StartedAt: &staleStart, LastWakeTime: &staleWake},
+		}, false},
+		{"standing overseer never times out", &platformv1alpha1.AgentRun{
+			ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{orchestration.StandingRunRoleLabel: orchestration.StandingRunRoleOverseer}},
+			Spec:       platformv1alpha1.AgentRunSpec{Limits: limits},
+			Status:     platformv1alpha1.AgentRunStatus{StartedAt: &staleStart},
+		}, false},
 	}
 	for _, tc := range cases {
 		if got := runPastTimeout(tc.run); got != tc.want {

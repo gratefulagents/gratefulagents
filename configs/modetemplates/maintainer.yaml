@@ -50,12 +50,17 @@ spec:
     ## Operating loop and invariants
     - Call wait_for_repo_events without a cursor once. This explicitly returns
       the current snapshot. When the response includes `cursor_handle: "latest"`,
-      server-side cursor state is established: always wait with cursor "latest"
-      and never copy or reuse the long encoded compatibility cursor. In Legacy
-      or DualRead mode, where no cursor_handle is returned, continue with the
-      returned legacy cursor. Use a generous timeout; on timeout, wait again
-      with the same mode-appropriate cursor. Do not poll with short waits or
-      consecutive state reads; a blocked wait costs no tokens.
+      server-side cursor state is established: always wait with cursor "latest".
+      In Legacy or DualRead mode, where no cursor_handle is returned, continue
+      with the returned legacy cursor. Use a generous timeout; on timeout, wait
+      again with the same mode-appropriate cursor. Watch-stream recycles are
+      handled inside the tool; `reconnect_required` only appears after repeated
+      reconnect failures and is then a reason to wait again, not to poll. Do not
+      poll with short waits or consecutive state reads; a blocked wait costs no
+      tokens. Every LLM step in this loop is a turn of a bounded episode budget;
+      when the budget runs out the runtime rolls the episode over automatically
+      on the preserved transcript, so never "spend" turns on state reads that
+      the next wait result will deliver anyway.
     - The waiter owns only issues in the maintained repository and PRs attached
       to the maintainer's fleet. Do not infer state for unrelated human PRs.
     - Issue disposition, AgentRun phase, PR-loop verdict, GitHub PR lifecycle,
@@ -77,17 +82,22 @@ spec:
       accumulate in the active context.
     - Process a changed issue only when its substantive content or disposition
       changed. Record every accepted disposition with triage_issue using the
-      work item's current projection sequence and resource version. Reuse the
-      same idempotency key only for the identical request; on a stale projection,
-      inspect the returned current work item before deciding again. Your own
-      decision comment, decomposition comment, or dispatch label may wake the
-      waiter; do not repeat an already-current decision merely because updatedAt
-      changed.
-    - Typed work-item commands are asynchronous. A `Pending` tool result is only
-      a durable receipt. Wait with cursor "latest" and require
+      work item's current projection sequence (the semantic concurrency token;
+      the resource version is optional and never causes a rejection on its
+      own). Reuse the same idempotency key only for the identical request; on a
+      stale projection sequence, use the current sequence from the returned
+      receipt or work item before deciding again. Your own decision comment,
+      decomposition comment, or dispatch label may wake the waiter; do not
+      repeat an already-current decision merely because updatedAt changed.
+    - Typed work-item commands are applied by the controller. The tool receipt
+      normally already carries the terminal phase: treat `phase == Succeeded`
+      (with `applied: true`) as applied and act on it immediately without an
+      extra wait; read `message` on `Rejected` or `Failed`, recover, and never
+      guess alternate dispatch modes. Only when the receipt says
+      `awaiting_controller: true` is `Pending` a durable receipt still in
+      flight: then wait with cursor "latest" and require
       `latest_command.phase == Succeeded` before treating triage, graph updates,
-      dispatch, merge, or finalization as applied. Report and recover from
-      `Rejected` or `Failed`; never guess alternate dispatch modes.
+      dispatch, merge, or finalization as applied.
     - `dispatch_work_item` uses the controller-owned repository dispatch mode
       (default `autopilot`). It intentionally accepts no mode argument, and it
       takes no pull-request arguments: the controller binds every pull request
@@ -199,6 +209,12 @@ spec:
       run's activity and queue. Wake it once only when the PR loop has not
       already queued equivalent feedback. Require a new head SHA and fresh
       checks/review before reconsidering readiness.
+    - CONFLICTING_OR_STALE: when a fleet PR merges, the controller itself
+      notifies every other open fleet PR's implementer to merge the base branch
+      and re-verify. Do not send your own rebase or "merge main" wakes for a
+      conflict that appeared after a fleet merge; check get_run_messages, wait
+      for the new head, and only intervene if the implementer's episode has
+      Finished without acting on that notification.
     - READY_TO_MERGE: get_fleet_runs reports whether the repository grants you
       merge authority (`merge_allowed`, and `full_control` for merging without
       human approval). When merge_allowed is true, merging ready pull requests

@@ -74,7 +74,7 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 			return r.failMaintainerWorkItemCommand(ctx, command, fresh, "merge verification GitHub read failed: "+err.Error())
 		}
 		if pull.Merged {
-			return r.verifyAndRecordMaintainerMerge(ctx, command, fresh, request, pull)
+			return r.verifyAndRecordMaintainerMerge(ctx, repository, command, fresh, request, pull)
 		}
 		if pull.HeadSHA != request.ExpectedHeadSHA || !strings.EqualFold(pull.State, "open") {
 			return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "attempted merge is definitively closed-unmerged or no longer at the expected head")
@@ -106,7 +106,7 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 		return r.failMaintainerWorkItemCommand(ctx, command, fresh, "pre-merge GitHub pull request read failed: "+err.Error())
 	}
 	if pull.Merged {
-		return r.verifyAndRecordMaintainerMerge(ctx, command, fresh, request, pull)
+		return r.verifyAndRecordMaintainerMerge(ctx, repository, command, fresh, request, pull)
 	}
 	if !strings.EqualFold(pull.State, "open") || pull.Draft || !pull.MergeableKnown || !pull.Mergeable || pull.HeadSHA != request.ExpectedHeadSHA || strings.TrimSpace(pull.BaseRef) == "" {
 		return r.rejectMaintainerWorkItemCommand(ctx, repository, command, "pre-merge GitHub read no longer satisfies open, non-draft, mergeable, expected-head/base gates")
@@ -189,7 +189,7 @@ func (r *GitHubRepositoryReconciler) processMaintainerRequestMerge(ctx context.C
 		}
 		return r.failMaintainerWorkItemCommand(ctx, command, fresh, message)
 	}
-	return r.verifyAndRecordMaintainerMerge(ctx, command, fresh, request, post)
+	return r.verifyAndRecordMaintainerMerge(ctx, repository, command, fresh, request, post)
 }
 
 func (r *GitHubRepositoryReconciler) maintainerMergeWasAttempted(ctx context.Context, command *triggersv1alpha1.MaintainerWorkItemCommand) (bool, error) {
@@ -273,18 +273,21 @@ func verifiedMaintainerMerge(item *triggersv1alpha1.MaintainerWorkItem, reposito
 	return nil
 }
 
-func (r *GitHubRepositoryReconciler) verifyAndRecordMaintainerMerge(ctx context.Context, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, request *triggersv1alpha1.MaintainerRequestMergeCommand, pull *polledPullRequest) error {
+func (r *GitHubRepositoryReconciler) verifyAndRecordMaintainerMerge(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, request *triggersv1alpha1.MaintainerRequestMergeCommand, pull *polledPullRequest) error {
 	if pull == nil || !pull.Merged || pull.MergedAt.IsZero() || pull.HeadSHA != request.ExpectedHeadSHA {
 		return r.failMaintainerWorkItemCommand(ctx, command, item, "post-merge GitHub verification did not confirm MERGED, mergedAt, and the expected head")
 	}
 	mergedAt := metav1.NewTime(pull.MergedAt)
+	firstRecording := false
 	err := r.retryMaintainerWorkItemStatusMutation(ctx, client.ObjectKeyFromObject(item), func(fresh *triggersv1alpha1.MaintainerWorkItem) (bool, error) {
+		firstRecording = false
 		if existing := verifiedMaintainerMerge(fresh, request.Repository, request.PullRequestNumber); existing != nil {
 			if existing.HeadSHA != request.ExpectedHeadSHA {
 				return false, fmt.Errorf("verified merge head changed")
 			}
 			return false, nil
 		}
+		firstRecording = true
 		fresh.Status.VerifiedMerges = append(fresh.Status.VerifiedMerges, triggersv1alpha1.MaintainerVerifiedPullRequestMerge{Repository: request.Repository, PullRequestNumber: request.PullRequestNumber, HeadSHA: request.ExpectedHeadSHA, MergedAt: mergedAt, CommandRef: corev1.LocalObjectReference{Name: command.Name}})
 		sort.Slice(fresh.Status.VerifiedMerges, func(i, j int) bool {
 			if fresh.Status.VerifiedMerges[i].Repository == fresh.Status.VerifiedMerges[j].Repository {
@@ -297,6 +300,9 @@ func (r *GitHubRepositoryReconciler) verifyAndRecordMaintainerMerge(ctx context.
 	})
 	if err != nil {
 		return err
+	}
+	if firstRecording {
+		r.notifyOpenFleetPullRequestsAfterMerge(ctx, repository, item, request.Repository, request.PullRequestNumber, request.ExpectedHeadSHA, pull.BaseRef)
 	}
 	return r.completeMaintainerWorkItemCommand(ctx, command, item, "GitHub confirmed pull request MERGED at the expected head", "", observedIssueState(item))
 }

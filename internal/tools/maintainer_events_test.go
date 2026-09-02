@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,41 @@ import (
 var maintainerEventsTestWorkItemName = triggersv1alpha1.MaintainerWorkItemName(maintainerTestRepositoryName, 7)
 
 type noWatchClient struct{ client.Client }
+
+// reconnectingWatchClient hands out controllable fake watchers so tests can
+// close a watch the way an API server idle timeout does.
+type reconnectingWatchClient struct {
+	client.WithWatch
+	mu       sync.Mutex
+	watchers []*watch.RaceFreeFakeWatcher
+}
+
+func (c *reconnectingWatchClient) Watch(context.Context, client.ObjectList, ...client.ListOption) (watch.Interface, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	watcher := watch.NewRaceFreeFake()
+	c.watchers = append(c.watchers, watcher)
+	return watcher, nil
+}
+
+func (c *reconnectingWatchClient) awaitWatcher(t *testing.T, index int) *watch.RaceFreeFakeWatcher {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		c.mu.Lock()
+		var watcher *watch.RaceFreeFakeWatcher
+		if len(c.watchers) > index {
+			watcher = c.watchers[index]
+		}
+		c.mu.Unlock()
+		if watcher != nil {
+			return watcher
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("watcher %d was never established", index)
+	return nil
+}
 
 type gapSafeWatchClient struct {
 	client.WithWatch
@@ -584,12 +620,15 @@ func TestSemanticWaiterUsesPersistedProjectionWithoutGitHubPolling(t *testing.T)
 	if !output.Changed || len(output.WorkItems) != 1 || output.WorkItems[0].ProjectionSequence != 4 || output.WorkItems[0].IssueObservation.Title != "durably observed" {
 		t.Fatalf("semantic output = %#v", output)
 	}
-	cursor, err := decodeMaintainerSemanticCursor(output.Cursor)
-	if err != nil || cursor.Sequences[semanticName] != 4 {
-		t.Fatalf("cursor=%#v err=%v", cursor, err)
-	}
 	if output.CursorHandle != maintainerSemanticLatestHandle {
 		t.Fatalf("cursor_handle = %q, want latest", output.CursorHandle)
+	}
+	var rawOutput map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(result.Content), &rawOutput); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := rawOutput["cursor"]; present {
+		t.Fatalf("semantic output still emits the deprecated encoded cursor: %s", result.Content)
 	}
 
 	// A reconstructed tool instance can resolve continuity from the AgentRun
@@ -642,7 +681,11 @@ func TestSemanticLatestHandleAdvancesAndDeletionConverges(t *testing.T) {
 	// like latest, enter the watch when the snapshot is unchanged.
 	compatCtx, cancelCompat := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancelCompat()
-	compatInput, err := json.Marshal(waitForRepoEventsInput{TimeoutSeconds: 30, Cursor: initial.Cursor})
+	encodedCompat, err := encodeMaintainerSemanticCursor(maintainerSemanticCursor{Version: 2, Sequences: map[string]int64{name: 1}, Identities: map[string]int32{name: 12}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compatInput, err := json.Marshal(waitForRepoEventsInput{TimeoutSeconds: 30, Cursor: encodedCompat})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -719,6 +762,134 @@ func TestSemanticLatestHandleAdvancesAndDeletionConverges(t *testing.T) {
 	state, err := resolveMaintainerSemanticCursorState(checkpoint, run, repository.UID, maintainerSemanticLatestHandle, time.Now())
 	if err != nil || len(state.Entries) != 0 {
 		t.Fatalf("deletion was not acknowledged: state=%#v err=%v", state, err)
+	}
+}
+
+func TestSemanticWaitReconnectsClosedWatchWithoutModelTurn(t *testing.T) {
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
+	repository := &triggersv1alpha1.GitHubRepository{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKey{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace}, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Spec.Maintainer.WorkItemCutover = triggersv1alpha1.MaintainerWorkItemCutoverController
+	if err := k8sClient.Update(t.Context(), repository); err != nil {
+		t.Fatal(err)
+	}
+	name := triggersv1alpha1.MaintainerWorkItemName(maintainerTestRepositoryName, 21)
+	item := &triggersv1alpha1.MaintainerWorkItem{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: maintainerTestNamespace, Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: maintainerTestRepositoryName}},
+		Spec:       triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: maintainerTestRepositoryName}, IssueNumber: 21},
+		Status:     triggersv1alpha1.MaintainerWorkItemStatus{ProjectionSequence: 1},
+	}
+	if err := k8sClient.Create(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	watchClient := &reconnectingWatchClient{WithWatch: k8sClient.(client.WithWatch)}
+	base.k8sClient = watchClient
+	tool := &waitForRepoEventsTool{maintainerToolBase: base}
+	if result, err := tool.Execute(t.Context(), json.RawMessage(`{"timeout_seconds":30}`), ""); err != nil || result.IsError {
+		t.Fatalf("initial result=%#v err=%v", result, err)
+	}
+	if first := watchClient.awaitWatcher(t, 0); !first.IsStopped() {
+		t.Fatal("snapshot-only wait left its watch open")
+	}
+
+	type waitResult struct {
+		result Result
+		err    error
+	}
+	done := make(chan waitResult, 1)
+	go func() {
+		result, err := tool.Execute(t.Context(), json.RawMessage(`{"timeout_seconds":30,"cursor":"latest"}`), "")
+		done <- waitResult{result: result, err: err}
+	}()
+	// The second watcher is the one the blocked wait is consuming; closing it
+	// mimics the API server ending an idle watch.
+	watchClient.awaitWatcher(t, 1).Stop()
+	reconnected := watchClient.awaitWatcher(t, 2)
+	select {
+	case finished := <-done:
+		t.Fatalf("wait returned on watch close instead of reconnecting: %#v err=%v", finished.result, finished.err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	fresh := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKey{Name: name, Namespace: maintainerTestNamespace}, fresh); err != nil {
+		t.Fatal(err)
+	}
+	fresh.Status.ProjectionSequence = 2
+	if err := k8sClient.Update(t.Context(), fresh); err != nil {
+		t.Fatal(err)
+	}
+	reconnected.Modify(fresh)
+
+	var finished waitResult
+	select {
+	case finished = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("wait did not observe the change delivered on the reconnected watch")
+	}
+	if finished.err != nil || finished.result.IsError {
+		t.Fatalf("reconnected result=%#v err=%v", finished.result, finished.err)
+	}
+	var output maintainerSemanticWaitOutput
+	if err := json.Unmarshal([]byte(finished.result.Content), &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.ReconnectRequired || output.WatchError != "" || !output.Changed || len(output.WorkItems) != 1 || output.WorkItems[0].ProjectionSequence != 2 {
+		t.Fatalf("reconnected output = %#v", output)
+	}
+}
+
+func TestSemanticWaitReconnectReturnsChangesFromFreshSnapshot(t *testing.T) {
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
+	repository := &triggersv1alpha1.GitHubRepository{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKey{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace}, repository); err != nil {
+		t.Fatal(err)
+	}
+	repository.Spec.Maintainer.WorkItemCutover = triggersv1alpha1.MaintainerWorkItemCutoverController
+	if err := k8sClient.Update(t.Context(), repository); err != nil {
+		t.Fatal(err)
+	}
+	name := triggersv1alpha1.MaintainerWorkItemName(maintainerTestRepositoryName, 22)
+	item := &triggersv1alpha1.MaintainerWorkItem{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: maintainerTestNamespace, Labels: map[string]string{triggersv1alpha1.MaintainerWorkItemRepositoryLabelKey: maintainerTestRepositoryName}},
+		Spec:       triggersv1alpha1.MaintainerWorkItemSpec{RepositoryRef: corev1.LocalObjectReference{Name: maintainerTestRepositoryName}, IssueNumber: 22},
+		Status:     triggersv1alpha1.MaintainerWorkItemStatus{ProjectionSequence: 1},
+	}
+	if err := k8sClient.Create(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	watchClient := &reconnectingWatchClient{WithWatch: k8sClient.(client.WithWatch)}
+	base.k8sClient = watchClient
+	tool := &waitForRepoEventsTool{maintainerToolBase: base}
+	if result, err := tool.Execute(t.Context(), json.RawMessage(`{"timeout_seconds":30}`), ""); err != nil || result.IsError {
+		t.Fatalf("initial result=%#v err=%v", result, err)
+	}
+	done := make(chan Result, 1)
+	go func() {
+		result, _ := tool.Execute(t.Context(), json.RawMessage(`{"timeout_seconds":30,"cursor":"latest"}`), "")
+		done <- result
+	}()
+	blocked := watchClient.awaitWatcher(t, 1)
+	// A projection advance that lands while the watch is down must be picked
+	// up by the re-list rather than lost.
+	item.Status.ProjectionSequence = 3
+	if err := k8sClient.Update(t.Context(), item); err != nil {
+		t.Fatal(err)
+	}
+	blocked.Stop()
+	var result Result
+	select {
+	case result = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("wait did not return the change found by the reconnect snapshot")
+	}
+	var output maintainerSemanticWaitOutput
+	if err := json.Unmarshal([]byte(result.Content), &output); err != nil {
+		t.Fatalf("content=%q err=%v", result.Content, err)
+	}
+	if output.ReconnectRequired || !output.Changed || len(output.WorkItems) != 1 || output.WorkItems[0].ProjectionSequence != 3 {
+		t.Fatalf("reconnect snapshot output = %#v", output)
 	}
 }
 
