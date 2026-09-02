@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
@@ -20,6 +21,10 @@ import (
 const (
 	requestMergeToolName     = "request_merge"
 	finalizeWorkItemToolName = "finalize_work_item"
+
+	defaultMaintainerCommandAwaitTimeout = 45 * time.Second
+	maintainerCommandAwaitPollInterval   = 250 * time.Millisecond
+	maintainerCommandAwaitingHint        = "the controller has not yet processed this command; call wait_for_repo_events with cursor \"latest\" and inspect latest_command"
 )
 
 type maintainerCommandInput struct {
@@ -46,7 +51,7 @@ func (t *breakdownIssueTool) Name() string {
 	return "breakdown_issue"
 }
 func (t *breakdownIssueTool) Description() string {
-	return "Submit an authenticated graph command that replaces a work item's children and dependencies after explicit review. Both arrays may be empty to affirm a leaf. Pending is only a receipt; wait for latest_command.phase Succeeded before dispatch."
+	return "Submit an authenticated graph command that replaces a work item's children and dependencies after explicit review. Both arrays may be empty to affirm a leaf. The receipt awaits the controller and normally returns the terminal phase; only when awaiting_controller is set must you wait for latest_command.phase Succeeded before dispatch."
 }
 func (t *breakdownIssueTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"child_issue_numbers":{"type":"array","uniqueItems":true,"items":{"type":"integer","minimum":1}},"dependency_issue_numbers":{"type":"array","uniqueItems":true,"items":{"type":"integer","minimum":1}},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","idempotency_key","expected_projection_sequence"]}`)
@@ -121,7 +126,7 @@ type dispatchWorkItemInput struct {
 
 func (t *dispatchWorkItemTool) Name() string { return "dispatch_work_item" }
 func (t *dispatchWorkItemTool) Description() string {
-	return "Submit an authenticated work-item dispatch command using the repository's controller-owned dispatch ModeTemplate. The graph must already be explicitly configured. Pull requests are discovered automatically from the dispatched implementer run, so there is nothing to declare up front. Pending is only a receipt; wait for latest_command.phase Succeeded before treating dispatch as applied."
+	return "Submit an authenticated work-item dispatch command using the repository's controller-owned dispatch ModeTemplate. The graph must already be explicitly configured. Pull requests are discovered automatically from the dispatched implementer run, so there is nothing to declare up front. The receipt awaits the controller and normally returns the terminal phase; only when awaiting_controller is set must you wait for latest_command.phase Succeeded before treating dispatch as applied."
 }
 func (t *dispatchWorkItemTool) InputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer","minimum":1},"idempotency_key":{"type":"string","minLength":1,"maxLength":128},"expected_projection_sequence":{"type":"integer","minimum":0},"expected_resource_version":{"type":"string","minLength":1}},"required":["issue_number","idempotency_key","expected_projection_sequence"]}`)
@@ -323,11 +328,77 @@ func (t maintainerToolBase) submitCommand(ctx context.Context, repository *trigg
 		}
 		command = existing
 	}
-	phase := command.Status.Phase
-	if phase == "" {
-		phase = triggersv1alpha1.MaintainerWorkItemCommandPhasePending
+	return t.commandReceipt(ctx, command, item, replayed)
+}
+
+func maintainerCommandPhaseTerminal(phase triggersv1alpha1.MaintainerWorkItemCommandPhase) bool {
+	switch phase {
+	case triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded, triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected, triggersv1alpha1.MaintainerWorkItemCommandPhaseFailed:
+		return true
 	}
-	encoded, err := json.Marshal(map[string]any{"command_name": command.Name, "phase": phase, "replayed": replayed, "payload_hash": command.Spec.PayloadHash, "work_item": map[string]any{"name": item.Name, "resource_version": item.ResourceVersion, "projection_sequence": item.Status.ProjectionSequence}, "result": command.Status.Result})
+	return false
+}
+
+// awaitCommandPhase polls the durable command until the controller records a
+// terminal phase or the bounded await elapses, so a single tool call usually
+// carries the outcome instead of costing the model further wait turns.
+func (t maintainerToolBase) awaitCommandPhase(ctx context.Context, command *triggersv1alpha1.MaintainerWorkItemCommand) (*triggersv1alpha1.MaintainerWorkItemCommand, error) {
+	timeout := t.commandAwaitTimeout
+	if timeout <= 0 {
+		timeout = defaultMaintainerCommandAwaitTimeout
+	}
+	deadline := time.Now().Add(timeout)
+	for !maintainerCommandPhaseTerminal(command.Status.Phase) {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(min(remaining, maintainerCommandAwaitPollInterval)):
+		}
+		fresh := &triggersv1alpha1.MaintainerWorkItemCommand{}
+		if err := t.k8sClient.Get(ctx, client.ObjectKeyFromObject(command), fresh); err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			continue
+		}
+		command = fresh
+	}
+	return command, nil
+}
+
+func (t maintainerToolBase) commandReceipt(ctx context.Context, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem, replayed bool) (Result, error) {
+	command, err := t.awaitCommandPhase(ctx, command)
+	if err != nil {
+		return Result{}, err
+	}
+	fresh := &triggersv1alpha1.MaintainerWorkItem{}
+	if err := t.k8sClient.Get(ctx, client.ObjectKeyFromObject(item), fresh); err == nil {
+		item = fresh
+	}
+	receipt := triageIssueOutput{
+		CommandName: command.Name,
+		Phase:       command.Status.Phase,
+		Replayed:    replayed,
+		PayloadHash: command.Spec.PayloadHash,
+		WorkItem:    triageIssueWorkItemOutput{Name: item.Name, ResourceVersion: item.ResourceVersion, ProjectionSequence: item.Status.ProjectionSequence},
+		Result:      command.Status.Result,
+	}
+	if receipt.Phase == "" {
+		receipt.Phase = triggersv1alpha1.MaintainerWorkItemCommandPhasePending
+	}
+	if command.Status.Result != nil {
+		receipt.Applied = command.Status.Result.Applied
+		receipt.Message = command.Status.Result.Message
+	}
+	if !maintainerCommandPhaseTerminal(receipt.Phase) {
+		receipt.AwaitingController = true
+		receipt.Hint = maintainerCommandAwaitingHint
+	}
+	encoded, err := json.Marshal(receipt)
 	if err != nil {
 		return Result{}, err
 	}

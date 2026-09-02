@@ -13,6 +13,7 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	"github.com/gratefulagents/gratefulagents/internal/mode"
+	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/projectstate"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	corev1 "k8s.io/api/core/v1"
@@ -1039,8 +1040,17 @@ func (r *AgentRunReconciler) handleWakeRequest(ctx context.Context, run *platfor
 // runPastTimeout reports whether the run's active window exceeded its timeout.
 // The window restarts on wake so a resumed run gets a fresh maxRuntime budget
 // instead of instantly re-pausing off the original start time.
+//
+// Standing runs (repository maintainers, overseers) are exempt: they are
+// designed to live indefinitely blocked on an event wait, so a wall-clock
+// runtime cap only recycles the pod every few hours, drops the workspace, and
+// parks the loop until something nudges it. Their spend is bounded by the cost
+// cap and per-episode turn budget instead.
 func runPastTimeout(run *platformv1alpha1.AgentRun) bool {
 	if run == nil || run.Status.StartedAt == nil {
+		return false
+	}
+	if isStandingRun(run) {
 		return false
 	}
 	start := run.Status.StartedAt.Time
@@ -1048,6 +1058,12 @@ func runPastTimeout(run *platformv1alpha1.AgentRun) bool {
 		start = lastWake.Time
 	}
 	return time.Since(start) > effectiveTimeout(run)
+}
+
+// isStandingRun reports whether the run is a controller-owned standing run
+// (maintainer or overseer) created through orchestration.EnsureStandingRun.
+func isStandingRun(run *platformv1alpha1.AgentRun) bool {
+	return run != nil && strings.TrimSpace(run.Labels[orchestration.StandingRunRoleLabel]) != ""
 }
 
 // handleRestartRequest bounces a non-terminal run's compute so spec changes

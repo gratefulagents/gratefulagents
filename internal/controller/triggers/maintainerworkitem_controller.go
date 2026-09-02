@@ -733,9 +733,11 @@ func (r *GitHubRepositoryReconciler) validateMaintainerWorkItemCommand(ctx conte
 	if requirePreconditions && !alreadyApplied && !maintainerWorkItemObservationIsFresh(item) {
 		return nil, rejectMaintainerCommand("work item issue observation is not fresh; " + currentProjectionMessage(item))
 	}
-	if requirePreconditions && !alreadyApplied && item.ResourceVersion != command.Spec.Preconditions.ResourceVersion {
-		return nil, rejectMaintainerCommand("target work-item resourceVersion does not match command preconditions; " + currentProjectionMessage(item))
-	}
+	// Preconditions.ResourceVersion is advisory only: the work item's
+	// resourceVersion churns on every non-semantic status write (observedAt
+	// refreshes, agent-run phase projections), so gating on it rejected
+	// otherwise-valid commands. ProjectionSequence is the semantic
+	// optimistic-concurrency token and remains the hard gate.
 	if requirePreconditions && !alreadyApplied && item.Status.ProjectionSequence != command.Spec.Preconditions.ProjectionSequence {
 		return nil, rejectMaintainerCommand(currentProjectionMessage(item))
 	}

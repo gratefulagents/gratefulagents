@@ -278,7 +278,7 @@ func TestRetryableMaintainerCommandRejectsRecreatedWorkItemUID(t *testing.T) {
 	}
 }
 
-func TestMaintainerCommandRejectsStaleResourceVersion(t *testing.T) {
+func TestMaintainerCommandAcceptsStaleResourceVersionWhenProjectionSequenceMatches(t *testing.T) {
 	t.Parallel()
 
 	scheme := maintainerWorkItemScheme(t)
@@ -291,15 +291,47 @@ func TestMaintainerCommandRejectsStaleResourceVersion(t *testing.T) {
 	command.Spec.Issuer.Proof = triggersv1alpha1.MaintainerWorkItemCommandProof(testMaintainerCapabilityKey(), repository.Name, repository.UID, command.Spec.IdempotencyKey, command.Spec.PayloadHash, command.Spec.Issuer.RunName, command.Spec.Issuer.UID)
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).WithObjects(repository, item, issuer, testMaintainerCapability(repository, issuer), command).Build()
 	reconciler := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
-	if err := reconciler.reconcileMaintainerWorkItemCommands(context.Background(), repository, &fakeMaintainerGitHub{}); err != nil {
+	if err := reconciler.reconcileMaintainerWorkItemCommands(context.Background(), repository, &fakeMaintainerGitHub{issue: &github.Issue{State: new("open")}}); err != nil {
 		t.Fatalf("reconcile commands: %v", err)
 	}
 	current := &triggersv1alpha1.MaintainerWorkItemCommand{}
 	if err := c.Get(context.Background(), client.ObjectKeyFromObject(command), current); err != nil {
 		t.Fatal(err)
 	}
-	if current.Status.Phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected || !strings.Contains(current.Status.Result.Message, "resourceVersion") {
-		t.Fatalf("status = %#v", current.Status)
+	if current.Status.Phase == triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected {
+		t.Fatalf("stale resourceVersion with matching projection sequence was rejected: status = %#v result = %#v", current.Status, current.Status.Result)
+	}
+	if current.Status.Result != nil && strings.Contains(current.Status.Result.Message, "resourceVersion does not match") {
+		t.Fatalf("resourceVersion precondition still enforced: result = %#v", current.Status.Result)
+	}
+}
+
+func TestMaintainerCommandRejectsStaleProjectionSequence(t *testing.T) {
+	t.Parallel()
+
+	scheme := maintainerWorkItemScheme(t)
+	repository := testMaintainerRepository()
+	item := testMaintainerWorkItem(repository, 9)
+	issuer := testMaintainerIssuer(repository)
+	command := testMaintainerCommand(repository, item, "command", issuer.UID)
+	command.Spec.Preconditions.ProjectionSequence = item.Status.ProjectionSequence + 1
+	command.Spec.PayloadHash = MaintainerWorkItemCommandPayloadHash(command.Spec.Type, command.Spec.Triage, command.Spec.Preconditions)
+	command.Spec.Issuer.Proof = triggersv1alpha1.MaintainerWorkItemCommandProof(testMaintainerCapabilityKey(), repository.Name, repository.UID, command.Spec.IdempotencyKey, command.Spec.PayloadHash, command.Spec.Issuer.RunName, command.Spec.Issuer.UID)
+	githubClient := &fakeMaintainerGitHub{issue: &github.Issue{State: new("open")}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).WithObjects(repository, item, issuer, testMaintainerCapability(repository, issuer), command).Build()
+	reconciler := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
+	if err := reconciler.reconcileMaintainerWorkItemCommands(context.Background(), repository, githubClient); err != nil {
+		t.Fatalf("reconcile commands: %v", err)
+	}
+	current := &triggersv1alpha1.MaintainerWorkItemCommand{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(command), current); err != nil {
+		t.Fatal(err)
+	}
+	if current.Status.Phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseRejected || current.Status.Result == nil || !strings.Contains(current.Status.Result.Message, "current projection sequence") {
+		t.Fatalf("status = %#v result = %#v", current.Status, current.Status.Result)
+	}
+	if githubClient.created != 0 || githubClient.editedIssue != 0 {
+		t.Fatalf("stale-sequence command performed GitHub effects: comments=%d issueEdits=%d", githubClient.created, githubClient.editedIssue)
 	}
 }
 

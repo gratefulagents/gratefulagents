@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
@@ -127,7 +128,9 @@ func newMaintainerToolBase(t *testing.T, runs ...*platformv1alpha1.AgentRun) (ma
 	for _, run := range runs {
 		stateStore.sessions[run.Namespace+"/"+run.Name] = &store.Session{ID: uuid.New(), AgentRunName: run.Name, AgentRunNS: run.Namespace}
 	}
-	return maintainerToolBase{stateStore: stateStore, k8sClient: k8sClient, currentRunName: maintainerTestRunName, currentRunNamespace: maintainerTestNamespace, currentRunUID: types.UID(maintainerTestRunUID), repositoryName: maintainerTestRepositoryName, repositoryNamespace: maintainerTestNamespace}, k8sClient, stateStore
+	// No controller runs against the fake client, so command tools would
+	// otherwise block for the full production await before reporting Pending.
+	return maintainerToolBase{stateStore: stateStore, k8sClient: k8sClient, currentRunName: maintainerTestRunName, currentRunNamespace: maintainerTestNamespace, currentRunUID: types.UID(maintainerTestRunUID), repositoryName: maintainerTestRepositoryName, repositoryNamespace: maintainerTestNamespace, commandAwaitTimeout: 20 * time.Millisecond}, k8sClient, stateStore
 }
 
 func maintainerRun() *platformv1alpha1.AgentRun {

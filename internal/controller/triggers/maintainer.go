@@ -194,7 +194,7 @@ func (e *MaintainerEngine) Reconcile(ctx context.Context, gh *triggersv1alpha1.G
 		}
 		e.eventf(gh, corev1.EventTypeNormal, "MaintainerResumed", "Nudged standing maintainer run %s", standing.Name)
 	}
-	return ctrl.Result{RequeueAfter: e.requeueAfter(gh, wakeable, openWork)}, nil
+	return ctrl.Result{RequeueAfter: e.requeueAfter(gh, openWork)}, nil
 }
 
 func (e *MaintainerEngine) desiredMaintainerRun(gh *triggersv1alpha1.GitHubRepository, modeRef *platformv1alpha1.ModeRef) (*platformv1alpha1.AgentRun, error) {
@@ -506,7 +506,24 @@ func (e *MaintainerEngine) maintainerRunWakeable(ctx context.Context, run *platf
 		return false, fmt.Errorf("resolving standing maintainer session: %w", err)
 	}
 	pending := orchestration.PendingUserInputForSession(session)
-	return pending != nil && pending.Type == string(platformv1alpha1.UserInputIdle), nil
+	return pending != nil && maintainerParkedInputType(pending.Type), nil
+}
+
+// maintainerParkedInputType reports whether a Running standing maintainer is
+// parked on durable input that a controller nudge can resume. `idle` is the
+// ordinary between-episodes wait. `circuit_breaker` is set when a turn ended
+// abnormally (exhausted turn budget, failed LLM turn, stalled-agent breaker);
+// for an interactive chat that correctly waits for the user, but a standing
+// maintainer with open work must be resumed by the controller — in production
+// a budget-parked maintainer sat unnoticed for almost five hours because only
+// `idle` was considered wakeable.
+func maintainerParkedInputType(inputType string) bool {
+	switch platformv1alpha1.UserInputRequestType(strings.TrimSpace(inputType)) {
+	case platformv1alpha1.UserInputIdle, platformv1alpha1.UserInputCircuitBreak:
+		return true
+	default:
+		return false
+	}
 }
 
 func maintainerStandupInterval(gh *triggersv1alpha1.GitHubRepository) time.Duration {
@@ -542,8 +559,12 @@ func maintainerResumeDue(run *platformv1alpha1.AgentRun, now time.Time) bool {
 	return err != nil || !now.Before(lastResume.Add(maintainerResumeCooldown))
 }
 
-func (e *MaintainerEngine) requeueAfter(gh *triggersv1alpha1.GitHubRepository, wakeable, workPending bool) time.Duration {
-	if wakeable && workPending {
+func (e *MaintainerEngine) requeueAfter(gh *triggersv1alpha1.GitHubRepository, workPending bool) time.Duration {
+	// Open work is re-evaluated on a short cadence regardless of whether the
+	// run could be nudged right now: a maintainer mid-turn, mid-cooldown, or
+	// parked on a non-resumable input can become wakeable at any moment, and
+	// waiting for the 12h standup to notice would strand the backlog.
+	if workPending {
 		return 5 * time.Minute
 	}
 	return maintainerStandupInterval(gh)

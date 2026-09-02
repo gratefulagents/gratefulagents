@@ -31,6 +31,9 @@ type maintainerToolBase struct {
 	currentRunName, currentRunNamespace string
 	currentRunUID                       types.UID
 	repositoryName, repositoryNamespace string
+	// commandAwaitTimeout bounds how long typed command tools block for the
+	// controller's terminal receipt; zero selects the production default.
+	commandAwaitTimeout time.Duration
 }
 
 type maintainerDispatchLedger struct {

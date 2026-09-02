@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
@@ -341,6 +342,91 @@ func TestDispatchWorkItemUsesConfiguredModeAndRejectsMissingModeSynchronously(t 
 	}
 	if strings.Contains(string(tool.InputSchema()), `"mode"`) {
 		t.Fatalf("dispatch schema still exposes free-form mode: %s", tool.InputSchema())
+	}
+}
+
+func TestCommandReceiptAwaitsControllerTerminalPhase(t *testing.T) {
+	t.Parallel()
+
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
+	base.commandAwaitTimeout = 5 * time.Second
+	workItem := createMaintainerWorkItem(t, k8sClient, maintainerTestRepositoryName, 42, 7)
+	commandName := MaintainerWorkItemCommandName(maintainerTestRepositoryName, "await-key")
+	controllerDone := make(chan error, 1)
+	go func() {
+		controllerDone <- func() error {
+			deadline := time.Now().Add(5 * time.Second)
+			command := &triggersv1alpha1.MaintainerWorkItemCommand{}
+			for {
+				err := k8sClient.Get(context.Background(), client.ObjectKey{Name: commandName, Namespace: maintainerTestNamespace}, command)
+				if err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					return err
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			command.Status.Phase = triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded
+			command.Status.Result = &triggersv1alpha1.MaintainerWorkItemCommandResult{WorkItemRef: triggersRepositoryRef(workItem.Name), Applied: true, Message: "triage intent recorded"}
+			if err := k8sClient.Update(context.Background(), command); err != nil {
+				return err
+			}
+			fresh := &triggersv1alpha1.MaintainerWorkItem{}
+			if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(workItem), fresh); err != nil {
+				return err
+			}
+			fresh.Status.ProjectionSequence = 8
+			return k8sClient.Update(context.Background(), fresh)
+		}()
+	}()
+	tool := &triageIssueTool{maintainerToolBase: base}
+	result, err := tool.Execute(context.Background(), triageIssueInputJSON(t, 42, "Evidence", "rv", 7, "await-key"), "")
+	if err != nil || result.IsError {
+		t.Fatalf("result = %#v err=%v", result, err)
+	}
+	if err := <-controllerDone; err != nil {
+		t.Fatal(err)
+	}
+	var receipt triageIssueOutput
+	if err := json.Unmarshal([]byte(result.Content), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded || !receipt.Applied || receipt.Message != "triage intent recorded" || receipt.AwaitingController || receipt.Hint != "" {
+		t.Fatalf("awaited receipt = %#v", receipt)
+	}
+	if receipt.WorkItem.ProjectionSequence != 8 || receipt.WorkItem.ResourceVersion == workItem.ResourceVersion {
+		t.Fatalf("receipt did not report the current work item: %#v", receipt.WorkItem)
+	}
+}
+
+func TestCommandReceiptReportsPendingAfterAwaitDeadline(t *testing.T) {
+	t.Parallel()
+
+	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
+	base.commandAwaitTimeout = 30 * time.Millisecond
+	workItem := createMaintainerWorkItem(t, k8sClient, maintainerTestRepositoryName, 42, 7)
+	tool := &triageIssueTool{maintainerToolBase: base}
+	started := time.Now()
+	result, err := tool.Execute(context.Background(), triageIssueInputJSON(t, 42, "Evidence", "rv", 7, "deadline-key"), "")
+	if err != nil || result.IsError {
+		t.Fatalf("result = %#v err=%v", result, err)
+	}
+	if elapsed := time.Since(started); elapsed < 30*time.Millisecond || elapsed > 2*time.Second {
+		t.Fatalf("await elapsed = %s, want bounded by the configured deadline", elapsed)
+	}
+	var receipt triageIssueOutput
+	if err := json.Unmarshal([]byte(result.Content), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Phase != triggersv1alpha1.MaintainerWorkItemCommandPhasePending || !receipt.AwaitingController || !strings.Contains(receipt.Hint, `cursor "latest"`) || receipt.Applied || receipt.WorkItem.Name != workItem.Name {
+		t.Fatalf("deadline receipt = %#v", receipt)
+	}
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := tool.Execute(cancelled, triageIssueInputJSON(t, 42, "Evidence", "rv", 7, "cancelled-key"), ""); err == nil {
+		t.Fatal("cancelled await did not surface the context error")
 	}
 }
 
