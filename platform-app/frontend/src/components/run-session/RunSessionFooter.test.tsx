@@ -326,4 +326,67 @@ describe("RunSessionFooter", () => {
     expect(readout.textContent).toContain("api");
     expect(readout.textContent).toContain("gpt-5.2");
   });
+
+  function renderActiveFooter(overrides: Partial<Parameters<typeof RunSessionFooter>[0]> = {}) {
+    return render(
+      <RunSessionFooter
+        isActive
+        isViewer={false}
+        sending={false}
+        canSendMessage
+        startupCopy="Preparing run…"
+        attachments={noopAttachments}
+        fileInputRef={createRef<HTMLInputElement>()}
+        reply=""
+        setReply={vi.fn()}
+        handleSend={vi.fn()}
+        sendMode={AgentRunMessageMode.IMMEDIATE}
+        setSendMode={vi.fn()}
+        slashCommands={[]}
+        onRunSlashCommand={vi.fn()}
+        phase="Running"
+        blockedReason=""
+        canExtendRuntime={false}
+        setExtendRuntimeOpen={vi.fn()}
+        extendingRuntime={false}
+        canRetry={false}
+        handleRetry={vi.fn()}
+        retrying={false}
+        {...overrides}
+      />,
+    );
+  }
+
+  it("keeps the stop control disabled as Stopping… once an interrupt was accepted", () => {
+    const onInterrupt = vi.fn();
+    renderActiveFooter({ canInterrupt: true, onInterrupt, interruptPending: true });
+
+    const stopping = screen.getByRole("button", { name: "Stopping the current turn" });
+    expect((stopping as HTMLButtonElement).disabled).toBe(true);
+    expect(stopping.textContent).toContain("Stopping…");
+    expect(screen.queryByRole("button", { name: "Stop the current turn" })).toBeNull();
+    fireEvent.click(stopping);
+    expect(onInterrupt).not.toHaveBeenCalled();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("re-enables the stop control and shows the fallback hint when the interrupt stalls", () => {
+    const onInterrupt = vi.fn();
+    renderActiveFooter({ canInterrupt: true, onInterrupt, interruptPending: false, interruptStalled: true });
+
+    expect(screen.getByRole("status").textContent).toContain("Still running");
+    fireEvent.click(screen.getByRole("button", { name: "Stop the current turn" }));
+    expect(onInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the Steer/Queue toggle unless the agent is mid-turn", () => {
+    renderActiveFooter({ showSendMode: false });
+    expect(screen.queryByRole("button", { name: "Steer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Queue" })).toBeNull();
+    cleanup();
+
+    renderActiveFooter({ showSendMode: true });
+    expect(screen.getByRole("button", { name: "Steer" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Queue" })).toBeTruthy();
+  });
 });

@@ -256,6 +256,29 @@ type SessionChangeSubscriber interface {
 	SessionChangeListenerHealthy() bool
 }
 
+// MessageGetter is an optional store capability for a single primary-key
+// message lookup scoped to a session. Returns ErrMessageNotFound when the
+// message does not exist in that session.
+type MessageGetter interface {
+	GetMessage(ctx context.Context, sessionID uuid.UUID, messageID int64) (*Message, error)
+}
+
+// ActivityEventInput is one row for ActivityEventBatchWriter. A nil Detail is
+// stored as an empty JSON object.
+type ActivityEventInput struct {
+	EventType string
+	Summary   string
+	Detail    json.RawMessage
+}
+
+// ActivityEventBatchWriter is an optional store capability that persists many
+// activity events in one statement, so the per-session change counter is
+// bumped once per batch instead of once per event. Returned IDs are in input
+// order.
+type ActivityEventBatchWriter interface {
+	WriteActivityEvents(ctx context.Context, sessionID uuid.UUID, events []ActivityEventInput) ([]int64, error)
+}
+
 // InterruptStore persists interrupts as append-only rows so concurrent stop
 // requests cannot overwrite one another.
 type InterruptStore interface {
@@ -342,6 +365,12 @@ type StateStore interface {
 	// whenever the session row, its conversation, activity log, or plan
 	// artifact change. Watchers compare fingerprints to skip re-enrichment.
 	GetSessionFingerprint(ctx context.Context, sessionID uuid.UUID) (string, error)
+	// GetSessionConversationFingerprint is like GetSessionFingerprint but
+	// ignores activity-log writes: it changes only when the session row's
+	// fields, the conversation, the plan artifact, or interrupts change.
+	// Conversation watchers use it so tool-call logging does not force a
+	// conversation frame rebuild.
+	GetSessionConversationFingerprint(ctx context.Context, sessionID uuid.UUID) (string, error)
 
 	// Artifacts
 	UpsertArtifact(ctx context.Context, sessionID uuid.UUID, kind, content, s3URL, contentHash string, metadata json.RawMessage) (*Artifact, error)

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { FileText, Loader2 } from "lucide-react";
+import { Code } from "@connectrpc/connect";
 
 import { UnifiedDiffViewer } from "@/components/diff/UnifiedDiffViewer";
 import { DiffRepoSelector } from "@/components/diff/DiffRepoSelector";
@@ -26,6 +27,7 @@ import { ActivityDetailProvider } from "@/components/activity-log/detailContext"
 import { usePresence } from "@/hooks/usePresence";
 import { useAgentRunUsage } from "@/hooks/useAgentRunUsage";
 import { client } from "@/lib/client";
+import { connectCodeOf } from "@/lib/rpc-errors";
 import { aggregateTraceUsage } from "@/lib/traceUsage";
 import { currentContextTokens } from "@/lib/contextUsage";
 import { toneSoft, toneText } from "@/lib/status";
@@ -53,7 +55,12 @@ import { activityGroupKey, autoChatKickoffRequest, autoExecutionKickoffRequest, 
 import { isActionableInputType, isRunComputing, visibleInputType } from "@/lib/runStatus";
 import { TimelineRow } from "@/components/run-session/TimelineRow";
 import { StartupProgress, hasFirstAgentOutput } from "@/components/run-session/StartupProgress";
-import { PendingMessages } from "@/components/run-session/PendingMessages";
+import {
+  OUTBOUND_MESSAGE_TTL_MS,
+  PendingMessages,
+  settleOutboundMessages,
+  type OutboundMessage,
+} from "@/components/run-session/PendingMessages";
 import { ActiveSubagentsDock } from "@/components/run-session/ActiveSubagentsDock";
 import { messageForQuickAction } from "@/components/quickActions";
 
@@ -79,6 +86,10 @@ function persistDraft(key: string, value: string) {
 }
 
 const DRAFT_PERSIST_DEBOUNCE_MS = 300;
+// After a successful interrupt the stop control stays disabled until the turn
+// actually ends; past this point we assume the interrupt was lost and let the
+// user act again.
+const INTERRUPT_STALL_MS = 15_000;
 
 // Top padding for the virtualized list (the old container's py-3); bottom
 // spacing comes from each row's pb-3. Defined at module level so Virtuoso
@@ -106,7 +117,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     ? [namespace, name, run.sessionNumber, run.retryCount].join("::")
     : "";
   const { entries: activityEntries, subagentGraph, isComplete: activityComplete, hasMoreBefore, loadOlder } =
-    useRunActivityLog(namespace, name, run?.phase ?? "", activityRefreshKey);
+    useRunActivityLog(namespace, name, run?.phase ?? "", activityRefreshKey, { enabled: Boolean(run) });
   const fetchActivityEntryDetail = useActivityEntryDetail(namespace, name);
   const draftKey = `draft:${namespace}/${name}`;
   const draftKeyRef = useRef(draftKey);
@@ -117,8 +128,13 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   const [reply, setReply] = useState(() => {
     return readDraft(draftKey);
   });
+  // Latest (key, draft) pair, used to flush a pending debounce on unmount and
+  // on run switch. Updated by an effect declared *after* the switch effect
+  // below, so the switch still sees the previous run's key and text.
+  const draftFlushRef = useRef({ key: draftKey, value: reply });
   useEffect(() => {
     if (draftKeyRef.current === draftKey) return;
+    persistDraft(draftFlushRef.current.key, draftFlushRef.current.value);
     draftKeyRef.current = draftKey;
     skipNextDraftPersistRef.current = true;
     setReply(readDraft(draftKey));
@@ -134,8 +150,6 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     );
     return () => clearTimeout(timeout);
   }, [reply, draftKey]);
-  // Flush the latest draft on unmount so a pending debounce isn't lost.
-  const draftFlushRef = useRef({ key: draftKey, value: reply });
   useEffect(() => {
     draftFlushRef.current = { key: draftKey, value: reply };
   }, [reply, draftKey]);
@@ -144,6 +158,23 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     [],
   );
   const [sending, setSending] = useState(false);
+  // Messages accepted by the composer but not yet echoed back in a snapshot.
+  // Each carries the idempotency key sent to the server; a retry of the same
+  // draft reuses its key so a timed-out request cannot double-post.
+  const [outboundMessages, setOutboundMessages] = useState<OutboundMessage[]>([]);
+  const draftClientMessageIdRef = useRef<{ draft: string; id: string } | null>(null);
+  // Request nonce answered from this tab. The snapshot keeps carrying the
+  // request until the agent loop picks the answer up, so mask it locally to
+  // avoid re-answering a question the server would reject.
+  const [answeredRequestId, setAnsweredRequestId] = useState("");
+  // Set when an interrupt was accepted; the stop control stays disabled until
+  // the turn ends (or the stall fallback fires). Bound to the turn it was
+  // issued in so a later turn starts with a fresh control.
+  const [interruptRequest, setInterruptRequest] = useState<{
+    at: number;
+    turnKey: string;
+    stalled: boolean;
+  } | null>(null);
   // Steering (deliver into the in-flight turn) is the default; "Queue" is the
   // opt-in for messages that should wait for the next turn boundary. The
   // chosen mode is sticky across sends.
@@ -300,11 +331,46 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   const phase = run?.phase ?? "";
   const isTerminal = phase === "Succeeded" || phase === "Failed" || phase === "Cancelled";
   const isPaused = phase === "Paused";
-  const isThinking = Boolean(
-    run &&
-    (run.phase === "Pending" ||
-      (["Admitted", "Provisioning", "Running"].includes(run.phase) && isRunComputing(run))),
+  const rawRequestId = run?.userInputRequest?.requestId ?? "";
+  const requestAnswered = answeredRequestId !== "" && rawRequestId === answeredRequestId;
+  // The run as the input surfaces should see it: a request this tab already
+  // answered is treated as absent until the snapshot moves on.
+  const inputRun = useMemo(
+    () => (run && requestAnswered ? { ...run, userInputRequest: undefined } : run),
+    [run, requestAnswered],
   );
+  // Adjust during render (not in an effect): the snapshot moved past the
+  // answered request, so the mask is no longer needed.
+  if (answeredRequestId !== "" && rawRequestId !== answeredRequestId) {
+    setAnsweredRequestId("");
+  }
+  const isThinking = Boolean(
+    inputRun &&
+    (inputRun.phase === "Pending" ||
+      (["Admitted", "Provisioning", "Running"].includes(inputRun.phase) && isRunComputing(inputRun))),
+  );
+  // Stop UX: once an interrupt is accepted the control stays disabled until the
+  // turn ends; a phase change or a fresh turn clears it, and a stall lets the
+  // user fall back to stopping the run.
+  const interruptTurnKey = [phase, run?.sessionNumber ?? "", run?.retryCount ?? ""].join("::");
+  if (interruptRequest !== null && (!isThinking || interruptRequest.turnKey !== interruptTurnKey)) {
+    setInterruptRequest(null);
+  }
+  const interruptRequestedAt = interruptRequest?.at ?? null;
+  useEffect(() => {
+    if (interruptRequestedAt === null) {
+      return;
+    }
+    const remaining = Math.max(0, interruptRequestedAt + INTERRUPT_STALL_MS - Date.now());
+    const timer = setTimeout(
+      () =>
+        setInterruptRequest((current) =>
+          current && current.at === interruptRequestedAt ? { ...current, stalled: true } : current,
+        ),
+      remaining,
+    );
+    return () => clearTimeout(timer);
+  }, [interruptRequestedAt]);
   const isActive = phase !== "" && !isTerminal && !isPaused;
   const isOwnerOrAdmin = run?.myPermission === "owner" || run?.myPermission === "admin";
   const isViewer = run?.myPermission === "viewer";
@@ -322,13 +388,15 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   // Stop the in-flight turn (model call, tools, sub-agents) without killing
   // the run — shown in the composer's send slot while the agent is working.
   const canInterrupt = isThinking && !isViewer;
+  const interruptStalled = interruptRequest?.stalled ?? false;
+  const interruptPending = interruptRequest !== null && !interruptStalled;
   const canRetry = isOwnerOrAdmin && (phase === "Failed" || phase === "Cancelled");
   const canExtendRuntime = phase !== "" && !isTerminal && !isViewer;
   const canRename = !isViewer;
   const canUpdateRuntimeConfig = phase !== "" && !isTerminal && !isViewer;
-  const userInputRequest = run?.userInputRequest;
+  const userInputRequest = inputRun?.userInputRequest;
   const pendingQuestion = userInputRequest?.message || "";
-  const pendingInputType = run ? visibleInputType(run) : "";
+  const pendingInputType = inputRun ? visibleInputType(inputRun) : "";
   const showInputBanner = isActionableInputType(pendingInputType) || pendingInputType === "circuit_breaker";
   const pendingActions: QuickAction[] = (userInputRequest?.actions ?? run?.pendingActions ?? []).map(mapPendingAction);
   const pendingBanner = pendingBannerConfig[pendingInputType] ?? pendingBannerConfig.question;
@@ -336,11 +404,11 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   // Sent with answers so the server rejects them if the question was already
   // answered elsewhere or replaced. Idle/stopped/circuit-breaker requests are
   // not questions, so freeform replies to them stay unbound (plain steering).
-  const answerablePendingRequestId =
-    userInputRequest?.type &&
-    !["idle", "stopped", "circuit_breaker"].includes(userInputRequest.type)
-      ? userInputRequest.requestId || ""
-      : "";
+  // Derived from the same visible type as the banner so the timeline's pending
+  // row, the banner and the bound request id always agree.
+  const showTimelinePending =
+    pendingInputType !== "" && !["idle", "stopped", "circuit_breaker"].includes(pendingInputType);
+  const answerablePendingRequestId = showTimelinePending ? userInputRequest?.requestId || "" : "";
   const runCostUsd = parseUsd(run?.costUsd);
   const displayCostUsd = sessionMetrics?.hasCost ? sessionMetrics.costUsd : runCostUsd;
 
@@ -353,6 +421,22 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     [conversation],
   );
   const pendingMessages = conversationParts.pending;
+  // Adjust during render: drop "Sending…" rows the snapshot has echoed back.
+  const settledOutbound = settleOutboundMessages(outboundMessages, conversation ?? []);
+  if (settledOutbound !== outboundMessages) {
+    setOutboundMessages(settledOutbound);
+  }
+  // TTL sweep for rows whose echo never arrives.
+  useEffect(() => {
+    if (outboundMessages.length === 0) {
+      return;
+    }
+    const timer = setTimeout(
+      () => setOutboundMessages((current) => settleOutboundMessages(current, [], Date.now())),
+      OUTBOUND_MESSAGE_TTL_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [outboundMessages]);
 
   // First agent output: any activity entry or any non-user transcript
   // message. The startup stepper only shows before that point — the seeded
@@ -462,10 +546,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
       });
     }
 
-    if (
-      userInputRequest?.type &&
-      !["idle", "stopped", "circuit_breaker"].includes(userInputRequest.type)
-    ) {
+    if (showTimelinePending && userInputRequest) {
       const actions: QuickAction[] = (userInputRequest.actions ?? runPendingActions ?? []).map(mapPendingAction);
 
       items.push({
@@ -489,6 +570,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     isActive,
     activityComplete,
     isThinking,
+    showTimelinePending,
     userInputRequest,
     runPendingActions,
     phase,
@@ -597,32 +679,80 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
       return;
     }
 
+    const message = reply.trim();
+    const imageDataUrls = attachments.dataUrls();
+    const videoDataUrls = attachments.videoDataUrls();
+    // Retrying the same draft after a failed send reuses its idempotency key so
+    // a request that timed out after the server stored it cannot double-post.
+    const draftFingerprint = [message, ...imageDataUrls, ...videoDataUrls].join("\u0000");
+    const clientMessageId =
+      draftClientMessageIdRef.current?.draft === draftFingerprint
+        ? draftClientMessageIdRef.current.id
+        : crypto.randomUUID();
+    draftClientMessageIdRef.current = { draft: draftFingerprint, id: clientMessageId };
+    const outbound: OutboundMessage = {
+      clientMessageId,
+      content: message,
+      imageCount: imageDataUrls.length,
+      sentAt: Date.now(),
+    };
+    // Answers to a displayed question are bound to its request nonce.
+    const boundRequestId = answerablePendingRequestId;
+
     setSending(true);
+    setOutboundMessages((current) => [...current, outbound]);
     try {
-      await client.sendAgentRunMessage({
+      const resp = await client.sendAgentRunMessage({
         namespace,
         name,
-        message: reply.trim(),
+        message,
         messageMode: sendMode,
-        imageDataUrls: attachments.dataUrls(),
-        videoDataUrls: attachments.videoDataUrls(),
+        imageDataUrls,
+        videoDataUrls,
+        clientMessageId,
         // Bind the reply to the exact question being displayed so a stale tab
         // cannot answer a prompt that was already answered or replaced. Idle
         // and stopped requests are not questions; replies to them are plain
         // steering input and stay unbound.
-        pendingRequestId: answerablePendingRequestId,
+        pendingRequestId: boundRequestId,
       });
+      draftClientMessageIdRef.current = null;
+      if (boundRequestId) {
+        setAnsweredRequestId(boundRequestId);
+      }
+      setOutboundMessages((current) =>
+        resp.messageId === 0n
+          ? current.filter((m) => m.clientMessageId !== clientMessageId)
+          : current.map((m) => (m.clientMessageId === clientMessageId ? { ...m, messageId: resp.messageId } : m)),
+      );
       setReply("");
       attachments.clear();
-      toast.success("Message sent");
       composerTextareaRef.current?.focus();
     } catch (e) {
+      setOutboundMessages((current) => current.filter((m) => m.clientMessageId !== clientMessageId));
       toast.error("Couldn't send message", {
         description: e instanceof Error ? e.message : String(e),
       });
     } finally {
       setSending(false);
     }
+  }
+
+  // NotFound means the message is already gone (consumed or cancelled
+  // elsewhere) — that is the outcome the user wanted, so stay quiet.
+  // FailedPrecondition means the agent picked it up first.
+  function reportCancelPendingError(e: unknown, title: string): void {
+    const code = connectCodeOf(e);
+    if (code === Code.NotFound) {
+      return;
+    }
+    if (code === Code.FailedPrecondition) {
+      toast.info("The agent already picked this message up");
+      return;
+    }
+    toast.error(title, {
+      description: e instanceof Error ? e.message : String(e),
+    });
   }
 
   // Withdraw a queued/steering message the agent hasn't consumed yet. The
@@ -635,9 +765,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     try {
       await client.cancelAgentRunMessage({ namespace, name, messageId: message.id });
     } catch (e) {
-      toast.error("Couldn't cancel message", {
-        description: e instanceof Error ? e.message : String(e),
-      });
+      reportCancelPendingError(e, "Couldn't cancel message");
     } finally {
       setPendingOpBusy(false);
     }
@@ -651,40 +779,51 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     }
     setPendingOpBusy(true);
     try {
-      await client.cancelAgentRunMessage({ namespace, name, messageId: message.id });
+      try {
+        await client.cancelAgentRunMessage({ namespace, name, messageId: message.id });
+      } catch (e) {
+        // Already gone: nothing to withdraw, but the text is still worth
+        // handing back to the composer.
+        if (connectCodeOf(e) !== Code.NotFound) {
+          throw e;
+        }
+      }
       setReply((current) =>
         current.trim() ? `${message.content}\n\n${current}` : message.content,
       );
       attachments.addDataUrls(message.imageDataUrls);
       composerTextareaRef.current?.focus();
     } catch (e) {
-      toast.error("Couldn't edit message", {
-        description: e instanceof Error ? e.message : String(e),
-      });
+      reportCancelPendingError(e, "Couldn't edit message");
     } finally {
       setPendingOpBusy(false);
     }
   }
 
   async function handleAction(action: QuickAction, freeform?: string) {
-    if (sending) {
+    if (sending || !canSendMessage) {
       return;
     }
 
+    // Action buttons always answer the exact request that offered them; a
+    // stale tab must not resolve a newer question with an old button.
+    const boundRequestId = userInputRequest?.requestId || "";
     setSending(true);
     try {
       const trimmedFreeform = freeform?.trim();
       const message = trimmedFreeform
         ? `${messageForQuickAction(action)} ${trimmedFreeform}`
         : messageForQuickAction(action);
-      // Action buttons always answer the exact request that offered them; a
-      // stale tab must not resolve a newer question with an old button.
       await client.sendAgentRunMessage({
         namespace,
         name,
         message,
-        pendingRequestId: userInputRequest?.requestId || "",
+        clientMessageId: crypto.randomUUID(),
+        pendingRequestId: boundRequestId,
       });
+      if (boundRequestId) {
+        setAnsweredRequestId(boundRequestId);
+      }
     } catch (e) {
       toast.error("Couldn't send action", {
         description: e instanceof Error ? e.message : String(e),
@@ -701,8 +840,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
 
     setSending(true);
     try {
-      await client.sendAgentRunMessage({ namespace, name, message });
-      toast.success("Message sent");
+      await client.sendAgentRunMessage({ namespace, name, message, clientMessageId: crypto.randomUUID() });
       composerTextareaRef.current?.focus();
     } catch (e) {
       toast.error("Couldn't send message", {
@@ -809,13 +947,13 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   }
 
   async function handleInterrupt() {
-    if (!canInterrupt || interrupting) {
+    if (!canInterrupt || interrupting || interruptPending) {
       return;
     }
     setInterrupting(true);
     try {
       await client.interruptAgentRun({ namespace, name });
-      toast.success("Stopping the current turn");
+      setInterruptRequest({ at: Date.now(), turnKey: interruptTurnKey, stalled: false });
     } catch (e) {
       toast.error("Couldn't stop the current turn", {
         description: e instanceof Error ? e.message : String(e),
@@ -1064,7 +1202,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
                           variant={getActionButtonVariant(action.style)}
                           size="sm"
                           onClick={() => handleAction(action)}
-                          disabled={sending}
+                          disabled={sending || !canSendMessage}
                         >
                           {action.label}
                         </Button>
@@ -1086,6 +1224,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
 
               <PendingMessages
                 messages={pendingMessages}
+                outbound={outboundMessages}
                 terminal={isTerminal}
                 onEdit={canSendMessage ? handleEditPending : undefined}
                 onCancel={canSendMessage ? handleCancelPending : undefined}
@@ -1122,7 +1261,10 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
                 retrying={retrying}
                 canInterrupt={canInterrupt}
                 interrupting={interrupting}
+                interruptPending={interruptPending}
+                interruptStalled={interruptStalled}
                 onInterrupt={handleInterrupt}
+                showSendMode={isThinking}
                 textareaRef={composerTextareaRef}
                 namespace={namespace}
                 name={name}

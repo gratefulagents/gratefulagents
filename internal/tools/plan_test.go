@@ -101,6 +101,9 @@ func (s *planToolStore) GetActivityEventsSince(context.Context, uuid.UUID, int64
 func (s *planToolStore) GetSessionFingerprint(context.Context, uuid.UUID) (string, error) {
 	return "", nil
 }
+func (s *planToolStore) GetSessionConversationFingerprint(context.Context, uuid.UUID) (string, error) {
+	return "", nil
+}
 func (s *planToolStore) UpsertArtifact(_ context.Context, sessionID uuid.UUID, kind, content, s3URL, contentHash string, metadata json.RawMessage) (*store.Artifact, error) {
 	if s.upsertArtifactErr != nil {
 		return nil, s.upsertArtifactErr

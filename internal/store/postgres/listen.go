@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +16,30 @@ import (
 // migration-056 triggers whenever a session row (or one of its child tables)
 // changes. Payload: the session UUID.
 const sessionChangeChannel = "session_change"
+
+// sessionChangeChannelPrefix prefixes the per-session channels emitted by the
+// migration-059 notify trigger alongside the global channel.
+const sessionChangeChannelPrefix = "session_change_"
+
+const (
+	// listenLivenessInterval bounds each WaitForNotification so a silently
+	// dead TCP connection (NAT timeout, killed proxy) is detected by a Ping
+	// instead of hanging the listener forever with healthy=true.
+	listenLivenessInterval = 45 * time.Second
+	listenPingTimeout      = 10 * time.Second
+	// listenBackoffResetAfter: a connection that stayed up this long counts
+	// as a recovery, so the next disconnect retries quickly again instead of
+	// inheriting the escalated backoff from an earlier outage.
+	listenBackoffResetAfter = 30 * time.Second
+	listenMaxBackoff        = 30 * time.Second
+)
+
+// sessionChangeChannelFor returns the per-session NOTIFY channel name:
+// "session_change_" + the UUID as 32 hex characters without dashes (47 chars,
+// within Postgres' 63-char identifier limit).
+func sessionChangeChannelFor(sessionID uuid.UUID) string {
+	return sessionChangeChannelPrefix + strings.ReplaceAll(sessionID.String(), "-", "")
+}
 
 // sessionChangeBroker fans a single LISTEN connection out to in-process
 // subscribers. Notifications are wake-up hints only: they carry no data and
@@ -79,16 +105,52 @@ func (s *Store) SessionChangeListenerHealthy() bool {
 }
 
 // StartSessionChangeListener starts the background LISTEN loop that feeds
-// SubscribeSessionChanges. It is optional: without it, subscribers simply
-// never receive wake-ups and watchers fall back to their fast poll interval.
-// The loop reconnects with backoff until ctx is cancelled.
+// SubscribeSessionChanges for every session (the global session_change
+// channel). It is optional: without it, subscribers simply never receive
+// wake-ups and watchers fall back to their fast poll interval. The loop
+// reconnects with backoff until ctx is cancelled.
 func (s *Store) StartSessionChangeListener(ctx context.Context) {
+	s.startListener(ctx, []string{sessionChangeChannel}, globalSessionChangeRouter)
+}
+
+// StartSessionChangeListenerFor is the agent-pod variant: it LISTENs only on
+// the per-session channel for sessionID, so the pod is not woken by every
+// other session in the fleet. Every notification on that channel is routed to
+// subscribers of sessionID regardless of payload.
+func (s *Store) StartSessionChangeListenerFor(ctx context.Context, sessionID uuid.UUID) {
+	s.startListener(ctx, []string{sessionChangeChannelFor(sessionID)}, perSessionChangeRouter(sessionID))
+}
+
+// notificationRouter maps a raw notification to the session whose
+// subscribers should be woken; ok=false drops it.
+type notificationRouter func(channel, payload string) (id uuid.UUID, ok bool)
+
+func globalSessionChangeRouter(channel, payload string) (uuid.UUID, bool) {
+	if channel != sessionChangeChannel {
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(payload)
+	return id, err == nil
+}
+
+func perSessionChangeRouter(sessionID uuid.UUID) notificationRouter {
+	channel := sessionChangeChannelFor(sessionID)
+	return func(ch, _ string) (uuid.UUID, bool) {
+		return sessionID, ch == channel
+	}
+}
+
+func (s *Store) startListener(ctx context.Context, channels []string, route notificationRouter) {
 	go func() {
 		backoff := time.Second
 		for ctx.Err() == nil {
-			err := s.runSessionChangeListener(ctx)
+			connectedAt := time.Now()
+			err := s.runSessionChangeListener(ctx, channels, route)
 			if ctx.Err() != nil {
 				return
+			}
+			if time.Since(connectedAt) >= listenBackoffResetAfter {
+				backoff = time.Second
 			}
 			log.Printf("WARN: session change listener disconnected (retrying in %s): %v", backoff, err)
 			select {
@@ -96,14 +158,14 @@ func (s *Store) StartSessionChangeListener(ctx context.Context) {
 				return
 			case <-time.After(backoff):
 			}
-			if backoff < 30*time.Second {
+			if backoff < listenMaxBackoff {
 				backoff *= 2
 			}
 		}
 	}()
 }
 
-func (s *Store) runSessionChangeListener(ctx context.Context) error {
+func (s *Store) runSessionChangeListener(ctx context.Context, channels []string, route notificationRouter) error {
 	poolConn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return err
@@ -118,22 +180,37 @@ func (s *Store) runSessionChangeListener(ctx context.Context) error {
 		_ = conn.Close(closeCtx)
 	}()
 
-	if _, err := conn.Exec(ctx, "LISTEN "+sessionChangeChannel); err != nil {
-		return err
+	for _, channel := range channels {
+		if _, err := conn.Exec(ctx, "LISTEN "+channel); err != nil {
+			return err
+		}
 	}
 	s.changes.healthy.Store(true)
 	defer s.changes.healthy.Store(false)
 
 	for {
-		notification, err := conn.WaitForNotification(ctx)
+		waitCtx, cancelWait := context.WithTimeout(ctx, listenLivenessInterval)
+		notification, err := conn.WaitForNotification(waitCtx)
+		cancelWait()
 		if err != nil {
-			return err
-		}
-		if notification.Channel != sessionChangeChannel {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if !errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			// Quiet period: verify the connection is still alive. A dead
+			// socket surfaces here instead of hanging indefinitely.
+			pingCtx, cancelPing := context.WithTimeout(ctx, listenPingTimeout)
+			err = conn.Ping(pingCtx)
+			cancelPing()
+			if err != nil {
+				return err
+			}
 			continue
 		}
-		sessionID, err := uuid.Parse(notification.Payload)
-		if err != nil {
+		sessionID, ok := route(notification.Channel, notification.Payload)
+		if !ok {
 			continue
 		}
 		s.changes.notify(sessionID)

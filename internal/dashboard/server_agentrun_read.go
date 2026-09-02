@@ -219,9 +219,14 @@ func (s *Server) cachedSessionByRun(ctx context.Context, name, namespace string)
 // latestActivityEventID returns the newest activity event ID for a session
 // (0 when none exist), coalesced across concurrent watch ticks. Prefers the
 // index-only store probe and falls back to loading the newest event row for
-// stores without it.
-func (s *Server) latestActivityEventID(ctx context.Context, sessionID uuid.UUID) (int64, error) {
-	return probeCacheDo(ctx, &s.probes, "lastev|"+sessionID.String(), probeLatestEventTTL, func(ctx context.Context) (int64, error) {
+// stores without it. fresh bypasses a value cached before the call (still
+// coalescing with an in-flight probe); wake-driven watch iterations set it.
+func (s *Server) latestActivityEventID(ctx context.Context, sessionID uuid.UUID, fresh bool) (int64, error) {
+	do := probeCacheDo[int64]
+	if fresh {
+		do = probeCacheDoFresh[int64]
+	}
+	return do(ctx, &s.probes, "lastev|"+sessionID.String(), probeLatestEventTTL, func(ctx context.Context) (int64, error) {
 		if ls, ok := s.stateStore.(latestActivityIDStore); ok {
 			return ls.GetLatestActivityEventID(ctx, sessionID)
 		}
@@ -234,6 +239,73 @@ func (s *Server) latestActivityEventID(ctx context.Context, sessionID uuid.UUID)
 		}
 		return recent[0].ID, nil
 	})
+}
+
+// conversationFingerprintKey is the probe-cache key for a session's
+// conversation fingerprint (conversation_seq: messages, session row, plan
+// artifact, interrupts — not activity events). Writers on this replica
+// invalidate it after inserting a message.
+func conversationFingerprintKey(sessionID uuid.UUID) string {
+	return "cfp|" + sessionID.String()
+}
+
+// conversationFingerprint returns the session's conversation fingerprint,
+// shared across concurrent streams for probeFingerprintTTL. fresh bypasses a
+// value cached before the call (wake-driven watch iterations).
+func (s *Server) conversationFingerprint(ctx context.Context, sessionID uuid.UUID, fresh bool) (string, error) {
+	do := probeCacheDo[string]
+	if fresh {
+		do = probeCacheDoFresh[string]
+	}
+	return do(ctx, &s.probes, conversationFingerprintKey(sessionID), probeFingerprintTTL, func(ctx context.Context) (string, error) {
+		return s.stateStore.GetSessionConversationFingerprint(ctx, sessionID)
+	})
+}
+
+// invalidateConversationProbe drops this replica's cached conversation
+// fingerprint after a message write so a same-process read-after-write is
+// not answered from a probe cached just before the write.
+func (s *Server) invalidateConversationProbe(sessionID uuid.UUID) {
+	s.probes.invalidate(conversationFingerprintKey(sessionID))
+}
+
+type sharedConversationMemoKey struct{}
+
+// withSharedConversationMemo marks a context as belonging to a watch stream
+// build. Only watch builds share the memoized conversation: unary reads keep
+// loading the transcript directly so a client never observes its own write
+// missing because of a probe cached moments earlier.
+func withSharedConversationMemo(ctx context.Context) context.Context {
+	return context.WithValue(ctx, sharedConversationMemoKey{}, true)
+}
+
+// probeConversationTTL bounds how long a built conversation stays memoized.
+// Every stream watching a run rebuilds within one probe window of a change,
+// so a few seconds is enough for N tabs to share one GetMessages per version
+// while keeping large transcripts (inline images) from lingering.
+const probeConversationTTL = 5 * time.Second
+
+// sessionConversation returns the chat transcript for a session. Watch
+// builds (withSharedConversationMemo) memoize the built conversation keyed
+// by the conversation fingerprint so N streams share one GetMessages per
+// version. The returned slice and its messages are shared read-only across
+// streams; consumers must not mutate them.
+func (s *Server) sessionConversation(ctx context.Context, sessionID uuid.UUID, phase string) ([]*platform.ChatMessage, error) {
+	load := func(ctx context.Context) ([]*platform.ChatMessage, error) {
+		msgs, err := s.stateStore.GetMessages(ctx, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		return conversationFromMessages(msgs, phase), nil
+	}
+	if ctx.Value(sharedConversationMemoKey{}) == nil {
+		return load(ctx)
+	}
+	fp, err := s.conversationFingerprint(ctx, sessionID, false)
+	if err != nil || fp == "" {
+		return load(ctx)
+	}
+	return probeCacheDo(ctx, &s.probes, "conv|"+sessionID.String()+"|"+fp, probeConversationTTL, load)
 }
 
 func (s *Server) getAgentRunActivityLogSourced(ctx context.Context, run *platformv1alpha1.AgentRun) (*platform.GetActivityLogResponse, activityLogSource) {
@@ -249,6 +321,9 @@ func (s *Server) getAgentRunActivityLogSourced(ctx context.Context, run *platfor
 			if err != nil {
 				log.Printf("WARN: failed to fetch event stream from S3 (%s): %v", evURL, err)
 			} else {
+				// The immutable artifact is now authoritative; the Postgres
+				// memo for this run will never be read again.
+				s.dropActivityMemo(run.Namespace + "/" + run.Name)
 				return buildActivityLogResponse(entries, true, run.Name), activityLogSourceS3
 			}
 		}
@@ -264,7 +339,7 @@ func (s *Server) getAgentRunActivityLogSourced(ctx context.Context, run *platfor
 			// reloading the full history and rebuilding the subagent graph
 			// on every 500ms watch tick. When new events did arrive, fetch
 			// only the delta and extend the cached entries.
-			if latestID, err := s.latestActivityEventID(ctx, sess.ID); err == nil && latestID > 0 {
+			if latestID, err := s.latestActivityEventID(ctx, sess.ID, false); err == nil && latestID > 0 {
 				s.activityMemoMu.Lock()
 				memo, ok := s.activityMemo[memoKey]
 				if ok {
@@ -285,8 +360,18 @@ func (s *Server) getAgentRunActivityLogSourced(ctx context.Context, run *platfor
 						// full-cap slice expression forces append to copy.
 						entries := memo.entries[:len(memo.entries):len(memo.entries)]
 						lastID := memo.lastEventID
+						approxBytes := memo.approxBytes
 						for _, ev := range delta {
-							lastID = ev.ID
+							// The store returns IDs > afterID, but never trust
+							// ordering or the cursor: an event at or below the
+							// memo's high-water mark is already present.
+							if ev.ID <= memo.lastEventID {
+								continue
+							}
+							if ev.ID > lastID {
+								lastID = ev.ID
+							}
+							approxBytes += activityEventApproxBytes(ev)
 							entries = append(entries, activityEventToActivityEntry(ev))
 						}
 						resp := buildActivityLogResponse(entries, isTerminal, run.Name)
@@ -295,6 +380,7 @@ func (s *Server) getAgentRunActivityLogSourced(ctx context.Context, run *platfor
 							isTerminal:  isTerminal,
 							entries:     entries,
 							resp:        resp,
+							approxBytes: approxBytes,
 						})
 						return resp, activityLogSourcePostgres
 					}
@@ -303,16 +389,25 @@ func (s *Server) getAgentRunActivityLogSourced(ctx context.Context, run *platfor
 			events, err := s.stateStore.GetAllActivity(ctx, sess.ID)
 			if err == nil && len(events) > 0 {
 				entries := make([]*platform.ActivityEntry, 0, len(events))
+				var lastID int64
+				var approxBytes int
 				for _, ev := range events {
+					// The high-water mark is the max ID, not the last row: the
+					// delta cursor must not depend on the load's sort order.
+					if ev.ID > lastID {
+						lastID = ev.ID
+					}
+					approxBytes += activityEventApproxBytes(ev)
 					entries = append(entries, activityEventToActivityEntry(ev))
 				}
 				if len(entries) > 0 {
 					resp := buildActivityLogResponse(entries, isTerminal, run.Name)
 					s.storeActivityMemo(memoKey, &activityMemoEntry{
-						lastEventID: events[len(events)-1].ID,
+						lastEventID: lastID,
 						isTerminal:  isTerminal,
 						entries:     entries,
 						resp:        resp,
+						approxBytes: approxBytes,
 					})
 					return resp, activityLogSourcePostgres
 				}
@@ -364,26 +459,59 @@ func (s *Server) getAgentRunActivityLogSourced(ctx context.Context, run *platfor
 // a failed or empty exec before trying that sandbox pod again.
 const execFailBackoff = 3 * time.Second
 
-// storeActivityMemo caches an activity-log response, evicting the
-// least-recently-accessed entry when the cache is full.
+// Activity memo bounds. Entries are evicted least-recently-accessed first
+// when either the count or the approximate byte budget (summed summary and
+// detail payload sizes) is exceeded; a handful of runs with huge tool
+// outputs must not pin gigabytes of built responses.
+const (
+	activityMemoMaxEntries = 128
+	activityMemoMaxBytes   = 256 << 20
+)
+
+func activityEventApproxBytes(ev store.ActivityEvent) int {
+	return len(ev.Summary) + len(ev.Detail)
+}
+
+// storeActivityMemo caches an activity-log response, evicting
+// least-recently-accessed entries until the cache is within both its count
+// and byte budgets. The new entry is always stored (it is what the caller is
+// about to serve), even when it alone exceeds the byte budget.
 func (s *Server) storeActivityMemo(key string, entry *activityMemoEntry) {
 	s.activityMemoMu.Lock()
 	defer s.activityMemoMu.Unlock()
 	if s.activityMemo == nil {
 		s.activityMemo = make(map[string]*activityMemoEntry)
 	}
-	if _, exists := s.activityMemo[key]; !exists && len(s.activityMemo) >= 128 {
+	entry.lastAccess = time.Now()
+	s.activityMemo[key] = entry
+	totalBytes := 0
+	for _, m := range s.activityMemo {
+		totalBytes += m.approxBytes
+	}
+	for len(s.activityMemo) > activityMemoMaxEntries || totalBytes > activityMemoMaxBytes {
 		var oldestKey string
 		var oldest time.Time
 		for k, m := range s.activityMemo {
+			if k == key {
+				continue
+			}
 			if oldestKey == "" || m.lastAccess.Before(oldest) {
 				oldestKey, oldest = k, m.lastAccess
 			}
 		}
+		if oldestKey == "" {
+			return
+		}
+		totalBytes -= s.activityMemo[oldestKey].approxBytes
 		delete(s.activityMemo, oldestKey)
 	}
-	entry.lastAccess = time.Now()
-	s.activityMemo[key] = entry
+}
+
+// dropActivityMemo releases a run's memoized activity log.
+func (s *Server) dropActivityMemo(key string) {
+	s.activityMemoMu.Lock()
+	delete(s.activityMemo, key)
+	s.activityMemoMu.Unlock()
 }
 
 // fetchPlanMarkdown reads the plan.md key from the referenced ConfigMap.
@@ -644,8 +772,8 @@ func (s *Server) enrichAgentRunProtoMode(ctx context.Context, pb *platform.Agent
 			}
 
 			if full {
-				if msgs, err := s.stateStore.GetMessages(ctx, sess.ID); err == nil {
-					pb.Conversation = conversationFromMessages(msgs, pb.Phase)
+				if conv, err := s.sessionConversation(ctx, sess.ID, pb.Phase); err == nil {
+					pb.Conversation = conv
 				}
 
 				if events, err := s.stateStore.GetRecentActivity(ctx, sess.ID, 20); err == nil {

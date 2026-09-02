@@ -81,6 +81,7 @@ type probeCacheEntry struct {
 	ready      chan struct{} // closed once val/err are set
 	val        any
 	err        error
+	computedAt time.Time
 	expiresAt  time.Time
 	lastAccess time.Time
 }
@@ -88,6 +89,15 @@ type probeCacheEntry struct {
 // do implements the cache/singleflight protocol for one key. fn runs at most
 // once per TTL window across all concurrent callers.
 func (c *probeCache) do(ctx context.Context, key string, ttl time.Duration, fn func(context.Context) (any, error)) (any, error) {
+	return c.doMaxAge(ctx, key, ttl, ttl, fn)
+}
+
+// doMaxAge is do with a caller-specific staleness bound: a cached value is
+// only served when it was computed at most maxAge ago (and is within its
+// TTL). maxAge=0 forces a recomputation while still joining an in-flight one,
+// so wake-driven callers that must observe the latest state keep coalescing
+// with each other instead of each issuing their own query.
+func (c *probeCache) doMaxAge(ctx context.Context, key string, ttl, maxAge time.Duration, fn func(context.Context) (any, error)) (any, error) {
 	now := time.Now()
 	c.mu.Lock()
 	if c.entries == nil {
@@ -97,7 +107,7 @@ func (c *probeCache) do(ctx context.Context, key string, ttl time.Duration, fn f
 	if e, ok := c.entries[key]; ok {
 		select {
 		case <-e.ready:
-			if now.Before(e.expiresAt) {
+			if now.Before(e.expiresAt) && now.Sub(e.computedAt) <= maxAge {
 				e.lastAccess = now
 				val := e.val
 				c.mu.Unlock()
@@ -130,7 +140,8 @@ func (c *probeCache) do(ctx context.Context, key string, ttl time.Duration, fn f
 
 	c.mu.Lock()
 	e.val, e.err = val, err
-	e.expiresAt = time.Now().Add(ttl)
+	e.computedAt = time.Now()
+	e.expiresAt = e.computedAt.Add(ttl)
 	if err != nil && c.entries[key] == e {
 		delete(c.entries, key) // never serve cached errors
 	}
@@ -203,9 +214,41 @@ func (c *probeCache) reset() {
 	c.mu.Unlock()
 }
 
+// invalidate drops the cached value for one key so the next caller
+// recomputes it. Writers call it after mutating the probed state on this
+// replica so a read-after-write on the same process is not served a value
+// cached before the write. An in-flight computation is left alone: its
+// result may or may not include the write, and dropping it would only orphan
+// the callers already waiting on it.
+func (c *probeCache) invalidate(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.entries[key]
+	if !ok {
+		return
+	}
+	select {
+	case <-e.ready:
+		delete(c.entries, key)
+	default:
+	}
+}
+
 // probeCacheDo is the typed wrapper around probeCache.do.
 func probeCacheDo[T any](ctx context.Context, c *probeCache, key string, ttl time.Duration, fn func(context.Context) (T, error)) (T, error) {
-	v, err := c.do(ctx, key, ttl, func(ctx context.Context) (any, error) { return fn(ctx) })
+	return probeCacheDoMaxAge(ctx, c, key, ttl, ttl, fn)
+}
+
+// probeCacheDoFresh is probeCacheDo with maxAge=0: it never serves a value
+// computed before the call, but still joins an in-flight computation.
+// Wake-driven watch iterations use it so a NOTIFY hint is not answered from a
+// probe cached just before the write that triggered it.
+func probeCacheDoFresh[T any](ctx context.Context, c *probeCache, key string, ttl time.Duration, fn func(context.Context) (T, error)) (T, error) {
+	return probeCacheDoMaxAge(ctx, c, key, ttl, 0, fn)
+}
+
+func probeCacheDoMaxAge[T any](ctx context.Context, c *probeCache, key string, ttl, maxAge time.Duration, fn func(context.Context) (T, error)) (T, error) {
+	v, err := c.doMaxAge(ctx, key, ttl, maxAge, func(ctx context.Context) (any, error) { return fn(ctx) })
 	if err != nil {
 		var zero T
 		return zero, err

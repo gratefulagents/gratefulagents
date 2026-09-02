@@ -129,20 +129,52 @@ func sessionMetricsFromSnapshot(baseline progressMetricsBaseline, snap agent.Pro
 	return metrics
 }
 
+// progressMetricsGate skips metrics writes whose payload is identical to the
+// last successful write. Each session metrics write is a JSONB merge that
+// fires a session UPDATE and a NOTIFY; while the run is idle those no-op
+// writes wake this pod's own pollers every 5s and defeat their relaxed idle
+// interval. The final write always goes through.
+type progressMetricsGate struct {
+	last    sessionclient.SessionMetrics
+	written bool
+}
+
+// shouldWrite reports whether metrics differ from the last recorded write.
+func (g *progressMetricsGate) shouldWrite(metrics sessionclient.SessionMetrics, final bool) bool {
+	return final || !g.written || g.last != metrics
+}
+
+// recordWritten remembers a successful write; failed writes are retried on
+// the next tick even if the payload has not changed.
+func (g *progressMetricsGate) recordWritten(metrics sessionclient.SessionMetrics) {
+	g.last = metrics
+	g.written = true
+}
+
 func startProgressLoop(ctx context.Context, crdClient client.Client, cfg runConfig, tracker *agent.RunProgress, sc *sessionclient.Client, baseline progressMetricsBaseline) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
+	var gate progressMetricsGate
+	write := func(ctx context.Context, final bool) {
+		metrics := sessionMetricsFromSnapshot(baseline, tracker.Snapshot())
+		if !gate.shouldWrite(metrics, final) {
+			return
+		}
+		if writeProgressMetrics(ctx, crdClient, cfg, metrics, sc, final) {
+			gate.recordWritten(metrics)
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			writeProgressMetrics(writeCtx, crdClient, cfg, tracker.Snapshot(), sc, baseline, true)
+			write(writeCtx, true)
 			cancel()
 			return
 
 		case <-ticker.C:
-			writeProgressMetrics(ctx, crdClient, cfg, tracker.Snapshot(), sc, baseline, false)
+			write(ctx, false)
 		}
 	}
 }
@@ -150,35 +182,38 @@ func startProgressLoop(ctx context.Context, crdClient client.Client, cfg runConf
 // writeProgressMetrics persists one authoritative cumulative metrics update.
 // Postgres is primary when a session client exists and its WriteMetrics call
 // mirrors the same values to the CRD; the direct CRD path is only a fallback.
-func writeProgressMetrics(ctx context.Context, crdClient client.Client, cfg runConfig, snap agent.ProgressSnapshot, sc *sessionclient.Client, baseline progressMetricsBaseline, final bool) {
+// It reports whether the write succeeded.
+func writeProgressMetrics(ctx context.Context, crdClient client.Client, cfg runConfig, metrics sessionclient.SessionMetrics, sc *sessionclient.Client, final bool) bool {
 	if sc != nil {
-		if err := sc.WriteMetrics(ctx, sessionMetricsFromSnapshot(baseline, snap)); err != nil {
+		if err := sc.WriteMetrics(ctx, metrics); err != nil {
 			prefix := ""
 			if final {
 				prefix = "final "
 			}
 			log.Printf("WARN: %smetrics write to postgres failed: %v", prefix, err)
+			return false
 		}
-		return
+		return true
 	}
-	if err := writeProgressToStatus(ctx, crdClient, cfg.TaskName, cfg.Namespace, baseline, snap); err != nil {
+	if err := writeProgressToStatus(ctx, crdClient, cfg.TaskName, cfg.Namespace, metrics); err != nil {
 		prefix := ""
 		if final {
 			prefix = "final "
 		}
 		log.Printf("WARN: %sprogress write failed: %v", prefix, err)
+		return false
 	}
+	return true
 }
 
 // writeProgressToStatus patches the AgentRun status with cumulative metrics.
-func writeProgressToStatus(ctx context.Context, c client.Client, taskName, taskNamespace string, baseline progressMetricsBaseline, snap agent.ProgressSnapshot) error {
-	cumulative := cumulativeProgressMetrics(baseline, snap)
+func writeProgressToStatus(ctx context.Context, c client.Client, taskName, taskNamespace string, metrics sessionclient.SessionMetrics) error {
 	return patchAgentRunStatus(ctx, c, taskName, taskNamespace, func(run *platformv1alpha1.AgentRun) {
 		run.Status.Metrics = &platformv1alpha1.AgentRunMetrics{
-			CostUsd:       fmt.Sprintf("%.4f", cumulative.CostUSD),
-			InputTokens:   cumulative.InputTokens,
-			OutputTokens:  cumulative.OutputTokens,
-			ToolCallCount: cumulative.ToolCallCount,
+			CostUsd:       fmt.Sprintf("%.4f", metrics.CostUSD),
+			InputTokens:   metrics.InputTokens,
+			OutputTokens:  metrics.OutputTokens,
+			ToolCallCount: metrics.ToolCallCount,
 		}
 		if run.Status.Phase == "" || run.Status.Phase == platformv1alpha1.AgentRunPhasePending || run.Status.Phase == platformv1alpha1.AgentRunPhaseAdmitted {
 			run.Status.Phase = platformv1alpha1.AgentRunPhaseRunning

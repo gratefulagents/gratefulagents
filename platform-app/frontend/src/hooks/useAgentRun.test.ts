@@ -48,7 +48,7 @@ vi.mock("@/lib/auth-interceptor", () => ({
   refreshOnUnauthenticated: vi.fn().mockResolvedValue(false),
 }));
 
-import { useAgentRun } from "./useAgentRun";
+import { SNAPSHOT_FALLBACK_MS, useAgentRun } from "./useAgentRun";
 
 // State slot indices matching the useState order inside useAgentRun.
 const RUN = 0;
@@ -133,6 +133,11 @@ describe("useAgentRun", () => {
     useAgentRun("ns", "run");
     await flushMicrotasks();
 
+    // The silent watch hands over to the unary snapshot fallback.
+    expect(clientMock.getAgentRun).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_FALLBACK_MS);
+    await flushMicrotasks();
+
     // Still within the grace window: no error, still loading, marked starting.
     expect(stateStore[RUN]).toBeNull();
     expect(stateStore[LOADING]).toBe(true);
@@ -173,6 +178,8 @@ describe("useAgentRun", () => {
 
     useAgentRun("ns", "run");
     await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_FALLBACK_MS);
+    await flushMicrotasks();
 
     expect(stateStore[LOADING]).toBe(false);
     expect(stateStore[STARTING]).toBe(false);
@@ -193,10 +200,55 @@ describe("useAgentRun", () => {
     expect(stateStore[ERROR]).toBeNull();
     expect(stateStore[STARTING]).toBe(false);
 
-    // A trailing NotFound from the snapshot fetch must not clobber the run.
-    await vi.advanceTimersByTimeAsync(1000);
+    // The watch frame arrived first, so the unary fallback is never issued.
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_FALLBACK_MS + 1000);
     await flushMicrotasks();
+    expect(clientMock.getAgentRun).not.toHaveBeenCalled();
     expect(stateStore[RUN]).toEqual({ name: "run", namespace: "ns", phase: "Pending" });
+    expect(stateStore[ERROR]).toBeNull();
+  });
+
+  it("falls back to the unary snapshot only when the watch stays silent", async () => {
+    clientMock.getAgentRun.mockResolvedValue({ name: "run", namespace: "ns", phase: "Running" });
+    clientMock.watchAgentRun.mockImplementation(() => pendingStream());
+
+    useAgentRun("ns", "run");
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_FALLBACK_MS - 1);
+    expect(clientMock.getAgentRun).not.toHaveBeenCalled();
+    expect(stateStore[LOADING]).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await flushMicrotasks();
+    expect(clientMock.getAgentRun).toHaveBeenCalledTimes(1);
+    expect(stateStore[RUN]).toEqual({ name: "run", namespace: "ns", phase: "Running" });
+    expect(stateStore[LOADING]).toBe(false);
+  });
+
+  it("reopens an idle watch stream when the page becomes visible again", async () => {
+    clientMock.getAgentRun.mockResolvedValue({ name: "run", namespace: "ns", phase: "Running" });
+    const controllers: AbortSignal[] = [];
+    clientMock.watchAgentRun.mockImplementation((_req: unknown, opts: { signal: AbortSignal }) => {
+      controllers.push(opts.signal);
+      return yieldingStream([{ name: "run", namespace: "ns", phase: "Running" }]);
+    });
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+
+    useAgentRun("ns", "run");
+    await flushMicrotasks();
+    expect(clientMock.watchAgentRun).toHaveBeenCalledTimes(1);
+
+    // A recent frame means the stream is trusted: no reconnect.
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushMicrotasks();
+    expect(clientMock.watchAgentRun).toHaveBeenCalledTimes(1);
+
+    // Silent for longer than the idle threshold: abort and reopen.
+    await vi.advanceTimersByTimeAsync(6000);
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushMicrotasks();
+    expect(controllers[0].aborted).toBe(true);
+    expect(clientMock.watchAgentRun).toHaveBeenCalledTimes(2);
     expect(stateStore[ERROR]).toBeNull();
   });
 

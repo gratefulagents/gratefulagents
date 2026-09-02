@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"log"
 	"strings"
 
@@ -130,6 +131,16 @@ func stalePendingRequestError() *connect.Error {
 		errors.New("this request was already answered or replaced by a newer one; refresh and try again"))
 }
 
+// mapSessionLookupError distinguishes a run whose durable session has not
+// been created yet (the worker is still bootstrapping) from a session store
+// that is unreachable, so an outage is not reported as "still starting up".
+func mapSessionLookupError(err error) error {
+	if errors.Is(err, store.ErrSessionNotFound) {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session is still starting up"))
+	}
+	return connect.NewError(connect.CodeUnavailable, fmt.Errorf("session store unavailable: %w", err))
+}
+
 func sessionEndedError() *connect.Error {
 	return connect.NewError(connect.CodeFailedPrecondition,
 		errors.New("run has ended; retry the run to send another message"))
@@ -152,9 +163,11 @@ func checkRequestedPendingID(requestedID string, sess *store.Session) error {
 // request consumption are one transaction, so concurrent clients can never
 // both answer the same request. Returns stalePendingRequestError when the
 // request was consumed or replaced concurrently — nothing is inserted then.
-func (s *Server) recordPendingAnswer(ctx context.Context, sess *store.Session, content string, metadata json.RawMessage) error {
+// Returns the inserted message's ID.
+func (s *Server) recordPendingAnswer(ctx context.Context, sess *store.Session, content string, metadata json.RawMessage) (int64, error) {
+	defer s.invalidateConversationProbe(sess.ID)
 	if answerer, ok := s.stateStore.(store.PendingInputAnswerer); ok && sess.PendingRequestID != "" {
-		_, answered, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
+		msg, answered, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
 			RequestID: sess.PendingRequestID,
 			Phase:     "running",
 			Content:   content,
@@ -162,19 +175,20 @@ func (s *Server) recordPendingAnswer(ctx context.Context, sess *store.Session, c
 		})
 		if err != nil {
 			if errors.Is(err, store.ErrSessionEnded) {
-				return sessionEndedError()
+				return 0, sessionEndedError()
 			}
-			return connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording answer message: %w", err))
+			return 0, connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording answer message: %w", err))
 		}
 		if !answered {
-			return stalePendingRequestError()
+			return 0, stalePendingRequestError()
 		}
-		return nil
+		return messageID(msg), nil
 	}
 	// Legacy stores: append, then consume only the exact request. Not atomic,
 	// but the nonce-checked clear still never touches a replacement request.
-	if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", content, metadata); err != nil {
-		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording answer message: %w", err))
+	msg, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", content, metadata)
+	if err != nil {
+		return 0, connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording answer message: %w", err))
 	}
 	if clearer, ok := s.stateStore.(store.PendingInputClearer); ok && sess.PendingRequestID != "" {
 		if _, err := clearer.ClearPendingInputIfID(ctx, sess.ID, sess.PendingRequestID, "running"); err != nil {
@@ -183,26 +197,77 @@ func (s *Server) recordPendingAnswer(ctx context.Context, sess *store.Session, c
 	} else if err := s.stateStore.ClearPendingAction(ctx, sess.ID, "running"); err != nil {
 		log.Printf("WARN: clearing pending action after answer (session %s): %v", sess.ID, err)
 	}
-	return nil
+	return messageID(msg), nil
 }
 
 // appendActiveUserMessage inserts a plain (non-answer) user message, refusing
 // when the session finished concurrently so the message cannot become
-// undeliverable.
-func (s *Server) appendActiveUserMessage(ctx context.Context, sess *store.Session, content string, metadata json.RawMessage) error {
+// undeliverable. Returns the inserted message's ID.
+func (s *Server) appendActiveUserMessage(ctx context.Context, sess *store.Session, content string, metadata json.RawMessage) (int64, error) {
+	defer s.invalidateConversationProbe(sess.ID)
 	if appender, ok := s.stateStore.(store.ActiveUserMessageAppender); ok {
-		if _, err := appender.AppendUserMessageIfActive(ctx, sess.ID, content, metadata); err != nil {
+		msg, err := appender.AppendUserMessageIfActive(ctx, sess.ID, content, metadata)
+		if err != nil {
 			if errors.Is(err, store.ErrSessionEnded) {
-				return sessionEndedError()
+				return 0, sessionEndedError()
 			}
-			return connect.NewError(connect.CodeInternal, fmt.Errorf("writing message to Postgres: %w", err))
+			if id, ok := s.resolveDuplicateClientMessage(ctx, sess.ID, metadata, err); ok {
+				return id, nil
+			}
+			return 0, connect.NewError(connect.CodeInternal, fmt.Errorf("writing message to Postgres: %w", err))
 		}
+		return messageID(msg), nil
+	}
+	msg, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", content, metadata)
+	if err != nil {
+		if id, ok := s.resolveDuplicateClientMessage(ctx, sess.ID, metadata, err); ok {
+			return id, nil
+		}
+		return 0, connect.NewError(connect.CodeInternal, fmt.Errorf("writing message to Postgres: %w", err))
+	}
+	return messageID(msg), nil
+}
+
+// resolveDuplicateClientMessage turns a unique violation on the
+// client_message_id partial index (migration 059) into the id of the message
+// the concurrent duplicate already stored, so a truly concurrent retry is
+// answered with the existing message instead of an Internal error.
+func (s *Server) resolveDuplicateClientMessage(ctx context.Context, sessionID uuid.UUID, metadata json.RawMessage, err error) (int64, bool) {
+	if !errors.Is(err, store.ErrMessageAlreadyExists) {
+		return 0, false
+	}
+	var payload struct {
+		ClientMessageID string `json:"client_message_id"`
+	}
+	if json.Unmarshal(metadata, &payload) != nil || payload.ClientMessageID == "" {
+		return 0, false
+	}
+	id, found, lookupErr := s.findMessageByClientID(ctx, sessionID, payload.ClientMessageID)
+	if lookupErr != nil || !found {
+		return 0, false
+	}
+	return id, true
+}
+
+func messageID(msg *store.Message) int64 {
+	if msg == nil {
+		return 0
+	}
+	return msg.ID
+}
+
+// mapModeSwitchError maps a SwitchAgentRunMode failure to a Connect error.
+// SwitchAgentRunMode wraps Kubernetes API errors with plain fmt errors, which
+// Connect would otherwise report as Unknown.
+func mapModeSwitchError(err error) error {
+	if err == nil {
 		return nil
 	}
-	if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", content, metadata); err != nil {
-		return connect.NewError(connect.CodeInternal, fmt.Errorf("writing message to Postgres: %w", err))
+	var ce *connect.Error
+	if errors.As(err, &ce) {
+		return err
 	}
-	return nil
+	return mapK8sError("switch mode", err)
 }
 
 const (
@@ -316,10 +381,12 @@ func (s *Server) handlePlanAcceptAction(ctx context.Context, req *platform.SendA
 		// Atomic: record the continuation and consume the exact request in one
 		// transaction, so a failed persist never leaves the prompt cleared and a
 		// concurrent answer never double-approves.
-		return s.recordPendingAnswer(ctx, sess, resumeMessage, metadata)
+		_, err := s.recordPendingAnswer(ctx, sess, resumeMessage, metadata)
+		return err
 	}
 	// Inline plan approval with no pending request: nothing to consume.
-	return s.appendActiveUserMessage(ctx, sess, resumeMessage, metadata)
+	_, err := s.appendActiveUserMessage(ctx, sess, resumeMessage, metadata)
+	return err
 }
 
 // SendAgentRunMessage routes a public run-surface message to the current compatibility adapter.
@@ -447,7 +514,22 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 			}
 
 		case action != nil && action.Mode != "":
-			// Approve — trigger mode switch via standard path (user's real role).
+			// Consume the exact request before switching modes: two
+			// collaborators clicking different mode buttons must resolve to
+			// one winner, and the loser must not switch the mode after the
+			// winner already did.
+			requestConsumed := false
+			if clearer, ok := s.stateStore.(store.PendingInputClearer); ok && sess.PendingRequestID != "" {
+				cleared, err := clearer.ClearPendingInputIfID(ctx, sess.ID, sess.PendingRequestID, "running")
+				if err != nil {
+					return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("consuming pending request: %w", err))
+				}
+				if !cleared {
+					return nil, stalePendingRequestError()
+				}
+				requestConsumed = true
+			}
+			// Trigger the mode switch via the standard path (user's real role).
 			switchResp, err := s.SwitchAgentRunMode(ctx, &platform.SwitchAgentRunModeRequest{
 				Namespace:  req.Namespace,
 				Name:       req.Name,
@@ -455,6 +537,16 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 				Source:     "action-button",
 			})
 			if err != nil {
+				err = mapModeSwitchError(err)
+				if requestConsumed {
+					// The prompt is gone but the mode did not change; tell the
+					// conversation so the run is not silently left as-is.
+					note := fmt.Sprintf("Mode switch to %q failed after %q was selected: %v. The run continues in its current mode.", action.Mode, label, err)
+					if _, appendErr := s.stateStore.AppendMessage(ctx, sess.ID, "system", note, nil); appendErr != nil {
+						log.Printf("WARN: recording failed mode-switch action (session %s): %v", sess.ID, appendErr)
+					}
+					s.invalidateConversationProbe(sess.ID)
+				}
 				return nil, err
 			}
 			if strings.EqualFold(strings.TrimSpace(switchResp.Result), "denied") {
@@ -472,23 +564,28 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 				if runInPlanMode(run) {
 					msg += " The run remains in plan mode; choose an available mode from the mode menu if you want to switch."
 				}
+				if requestConsumed {
+					msg += " The prompt was consumed by this click; send a message to continue."
+				}
 				if _, appendErr := s.stateStore.AppendMessage(ctx, sess.ID, "system", msg, nil); appendErr != nil {
 					log.Printf("WARN: recording denied mode-switch action (session %s): %v", sess.ID, appendErr)
 				}
+				s.invalidateConversationProbe(sess.ID)
 				return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s", msg))
 			}
 			msg := label
 			if freeform != "" {
 				msg += ": " + freeform
 			}
-			// Atomic: the continuation message and the request consumption are
-			// one transaction. If persisting fails the prompt stays pending, and
-			// a retry is safe because the mode switch becomes a no-op.
-			if sess.PendingRequestID != "" {
-				if err := s.recordPendingAnswer(ctx, sess, msg, answerMetadata); err != nil {
+			if requestConsumed || sess.PendingRequestID == "" {
+				// The request was already consumed above, so this is a plain
+				// continuation message; the pending_request_id in the metadata
+				// still lets the worker repair the CRD mirror.
+				if _, err := s.appendActiveUserMessage(ctx, sess, msg, answerMetadata); err != nil {
 					return nil, err
 				}
-			} else if err := s.appendActiveUserMessage(ctx, sess, msg, answerMetadata); err != nil {
+			} else if _, err := s.recordPendingAnswer(ctx, sess, msg, answerMetadata); err != nil {
+				// Stores without PendingInputClearer: legacy switch-then-answer.
 				return nil, err
 			}
 			if switchResp.Result == "applied" {
@@ -535,7 +632,7 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 			if freeform != "" {
 				msg += ": " + freeform
 			}
-			if err := s.recordPendingAnswer(ctx, sess, msg, answerMetadata); err != nil {
+			if _, err := s.recordPendingAnswer(ctx, sess, msg, answerMetadata); err != nil {
 				return nil, err
 			}
 
@@ -547,7 +644,7 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 			if freeform != "" {
 				msg = fmt.Sprintf("Please revise and continue. Feedback: %s", freeform)
 			}
-			if err := s.recordPendingAnswer(ctx, sess, msg, answerMetadata); err != nil {
+			if _, err := s.recordPendingAnswer(ctx, sess, msg, answerMetadata); err != nil {
 				return nil, err
 			}
 
@@ -557,7 +654,7 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 			if freeform != "" {
 				msg += ": " + freeform
 			}
-			if err := s.recordPendingAnswer(ctx, sess, msg, answerMetadata); err != nil {
+			if _, err := s.recordPendingAnswer(ctx, sess, msg, answerMetadata); err != nil {
 				return nil, err
 			}
 		}
@@ -579,9 +676,24 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 	if s.stateStore == nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("state store not configured"))
 	}
+	clientMessageID, err := validateClientMessageID(req.GetClientMessageId())
+	if err != nil {
+		return nil, err
+	}
 	sess, err := s.stateStore.GetSessionByRun(ctx, req.Name, req.Namespace)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session is still starting up"))
+		return nil, mapSessionLookupError(err)
+	}
+	if clientMessageID != "" {
+		// Idempotent retry: the client already delivered this message and
+		// lost the response. Answer from the stored copy before any state
+		// check so the retry cannot be rejected by state its own first
+		// attempt caused.
+		if id, found, err := s.findMessageByClientID(ctx, sess.ID, clientMessageID); err != nil {
+			log.Printf("WARN: client_message_id lookup (session %s): %v", sess.ID, err)
+		} else if found {
+			return &platform.SendAgentRunMessageResponse{MessageId: id, Deduplicated: true}, nil
+		}
 	}
 	if ready, reason := agentRunMessageReadiness(run, sess); !ready {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New(strings.TrimSpace(reason)))
@@ -610,7 +722,7 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 	if err != nil {
 		return nil, messageAssetError(err)
 	}
-	metadata := userMessageMetadataWithImages(req.GetMessageMode(), images)
+	metadata := withClientMessageID(userMessageMetadataWithImages(req.GetMessageMode(), images), clientMessageID)
 	if sess.PendingRequestID != "" {
 		var payload map[string]any
 		_ = json.Unmarshal(metadata, &payload)
@@ -621,12 +733,13 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 	if answerer, ok := s.stateStore.(store.PendingInputAnswerer); ok && sess.PendingRequestID != "" {
 		// Atomic: the message becomes visible and the exact request is consumed
 		// in one transaction, so two clients can never both answer it.
-		_, answered, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
+		answerMsg, answered, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
 			RequestID: sess.PendingRequestID,
 			Phase:     "running",
 			Content:   req.Message,
 			Metadata:  metadata,
 		})
+		s.invalidateConversationProbe(sess.ID)
 		switch {
 		case errors.Is(err, store.ErrSessionEnded):
 			s.deleteMessageImageAssets(ctx, images)
@@ -635,7 +748,7 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 			s.deleteMessageImageAssets(ctx, images)
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("writing message to Postgres: %w", err))
 		case answered:
-			return &platform.SendAgentRunMessageResponse{}, nil
+			return &platform.SendAgentRunMessageResponse{MessageId: messageID(answerMsg)}, nil
 		case explicitAnswer:
 			// The exact question this client answered is gone.
 			s.deleteMessageImageAssets(ctx, images)
@@ -644,15 +757,17 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 		// The request was consumed or replaced between the session snapshot and
 		// the answer. A legacy freeform message is still valid steering input;
 		// deliver it without consuming the newer request.
-		metadata = userMessageMetadataWithImages(req.GetMessageMode(), images)
-		if err := s.appendActiveUserMessage(ctx, sess, req.Message, metadata); err != nil {
+		metadata = withClientMessageID(userMessageMetadataWithImages(req.GetMessageMode(), images), clientMessageID)
+		id, err := s.appendActiveUserMessage(ctx, sess, req.Message, metadata)
+		if err != nil {
 			s.deleteMessageImageAssets(ctx, images)
 			return nil, err
 		}
-		return &platform.SendAgentRunMessageResponse{}, nil
+		return &platform.SendAgentRunMessageResponse{MessageId: id}, nil
 	}
 
-	if err := s.appendActiveUserMessage(ctx, sess, req.Message, metadata); err != nil {
+	id, err := s.appendActiveUserMessage(ctx, sess, req.Message, metadata)
+	if err != nil {
 		s.deleteMessageImageAssets(ctx, images)
 		return nil, err
 	}
@@ -673,7 +788,7 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 		}
 	}
 
-	return &platform.SendAgentRunMessageResponse{}, nil
+	return &platform.SendAgentRunMessageResponse{MessageId: id}, nil
 }
 
 // CancelAgentRunMessage withdraws a pending (queued or steering) user message
@@ -691,17 +806,27 @@ func (s *Server) CancelAgentRunMessage(ctx context.Context, req *platform.Cancel
 	}
 	sess, err := s.stateStore.GetSessionByRun(ctx, req.Name, req.Namespace)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session is still starting up"))
-	}
-	messages, err := s.stateStore.GetMessagesIncludingCancelled(ctx, sess.ID)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("loading message attachments for cancellation: %w", err))
+		return nil, mapSessionLookupError(err)
 	}
 	var generatedImages []sessionclient.MessageImage
-	for _, message := range messages {
-		if message.ID == req.MessageId && message.Role == "user" {
+	if getter, ok := s.stateStore.(store.MessageGetter); ok {
+		message, err := getter.GetMessage(ctx, sess.ID, req.MessageId)
+		if err != nil && !errors.Is(err, store.ErrMessageNotFound) {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("loading message attachments for cancellation: %w", err))
+		}
+		if err == nil && message.Role == "user" {
 			generatedImages = sessionclient.ImagesFromMetadata(message.Metadata)
-			break
+		}
+	} else {
+		messages, err := s.stateStore.GetMessagesIncludingCancelled(ctx, sess.ID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("loading message attachments for cancellation: %w", err))
+		}
+		for _, message := range messages {
+			if message.ID == req.MessageId && message.Role == "user" {
+				generatedImages = sessionclient.ImagesFromMetadata(message.Metadata)
+				break
+			}
 		}
 	}
 	if err := s.stateStore.CancelUndeliveredUserMessage(ctx, sess.ID, req.MessageId); err != nil {
@@ -714,6 +839,7 @@ func (s *Server) CancelAgentRunMessage(ctx context.Context, req *platform.Cancel
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("cancelling message: %w", err))
 		}
 	}
+	s.invalidateConversationProbe(sess.ID)
 	s.deleteMessageImageAssets(ctx, generatedImages)
 	return &platform.CancelAgentRunMessageResponse{}, nil
 }
@@ -730,7 +856,7 @@ func (s *Server) switchModeViaCommand(ctx context.Context, req *platform.SendAge
 		Source:     "chat-command",
 	})
 	if err != nil {
-		return nil, err
+		return nil, mapModeSwitchError(err)
 	}
 	if s.stateStore != nil {
 		if sess, sessErr := s.stateStore.GetSessionByRun(ctx, req.Name, req.Namespace); sessErr == nil {

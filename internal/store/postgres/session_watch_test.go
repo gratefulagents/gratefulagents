@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"sync"
 	"testing"
@@ -116,6 +117,142 @@ func TestSessionFingerprintChangesOnEveryWrite(t *testing.T) {
 	}
 }
 
+func conversationFingerprint(t *testing.T, s *pgstore.Store, id uuid.UUID) string {
+	t.Helper()
+	fp, err := s.GetSessionConversationFingerprint(context.Background(), id)
+	if err != nil {
+		t.Fatalf("GetSessionConversationFingerprint: %v", err)
+	}
+	return fp
+}
+
+// The conversation fingerprint (conversation_seq, migration 059) must ignore
+// activity-log writes but still advance for messages, in-place message
+// metadata flips, artifacts, interrupts, and session field changes.
+func TestSessionConversationFingerprintIgnoresActivity(t *testing.T) {
+	s, _ := setupPGStore(t)
+	ctx := context.Background()
+
+	sess, err := s.CreateSession(ctx, "conv-fp-run", "default", "running", "work")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	last := conversationFingerprint(t, s, sess.ID)
+	changes := func(name string, write func() error) {
+		t.Helper()
+		if err := write(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		next := conversationFingerprint(t, s, sess.ID)
+		if next == last {
+			t.Fatalf("%s did not change the conversation fingerprint (still %q)", name, next)
+		}
+		last = next
+	}
+	unchanged := func(name string, write func() error) {
+		t.Helper()
+		before := fingerprint(t, s, sess.ID)
+		if err := write(); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if next := conversationFingerprint(t, s, sess.ID); next != last {
+			t.Fatalf("%s changed the conversation fingerprint %q -> %q", name, last, next)
+		}
+		if after := fingerprint(t, s, sess.ID); after == before {
+			t.Fatalf("%s did not change the full session fingerprint (still %q)", name, after)
+		}
+	}
+
+	unchanged("WriteActivityEvent", func() error {
+		_, err := s.WriteActivityEvent(ctx, sess.ID, "tool_call", "ran a tool", json.RawMessage(`{}`))
+		return err
+	})
+	unchanged("WriteActivityEvents", func() error {
+		_, err := s.WriteActivityEvents(ctx, sess.ID, []store.ActivityEventInput{
+			{EventType: "tool_call", Summary: "a"},
+			{EventType: "tool_result", Summary: "b", Detail: json.RawMessage(`{"ok":true}`)},
+		})
+		return err
+	})
+
+	var msg *store.Message
+	changes("AppendMessage", func() error {
+		var err error
+		msg, err = s.AppendMessage(ctx, sess.ID, "user", "hello", json.RawMessage(`{"mode":"enqueue"}`))
+		return err
+	})
+	changes("MarkMessagesDelivered", func() error {
+		return s.MarkMessagesDelivered(ctx, sess.ID, []int64{msg.ID})
+	})
+	changes("UpsertArtifact", func() error {
+		_, err := s.UpsertArtifact(ctx, sess.ID, "plan", "the plan", "", "", nil)
+		return err
+	})
+	changes("UpdatePhase", func() error {
+		return s.UpdatePhase(ctx, sess.ID, "running", "next-step")
+	})
+	changes("AppendInterrupt", func() error {
+		_, _, err := s.AppendInterrupt(ctx, sess.ID, "tester")
+		return err
+	})
+}
+
+func TestWriteActivityEventsBatch(t *testing.T) {
+	s, _ := setupPGStore(t)
+	ctx := context.Background()
+
+	sess, err := s.CreateSession(ctx, "batch-run", "default", "running", "work")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	ids, err := s.WriteActivityEvents(ctx, sess.ID, []store.ActivityEventInput{
+		{EventType: "one", Summary: "first"},
+		{EventType: "two", Summary: "second", Detail: json.RawMessage(`{"n":2}`)},
+		{EventType: "three", Summary: "third"},
+	})
+	if err != nil {
+		t.Fatalf("WriteActivityEvents: %v", err)
+	}
+	if len(ids) != 3 || !(ids[0] < ids[1] && ids[1] < ids[2]) {
+		t.Fatalf("ids = %v, want 3 ascending ids", ids)
+	}
+	events, err := s.GetAllActivity(ctx, sess.ID)
+	if err != nil {
+		t.Fatalf("GetAllActivity: %v", err)
+	}
+	if len(events) != 3 || events[1].EventType != "two" || string(events[1].Detail) != `{"n": 2}` || string(events[0].Detail) != `{}` {
+		t.Fatalf("unexpected events: %+v", events)
+	}
+	if n, err := s.WriteActivityEvents(ctx, sess.ID, nil); err != nil || n != nil {
+		t.Fatalf("empty batch = (%v, %v), want (nil, nil)", n, err)
+	}
+}
+
+func TestGetMessage(t *testing.T) {
+	s, _ := setupPGStore(t)
+	ctx := context.Background()
+
+	sess, err := s.CreateSession(ctx, "get-msg-run", "default", "running", "work")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	msg, err := s.AppendMessage(ctx, sess.ID, "user", "hello", json.RawMessage(`{"k":"v"}`))
+	if err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	got, err := s.GetMessage(ctx, sess.ID, msg.ID)
+	if err != nil {
+		t.Fatalf("GetMessage: %v", err)
+	}
+	if got.ID != msg.ID || got.Content != "hello" || got.Role != "user" || got.DeliveryState != "pending" {
+		t.Fatalf("GetMessage = %+v", got)
+	}
+	if _, err := s.GetMessage(ctx, uuid.New(), msg.ID); !errors.Is(err, store.ErrMessageNotFound) {
+		t.Fatalf("GetMessage(other session) err = %v, want ErrMessageNotFound", err)
+	}
+}
+
 // Concurrent read-modify-write updates of the same metadata section must
 // serialize under the session row lock: no update may be lost.
 func TestUpdateSessionMetadataSectionSerializes(t *testing.T) {
@@ -196,6 +333,53 @@ func TestSessionChangeListenerDeliversWakeups(t *testing.T) {
 	case <-wake:
 	case <-time.After(5 * time.Second):
 		t.Fatal("no wake-up hint delivered after a committed session write")
+	}
+}
+
+// The per-session listener must receive wake-ups for its own session only.
+func TestSessionChangeListenerForDeliversPerSessionWakeups(t *testing.T) {
+	s, _ := setupPGStore(t)
+	ctx := t.Context()
+
+	mine, err := s.CreateSession(ctx, "listen-mine", "default", "running", "work")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	other, err := s.CreateSession(ctx, "listen-other", "default", "running", "work")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	s.StartSessionChangeListenerFor(ctx, mine.ID)
+	deadline := time.Now().Add(5 * time.Second)
+	for !s.SessionChangeListenerHealthy() {
+		if time.Now().After(deadline) {
+			t.Fatal("listener never became healthy")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	wakeMine, unsubMine := s.SubscribeSessionChanges(mine.ID)
+	defer unsubMine()
+	wakeOther, unsubOther := s.SubscribeSessionChanges(other.ID)
+	defer unsubOther()
+
+	if err := s.UpdatePhase(ctx, other.ID, "running", "elsewhere"); err != nil {
+		t.Fatalf("UpdatePhase(other): %v", err)
+	}
+	if err := s.UpdatePhase(ctx, mine.ID, "running", "here"); err != nil {
+		t.Fatalf("UpdatePhase(mine): %v", err)
+	}
+
+	select {
+	case <-wakeMine:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no wake-up on the per-session channel")
+	}
+	select {
+	case <-wakeOther:
+		t.Fatal("per-session listener woke a subscriber of another session")
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 
