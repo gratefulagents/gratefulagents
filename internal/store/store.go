@@ -97,6 +97,38 @@ type SessionMetricsEntry struct {
 	ToolCallCount int32
 }
 
+// AgentRunKey identifies an AgentRun by namespace and name.
+type AgentRunKey struct {
+	Namespace string
+	Name      string
+}
+
+// SessionsByRunsLister is an optional store capability that loads the
+// sessions for an explicit set of AgentRuns in one query. Fleet watch ticks
+// use it to enrich only the runs that changed instead of loading every
+// session in the namespace on every tick.
+type SessionsByRunsLister interface {
+	ListSessionsByRuns(ctx context.Context, keys []AgentRunKey) ([]Session, error)
+}
+
+// SessionMetricsByNamespaceLister is an optional store capability that
+// returns per-run cost/token metrics scoped to one namespace ("" = all),
+// reading only the metrics object out of each session's metadata.
+type SessionMetricsByNamespaceLister interface {
+	ListSessionMetricsByNamespace(ctx context.Context, namespace string) ([]SessionMetricsEntry, error)
+}
+
+// ActivityEventGetter is an optional store capability for a single
+// primary-key activity event lookup scoped to a session. Returns
+// ErrActivityEventNotFound when the event does not exist in that session.
+type ActivityEventGetter interface {
+	GetActivityEvent(ctx context.Context, sessionID uuid.UUID, eventID int64) (*ActivityEvent, error)
+}
+
+// ErrActivityEventNotFound is returned by ActivityEventGetter when the
+// requested event does not belong to the session.
+var ErrActivityEventNotFound = errors.New("activity event not found")
+
 type ObservabilityQuery struct {
 	Namespace     string
 	Start         time.Time

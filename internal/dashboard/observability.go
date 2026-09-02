@@ -39,19 +39,40 @@ func (s *Server) GetObservabilityOverview(ctx context.Context, req *platform.Get
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("range must be positive, at most 90 days, with 60-second or larger buckets and at most %d buckets", observabilityMaxBuckets))
 	}
 
-	visible, err := s.ListAgentRuns(ctx, &platform.ListAgentRunsRequest{Namespace: namespace})
+	// Only the visible run names are needed to scope the SQL aggregates;
+	// listing the fleet snapshot and applying the visibility predicate is a
+	// tiny fraction of the full ListAgentRuns enrichment pipeline.
+	names, err := s.visibleAgentRunNames(ctx, namespace)
 	if err != nil {
 		return nil, err
-	}
-	names := make([]string, 0, len(visible.Runs))
-	for _, run := range visible.Runs {
-		names = append(names, run.GetName())
 	}
 	overview, err := analytics.GetObservabilityOverview(ctx, store.ObservabilityQuery{Namespace: namespace, Start: start, End: end, BucketSeconds: bucketSeconds, AgentRunNames: names})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("querying observability: %w", err))
 	}
 	return observabilityOverviewProto(overview), nil
+}
+
+// visibleAgentRunNames returns the names of the runs in namespace that the
+// caller may see, using the fleet snapshot shared with WatchAgentRuns so
+// aggregate endpoints do not deep-copy the fleet on their own.
+func (s *Server) visibleAgentRunNames(ctx context.Context, namespace string) ([]string, error) {
+	snap, err := s.cachedAgentRunList(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+	if snap.skip || snap.runs == nil {
+		return []string{}, nil
+	}
+	visible := s.agentRunVisibilityFilter(ctx, false)
+	names := make([]string, 0, len(snap.runs.Items))
+	for i := range snap.runs.Items {
+		run := &snap.runs.Items[i]
+		if visible(run) {
+			names = append(names, run.Name)
+		}
+	}
+	return names, nil
 }
 
 func observabilityOverviewProto(in *store.ObservabilityOverview) *platform.ObservabilityOverviewResponse {

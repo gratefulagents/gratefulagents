@@ -521,13 +521,11 @@ func TestGetActivityLogFallsBackToAgentRunArtifacts(t *testing.T) {
 	srv := &Server{
 		k8sClient: c,
 		scheme:    scheme,
-		s3Reader: &s3ActivityReader{
-			cache: map[string][]*platform.ActivityEntry{
-				"s3://bucket/run-log.events.jsonl": {
-					{TimestampUnix: 100, Type: "assistant_text", Message: "done"},
-				},
+		s3Reader: s3FixtureReader(map[string][]*platform.ActivityEntry{
+			"s3://bucket/run-log.events.jsonl": {
+				{TimestampUnix: 100, Type: "assistant_text", Message: "done"},
 			},
-		},
+		}),
 	}
 
 	resp, err := srv.GetActivityLog(context.Background(), &platform.GetActivityLogRequest{
@@ -738,13 +736,13 @@ func TestGetAgentRunUsageAggregatesFromActivityPrecedence(t *testing.T) {
 	srv := &Server{
 		k8sClient: c,
 		scheme:    scheme,
-		s3Reader: &s3ActivityReader{cache: map[string][]*platform.ActivityEntry{
+		s3Reader: s3FixtureReader(map[string][]*platform.ActivityEntry{
 			"s3://bucket/run-usage.events.jsonl": {
 				{Type: "llm_attempt", Phase: "planning", Step: "exploring", AgentName: "planner", LlmAttemptId: "a1", LlmAttemptInputTokens: 11, LlmAttemptOutputTokens: 7, LlmAttemptTokensKnown: true},
 				{Type: "llm_attempt", Phase: "planning", Step: "reviewing", AgentName: "reviewer", TaskId: "sub-1", LlmAttemptId: "a2", LlmAttemptInputTokens: 5, LlmAttemptOutputTokens: 3, LlmAttemptTokensKnown: true},
 				{Type: "result"},
 			},
-		}},
+		}),
 	}
 
 	resp, err := srv.GetAgentRunUsage(context.Background(), &platform.GetAgentRunUsageRequest{Namespace: "default", Name: "run-usage"})
