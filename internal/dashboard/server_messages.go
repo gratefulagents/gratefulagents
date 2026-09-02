@@ -177,6 +177,9 @@ func (s *Server) recordPendingAnswer(ctx context.Context, sess *store.Session, c
 			if errors.Is(err, store.ErrSessionEnded) {
 				return 0, sessionEndedError()
 			}
+			if id, ok := s.resolveDuplicateClientMessage(ctx, sess.ID, metadata, err); ok {
+				return id, nil
+			}
 			return 0, connect.NewError(connect.CodeUnavailable, fmt.Errorf("recording answer message: %w", err))
 		}
 		if !answered {
@@ -229,7 +232,7 @@ func (s *Server) appendActiveUserMessage(ctx context.Context, sess *store.Sessio
 }
 
 // resolveDuplicateClientMessage turns a unique violation on the
-// client_message_id partial index (migration 059) into the id of the message
+// client_message_id partial index (migration 060) into the id of the message
 // the concurrent duplicate already stored, so a truly concurrent retry is
 // answered with the existing message instead of an Internal error.
 func (s *Server) resolveDuplicateClientMessage(ctx context.Context, sessionID uuid.UUID, metadata json.RawMessage, err error) (int64, bool) {
@@ -412,7 +415,7 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 		}
 		sess, err := s.stateStore.GetSessionByRun(ctx, req.Name, req.Namespace)
 		if err != nil {
-			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("session is still starting up"))
+			return mapSessionLookupError(err)
 		}
 		if ready, reason := agentRunMessageReadiness(run, sess); !ready {
 			return connect.NewError(connect.CodeFailedPrecondition, errors.New(strings.TrimSpace(reason)))
@@ -541,7 +544,7 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 				if requestConsumed {
 					// The prompt is gone but the mode did not change; tell the
 					// conversation so the run is not silently left as-is.
-					note := fmt.Sprintf("Mode switch to %q failed after %q was selected: %v. The run continues in its current mode.", action.Mode, label, err)
+					note := fmt.Sprintf("Mode switch to %q failed after %q was selected: %v. The run continues in its current mode and the prompt was consumed by this click; send a message to continue.", action.Mode, label, err)
 					if _, appendErr := s.stateStore.AppendMessage(ctx, sess.ID, "system", note, nil); appendErr != nil {
 						log.Printf("WARN: recording failed mode-switch action (session %s): %v", sess.ID, appendErr)
 					}
@@ -744,6 +747,13 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 		case errors.Is(err, store.ErrSessionEnded):
 			s.deleteMessageImageAssets(ctx, images)
 			return nil, sessionEndedError()
+		case errors.Is(err, store.ErrMessageAlreadyExists):
+			// A concurrent duplicate of this client_message_id already won.
+			s.deleteMessageImageAssets(ctx, images)
+			if id, ok := s.resolveDuplicateClientMessage(ctx, sess.ID, metadata, err); ok {
+				return &platform.SendAgentRunMessageResponse{MessageId: id, Deduplicated: true}, nil
+			}
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("writing message to Postgres: %w", err))
 		case err != nil:
 			s.deleteMessageImageAssets(ctx, images)
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("writing message to Postgres: %w", err))

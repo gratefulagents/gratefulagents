@@ -472,6 +472,9 @@ func (s *Store) AnswerPendingInput(ctx context.Context, sessionID uuid.UUID, ans
 		RETURNING id, session_id, role, content, metadata, created_at`,
 		sessionID, answer.Content, metadata,
 	).Scan(&inserted.ID, &inserted.SessionID, &inserted.Role, &inserted.Content, &inserted.Metadata, &inserted.CreatedAt); err != nil {
+		if isUniqueViolation(err) {
+			return nil, false, store.ErrMessageAlreadyExists
+		}
 		return nil, false, fmt.Errorf("recording pending input answer message: %w", err)
 	}
 	result, err := tx.Exec(ctx, `

@@ -68,7 +68,7 @@ type pgPoolProvider interface {
 // pool report not-found, which degrades to the non-idempotent behavior.
 //
 // Sequential retries are answered from this lookup; truly concurrent
-// duplicates are caught by the partial unique index from migration 059
+// duplicates are caught by the partial unique index from migration 060
 // (idx_conversation_messages_client_message_id), whose violation
 // resolveDuplicateClientMessage maps back to the stored message.
 func (s *Server) findMessageByClientID(ctx context.Context, sessionID uuid.UUID, clientMessageID string) (int64, bool, error) {
@@ -79,7 +79,8 @@ func (s *Server) findMessageByClientID(ctx context.Context, sessionID uuid.UUID,
 	var id int64
 	err := provider.Pool().QueryRow(ctx,
 		`SELECT id FROM conversation_messages
-		 WHERE session_id = $1 AND role = 'user' AND metadata->>'client_message_id' = $2
+		 WHERE session_id = $1 AND role = 'user'
+		   AND metadata ? 'client_message_id' AND metadata->>'client_message_id' = $2
 		 ORDER BY id DESC LIMIT 1`,
 		sessionID, clientMessageID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {

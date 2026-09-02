@@ -1,7 +1,5 @@
 -- Restore the 056/057 trigger wiring and drop conversation_seq.
 
-DROP INDEX IF EXISTS idx_conversation_messages_client_message_id;
-
 DROP TRIGGER IF EXISTS session_interrupts_insert_bump_conversation_seq ON session_interrupts;
 DROP TRIGGER IF EXISTS agent_artifacts_update_bump_conversation_seq ON agent_artifacts;
 DROP TRIGGER IF EXISTS agent_artifacts_insert_bump_conversation_seq ON agent_artifacts;

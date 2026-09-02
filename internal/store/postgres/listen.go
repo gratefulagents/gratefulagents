@@ -144,12 +144,14 @@ func (s *Store) startListener(ctx context.Context, channels []string, route noti
 	go func() {
 		backoff := time.Second
 		for ctx.Err() == nil {
-			connectedAt := time.Now()
-			err := s.runSessionChangeListener(ctx, channels, route)
+			listeningSince, err := s.runSessionChangeListener(ctx, channels, route)
 			if ctx.Err() != nil {
 				return
 			}
-			if time.Since(connectedAt) >= listenBackoffResetAfter {
+			// Reset only after a connection that was actually LISTENing for a
+			// while: a slow Acquire followed by a LISTEN failure must keep
+			// backing off instead of hot-looping against an exhausted pool.
+			if !listeningSince.IsZero() && time.Since(listeningSince) >= listenBackoffResetAfter {
 				backoff = time.Second
 			}
 			log.Printf("WARN: session change listener disconnected (retrying in %s): %v", backoff, err)
@@ -165,10 +167,12 @@ func (s *Store) startListener(ctx context.Context, channels []string, route noti
 	}()
 }
 
-func (s *Store) runSessionChangeListener(ctx context.Context, channels []string, route notificationRouter) error {
+// runSessionChangeListener returns when the connection fails or ctx ends,
+// together with the time LISTEN became active (zero when it never did).
+func (s *Store) runSessionChangeListener(ctx context.Context, channels []string, route notificationRouter) (time.Time, error) {
 	poolConn, err := s.pool.Acquire(ctx)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	// Hijack the connection: a connection with LISTEN state must never
 	// return to the pool, where its notifications would leak into unrelated
@@ -182,9 +186,10 @@ func (s *Store) runSessionChangeListener(ctx context.Context, channels []string,
 
 	for _, channel := range channels {
 		if _, err := conn.Exec(ctx, "LISTEN "+channel); err != nil {
-			return err
+			return time.Time{}, err
 		}
 	}
+	listeningSince := time.Now()
 	s.changes.healthy.Store(true)
 	defer s.changes.healthy.Store(false)
 
@@ -194,10 +199,10 @@ func (s *Store) runSessionChangeListener(ctx context.Context, channels []string,
 		cancelWait()
 		if err != nil {
 			if ctx.Err() != nil {
-				return ctx.Err()
+				return listeningSince, ctx.Err()
 			}
 			if !errors.Is(err, context.DeadlineExceeded) {
-				return err
+				return listeningSince, err
 			}
 			// Quiet period: verify the connection is still alive. A dead
 			// socket surfaces here instead of hanging indefinitely.
@@ -205,7 +210,7 @@ func (s *Store) runSessionChangeListener(ctx context.Context, channels []string,
 			err = conn.Ping(pingCtx)
 			cancelPing()
 			if err != nil {
-				return err
+				return listeningSince, err
 			}
 			continue
 		}

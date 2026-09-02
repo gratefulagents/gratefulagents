@@ -101,10 +101,3 @@ FOR EACH STATEMENT EXECUTE FUNCTION session_conversation_bump_seq();
 
 -- activity_events keeps the 056 change_seq-only trigger.
 
--- SendAgentRunMessage idempotency: a client-chosen key stored in the user
--- message metadata. The partial unique index turns a concurrent duplicate
--- into a unique violation, which the dashboard maps to the stored message
--- instead of inserting a second pending turn.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_messages_client_message_id
-    ON conversation_messages (session_id, (metadata->>'client_message_id'))
-    WHERE role = 'user' AND metadata ? 'client_message_id';

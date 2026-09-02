@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_conversation_messages_client_message_id;
