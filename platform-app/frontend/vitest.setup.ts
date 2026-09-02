@@ -44,3 +44,18 @@ if (typeof globalThis.ResizeObserver === "undefined") {
     value: NoopResizeObserver,
   });
 }
+
+// With a ResizeObserver present, Base UI's ScrollArea waits on
+// `element.getAnimations()`, which jsdom does not implement. Report "no
+// animations" so the thumb geometry pass resolves immediately.
+if (typeof Element !== "undefined" && typeof Element.prototype.getAnimations !== "function") {
+  Object.defineProperty(Element.prototype, "getAnimations", {
+    configurable: true,
+    writable: true,
+    value: () => [],
+  });
+}
+
+// Base UI otherwise defers unmounts until `getAnimations()` settles, which
+// would turn every dialog/menu close in tests into an async wait.
+(globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
