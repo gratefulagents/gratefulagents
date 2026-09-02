@@ -313,6 +313,11 @@ describe("streaming hooks", () => {
     await flushMicrotasks();
 
     expect(clientMock.watchAgentRuns).toHaveBeenCalledTimes(1);
+    expect(clientMock.listAgentRuns).toHaveBeenCalledWith({ namespace: "ns", limit: 200, sourceKind: "", sourceName: "" });
+    expect(clientMock.watchAgentRuns).toHaveBeenCalledWith(
+      { namespace: "ns", limit: 200, sourceKind: "", sourceName: "" },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     let result = useAgentRuns("ns");
     expect(result.runs).toEqual([{ namespace: "ns", name: "one" }]);
     expect(result.error).toBe("disconnect");
@@ -345,6 +350,119 @@ describe("streaming hooks", () => {
     const second = useAgentRuns("ns");
     expect(first.runs).toBe(second.runs);
     expect(first.runs).toEqual([{ namespace: "ns", name: "one" }]);
+  });
+
+  it("loads older agent run pages, dedupes them, and reports when the window is exhausted", async () => {
+    clientMock.listAgentRuns
+      .mockResolvedValueOnce({ runs: [{ namespace: "ns", name: "one" }], nextPageToken: "p2", totalCount: 3 })
+      .mockResolvedValueOnce({
+        runs: [{ namespace: "ns", name: "one" }, { namespace: "ns", name: "two" }],
+        nextPageToken: "p3",
+        totalCount: 3,
+      })
+      .mockResolvedValueOnce({ runs: [{ namespace: "ns", name: "three" }], nextPageToken: "", totalCount: 3 });
+    clientMock.watchAgentRuns.mockReturnValue(pendingIterable());
+
+    let result = useAgentRuns("ns", "", "", { limit: 1 });
+    await flushMicrotasks();
+
+    result = useAgentRuns("ns", "", "", { limit: 1 });
+    expect(result.runs).toEqual([{ namespace: "ns", name: "one" }]);
+    expect(result.totalCount).toBe(3);
+    expect(result.hasMore).toBe(true);
+    expect(result.loadingMore).toBe(false);
+
+    const pending = result.loadMore();
+    expect(useAgentRuns("ns", "", "", { limit: 1 }).loadingMore).toBe(true);
+    await pending;
+    expect(clientMock.listAgentRuns).toHaveBeenLastCalledWith({
+      namespace: "ns",
+      limit: 1,
+      sourceKind: "",
+      sourceName: "",
+      pageToken: "p2",
+    });
+
+    result = useAgentRuns("ns", "", "", { limit: 1 });
+    expect(result.runs).toEqual([
+      { namespace: "ns", name: "one" },
+      { namespace: "ns", name: "two" },
+    ]);
+    expect(result.hasMore).toBe(true);
+    expect(result.loadingMore).toBe(false);
+
+    await result.loadMore();
+    result = useAgentRuns("ns", "", "", { limit: 1 });
+    expect(result.runs.map((run) => run.name)).toEqual(["one", "two", "three"]);
+    expect(result.hasMore).toBe(false);
+
+    await result.loadMore();
+    expect(clientMock.listAgentRuns).toHaveBeenCalledTimes(3);
+  });
+
+  it("filters agent runs server-side and keeps a separate store per source filter", async () => {
+    clientMock.listAgentRuns.mockImplementation(async (req: { sourceName?: string }) =>
+      req.sourceName
+        ? { runs: [{ namespace: "ns", name: "mine", trigger: { kind: "GitHubRepository", name: "console" } }], nextPageToken: "", totalCount: 1 }
+        : {
+            runs: [
+              { namespace: "ns", name: "mine", trigger: { kind: "GitHubRepository", name: "console" } },
+              { namespace: "ns", name: "other", trigger: { kind: "GitHubRepository", name: "api" } },
+            ],
+            nextPageToken: "",
+            totalCount: 2,
+          },
+    );
+    clientMock.watchAgentRuns.mockReturnValue(pendingIterable());
+
+    useAgentRuns("ns");
+    useAgentRuns("ns", "console", "GitHubRepository");
+    await flushMicrotasks();
+
+    expect(clientMock.listAgentRuns).toHaveBeenCalledTimes(2);
+    expect(clientMock.listAgentRuns).toHaveBeenCalledWith({ namespace: "ns", limit: 200, sourceKind: "", sourceName: "" });
+    expect(clientMock.listAgentRuns).toHaveBeenCalledWith({
+      namespace: "ns",
+      limit: 200,
+      sourceKind: "GitHubRepository",
+      sourceName: "console",
+    });
+    expect(clientMock.watchAgentRuns).toHaveBeenCalledTimes(2);
+    expect(clientMock.watchAgentRuns).toHaveBeenCalledWith(
+      { namespace: "ns", limit: 200, sourceKind: "GitHubRepository", sourceName: "console" },
+      expect.anything(),
+    );
+
+    const fleet = useAgentRuns("ns");
+    const filtered = useAgentRuns("ns", "console", "GitHubRepository");
+    expect(fleet.runs.map((run) => run.name)).toEqual(["mine", "other"]);
+    expect(fleet.totalCount).toBe(2);
+    expect(filtered.runs.map((run) => run.name)).toEqual(["mine"]);
+    expect(filtered.totalCount).toBe(1);
+  });
+
+  it("resets agent run pagination when refetching", async () => {
+    clientMock.listAgentRuns
+      .mockResolvedValueOnce({ runs: [{ namespace: "ns", name: "one" }], nextPageToken: "p2", totalCount: 2 })
+      .mockResolvedValueOnce({ runs: [{ namespace: "ns", name: "two" }], nextPageToken: "", totalCount: 2 })
+      .mockResolvedValueOnce({ runs: [{ namespace: "ns", name: "one" }], nextPageToken: "p2", totalCount: 2 });
+    clientMock.watchAgentRuns.mockReturnValue(pendingIterable());
+
+    useAgentRuns("ns");
+    await flushMicrotasks();
+    await useAgentRuns("ns").loadMore();
+
+    let result = useAgentRuns("ns");
+    expect(result.runs.map((run) => run.name)).toEqual(["one", "two"]);
+    expect(result.hasMore).toBe(false);
+
+    await result.refetch();
+    expect(clientMock.listAgentRuns).toHaveBeenLastCalledWith({ namespace: "ns", limit: 200, sourceKind: "", sourceName: "" });
+
+    result = useAgentRuns("ns");
+    expect(result.runs.map((run) => run.name)).toEqual(["one"]);
+    expect(result.hasMore).toBe(true);
+    expect(result.totalCount).toBe(2);
   });
 
   it("reuses previous activity entry references for the stable snapshot prefix", async () => {

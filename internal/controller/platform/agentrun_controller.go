@@ -274,7 +274,7 @@ func (r *AgentRunReconciler) ensureInitialized(ctx context.Context, run *platfor
 
 		// Pin mode snapshot.
 		if snapshot != nil && fresh.Status.ModeSnapshot == nil {
-			fresh.Status.ModeSnapshot = snapshot
+			fresh.Status.ModeSnapshot = mode.StatusSnapshot(snapshot)
 			fresh.Status.ModeName = snapshot.Name
 			fresh.Status.ModeVersion = snapshot.Version
 			fresh.Status.ModeRevision = 1

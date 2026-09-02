@@ -454,10 +454,25 @@ message ListAgentRunsRequest {
   string namespace = 1; // Optional: filter by namespace (empty = all)
   bool owned_by_me = 2; // If true, return only runs owned by the caller
   bool shared_with_me = 3; // If true, return only runs shared with the caller
+  // Fleet window. When limit > 0 the response is ordered newest first and
+  // bounded: the first page holds every non-terminal run plus the newest
+  // `limit` terminal runs; later pages (page_token from the previous
+  // response) hold the next `limit` older terminal runs. limit = 0 returns
+  // every visible run (legacy behaviour).
+  int32 limit = 4;
+  string page_token = 5;
+  // Optional source filter: keep runs whose trigger or project ref matches
+  // the given kind and/or name (same semantics as the fleet page filter).
+  string source_kind = 6;
+  string source_name = 7;
 }
 
 message ListAgentRunsResponse {
   repeated AgentRun runs = 1;
+  // Cursor for the next page of older terminal runs; empty when exhausted.
+  string next_page_token = 2;
+  // Total number of visible runs matching the filters across all pages.
+  int32 total_count = 3;
 }
 
 message GetAgentRunRequest {
@@ -521,6 +536,14 @@ message UpdateAgentRunRuntimeConfigRequest {
 
 message WatchAgentRunsRequest {
   string namespace = 1; // Optional: filter by namespace (empty = all)
+  // Fleet window, matching ListAgentRuns: when limit > 0 the stream emits
+  // every non-terminal run plus the newest `limit` terminal runs and keeps
+  // them live; terminal runs outside that window are not re-emitted (they
+  // are immutable) but a DELETED event is still sent when a previously
+  // emitted run disappears. limit = 0 streams every visible run.
+  int32 limit = 2;
+  string source_kind = 3;
+  string source_name = 4;
 }
 
 message WatchAgentRunRequest {

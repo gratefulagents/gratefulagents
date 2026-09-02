@@ -106,7 +106,7 @@ describe("watchStore", () => {
     switchWorkspace("workspace-b");
 
     expect(workspaceA.abortedCount()).toBe(1);
-    expect(storeA.getSnapshot()).toEqual({ items: [], loading: true, error: null });
+    expect(storeA.getSnapshot()).toEqual({ items: [], loading: true, error: null, nextPageToken: "", totalCount: 0, loadingMore: false });
 
     const workspaceB = makeConfig();
     workspaceB.list.mockResolvedValue({
@@ -126,7 +126,7 @@ describe("watchStore", () => {
     const returningA = makeConfig();
     const freshStoreA = getWatchStore("Items:ns", () => returningA.config);
     expect(freshStoreA).not.toBe(storeA);
-    expect(freshStoreA.getSnapshot()).toEqual({ items: [], loading: true, error: null });
+    expect(freshStoreA.getSnapshot()).toEqual({ items: [], loading: true, error: null, nextPageToken: "", totalCount: 0, loadingMore: false });
 
     freshStoreA.acquire();
     await flushMicrotasks();
@@ -147,7 +147,7 @@ describe("watchStore", () => {
     resolveList({ items: [{ namespace: "ns", name: "stale" }] });
     await flushMicrotasks();
 
-    expect(store.getSnapshot()).toEqual({ items: [], loading: true, error: null });
+    expect(store.getSnapshot()).toEqual({ items: [], loading: true, error: null, nextPageToken: "", totalCount: 0, loadingMore: false });
   });
 
   it("ignores stream errors that finish authentication handling after a switch", async () => {
@@ -171,7 +171,7 @@ describe("watchStore", () => {
     resolveRefresh(false);
     await flushMicrotasks();
 
-    expect(store.getSnapshot()).toEqual({ items: [], loading: true, error: null });
+    expect(store.getSnapshot()).toEqual({ items: [], loading: true, error: null, nextPageToken: "", totalCount: 0, loadingMore: false });
   });
 
   it("keeps the stream open until the last subscriber releases, then lingers", async () => {
@@ -234,6 +234,9 @@ describe("watchStore", () => {
       items: [{ namespace: "ns", name: "one" }],
       loading: false,
       error: null,
+      nextPageToken: "",
+      totalCount: 0,
+      loadingMore: false,
     });
 
     // Browsers can emit focus immediately after visibilitychange; one return

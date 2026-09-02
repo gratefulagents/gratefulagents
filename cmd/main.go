@@ -37,6 +37,7 @@ import (
 	agentsandboxextensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -216,6 +217,15 @@ func main() {
 		// them.
 		Cache: cache.Options{
 			DefaultTransform: cache.TransformStripManagedFields(),
+			// AgentRuns additionally drop the mode-snapshot instructions
+			// (several KB per run that nothing in the manager reads; see
+			// mode.StatusSnapshot) so a fleet of thousands of runs does not
+			// pin them in the cache and in every fleet list copy.
+			ByObject: map[client.Object]cache.ByObject{
+				&platformv1alpha1.AgentRun{}: {
+					Transform: mode.AgentRunCacheTransform(cache.TransformStripManagedFields()),
+				},
+			},
 		},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the

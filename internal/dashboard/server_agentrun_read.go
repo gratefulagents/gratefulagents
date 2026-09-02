@@ -24,7 +24,11 @@ import (
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
 )
 
-// ListAgentRuns returns all AgentRuns, optionally filtered by namespace.
+// ListAgentRuns returns the caller's visible AgentRuns, optionally filtered
+// by namespace and source, as one fleet-window page (see
+// selectAgentRunFleetWindow): with a positive limit the response is newest
+// first and bounded, and next_page_token pages through older terminal runs.
+// A zero limit returns every visible run for legacy callers.
 func (s *Server) ListAgentRuns(ctx context.Context, req *platform.ListAgentRunsRequest) (*platform.ListAgentRunsResponse, error) {
 	runs := &platformv1alpha1.AgentRunList{}
 	var opts []client.ListOption
@@ -35,25 +39,39 @@ func (s *Server) ListAgentRuns(ctx context.Context, req *platform.ListAgentRunsR
 		return nil, mapK8sError("list AgentRuns", err)
 	}
 
-	var pbRuns []*platform.AgentRun
 	visible := s.agentRunVisibilityFilter(ctx, false)
-	batch := s.newAgentRunEnrichBatch(ctx, req.Namespace, false)
-	for _, run := range runs.Items {
-		if !visible(&run) {
-			continue
+	candidates := agentRunFleetCandidates(runs.Items, visible,
+		newAgentRunSourceFilter(req.GetSourceKind(), req.GetSourceName()),
+		s.agentRunAccessKeep(ctx, req.GetOwnedByMe(), req.GetSharedWithMe()))
+	window, err := selectAgentRunFleetWindow(candidates, int(req.GetLimit()), req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+
+	// Enrich only the page: for a bounded window load session state by key
+	// rather than for every session in the namespace.
+	var keys []store.AgentRunKey
+	if req.GetLimit() > 0 {
+		keys = make([]store.AgentRunKey, 0, len(window.runs))
+		for _, run := range window.runs {
+			keys = append(keys, store.AgentRunKey{Namespace: run.Namespace, Name: run.Name})
 		}
-		pb, err := s.enrichAgentRunSummaryProto(ctx, k8sAgentRunToProto(&run), batch)
+	}
+	batch := s.newAgentRunEnrichBatchForRuns(ctx, req.Namespace, keys, false)
+	pbRuns := make([]*platform.AgentRun, 0, len(window.runs))
+	for _, run := range window.runs {
+		pb, err := s.enrichAgentRunSummaryProto(ctx, k8sAgentRunToProto(run), batch)
 		if err != nil {
 			return nil, err
 		}
 		pbRuns = append(pbRuns, pb)
 	}
 
-	// Apply ownership/sharing filters if stateStore is available.
-	pbRuns = filterListByAccess(ctx, s, "agent_run", req.OwnedByMe, req.SharedWithMe, pbRuns,
-		func(r *platform.AgentRun) string { return r.Namespace + "/" + r.Name })
-
-	return &platform.ListAgentRunsResponse{Runs: pbRuns}, nil
+	return &platform.ListAgentRunsResponse{
+		Runs:          pbRuns,
+		NextPageToken: window.nextPageToken,
+		TotalCount:    int32(window.total),
+	}, nil
 }
 
 // GetAgentRun returns a single AgentRun by namespace and name.

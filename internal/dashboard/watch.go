@@ -238,8 +238,15 @@ func (s *Server) cachedAgentRunList(ctx context.Context, namespace string) (agen
 
 // WatchAgentRuns streams AgentRun updates. It sends the initial list immediately,
 // then polls every 2 seconds and emits updates when resource versions change.
+// With a positive limit the stream is bounded to the fleet window (every
+// non-terminal run plus the newest `limit` terminal runs, see
+// selectAgentRunFleetWindow): terminal runs outside the window are immutable
+// and are not re-emitted, but a DELETED event is still sent when a run that
+// was emitted earlier disappears from the cluster.
 func (s *Server) WatchAgentRuns(ctx context.Context, req *platform.WatchAgentRunsRequest, stream *connect.ServerStream[platform.AgentRunEvent]) error {
 	versions := make(map[string]string)
+	source := newAgentRunSourceFilter(req.GetSourceKind(), req.GetSourceName())
+	limit := int(req.GetLimit())
 	return pollStream(ctx, 2*time.Second, func() error {
 		// Every open fleet page polls the same namespace-wide AgentRun list.
 		// Listing from the manager cache deep-copies every cached run, so N
@@ -282,16 +289,21 @@ func (s *Server) WatchAgentRuns(ctx context.Context, req *platform.WatchAgentRun
 			version string
 		}
 		var changed []changedRun
-		visibleCount := 0
-		seen := make(map[string]struct{}, len(runs.Items))
-		for i := range runs.Items {
-			run := &runs.Items[i]
-			if !visible(run) {
-				continue
-			}
-			visibleCount++
+		// seen holds every visible matching run — not just the window — so
+		// deletions of runs that have since left the window are still
+		// reported to clients that loaded them on an earlier page.
+		candidates := agentRunFleetCandidates(runs.Items, visible, source, nil)
+		seen := make(map[string]struct{}, len(candidates))
+		for _, run := range candidates {
+			seen[run.Namespace+"/"+run.Name] = struct{}{}
+		}
+		window, err := selectAgentRunFleetWindow(candidates, limit, "")
+		if err != nil {
+			return err
+		}
+		visibleCount := len(window.runs)
+		for _, run := range window.runs {
 			key := run.Namespace + "/" + run.Name
-			seen[key] = struct{}{}
 			version := run.ResourceVersion + "|" + summaryVersions[key]
 			if versions[key] == version {
 				continue

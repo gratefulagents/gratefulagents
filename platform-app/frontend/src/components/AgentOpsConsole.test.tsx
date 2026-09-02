@@ -60,9 +60,11 @@ const runs = [
 ];
 
 let mockRuns: AgentRun[] = runs;
+let mockPaging = { totalCount: 0, hasMore: false, loadingMore: false };
+const loadMore = vi.fn();
 
 vi.mock("@/hooks/useAgentRuns", () => ({
-  useAgentRuns: () => ({ runs: mockRuns, loading: false, error: null, refetch: vi.fn() }),
+  useAgentRuns: () => ({ runs: mockRuns, loading: false, error: null, refetch: vi.fn(), loadMore, ...mockPaging }),
 }));
 
 vi.mock("@/components/OwnerAvatar", () => ({ OwnerAvatar: () => null }));
@@ -84,9 +86,31 @@ afterEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
   mockRuns = runs;
+  mockPaging = { totalCount: 0, hasMore: false, loadingMore: false };
 });
 
 describe("AgentOpsConsole", () => {
+  it("offers to load older runs when the fleet window is paged", () => {
+    mockPaging = { totalCount: 12, hasMore: true, loadingMore: false };
+    render(<MemoryRouter><AgentOpsConsole /></MemoryRouter>);
+
+    expect(screen.getByText(/Showing 4 of 12 runs/)).toBeTruthy();
+    expect(screen.getByText(/Counts reflect the 4 loaded runs/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Load older runs" }));
+    expect(loadMore).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    mockPaging = { totalCount: 12, hasMore: true, loadingMore: true };
+    render(<MemoryRouter><AgentOpsConsole /></MemoryRouter>);
+    expect((screen.getByRole("button", { name: /Loading/ }) as HTMLButtonElement).disabled).toBe(true);
+
+    cleanup();
+    mockPaging = { totalCount: 4, hasMore: false, loadingMore: false };
+    render(<MemoryRouter><AgentOpsConsole /></MemoryRouter>);
+    expect(screen.queryByText(/Showing 4 of/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Load older runs" })).toBeNull();
+  });
+
   it("defaults to active runs and resets back to that view", () => {
     render(<MemoryRouter><AgentOpsConsole /></MemoryRouter>);
 
