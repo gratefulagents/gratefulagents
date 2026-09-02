@@ -107,6 +107,15 @@ export function fmtUsd(n: number): string {
   return n.toFixed(4);
 }
 
+/**
+ * Anchor for URLs outside the app (pull requests, tracker issues). A real
+ * `<a>` keeps middle-click/copy-link working in the browser; inside Tauri the
+ * global link interceptor (lib/native) routes it through `openExternal`.
+ */
+export function ExternalLink(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+  return <a target="_blank" rel="noreferrer" {...props} />;
+}
+
 /** Route for a run's source resource, based on its project/trigger kind. */
 export function sourceHref(kind: string, namespace: string, name: string): string {
   switch (kind) {

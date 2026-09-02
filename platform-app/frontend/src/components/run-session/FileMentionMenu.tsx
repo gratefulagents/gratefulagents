@@ -1,10 +1,13 @@
 import { useEffect, useRef } from "react";
 import { File as FileIcon } from "lucide-react";
 
+import { optionId } from "@/components/run-session/composer";
 import type { FileMatch } from "@/lib/fileMentions";
 import { cn } from "@/lib/utils";
 
 interface FileMentionMenuProps {
+  /** Listbox id the composer's `aria-controls` points at. */
+  id: string;
   matches: FileMatch[];
   activeIndex: number;
   loading: boolean;
@@ -32,9 +35,10 @@ function renderPath(path: string, positions: number[]) {
 }
 
 // FileMentionMenu renders the "@" file picker anchored above the composer.
-// Keyboard navigation is driven by the parent (the textarea keeps focus); this
-// component only renders the list and reports hover/selection.
+// The parent positions it and drives keyboard navigation (the textarea keeps
+// focus); this component only renders the list and reports hover/selection.
 export function FileMentionMenu({
+  id,
   matches,
   activeIndex,
   loading,
@@ -53,11 +57,12 @@ export function FileMentionMenu({
   return (
     <div
       role="listbox"
-      id="file-mention-menu"
+      id={id}
       aria-label="Workspace files"
-      className="absolute bottom-full left-0 z-50 mb-2 w-full max-w-md overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg"
+      aria-busy={loading && matches.length === 0 ? true : undefined}
+      className="w-full max-w-md overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg"
     >
-      <div className="border-b px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="border-b px-3 py-1.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
         Files
       </div>
       {loading && matches.length === 0 ? (
@@ -74,6 +79,7 @@ export function FileMentionMenu({
               <li key={match.path}>
                 <button
                   ref={active ? activeRef : undefined}
+                  id={optionId(id, index)}
                   type="button"
                   role="option"
                   aria-selected={active}

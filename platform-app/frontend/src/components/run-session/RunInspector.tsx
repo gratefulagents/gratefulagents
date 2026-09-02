@@ -151,13 +151,13 @@ export function InspectorToggle({
       aria-label={open ? "Hide inspector" : "Show inspector"}
       title={open ? "Hide inspector" : "Show inspector"}
       className={cn(
-        "relative shrink-0 text-muted-foreground hover:text-foreground",
+        "relative shrink-0 text-muted-foreground hover:text-foreground [@media(pointer:coarse)]:size-9",
         open && "bg-muted text-foreground",
       )}
     >
       <PanelRight />
       {attention && !open && (
-        <span className="absolute right-1 top-1 size-1.5 rounded-full bg-[color:var(--tone-danger)]" />
+        <span className="absolute right-1 top-1 size-1.5 rounded-full bg-tone-danger" />
       )}
     </Button>
   );
@@ -244,7 +244,7 @@ function InspectorNav({
             <Icon className="size-3.5 shrink-0" />
             {(!compact || active) && <span>{label}</span>}
             {count ? (
-              <span className="rounded-full bg-[color:var(--tone-danger)]/12 px-1.5 text-[10px] tabular-nums text-[color:var(--tone-danger)]">
+              <span className="rounded-full bg-tone-danger/12 px-1.5 text-3xs tabular-nums text-tone-danger-fg">
                 {count > 99 ? "99+" : count}
               </span>
             ) : dot ? (

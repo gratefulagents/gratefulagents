@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import { AgentRunMessageMode, type ChatMessage } from "@/rpc/platform/service_pb";
 import { RunSessionFooter } from "@/components/run-session/RunSessionFooter";
 import { RunHeader } from "@/components/run-session/RunHeader";
+import { RunActionsProvider, type RunActions } from "@/components/run-session/RunActionsContext";
 import {
   inspectorShortcut,
   isInspectorTab,
@@ -1153,42 +1154,37 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
               />
 
               <RunSessionFooter
+                run={run}
                 isActive={isActive}
                 isViewer={isViewer}
                 sending={sending}
                 canSendMessage={canSendMessage}
                 startupCopy={startupCopy}
-                attachments={attachments}
-                fileInputRef={fileInputRef}
-                reply={reply}
-                setReply={setReply}
-                handleSend={handleSend}
-                sendMode={sendMode}
-                setSendMode={setSendMode}
-                slashCommands={slashCommands}
-                onRunSlashCommand={executeSlashCommand}
-                phase={run.phase}
-                blockedReason={run.blockedReason}
-                canExtendRuntime={canExtendRuntime}
-                setExtendRuntimeOpen={setExtendRuntimeOpen}
-                extendingRuntime={extendingRuntime}
-                canRetry={canRetry}
-                handleRetry={handleRetry}
-                retrying={retrying}
-                canInterrupt={canInterrupt}
-                interrupting={interrupting}
-                onInterrupt={handleInterrupt}
-                textareaRef={composerTextareaRef}
+                composer={{
+                  reply,
+                  setReply,
+                  handleSend,
+                  sendMode,
+                  setSendMode,
+                  slashCommands,
+                  onRunSlashCommand: executeSlashCommand,
+                  textareaRef: composerTextareaRef,
+                  fileInputRef,
+                  attachments,
+                }}
                 namespace={namespace}
                 name={name}
                 resourceType="AgentRun"
-                contextTokens={contextTokens}
-                contextTriggerTokens={Number(run.contextTriggerTokens)}
-                contextTargetTokens={Number(run.contextTargetTokens)}
-                run={run}
-                canUpdateRuntimeConfig={canUpdateRuntimeConfig}
-                updatingRuntimeConfig={updatingRuntimeConfig}
-                onUpdateRuntimeConfig={handleUpdateRuntimeConfig}
+                contextWindow={{
+                  tokens: contextTokens,
+                  triggerTokens: Number(run.contextTriggerTokens),
+                  targetTokens: Number(run.contextTargetTokens),
+                }}
+                runtimeConfig={{
+                  canUpdate: canUpdateRuntimeConfig,
+                  updating: updatingRuntimeConfig,
+                  onUpdate: handleUpdateRuntimeConfig,
+                }}
               />
             </div>
   );
@@ -1304,9 +1300,32 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     </>
   );
 
+  const runActions: RunActions = {
+    retry: { can: canRetry, run: handleRetry, busy: retrying },
+    stop: { can: canStop, run: handleStop, busy: stopping },
+    promote: { can: canPromote, run: handlePromote, busy: promoting },
+    delete: { can: canDelete, run: handleDelete, busy: deleting },
+    interrupt: { can: canInterrupt, run: handleInterrupt, busy: interrupting },
+    rename: { can: canRename, run: handleRename },
+    extendRuntime: {
+      can: canExtendRuntime,
+      open: extendRuntimeOpen,
+      setOpen: setExtendRuntimeOpen,
+      value: runtimeExtension,
+      setValue: setRuntimeExtension,
+      submit: handleExtendRuntime,
+      busy: extendingRuntime,
+      isPaused,
+    },
+    share: { open: shareOpen, setOpen: setShareOpen },
+    focusComposer: () => composerTextareaRef.current?.focus(),
+    openInspectorTab: openInspector,
+  };
+
   return (
     <ActivityDetailProvider value={fetchActivityEntryDetail}>
     <MotionConfig reducedMotion="user">
+    <RunActionsProvider value={runActions}>
     <div className="flex h-full gap-px overflow-hidden bg-muted/30">
       {confirmDialog && (
         <ConfirmDialog
@@ -1327,44 +1346,17 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
           name={name}
           run={run}
           viewers={viewers}
-          showRepositories={isActive}
-          sandboxReady={sandboxReady}
-          sandboxStartupMessage={sandboxStartupMessage(run.sandboxRef)}
           prUrls={prUrls}
           showCreatePRButton={showCreatePRButton}
-          canExtendRuntime={canExtendRuntime}
-          isPaused={isPaused}
-          extendingRuntime={extendingRuntime}
-          extendRuntimeOpen={extendRuntimeOpen}
-          setExtendRuntimeOpen={setExtendRuntimeOpen}
-          runtimeExtension={runtimeExtension}
-          setRuntimeExtension={setRuntimeExtension}
-          handleExtendRuntime={handleExtendRuntime}
-          hasPlan={hasPlan}
-          planContent={planContent}
-          shareOpen={shareOpen}
-          setShareOpen={setShareOpen}
-          isOwnerOrAdmin={isOwnerOrAdmin}
-          isViewer={isViewer}
-          canRetry={canRetry}
-          handleRetry={handleRetry}
-          retrying={retrying}
-          canStop={canStop}
-          handleStop={handleStop}
-          stopping={stopping}
-          canPromote={canPromote}
-          handlePromote={handlePromote}
-          promoting={promoting}
-          canDelete={canDelete}
-          handleDelete={handleDelete}
-          deleting={deleting}
           displayCostUsd={displayCostUsd}
           sessionMetrics={sessionMetrics}
-          canRename={canRename}
-          onRename={handleRename}
-          inspectorOpen={inspectorOpen}
-          onToggleInspector={() => setInspectorOpen((open) => !open)}
-          inspectorAttention={inspectorAttention}
+          permissions={{ isOwnerOrAdmin, isViewer }}
+          inspector={{
+            open: inspectorOpen,
+            onToggle: () => setInspectorOpen((open) => !open),
+            attention: inspectorAttention,
+          }}
+          plan={{ hasPlan, planContent }}
         />
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {splitViewport && inspectorOpen ? (
@@ -1412,6 +1404,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
         </div>
       </div>
     </div>
+    </RunActionsProvider>
     </MotionConfig>
     </ActivityDetailProvider>
   );
