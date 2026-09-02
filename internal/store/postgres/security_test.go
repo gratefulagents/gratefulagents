@@ -388,9 +388,10 @@ func lifecycleTestComments(ctx context.Context, t *testing.T, s *Store, finding 
 		t.Errorf("comment event = %+v", event)
 	}
 
+	// reobserved, status_changed, reobserved, status_reviewed, then the comment.
 	events, err := s.ListSecurityFindingEvents(ctx, "default", finding.ID, 0)
-	if err != nil || len(events) != 4 {
-		t.Fatalf("events after comment = %d, %v, want 4", len(events), err)
+	if err != nil || len(events) != 5 {
+		t.Fatalf("events after comment = %d, %v, want 5", len(events), err)
 	}
 	if events[0].EventType != "comment" || events[0].Note != "needs an exploit review" {
 		t.Errorf("newest event = %+v, want the comment", events[0])
