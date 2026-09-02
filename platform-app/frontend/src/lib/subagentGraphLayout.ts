@@ -25,6 +25,9 @@ export interface LayoutDims {
 
 export const DEFAULT_DIMS: LayoutDims = { nodeW: NODE_W, nodeH: NODE_H, hGap: H_GAP, vGap: V_GAP };
 
+/** Tighter geometry the graph tab switches to when its container is narrow. */
+export const COMPACT_DIMS: LayoutDims = { nodeW: 200, nodeH: 64, hGap: 56, vGap: 16 };
+
 // ───────────────────────── helpers ───────────────────────────────
 
 export function unique(values: string[]): string[] {

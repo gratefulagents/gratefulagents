@@ -1,8 +1,20 @@
-import { type ComponentType, type ReactNode, useEffect, useState } from "react";
-import { Activity, CircleAlert, FileDiff, GitPullRequest, PanelRight, SquareTerminal, Workflow, X } from "lucide-react";
+import { type ComponentType, type KeyboardEvent, type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  Activity,
+  CircleAlert,
+  FileDiff,
+  GitPullRequest,
+  Info,
+  PanelRight,
+  SquareTerminal,
+  Workflow,
+  X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { fade, transitions } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -14,11 +26,12 @@ import { cn } from "@/lib/utils";
 /**
  * Tab ids intentionally reuse the existing `MainView` vocabulary (minus
  * "chat", which is now the page itself) so persisted preferences and deep
- * links keep resolving. Only the labels changed.
+ * links keep resolving. Only the labels changed. "context" is new: it holds
+ * what the header's run-context sheet used to.
  */
-export type InspectorTab = "diff" | "pr" | "graph" | "logs" | "errors" | "trace";
+export type InspectorTab = "diff" | "pr" | "graph" | "logs" | "errors" | "trace" | "context";
 
-const INSPECTOR_TABS: InspectorTab[] = ["diff", "pr", "graph", "logs", "errors", "trace"];
+const INSPECTOR_TABS: InspectorTab[] = ["diff", "pr", "graph", "logs", "errors", "trace", "context"];
 
 export function isInspectorTab(value: string | null): value is InspectorTab {
   return INSPECTOR_TABS.includes(value as InspectorTab);
@@ -31,6 +44,7 @@ export const inspectorTabMeta: Record<InspectorTab, { label: string; icon: Compo
   logs: { label: "Logs", icon: SquareTerminal },
   errors: { label: "Errors", icon: CircleAlert },
   trace: { label: "Trace", icon: Activity },
+  context: { label: "Context", icon: Info },
 };
 
 export type InspectorTabDef = {
@@ -40,6 +54,64 @@ export type InspectorTabDef = {
   /** Quiet presence indicator, e.g. the run has uncommitted changes. */
   dot?: boolean;
 };
+
+export type InspectorShortcut = { type: "toggle" } | { type: "select"; tab: InspectorTab };
+
+/**
+ * Resolves the inspector's global keyboard shortcuts: `Mod+.` toggles the
+ * panel and `Mod+Shift+1..9` jumps to the n-th tab. Digits are matched on
+ * `code` because Shift changes `key` to punctuation on most layouts.
+ */
+export function inspectorShortcut(
+  event: Pick<globalThis.KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey">,
+  tabs: readonly InspectorTab[],
+): InspectorShortcut | null {
+  const mod = event.metaKey || event.ctrlKey;
+  if (!mod || event.altKey) return null;
+  if (event.key === "." && !event.shiftKey) return { type: "toggle" };
+  if (!event.shiftKey) return null;
+  const digit = /^Digit([1-9])$/.exec(event.code);
+  if (!digit) return null;
+  const tab = tabs[Number(digit[1]) - 1];
+  return tab ? { type: "select", tab } : null;
+}
+
+/**
+ * Shared keyboard handling for the tab strips (WAI-ARIA tabs pattern with
+ * automatic activation): arrows wrap, Home/End jump, and focus follows the
+ * selection so the roving tabIndex stays in sync.
+ */
+export function moveTabFocus<T extends string>(
+  event: KeyboardEvent<HTMLElement>,
+  ids: readonly T[],
+  current: T,
+  onChange: (id: T) => void,
+) {
+  const index = ids.indexOf(current);
+  let next: number;
+  switch (event.key) {
+    case "ArrowRight":
+      next = (index + 1) % ids.length;
+      break;
+    case "ArrowLeft":
+      next = (index - 1 + ids.length) % ids.length;
+      break;
+    case "Home":
+      next = 0;
+      break;
+    case "End":
+      next = ids.length - 1;
+      break;
+    default:
+      return;
+  }
+  event.preventDefault();
+  const id = ids[next];
+  if (id === undefined) return;
+  onChange(id);
+  const tabs = event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]');
+  tabs[next]?.focus();
+}
 
 /** Viewports wide enough to host the chat and the inspector side by side. */
 export function useSplitViewport(): boolean {
@@ -95,16 +167,51 @@ function InspectorNav({
   tabs,
   activeTab,
   onTabChange,
+  tabId,
+  panelId,
 }: {
   tabs: InspectorTabDef[];
   activeTab: InspectorTab;
   onTabChange: (tab: InspectorTab) => void;
+  tabId: (tab: InspectorTab) => string;
+  panelId: string;
 }) {
+  const indicatorId = useId();
+  const ids = tabs.map((tab) => tab.id);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Labels collapse to icons only when the labelled strip genuinely overflows
+  // its container, and come back once the container is wide enough again.
+  // Measuring beats a fixed breakpoint because the tab set varies per run.
+  const [compact, setCompact] = useState(false);
+  const labelledWidthRef = useRef(0);
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const measure = () => {
+      if (!compact) {
+        labelledWidthRef.current = el.scrollWidth;
+        if (el.scrollWidth > el.clientWidth + 1) setCompact(true);
+      } else if (el.clientWidth >= labelledWidthRef.current) {
+        setCompact(false);
+      }
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [compact, tabs.length]);
   return (
     <div
+      ref={listRef}
       role="tablist"
       aria-label="Inspector sections"
-      className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      data-compact={compact || undefined}
+      onKeyDown={(event) => moveTabFocus(event, ids, activeTab, onTabChange)}
+      className={cn(
+        "flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        compact && "[mask-image:linear-gradient(to_right,black_92%,transparent)]",
+      )}
     >
       {tabs.map(({ id, count, dot }) => {
         const { label, icon: Icon } = inspectorTabMeta[id];
@@ -114,16 +221,28 @@ function InspectorNav({
             key={id}
             type="button"
             role="tab"
+            id={tabId(id)}
             aria-selected={active}
+            aria-controls={panelId}
+            tabIndex={active ? 0 : -1}
+            title={label}
+            aria-label={label}
             onClick={() => onTabChange(id)}
             className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium whitespace-nowrap transition-colors",
+              "relative isolate flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium whitespace-nowrap transition-colors",
               "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-              active ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+              active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >
+            {active && (
+              <motion.span
+                layoutId={indicatorId}
+                transition={transitions.subtle}
+                className="absolute inset-0 -z-10 rounded-md bg-muted"
+              />
+            )}
             <Icon className="size-3.5 shrink-0" />
-            {label}
+            {(!compact || active) && <span>{label}</span>}
             {count ? (
               <span className="rounded-full bg-[color:var(--tone-danger)]/12 px-1.5 text-[10px] tabular-nums text-[color:var(--tone-danger)]">
                 {count > 99 ? "99+" : count}
@@ -143,18 +262,34 @@ function InspectorBody({
   activeTab,
   onTabChange,
   onClose,
+  persistent,
   children,
 }: {
   tabs: InspectorTabDef[];
   activeTab: InspectorTab;
   onTabChange: (tab: InspectorTab) => void;
   onClose: () => void;
+  persistent?: ReactNode;
   children: ReactNode;
 }) {
+  const baseId = useId();
+  const tabId = (tab: InspectorTab) => `${baseId}-tab-${tab}`;
+  const panelId = `${baseId}-panel`;
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b px-2">
-        <InspectorNav tabs={tabs} activeTab={activeTab} onTabChange={onTabChange} />
+    <motion.div
+      initial={{ opacity: 0, x: 8 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={transitions.panel}
+      className="flex h-full min-h-0 min-w-0 flex-col bg-background"
+    >
+      <div className="@container flex h-12 shrink-0 items-center gap-2 border-b px-2">
+        <InspectorNav
+          tabs={tabs}
+          activeTab={activeTab}
+          onTabChange={onTabChange}
+          tabId={tabId}
+          panelId={panelId}
+        />
         <Button
           type="button"
           variant="ghost"
@@ -166,10 +301,28 @@ function InspectorBody({
           <X className="size-4" />
         </Button>
       </div>
-      <div role="tabpanel" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {children}
+      <div
+        role="tabpanel"
+        id={panelId}
+        aria-labelledby={tabId(activeTab)}
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+      >
+        {persistent}
+        {/* Persistent panes keep their own mount across switches, so only the
+            transient content crossfades; it overlays the panel while exiting. */}
+        <AnimatePresence mode="wait" initial={false}>
+          {children ? (
+            <motion.div
+              key={activeTab}
+              {...fade}
+              className="absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-hidden"
+            >
+              {children}
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -185,6 +338,7 @@ export function RunInspector({
   tabs,
   activeTab,
   onTabChange,
+  persistent,
   children,
 }: {
   split: boolean;
@@ -193,7 +347,13 @@ export function RunInspector({
   tabs: InspectorTabDef[];
   activeTab: InspectorTab;
   onTabChange: (tab: InspectorTab) => void;
-  children: ReactNode;
+  /**
+   * Panes that must survive tab switches (zoom, selection, scroll). They stay
+   * mounted and toggle their own `hidden`; `children` is the pane that only
+   * exists while its tab is active.
+   */
+  persistent?: ReactNode;
+  children?: ReactNode;
 }) {
   const body = (
     <InspectorBody
@@ -201,6 +361,7 @@ export function RunInspector({
       activeTab={activeTab}
       onTabChange={onTabChange}
       onClose={() => onOpenChange(false)}
+      persistent={persistent}
     >
       {children}
     </InspectorBody>

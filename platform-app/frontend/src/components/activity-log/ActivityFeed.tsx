@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { useActivityLog } from "@/hooks/useActivityLog";
 import { useActivityEntryDetail } from "@/hooks/useActivityEntryDetail";
 import { MarkdownViewer } from "@/components/MarkdownViewer";
+import { LiveDot } from "@/components/ui/live-dot";
 import { groupActivityEntries } from "@/lib/activityGrouping";
 import type { ActivityEntry } from "@/rpc/platform/service_pb";
 import { buildFeed, keyedFeedItems } from "./feedModel";
@@ -137,7 +138,7 @@ export const ActivityFeed = memo(function ActivityFeed({
           <button
             type="button"
             onClick={() => setShowAll(true)}
-            className="w-full rounded-md py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted/40"
+            className="w-full rounded-md py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
           >
             Show {hiddenCount} earlier items
           </button>
@@ -216,7 +217,7 @@ export function FullActivityLog({
         <ActivityFeed entries={entries} isLive={live} />
         {live && (
           <div className="mt-3 flex items-center gap-2 py-2 text-xs text-muted-foreground/60">
-            <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+            <LiveDot tone="running" pulse size="xs" />
             <span>Live — streaming updates</span>
           </div>
         )}

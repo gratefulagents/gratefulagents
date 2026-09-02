@@ -28,7 +28,8 @@ import {
   selectableReviewThreads,
 } from "@/lib/pullRequests";
 import { formatPRLoopRound, formatPRLoopState, reviewVerdictTone } from "@/components/run-session/helpers";
-import { prLoopTone, toneSoft } from "@/lib/status";
+import { useNow } from "@/hooks/useNow";
+import { prLoopTone, toneSoft, toneText, type StatusTone } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { PRLoopStatus, PullRequestCheck, PullRequestDetails } from "@/rpc/platform/service_pb";
 
@@ -47,17 +48,71 @@ interface RunPullRequestPanelProps {
   prUrl?: string;
 }
 
-function prStateBadgeClass(state: string): string {
+function prStateTone(state: string): StatusTone {
   switch (state.toLowerCase()) {
     case "open":
-      return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+      return "success";
     case "merged":
-      return "bg-purple-500/10 text-purple-600 dark:text-purple-400";
+      return "purple";
     case "closed":
-      return "bg-destructive/10 text-destructive";
+      return "danger";
     default:
-      return "bg-muted text-muted-foreground";
+      return "neutral";
   }
+}
+
+/** `in_progress` → "In progress", `timed_out` → "Timed out". */
+function humanizeCheckLabel(raw: string): string {
+  const text = raw.trim().replace(/_/g, " ").toLowerCase();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
+}
+
+function relativeTime(then: number, now: number): string {
+  const diff = Math.max(now - then, 0);
+  const s = Math.round(diff / 1000);
+  if (s < 45) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.round(h / 24);
+  return `${d}d ago`;
+}
+
+type CiVerdict = { tone: StatusTone; label: string; failing: number; running: number };
+
+/** Rollup for the subject header. Warnings/cancelled checks are not failures. */
+function ciVerdict(checks: PullRequestCheck[]): CiVerdict | null {
+  if (checks.length === 0) return null;
+  let failing = 0;
+  let running = 0;
+  for (const check of checks) {
+    const outcome = checkOutcome(check);
+    if (outcome === "failure") failing += 1;
+    else if (outcome === "pending") running += 1;
+  }
+  if (failing > 0) return { tone: "danger", label: `CI failing · ${failing}`, failing, running };
+  if (running > 0) return { tone: "running", label: `CI running · ${running}`, failing, running };
+  return { tone: "success", label: "CI green", failing, running };
+}
+
+function failingChecks(checks: PullRequestCheck[]): PullRequestCheck[] {
+  return checks.filter((check) => checkOutcome(check) === "failure");
+}
+
+function buildFailingChecksMessage(pr: PullRequestDetails, checks: PullRequestCheck[]): string {
+  const label = prDisplayLabel(pr);
+  const items = checks.map((check, i) => {
+    const conclusion = humanizeCheckLabel(check.conclusion || check.status);
+    const url = check.detailsUrl ? ` — ${check.detailsUrl}` : "";
+    return `${i + 1}. ${check.name} (${conclusion})${url}`;
+  });
+  const plural = checks.length === 1 ? "check is" : "checks are";
+  return [
+    `The following CI ${plural} failing on ${label} (${pr.url}):`,
+    items.join("\n"),
+    "Please inspect the logs for each failing check, fix the underlying cause, commit, and push to the PR branch.",
+  ].join("\n\n");
 }
 
 type CheckOutcome = "pending" | "success" | "failure" | "warning" | "neutral";
@@ -87,32 +142,32 @@ function checkAppearance(check: PullRequestCheck): { icon: React.ReactNode; labe
     case "pending":
       return {
         icon: <Loader2 className="size-3.5 animate-spin" />,
-        label: check.status || "pending",
-        className: "text-amber-600 dark:text-amber-400",
+        label: humanizeCheckLabel(check.status || "pending"),
+        className: toneText.running,
       };
     case "success":
       return {
         icon: <CheckCircle2 className="size-3.5" />,
-        label: "success",
-        className: "text-emerald-600 dark:text-emerald-400",
+        label: "Success",
+        className: toneText.success,
       };
     case "failure":
       return {
         icon: <XCircle className="size-3.5" />,
-        label: check.conclusion,
-        className: "text-destructive",
+        label: humanizeCheckLabel(check.conclusion),
+        className: toneText.danger,
       };
     case "warning":
       return {
         icon: <AlertTriangle className="size-3.5" />,
-        label: check.conclusion,
-        className: "text-amber-600 dark:text-amber-400",
+        label: humanizeCheckLabel(check.conclusion),
+        className: toneText.warning,
       };
     default:
       return {
         icon: <Circle className="size-3.5" />,
-        label: check.conclusion || "neutral",
-        className: "text-muted-foreground",
+        label: humanizeCheckLabel(check.conclusion || "neutral"),
+        className: toneText.neutral,
       };
   }
 }
@@ -128,9 +183,10 @@ function prDisplayLabel(pr: PullRequestDetails): string {
  */
 function PullRequestSubject({ pr }: { pr: PullRequestDetails }) {
   const label = prDisplayLabel(pr);
+  const verdict = ciVerdict(pr.checks);
   return (
     <div className="shrink-0 border-b px-3 py-2">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <GitPullRequest className="size-3.5 shrink-0 text-muted-foreground" />
         <a
           href={pr.url}
@@ -141,9 +197,18 @@ function PullRequestSubject({ pr }: { pr: PullRequestDetails }) {
           {label}
         </a>
         {pr.state && (
-          <Badge className={cn("shrink-0 px-1.5 text-[10px]", prStateBadgeClass(pr.state))}>
+          <Badge className={cn("shrink-0 px-1.5 text-[10px]", toneSoft[prStateTone(pr.state)])}>
             {pr.state.toLowerCase()}
           </Badge>
+        )}
+        {verdict && (
+          <span
+            data-testid="ci-verdict"
+            className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-medium", toneSoft[verdict.tone])}
+          >
+            {verdict.tone === "running" && <Loader2 className="size-2.5 animate-spin" />}
+            {verdict.label}
+          </span>
         )}
         {pr.reviewDecision && (
           <Badge variant="outline" className="shrink-0 px-1.5 text-[10px]">
@@ -162,7 +227,7 @@ function PullRequestSubject({ pr }: { pr: PullRequestDetails }) {
       </div>
       {pr.title && <p className="mt-1 truncate text-sm font-medium text-foreground">{pr.title}</p>}
       {pr.error && (
-        <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400" role="alert">
+        <p className={cn("mt-1 flex items-start gap-1.5 text-xs", toneText.warning)} role="alert">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
           {pr.error}
         </p>
@@ -178,16 +243,22 @@ function ReviewThreadRow({
   comments,
   selectable,
   checked,
+  sentAt,
+  now,
   onToggle,
 }: {
   location: string;
   resolved: boolean;
   outdated: boolean;
-  comments: { author: string; body: string; url: string }[];
+  comments: { author: string; body: string; url: string; createdAt: string }[];
   selectable: boolean;
   checked: boolean;
+  sentAt?: number;
+  now: number;
   onToggle: (checked: boolean) => void;
 }) {
+  const first = comments[0];
+  const createdMs = first?.createdAt ? Date.parse(first.createdAt) : Number.NaN;
   return (
     <li
       className={cn(
@@ -208,21 +279,41 @@ function ReviewThreadRow({
         ) : (
           <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />
         )}
-        <span className="min-w-0 truncate font-mono text-xs text-foreground">{location}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">{location}</span>
         {resolved && (
-          <Badge className="shrink-0 bg-emerald-500/10 px-1.5 text-[10px] text-emerald-600 dark:text-emerald-400">
-            resolved
-          </Badge>
+          <Badge className={cn("shrink-0 px-1.5 text-[10px]", toneSoft.success)}>resolved</Badge>
         )}
         {outdated && (
           <Badge variant="secondary" className="shrink-0 px-1.5 text-[10px]">
             outdated
           </Badge>
         )}
+        {sentAt !== undefined && (
+          <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 text-[10px]", toneSoft.info)}>
+            <Send className="size-2.5" />
+            sent {relativeTime(sentAt, now)}
+          </span>
+        )}
+        {Number.isFinite(createdMs) && (
+          <time dateTime={first.createdAt} className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+            {relativeTime(createdMs, now)}
+          </time>
+        )}
+        {first?.url && (
+          <a
+            href={first.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+            aria-label={`Open thread ${location} on GitHub`}
+          >
+            <ExternalLink className="size-3" />
+          </a>
+        )}
       </div>
       <ul className="mt-1.5 space-y-1.5">
         {comments.map((comment, idx) => (
-          <li key={comment.url || idx} className="text-xs break-words whitespace-pre-wrap text-muted-foreground">
+          <li key={comment.url || idx} className="min-w-0 text-xs break-words whitespace-pre-wrap text-muted-foreground">
             <span className="font-medium text-foreground">{comment.author || "reviewer"}</span>{" "}
             {comment.body}
           </li>
@@ -241,15 +332,18 @@ function ReviewSection({
   pr,
   selectable,
   isSelected,
+  sentAt,
   onToggleThread,
   onToggleAll,
 }: {
   pr: PullRequestDetails;
   selectable: boolean;
   isSelected: (threadId: string) => boolean;
+  sentAt: (threadId: string) => number | undefined;
   onToggleThread: (threadId: string, checked: boolean) => void;
   onToggleAll: (threadIds: string[], checked: boolean) => void;
 }) {
+  const now = useNow();
   const [showResolved, setShowResolved] = useState(false);
   const open = useMemo(() => pr.reviewThreads.filter((thread) => !thread.resolved), [pr.reviewThreads]);
   const resolved = useMemo(() => pr.reviewThreads.filter((thread) => thread.resolved), [pr.reviewThreads]);
@@ -296,13 +390,15 @@ function ReviewSection({
                 comments={thread.comments}
                 selectable={selectable}
                 checked={selectable && isSelected(thread.id)}
+                sentAt={sentAt(thread.id)}
+                now={now}
                 onToggle={(checked) => onToggleThread(thread.id, checked)}
               />
             ))}
           </ul>
         </section>
       ) : (
-        <p className="flex items-center gap-1.5 px-1 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+        <p className={cn("flex items-center gap-1.5 px-1 py-2 text-xs", toneText.success)}>
           <Check className="size-3.5" />
           All review comments resolved.
         </p>
@@ -330,6 +426,7 @@ function ReviewSection({
                   comments={thread.comments}
                   selectable={false}
                   checked={false}
+                  now={now}
                   onToggle={() => {}}
                 />
               ))}
@@ -345,7 +442,17 @@ function ReviewSection({
  * Checks section — a rollup answers the only question most people have ("is CI
  * green?"); failing and running checks stay expanded, the green wall collapses.
  */
-function ChecksSection({ pr }: { pr: PullRequestDetails }) {
+function ChecksSection({
+  pr,
+  canSend,
+  onSendFailing,
+  sending,
+}: {
+  pr: PullRequestDetails;
+  canSend: boolean;
+  onSendFailing: (checks: PullRequestCheck[]) => void;
+  sending: boolean;
+}) {
   const [showPassing, setShowPassing] = useState(false);
   const groups = useMemo(() => {
     const notable: PullRequestCheck[] = [];
@@ -359,7 +466,7 @@ function ChecksSection({ pr }: { pr: PullRequestDetails }) {
         continue;
       }
       notable.push(check);
-      if (outcome === "failure" || outcome === "warning") failing += 1;
+      if (outcome === "failure") failing += 1;
       if (outcome === "pending") pending += 1;
     }
     return { notable, passing, failing, pending };
@@ -381,11 +488,11 @@ function ChecksSection({ pr }: { pr: PullRequestDetails }) {
       <li key={`${check.name}-${check.startedAt}`} className="flex items-center gap-2 py-1 text-xs">
         <span className={cn("flex shrink-0 items-center", appearance.className)}>{appearance.icon}</span>
         {check.detailsUrl ? (
-          <a href={check.detailsUrl} target="_blank" rel="noopener noreferrer" className="truncate hover:underline">
+          <a href={check.detailsUrl} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate hover:underline">
             {check.name}
           </a>
         ) : (
-          <span className="truncate">{check.name}</span>
+          <span className="min-w-0 truncate">{check.name}</span>
         )}
         <span className={cn("ml-auto shrink-0", appearance.className)}>{appearance.label}</span>
       </li>
@@ -396,21 +503,34 @@ function ChecksSection({ pr }: { pr: PullRequestDetails }) {
     <div className="space-y-3 p-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border bg-muted/30 px-3 py-2 text-xs">
         {groups.failing > 0 && (
-          <span className="flex items-center gap-1 font-medium text-destructive">
+          <span className={cn("flex items-center gap-1 font-medium", toneText.danger)}>
             <XCircle className="size-3.5" />
             {groups.failing} failing
           </span>
         )}
         {groups.pending > 0 && (
-          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+          <span className={cn("flex items-center gap-1", toneText.running)}>
             <Loader2 className="size-3.5 animate-spin" />
             {groups.pending} running
           </span>
         )}
-        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+        <span className={cn("flex items-center gap-1", toneText.success)}>
           <CheckCircle2 className="size-3.5" />
           {groups.passing.length} passing
         </span>
+        {canSend && groups.failing > 0 && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="ml-auto h-6 gap-1 px-2 text-[11px]"
+            disabled={sending}
+            onClick={() => onSendFailing(failingChecks(pr.checks))}
+          >
+            {sending ? <Loader2 className="size-3 animate-spin" /> : <Send className="size-3" />}
+            Send failing checks to agent
+          </Button>
+        )}
       </div>
 
       {groups.notable.length > 0 && <ul className="divide-y divide-border/50">{groups.notable.map(renderCheck)}</ul>}
@@ -540,15 +660,18 @@ function LoopSection({
  */
 export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, prUrl }: RunPullRequestPanelProps) {
   const [pullRequests, setPullRequests] = useState<PullRequestDetails[] | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [sentAt, setSentAt] = useState<ReadonlyMap<string, number>>(new Map());
   const [sendingFixes, setSendingFixes] = useState(false);
+  const [sendingChecks, setSendingChecks] = useState(false);
   const [activeUrl, setActiveUrl] = useState<string | null>(null);
   const [section, setSection] = useState<PRSection>("review");
 
   const load = useCallback(async () => {
-    setLoading(true);
+    setRefreshing(true);
     try {
       const resp = await client.getAgentRunPullRequests({ namespace, name });
       setPullRequests(resp.pullRequests);
@@ -571,7 +694,8 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load pull requests");
     } finally {
-      setLoading(false);
+      setRefreshing(false);
+      setInitialLoading(false);
     }
   }, [namespace, name]);
 
@@ -607,6 +731,12 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
     try {
       await client.sendAgentRunMessage({ namespace, name, message });
       toast.success(`Sent ${count} review comment${count === 1 ? "" : "s"} to the agent`);
+      const at = Date.now();
+      setSentAt((prev) => {
+        const next = new Map(prev);
+        for (const key of selected) next.set(key, at);
+        return next;
+      });
       setSelected(new Set());
     } catch (err) {
       toast.error("Couldn't send review comments", {
@@ -622,17 +752,35 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
     return pullRequests.find((pr) => pr.url === activeUrl) ?? pullRequests[0];
   }, [pullRequests, activeUrl]);
 
+  const sendFailingChecks = useCallback(
+    async (checks: PullRequestCheck[]) => {
+      if (!active || checks.length === 0 || sendingChecks) return;
+      setSendingChecks(true);
+      try {
+        await client.sendAgentRunMessage({ namespace, name, message: buildFailingChecksMessage(active, checks) });
+        toast.success(`Sent ${checks.length} failing check${checks.length === 1 ? "" : "s"} to the agent`);
+      } catch (err) {
+        toast.error("Couldn't send failing checks", {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        setSendingChecks(false);
+      }
+    },
+    [active, sendingChecks, namespace, name],
+  );
+
   const refreshButton = (
     <Button
       type="button"
       variant="ghost"
       size="icon-sm"
       onClick={() => void load()}
-      disabled={loading}
+      disabled={refreshing}
       aria-label="Refresh pull requests"
       className="shrink-0 text-muted-foreground hover:text-foreground"
     >
-      {loading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+      {refreshing ? <Loader2 className="animate-spin" /> : <RefreshCw />}
     </Button>
   );
 
@@ -642,7 +790,7 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
   const prsUnavailable = pullRequests === null;
   const loadState = (
     <div className="flex flex-col items-center justify-center gap-1 px-6 py-14 text-center">
-      {error ? (
+      {error && !initialLoading ? (
         <>
           <AlertTriangle className="size-5 text-destructive" />
           <p className="text-sm font-medium text-foreground">Couldn't load pull requests</p>
@@ -681,12 +829,7 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
   }
 
   const unresolvedCount = active ? selectableReviewThreads(active).length : 0;
-  const failingChecks = active
-    ? active.checks.filter((check) => {
-        const outcome = checkOutcome(check);
-        return outcome === "failure" || outcome === "warning";
-      }).length
-    : 0;
+  const failingCount = active ? failingChecks(active.checks).length : 0;
   const sections: { id: PRSection; label: string; count?: number; alert?: boolean }[] = [];
   if (active) {
     sections.push(
@@ -694,8 +837,8 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
       {
         id: "checks",
         label: "Checks",
-        count: failingChecks > 0 ? failingChecks : active.checks.length,
-        alert: failingChecks > 0,
+        count: failingCount > 0 ? failingCount : active.checks.length,
+        alert: failingCount > 0,
       },
     );
   }
@@ -719,7 +862,7 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
       />
 
       {pullRequests !== null && pullRequests.length > 1 && (
-        <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2 py-1.5 [mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {pullRequests.map((pr) => {
             const isActive = active?.url === pr.url;
             const pending = selectableReviewThreads(pr).length;
@@ -749,7 +892,7 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
       {active && <PullRequestSubject pr={active} />}
 
       {error && !prsUnavailable && (
-        <p className="shrink-0 border-b bg-amber-500/5 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400" role="alert">
+        <p className={cn("shrink-0 border-b bg-tone-warning/5 px-3 py-1.5 text-xs", toneText.warning)} role="alert">
           Refresh failed: {error}
         </p>
       )}
@@ -768,12 +911,13 @@ export function RunPullRequestPanel({ namespace, name, canSend = false, prLoop, 
             </p>
           </div>
         ) : activeSection === "checks" ? (
-          <ChecksSection pr={active} />
+          <ChecksSection pr={active} canSend={canSend} sending={sendingChecks} onSendFailing={(checks) => void sendFailingChecks(checks)} />
         ) : (
           <ReviewSection
             pr={active}
             selectable={canSend}
             isSelected={(threadId) => selected.has(reviewThreadSelectionKey(active.url, threadId))}
+            sentAt={(threadId) => sentAt.get(reviewThreadSelectionKey(active.url, threadId))}
             onToggleThread={(threadId, checked) => toggleThreads(active.url, [threadId], checked)}
             onToggleAll={(threadIds, checked) => toggleThreads(active.url, threadIds, checked)}
           />

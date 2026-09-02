@@ -38,6 +38,30 @@ describe("WorkRowView", () => {
     expect(screen.getByText("shareResource")).toBeTruthy();
   });
 
+  it("renders rows without a detail body as non-interactive, unfocusable text", () => {
+    render(<WorkRowView use={entry({ tool: "read_file" })} />);
+
+    expect(screen.queryByRole("button")).toBeNull();
+    const row = screen.getByText(/read_file/).closest("[title]");
+    expect(row?.tagName).toBe("DIV");
+    expect(row?.hasAttribute("aria-expanded")).toBe(false);
+    expect(row?.hasAttribute("tabindex")).toBe(false);
+  });
+
+  it("exposes a real disclosure only when there is something to expand", () => {
+    render(<WorkRowView use={entry({ tool: "grep", inputRaw: JSON.stringify({ pattern: "x" }) })} />);
+
+    const button = screen.getByRole("button");
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    const panelId = button.getAttribute("aria-controls");
+    expect(panelId).toBeTruthy();
+    expect(document.getElementById(panelId!)?.hasAttribute("inert")).toBe(true);
+
+    fireEvent.click(button);
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById(panelId!)?.hasAttribute("inert")).toBe(false);
+  });
+
   it("shows the actual tool name as the row verb", () => {
     render(
       <div>

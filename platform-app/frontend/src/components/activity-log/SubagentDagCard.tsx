@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
-import { Check, ChevronDown, CornerDownRight, GitFork, Loader2 } from "lucide-react";
+import { Check, ChevronRight, CornerDownRight, GitFork, Maximize2 } from "lucide-react";
 
-import { buildLayout, isWaitingStatus, type LayoutDims } from "@/lib/subagentGraphLayout";
+import { AgentTypeChip } from "@/components/ui/agent-type-chip";
+import { LiveDot } from "@/components/ui/live-dot";
+import { assignOrdinals, buildLayout, isWaitingStatus, type LayoutDims } from "@/lib/subagentGraphLayout";
 import {
   formatDuration,
   formatTokens,
@@ -10,13 +12,14 @@ import {
   type ActivityGroup,
 } from "@/lib/activityGrouping";
 import { formatUsd } from "@/lib/activityLogFormat";
-import { getSubagentColor } from "@/lib/subagentColors";
 import { toneText } from "@/lib/status";
+import { cn } from "@/lib/utils";
 import {
   SubagentGraphSchema,
   SubagentGraphEdgeSchema,
   SubagentGraphNodeSchema,
 } from "@/rpc/platform/service_pb";
+import { Collapse } from "./Collapse";
 import { isLiveSubagentStatus, SubagentCard, SubagentStatusIcon, subagentLiveLine } from "./SubagentCards";
 
 type SubagentGroup = Extract<ActivityGroup, { kind: "subagent" }>;
@@ -70,10 +73,13 @@ function groupId(group: SubagentGroup, index: number): string {
 export function SubagentDagCard({
   groups,
   waves,
+  onOpenGraph,
 }: {
   groups: SubagentGroup[];
   /** Topological wave (dependency depth) per group, aligned with `groups`. */
   waves?: number[];
+  /** Jump to the full graph tab; the `#n` chips become links when provided. */
+  onOpenGraph?: () => void;
 }) {
   // The live DAG is pinned above the composer; transcript delegations stay
   // compact and provide a historical task roster on demand.
@@ -91,17 +97,6 @@ export function SubagentDagCard({
     for (const g of groups) {
       if (g.taskId) m.set(g.taskId, groupTitle(g));
     }
-    return m;
-  }, [groups]);
-
-  // Rows render in `groups` order, so the 1-based row index is the stable
-  // ordinal (#n) used to reference dependencies unambiguously — batch
-  // delegations often share a prompt prefix, making titles interchangeable.
-  const ordinalByTaskId = useMemo(() => {
-    const m = new Map<string, number>();
-    groups.forEach((g, i) => {
-      if (g.taskId) m.set(g.taskId, i + 1);
-    });
     return m;
   }, [groups]);
 
@@ -144,6 +139,18 @@ export function SubagentDagCard({
     return buildLayout(graph, MINI);
   }, [groups]);
 
+  // Ordinals (#n) come from the shared layout numbering so the dock, this
+  // card and the graph tab all mean the same task by "#3". Rows render in
+  // ordinal order; ids are task ids (or `idx-i` for tasks without one).
+  const ordinalById = useMemo(() => assignOrdinals(layout), [layout]);
+  const rowOrder = useMemo(
+    () =>
+      groups
+        .map((group, index) => ({ group, index, ordinal: ordinalById.get(groupId(group, index)) ?? index + 1 }))
+        .sort((a, b) => a.ordinal - b.ordinal),
+    [groups, ordinalById],
+  );
+
   const running = groups.filter(isGroupRunning).length;
   const waiting = groups.filter(isGroupWaiting).length;
   const failed = groups.filter((g) => g.subagentStatus === "failed").length;
@@ -175,7 +182,7 @@ export function SubagentDagCard({
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/30 cursor-pointer"
+        className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/30 cursor-pointer focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2"
       >
         <GitFork className="size-3.5 shrink-0 rotate-90 text-muted-foreground" />
         <span className="min-w-0 flex-1">
@@ -183,7 +190,7 @@ export function SubagentDagCard({
             <span className="font-medium text-foreground/90">Delegated {groups.length} tasks</span>
             {running > 0 && (
               <span className={`inline-flex items-center gap-1 ${toneText.running}`}>
-                <Loader2 className="size-3 animate-spin" />
+                <LiveDot tone="running" pulse size="xs" />
                 {running} running
               </span>
             )}
@@ -197,14 +204,18 @@ export function SubagentDagCard({
               <Check className={`size-3 ${toneText.success}`} aria-label="All tasks completed" />
             )}
             {summary.length > 0 && (
-              <span className="font-mono text-[10px] tabular-nums text-muted-foreground/60">
+              <span className="font-mono text-3xs tabular-nums text-muted-foreground/60">
                 {summary.join(" · ")}
               </span>
             )}
           </span>
         </span>
-        <ChevronDown
-          className={`size-3.5 shrink-0 text-muted-foreground/50 transition-transform ${open ? "rotate-180" : ""}`}
+        <ChevronRight
+          aria-hidden="true"
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground/50 transition-transform",
+            open && "rotate-90",
+          )}
         />
       </button>
 
@@ -224,39 +235,38 @@ export function SubagentDagCard({
         </div>
       )}
 
-      {open && (
-        <div className="border-t border-border/40">
-          <div className="max-h-72 overflow-y-auto p-1.5">
-            {groups.map((group, index) => {
-              const id = groupId(group, index);
-              const deps = groupDependsOn(group)
-                .filter((dep) => ordinalByTaskId.has(dep))
-                .map((dep) => ({
-                  ordinal: ordinalByTaskId.get(dep)!,
-                  title: titleByTaskId.get(dep) ?? dep,
-                }))
-                .sort((a, b) => a.ordinal - b.ordinal);
-              return (
-                <RosterRow
-                  key={id}
-                  group={group}
-                  ordinal={index + 1}
-                  wave={waveOf[index] ?? 0}
-                  deps={deps}
-                  selected={selectedId === id}
-                  onSelect={() => setSelectedId((cur) => (cur === id ? null : id))}
-                />
-              );
-            })}
-          </div>
-
-          {selected && (
-            <div className="border-t border-border/40 px-3 py-2.5">
-              <SubagentCard group={selected} />
-            </div>
-          )}
+      <Collapse open={open} className="border-t border-border/40">
+        <div className="max-h-72 overflow-y-auto p-1.5">
+          {rowOrder.map(({ group, index, ordinal }) => {
+            const id = groupId(group, index);
+            const deps = groupDependsOn(group)
+              .filter((dep) => ordinalById.has(dep))
+              .map((dep) => ({
+                ordinal: ordinalById.get(dep)!,
+                title: titleByTaskId.get(dep) ?? dep,
+              }))
+              .sort((a, b) => a.ordinal - b.ordinal);
+            return (
+              <RosterRow
+                key={id}
+                group={group}
+                ordinal={ordinal}
+                wave={waveOf[index] ?? 0}
+                deps={deps}
+                selected={selectedId === id}
+                onSelect={() => setSelectedId((cur) => (cur === id ? null : id))}
+                onOpenGraph={onOpenGraph}
+              />
+            );
+          })}
         </div>
-      )}
+
+        {selected && (
+          <div className="border-t border-border/40 px-3 py-2.5">
+            <SubagentCard group={selected} />
+          </div>
+        )}
+      </Collapse>
     </div>
   );
 }
@@ -268,6 +278,7 @@ function RosterRow({
   deps,
   selected,
   onSelect,
+  onOpenGraph,
 }: {
   group: SubagentGroup;
   ordinal: number;
@@ -275,8 +286,8 @@ function RosterRow({
   deps: Array<{ ordinal: number; title: string }>;
   selected: boolean;
   onSelect: () => void;
+  onOpenGraph?: () => void;
 }) {
-  const color = getSubagentColor(group.subagentType || undefined);
   const running = isGroupRunning(group);
   const waiting = isGroupWaiting(group);
   const stopped = isGroupStopped(group);
@@ -297,16 +308,17 @@ function RosterRow({
   if (group.totalTokens > 0n) metrics.push(`${formatTokens(group.totalTokens)} tok`);
   if (group.subagentCostKnown) metrics.push(formatUsd(group.subagentCostUsd));
 
+  const ordinalClass =
+    "shrink-0 font-mono text-3xs font-semibold tabular-nums text-muted-foreground/80";
+
   return (
-    <button
-      type="button"
+    <div
       data-testid="subagent-roster-row"
-      onClick={onSelect}
-      aria-pressed={selected}
       title={`#${ordinal} ${groupTitle(group)}`}
-      className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
-        selected ? "bg-muted/60" : "hover:bg-muted/40"
-      }`}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition-colors",
+        selected ? "bg-muted/60" : "hover:bg-muted/40",
+      )}
       style={wave > 0 ? { paddingLeft: `${8 + Math.min(wave, 4) * 16}px` } : undefined}
     >
       {wave > 0 && (
@@ -316,63 +328,80 @@ function RosterRow({
         />
       )}
       <SubagentStatusIcon status={group.subagentStatus} />
-      <span className="shrink-0 font-mono text-[10px] font-semibold tabular-nums text-muted-foreground/80">
-        #{ordinal}
-      </span>
-      {group.subagentType && (
-        <span
-          className={`inline-flex shrink-0 items-center rounded-[4px] border px-1 py-px text-[9.5px] font-semibold ${color.border} ${color.bg} ${color.text}`}
+      {onOpenGraph ? (
+        <button
+          type="button"
+          onClick={onOpenGraph}
+          aria-label={`Open task #${ordinal} in graph`}
+          title="Open in graph"
+          className={cn(
+            ordinalClass,
+            "inline-flex min-h-6 items-center gap-0.5 rounded-sm px-0.5 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2",
+          )}
         >
-          {group.subagentType}
-        </span>
+          #{ordinal}
+          <Maximize2 className="size-2.5" aria-hidden="true" />
+        </button>
+      ) : (
+        <span className={ordinalClass}>#{ordinal}</span>
       )}
-      <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/85">
-        {groupTitle(group)}
-        {liveLine && (
-          <span className="ml-1.5 text-[10px] text-muted-foreground/80">· {liveLine}</span>
-        )}
-        {deps.length > 0 && (
-          <span
-            className={`ml-1.5 font-mono text-[10px] tabular-nums ${
-              waiting ? toneText.warning : "text-muted-foreground/60"
-            }`}
-            title={`Runs after: ${deps.map((d) => `#${d.ordinal} ${d.title}`).join(" · ")}`}
-          >
-            · after {deps.map((d) => `#${d.ordinal}`).join(", ")}
+      {group.subagentType && <AgentTypeChip type={group.subagentType} className="shrink-0" />}
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={selected}
+        className="flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-sm text-left focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
+      >
+        <span className="min-w-0 flex-1 truncate text-2xs text-foreground/85">
+          {groupTitle(group)}
+          {liveLine && (
+            <span className="ml-1.5 text-3xs text-muted-foreground/80">· {liveLine}</span>
+          )}
+          {deps.length > 0 && (
+            <span
+              className={`ml-1.5 font-mono text-3xs tabular-nums ${
+                waiting ? toneText.warning : "text-muted-foreground/60"
+              }`}
+              title={`Runs after: ${deps.map((d) => `#${d.ordinal} ${d.title}`).join(" · ")}`}
+            >
+              · after {deps.map((d) => `#${d.ordinal}`).join(", ")}
+            </span>
+          )}
+        </span>
+        {metrics.length > 0 && (
+          <span className="hidden shrink-0 font-mono text-3xs tabular-nums text-muted-foreground/60 sm:inline">
+            {metrics.join(" · ")}
           </span>
         )}
-      </span>
-      {metrics.length > 0 && (
-        <span className="hidden shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/60 sm:inline">
-          {metrics.join(" · ")}
-        </span>
-      )}
-      {group.subagentModel && (
+        {group.subagentModel && (
+          <span
+            className="hidden max-w-28 shrink-0 truncate font-mono text-3xs text-muted-foreground/70 md:inline"
+            title={group.subagentModel}
+          >
+            {group.subagentModel}
+          </span>
+        )}
         <span
-          className="hidden max-w-28 shrink-0 truncate font-mono text-[10px] text-muted-foreground/70 md:inline"
-          title={group.subagentModel}
+          className={`min-w-14 shrink-0 text-right font-mono text-3xs tabular-nums ${
+            group.subagentStatus === "failed"
+              ? toneText.danger
+              : waiting || stopped
+                ? toneText.warning
+                : running
+                  ? toneText.running
+                  : "text-muted-foreground/70"
+          }`}
         >
-          {group.subagentModel}
+          {statusText}
         </span>
-      )}
-      <span
-        className={`min-w-14 shrink-0 text-right font-mono text-[10px] tabular-nums ${
-          group.subagentStatus === "failed"
-            ? toneText.danger
-            : waiting || stopped
-              ? toneText.warning
-              : running
-                ? toneText.running
-                : "text-muted-foreground/70"
-        }`}
-      >
-        {statusText}
-      </span>
-      <ChevronDown
-        className={`size-3 shrink-0 text-muted-foreground/40 transition-transform ${
-          selected ? "rotate-180" : ""
-        }`}
-      />
-    </button>
+        <ChevronRight
+          aria-hidden="true"
+          className={cn(
+            "size-3 shrink-0 text-muted-foreground/40 transition-transform",
+            selected && "rotate-90",
+          )}
+        />
+      </button>
+    </div>
   );
 }

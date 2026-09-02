@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { FileText, Loader2 } from "lucide-react";
+import { MotionConfig } from "framer-motion";
 
 import { UnifiedDiffViewer } from "@/components/diff/UnifiedDiffViewer";
 import { DiffRepoSelector } from "@/components/diff/DiffRepoSelector";
@@ -35,12 +36,14 @@ import { AgentRunMessageMode, type ChatMessage } from "@/rpc/platform/service_pb
 import { RunSessionFooter } from "@/components/run-session/RunSessionFooter";
 import { RunHeader } from "@/components/run-session/RunHeader";
 import {
+  inspectorShortcut,
   isInspectorTab,
   RunInspector,
   useSplitViewport,
   type InspectorTab,
   type InspectorTabDef,
 } from "@/components/run-session/RunInspector";
+import { RunContextContent } from "@/components/run-session/RunContextSheet";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { RunSessionTracePane } from "@/components/run-session/RunSessionTracePane";
 import { RunSessionErrorsPane } from "@/components/run-session/RunSessionErrorsPane";
@@ -58,6 +61,34 @@ import { ActiveSubagentsDock } from "@/components/run-session/ActiveSubagentsDoc
 import { messageForQuickAction } from "@/components/quickActions";
 
 const runnableSandboxPhases = new Set(["Running", "Question", "Blocked", "WaitingApproval"]);
+
+const INSPECTOR_LAYOUT_KEY = "gratefulagents.inspectorLayout";
+type InspectorLayout = { chat: number; inspector: number };
+
+function readInspectorLayout(): InspectorLayout | undefined {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(INSPECTOR_LAYOUT_KEY) ?? "");
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as InspectorLayout).chat === "number" &&
+      typeof (parsed as InspectorLayout).inspector === "number"
+    ) {
+      return parsed as InspectorLayout;
+    }
+  } catch {
+    // Ignore storage read / parse failures.
+  }
+  return undefined;
+}
+
+function writeInspectorLayout(layout: Record<string, number>) {
+  try {
+    localStorage.setItem(INSPECTOR_LAYOUT_KEY, JSON.stringify(layout));
+  } catch {
+    // Ignore quota / storage failures.
+  }
+}
 
 function hasRunnableSandbox(phase: string, sandboxRef?: string): boolean {
   return runnableSandboxPhases.has(phase) && Boolean(sandboxRef?.trim());
@@ -185,6 +216,10 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     setInspectorTab(tab);
     setInspectorOpen(true);
   }, []);
+  // Panes that hold view state (graph zoom, diff scroll) mount on first visit
+  // and then stay mounted, hidden, so switching tabs never resets them.
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<InspectorTab>>(() => new Set());
+  const [inspectorLayout] = useState(readInspectorLayout);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [firstItemIndex, setFirstItemIndex] = useState(FIRST_ITEM_INDEX_BASE);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -229,12 +264,30 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
       "logs",
       "errors",
       ...(run?.traceId ? (["trace"] as const) : []),
+      "context",
     ],
     [hasPullRequestTab, run?.traceId],
   );
   const activeInspectorTab: InspectorTab = availableInspectorTabs.includes(inspectorTab)
     ? inspectorTab
     : "diff";
+  if (inspectorOpen && !visitedTabs.has(activeInspectorTab)) {
+    setVisitedTabs(new Set(visitedTabs).add(activeInspectorTab));
+  }
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const shortcut = inspectorShortcut(event, availableInspectorTabs);
+      if (!shortcut) return;
+      event.preventDefault();
+      if (shortcut.type === "toggle") {
+        setInspectorOpen((open) => !open);
+      } else {
+        openInspector(shortcut.tab);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [availableInspectorTabs, openInspector]);
   // Each secondary stream only runs while its inspector tab is on screen; the
   // hooks keep the last payload cached across tab switches.
   const paneLive = useCallback(
@@ -579,9 +632,11 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   const showPlanningBanner = inPlanMode && !hasPlan;
   // Decorate the resolved tab list; availability itself is settled above so
   // the pane streams and the nav can never disagree.
+  const errorCount = runErrors.errors.length;
   const inspectorTabs: InspectorTabDef[] = availableInspectorTabs.map((id) =>
-    id === "diff" ? { id, dot: hasDiff } : { id },
+    id === "diff" ? { id, dot: hasDiff } : id === "errors" ? { id, count: errorCount } : { id },
   );
+  const inspectorAttention = phase === "Failed" || errorCount > 0;
   const failedGates = Boolean(
     run.gateResults?.length && run.gateResults.some((gate) => !gate.passed && !gate.skipped),
   );
@@ -1138,16 +1193,24 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
             </div>
   );
 
-  const inspectorPane = (
+  const persistentPanes = (
     <>
-          {activeInspectorTab === "graph" && (
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+          {visitedTabs.has("graph") && (
+            <div
+              hidden={activeInspectorTab !== "graph"}
+              aria-hidden={activeInspectorTab !== "graph"}
+              className="flex-1 min-h-0 min-w-0 overflow-hidden"
+            >
               <SubagentGraphView graph={subagentGraph} entries={activityEntries} />
             </div>
           )}
 
-          {activeInspectorTab === "diff" && (
-            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden p-2 md:p-4">
+          {visitedTabs.has("diff") && (
+            <div
+              hidden={activeInspectorTab !== "diff"}
+              aria-hidden={activeInspectorTab !== "diff"}
+              className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
+            >
               <UnifiedDiffViewer
                 diff={diffState.diff}
                 loading={diffState.loading}
@@ -1178,7 +1241,12 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
               />
             </div>
           )}
+    </>
+  );
 
+  const inspectorPane =
+    activeInspectorTab === "graph" || activeInspectorTab === "diff" ? null : (
+    <>
           {activeInspectorTab === "pr" && (
             <RunPullRequestPanel
               namespace={namespace}
@@ -1221,11 +1289,24 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
               usageError={usageError}
             />
           )}
+
+          {activeInspectorTab === "context" && (
+            <RunContextContent
+              namespace={namespace}
+              name={name}
+              run={run}
+              showRepositories={isActive}
+              canClone={!isViewer}
+              sandboxReady={sandboxReady}
+              startupMessage={sandboxStartupMessage(run.sandboxRef)}
+            />
+          )}
     </>
   );
 
   return (
     <ActivityDetailProvider value={fetchActivityEntryDetail}>
+    <MotionConfig reducedMotion="user">
     <div className="flex h-full gap-px overflow-hidden bg-muted/30">
       {confirmDialog && (
         <ConfirmDialog
@@ -1283,11 +1364,15 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
           onRename={handleRename}
           inspectorOpen={inspectorOpen}
           onToggleInspector={() => setInspectorOpen((open) => !open)}
-          inspectorAttention={phase === "Failed"}
+          inspectorAttention={inspectorAttention}
         />
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {splitViewport && inspectorOpen ? (
-            <ResizablePanelGroup orientation="horizontal">
+            <ResizablePanelGroup
+              orientation="horizontal"
+              defaultLayout={inspectorLayout}
+              onLayoutChanged={writeInspectorLayout}
+            >
               <ResizablePanel id="chat" defaultSize="60%" minSize="35%">
                 {chatColumn}
               </ResizablePanel>
@@ -1300,6 +1385,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
                   tabs={inspectorTabs}
                   activeTab={activeInspectorTab}
                   onTabChange={setInspectorTab}
+                  persistent={persistentPanes}
                 >
                   {inspectorPane}
                 </RunInspector>
@@ -1318,6 +1404,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
               tabs={inspectorTabs}
               activeTab={activeInspectorTab}
               onTabChange={setInspectorTab}
+              persistent={persistentPanes}
             >
               {inspectorPane}
             </RunInspector>
@@ -1325,6 +1412,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
         </div>
       </div>
     </div>
+    </MotionConfig>
     </ActivityDetailProvider>
   );
 }

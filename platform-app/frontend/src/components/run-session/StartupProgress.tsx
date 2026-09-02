@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 
+import { LiveDot } from "@/components/ui/live-dot";
 import { normalizeRunStep } from "@/lib/runStatus";
 import { cn } from "@/lib/utils";
 import type { AgentRun, ChatMessage } from "@/rpc/platform/service_pb";
@@ -83,7 +84,7 @@ export function formatStartupElapsed(seconds: number): string {
 
 function StageIcon({ status }: { status: StartupStageStatus }) {
   if (status === "complete") {
-    return <Check aria-hidden className="size-3.5 text-[color:var(--tone-success-fg)]" />;
+    return <Check aria-hidden className="size-3.5 text-tone-success-fg" />;
   }
   if (status === "active") {
     return <Loader2 aria-hidden className="size-3.5 animate-spin text-primary" />;
@@ -120,9 +121,12 @@ export function StartupProgress({
   return (
     <div className="rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium text-foreground">Starting up</p>
+        <p className="flex items-center gap-2 text-xs font-medium text-foreground">
+          <LiveDot tone="running" pulse size="xs" />
+          Starting up
+        </p>
         {elapsedSeconds !== null && (
-          <span className="text-xs tabular-nums text-muted-foreground">
+          <span className="text-2xs tabular-nums text-muted-foreground">
             {formatStartupElapsed(elapsedSeconds)}
           </span>
         )}
@@ -132,7 +136,7 @@ export function StartupProgress({
           <li
             key={stage.id}
             aria-current={stage.status === "active" ? "step" : undefined}
-            className="flex items-center gap-2 text-xs"
+            className="flex items-center gap-2 text-2xs"
           >
             <StageIcon status={stage.status} />
             <span

@@ -28,3 +28,19 @@ if (typeof globalThis.localStorage?.getItem !== "function") {
     value: storage,
   });
 }
+
+// jsdom has no ResizeObserver. Layout-aware components (inspector tab strip,
+// sub-agent graph, trace waterfall) observe their containers; a no-op observer
+// lets them mount and lets tests drive size via mocked clientWidth instead.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  class NoopResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    writable: true,
+    value: NoopResizeObserver,
+  });
+}

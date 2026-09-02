@@ -4,7 +4,7 @@ import { create } from "@bufbuild/protobuf";
 
 import { client } from "@/lib/client";
 import { AgentRunSchema } from "@/rpc/platform/service_pb";
-import { RunContextSheet } from "./RunContextSheet";
+import { RunContextContent, RunContextSheet } from "./RunContextSheet";
 
 vi.mock("@/lib/client", () => ({
   client: {
@@ -83,5 +83,24 @@ describe("RunContextSheet", () => {
     expect(screen.getByText(run.modeInstructions)).toBeTruthy();
     expect(await screen.findByText("operator-app")).toBeTruthy();
     expect(screen.getByText("primary")).toBeTruthy();
+  });
+
+  it("renders the same body inline for the inspector's Context tab", () => {
+    listRepositories.mockResolvedValue({ repositories: [] });
+    render(
+      <RunContextContent
+        namespace="demo"
+        name="run-ui-polish"
+        run={run}
+        showRepositories={false}
+        canClone={false}
+        sandboxReady
+        startupMessage=""
+      />,
+    );
+
+    expect(screen.queryByText("Run context")).toBeNull();
+    expect(screen.getByText(run.modeInstructions)).toBeTruthy();
+    expect(listRepositories).not.toHaveBeenCalled();
   });
 });

@@ -58,4 +58,28 @@ describe("PlanApprovalPanel", () => {
 
     expect((screen.getByRole("button", { name: "Approve & continue" }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("focuses the approve button on mount only when nothing else is focused", () => {
+    renderPanel();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Approve & continue" }));
+    cleanup();
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    renderPanel();
+    expect(document.activeElement).toBe(input);
+    input.remove();
+  });
+
+  it("renders a request-changes action only when a handler is provided", () => {
+    const onRequestChanges = vi.fn();
+    renderPanel({ onRequestChanges });
+    fireEvent.click(screen.getByRole("button", { name: "Request changes" }));
+    expect(onRequestChanges).toHaveBeenCalledTimes(1);
+    cleanup();
+
+    renderPanel();
+    expect(screen.queryByRole("button", { name: "Request changes" })).toBeNull();
+  });
 });

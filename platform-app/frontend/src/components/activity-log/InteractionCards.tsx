@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Check, ChevronDown, CornerDownRight, FileText, Layers, MessageCircleQuestion, Sparkles } from "lucide-react";
+import { Check, ChevronRight, CornerDownRight, FileText, Layers, MessageCircleQuestion, Sparkles } from "lucide-react";
 
+import { Collapse } from "./Collapse";
 import { MarkdownViewer } from "@/components/MarkdownViewer";
 import { renderPlanDialogButton } from "@/components/run-session/helpers";
 import { Button } from "@/components/ui/button";
 import { extractUserAnswer, firstLine, formatClock, formatUsd, formatWall, isCostKnown, parsePlan, parseQuestion, wallSeconds } from "@/lib/activityLogFormat";
 import { formatDuration, formatTokens } from "@/lib/activityGrouping";
+import { toneText } from "@/lib/status";
 import type { ActivityEntry } from "@/rpc/platform/service_pb";
 
 export function QuestionCard({
@@ -132,11 +134,12 @@ export function ReasoningCard({ entries }: { entries: ActivityEntry[] }) {
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         title={formatClock(entries[0].timestampUnix)}
-        className="group flex w-full items-center gap-1.5 py-0.5 text-left cursor-pointer"
+        className="group flex w-full items-center gap-1.5 rounded-sm py-0.5 text-left cursor-pointer focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
       >
-        <ChevronDown
+        <ChevronRight
+          aria-hidden="true"
           className={`size-3 shrink-0 text-muted-foreground/40 transition-transform group-hover:text-muted-foreground ${
-            open ? "" : "-rotate-90"
+            open ? "rotate-90" : ""
           }`}
         />
         <span className="shrink-0 text-xs italic text-muted-foreground/70 transition-colors group-hover:text-muted-foreground">
@@ -148,11 +151,9 @@ export function ReasoningCard({ entries }: { entries: ActivityEntry[] }) {
           </span>
         )}
       </button>
-      {open && (
-        <div className="mt-1 border-l-2 border-border/50 pl-3 text-sm leading-relaxed opacity-65">
-          <MarkdownViewer content={text} />
-        </div>
-      )}
+      <Collapse open={open} className="mt-1 border-l-2 border-border/50 pl-3 text-sm leading-relaxed opacity-65">
+        <MarkdownViewer content={text} />
+      </Collapse>
     </div>
   );
 }
@@ -167,8 +168,8 @@ export function PhaseDivider({ entry }: { entry: ActivityEntry }) {
       title={formatClock(entry.timestampUnix)}
     >
       <div className="h-px flex-1 bg-border/70" />
-      <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-        <Layers className="size-3 text-cyan-500/80" />
+      <span className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <Layers className={`size-3 ${toneText.info}`} />
         {label}
       </span>
       <div className="h-px flex-1 bg-border/70" />
@@ -192,7 +193,7 @@ export function MetaLine({ entry }: { entry: ActivityEntry }) {
       title={formatClock(entry.timestampUnix)}
     >
       <Sparkles className="size-3 text-muted-foreground/50" />
-      <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+      <span className="font-mono text-2xs tabular-nums text-muted-foreground">
         {parts.join(" · ")}
       </span>
     </div>

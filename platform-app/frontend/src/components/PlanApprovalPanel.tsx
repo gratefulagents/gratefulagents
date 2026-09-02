@@ -8,6 +8,8 @@ type PlanApprovalPanelProps = {
   planContent: string;
   disabled?: boolean;
   onSendMessage: (message: string) => void | Promise<void>;
+  /** When provided, renders a secondary "Request changes" action (e.g. to focus the composer). */
+  onRequestChanges?: () => void;
 };
 
 // Compact inline bar shown while a run has a plan ready for approval. The plan
@@ -17,11 +19,15 @@ export function PlanApprovalPanel({
   planContent,
   disabled = false,
   onSendMessage,
+  onRequestChanges,
 }: PlanApprovalPanelProps) {
   const approveButtonRef = useRef<HTMLButtonElement>(null);
 
+  // Only steal focus when nothing else has it — never yank it out of the composer.
   useEffect(() => {
-    approveButtonRef.current?.focus();
+    if (document.activeElement === document.body) {
+      approveButtonRef.current?.focus({ preventScroll: true });
+    }
   }, []);
 
   return (
@@ -40,6 +46,11 @@ export function PlanApprovalPanel({
               </Button>,
             )
           : null}
+        {onRequestChanges && (
+          <Button type="button" variant="outline" size="sm" onClick={onRequestChanges} disabled={disabled}>
+            Request changes
+          </Button>
+        )}
         <Button
           ref={approveButtonRef}
           type="button"
