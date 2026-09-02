@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 
-import { PendingMessages } from "./PendingMessages";
+import { OUTBOUND_MESSAGE_TTL_MS, PendingMessages, settleOutboundMessages, type OutboundMessage } from "./PendingMessages";
 import { ChatMessageSchema } from "@/rpc/platform/service_pb";
 
 afterEach(() => {
@@ -134,5 +134,40 @@ describe("PendingMessages", () => {
     expect(screen.getByText("Delivery unconfirmed — run ended")).toBeTruthy();
     expect(screen.getByText("too late")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("renders locally sent messages as Sending… without row actions", () => {
+    const outbound: OutboundMessage[] = [
+      { clientMessageId: "c1", content: "on its way", imageCount: 0, sentAt: 0 },
+      { clientMessageId: "c2", content: "", imageCount: 2, sentAt: 0 },
+    ];
+
+    render(<PendingMessages messages={[]} outbound={outbound} onCancel={vi.fn()} onEdit={vi.fn()} />);
+
+    expect(screen.getAllByText("Sending…")).toHaveLength(2);
+    expect(screen.getByText("on its way")).toBeTruthy();
+    expect(screen.getByText("2 image attachments")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+});
+
+describe("settleOutboundMessages", () => {
+  const sent: OutboundMessage = { clientMessageId: "c1", content: "hi", imageCount: 0, sentAt: 1_000, messageId: 7n };
+  const unacked: OutboundMessage = { clientMessageId: "c2", content: "yo", imageCount: 0, sentAt: 1_000 };
+
+  it("drops rows once the conversation carries their server message id", () => {
+    const echoed = create(ChatMessageSchema, { id: 7n, role: "user", content: "hi", pending: true });
+    expect(settleOutboundMessages([sent, unacked], [echoed])).toEqual([unacked]);
+  });
+
+  it("returns the same array when nothing settled", () => {
+    const outbound = [sent, unacked];
+    expect(settleOutboundMessages(outbound, [])).toBe(outbound);
+    expect(settleOutboundMessages(outbound, [], 1_000 + OUTBOUND_MESSAGE_TTL_MS - 1)).toBe(outbound);
+  });
+
+  it("expires rows past the TTL only when a clock is supplied", () => {
+    expect(settleOutboundMessages([sent, unacked], [], 1_000 + OUTBOUND_MESSAGE_TTL_MS)).toEqual([]);
+    expect(settleOutboundMessages([sent, unacked], [])).toEqual([sent, unacked]);
   });
 });

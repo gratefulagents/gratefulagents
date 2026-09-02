@@ -18,6 +18,19 @@ import (
 // session for a user stop request while a turn is in flight.
 const turnInterruptPollInterval = time.Second
 
+// turnInterruptMinPollGap bounds how often push wake-ups may trigger a
+// ConsumeInterrupt query. Every session UPDATE (metrics, activity, working
+// state — many of them this pod's own writes) fans out as a wake-up; without
+// the gap a chatty turn turns the watcher into a tight query loop. Wake-ups
+// arriving inside the gap collapse into one poll at its end, so a stop is
+// still honored within the gap plus one query.
+const turnInterruptMinPollGap = 250 * time.Millisecond
+
+// turnInterruptPollTimeout bounds one ConsumeInterrupt query so a stalled
+// store connection cannot wedge the watcher (and with it the user's ability
+// to stop the turn) indefinitely.
+const turnInterruptPollTimeout = 5 * time.Second
+
 // crdInterruptFallbackInterval is the minimum time between checks of the CRD
 // fallback interrupt annotation. The annotation is the degraded-mode channel
 // for a session-store outage, so it is checked at a fraction of the primary
@@ -55,13 +68,31 @@ func startTurnInterruptWatcher(
 		// Start the CRD-fallback clock now so the degraded-mode channel keeps
 		// its fraction-of-the-primary-rate pacing from the first iteration.
 		lastCRDCheck := time.Now()
+		var lastPoll time.Time
 		for {
+			// Debounce: a burst of wake-ups yields a single poll once the gap
+			// has elapsed. The ticker is unaffected (it fires at 1s ≫ gap).
+			if wait := interruptPollDelay(lastPoll, time.Now()); wait > 0 {
+				timer := time.NewTimer(wait)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-w.stop:
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+			}
 			// Subscribe before the consume check so a stop landing in between
 			// still wakes the next iteration instantly. With a push-capable
 			// store (Postgres LISTEN/NOTIFY) interrupts cancel the turn within
 			// milliseconds; the 1s ticker remains the correctness backstop.
 			wake := sc.SubscribeSessionEvents()
-			req, err := sc.ConsumeInterrupt(ctx)
+			lastPoll = time.Now()
+			pollCtx, cancelPoll := context.WithTimeout(ctx, turnInterruptPollTimeout)
+			req, err := sc.ConsumeInterrupt(pollCtx)
+			cancelPoll()
 			if err != nil {
 				log.Printf("WARN: interrupt watcher poll failed: %v", err)
 			} else if req != nil {
@@ -100,6 +131,19 @@ func startTurnInterruptWatcher(
 	return w
 }
 
+// interruptPollDelay is how long the watcher must still wait before its next
+// ConsumeInterrupt query so consecutive polls are at least
+// turnInterruptMinPollGap apart. Zero when no poll has happened yet.
+func interruptPollDelay(lastPoll, now time.Time) time.Duration {
+	if lastPoll.IsZero() {
+		return 0
+	}
+	if wait := turnInterruptMinPollGap - now.Sub(lastPoll); wait > 0 {
+		return wait
+	}
+	return 0
+}
+
 // consumeCRDInterrupt claims a pending interrupt annotation on the AgentRun:
 // it returns the recorded request time and deletes the annotation so the
 // request is honored exactly once. Annotation removal is the runner's
@@ -127,35 +171,35 @@ func consumeCRDInterrupt(ctx context.Context, c client.Client, runName, namespac
 }
 
 // drainCRDInterruptThrough consumes a pending CRD interrupt annotation not
-// newer than cutoff and reports whether one was claimed. It mirrors the
-// session channel's DrainInterruptsThrough: a request newer than cutoff is
-// left pending for the in-turn watcher.
-func drainCRDInterruptThrough(ctx context.Context, c client.Client, runName, namespace string, cutoff time.Time) bool {
+// newer than cutoff and returns its request time when one was claimed. It
+// mirrors the session channel's DrainInterruptsThrough: a request newer than
+// cutoff is left pending for the in-turn watcher.
+func drainCRDInterruptThrough(ctx context.Context, c client.Client, runName, namespace string, cutoff time.Time) (time.Time, bool) {
 	if c == nil {
-		return false
+		return time.Time{}, false
 	}
 	run := getAgentRun(ctx, c, runName, namespace)
 	if run == nil {
-		return false
+		return time.Time{}, false
 	}
 	raw, ok := run.Annotations[platformv1alpha1.InterruptRequestedAnnotation]
 	if !ok {
-		return false
+		return time.Time{}, false
 	}
 	requestedAt := time.Now().UTC()
 	if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
 		requestedAt = parsed
 	}
 	if requestedAt.After(cutoff) {
-		return false
+		return time.Time{}, false
 	}
 	if err := patchAgentRunSpec(ctx, c, runName, namespace, func(fresh *platformv1alpha1.AgentRun) {
 		delete(fresh.Annotations, platformv1alpha1.InterruptRequestedAnnotation)
 	}); err != nil {
 		log.Printf("WARN: failed to consume CRD interrupt annotation: %v", err)
-		return false
+		return time.Time{}, false
 	}
-	return true
+	return requestedAt, true
 }
 
 // Finish stops the watcher, waits for it to exit, and reports whether it
@@ -167,8 +211,12 @@ func (w *turnInterruptWatcher) Finish() bool {
 }
 
 // interruptAppliesToMessage reports whether a durable stop request targets
-// this message. A newer user message is an explicit resume and makes an older
-// idle-gap stop stale.
+// this message: a stop requested at or after the message was sent means
+// "stop before starting this turn". A newer user message is an explicit
+// resume and makes an older idle-gap stop stale. Callers drain the pending
+// stops through now (not through the message time) and then decide here —
+// draining only through the message time would consume exactly the stale
+// stops and leave the applicable ones pending.
 func interruptAppliesToMessage(req *sessionclient.InterruptRequest, messageCreatedAt time.Time) bool {
 	if req == nil {
 		return false

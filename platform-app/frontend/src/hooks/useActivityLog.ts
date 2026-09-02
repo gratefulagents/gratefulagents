@@ -9,6 +9,57 @@ import type { ActivityEntry, SubagentGraph } from "@/rpc/platform/service_pb";
 
 export const ACTIVITY_PAYLOAD_PREVIEW_BYTES = 2048;
 export const ACTIVITY_PAGE_LIMIT = 1000;
+/** A stream that has not produced a frame for this long when the page
+ * returns to the foreground is reopened rather than trusted. */
+export const STREAM_RESUME_IDLE_MS = 5_000;
+
+/**
+ * A cancellable retry delay. `cancel()` clears the pending timer and resolves
+ * the waiter so the owning loop wakes up and re-checks its exit conditions.
+ */
+export function createRetryWaiter(): { wait(ms: number): Promise<void>; cancel(): void } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let resolvePending: (() => void) | null = null;
+  return {
+    wait(ms: number): Promise<void> {
+      return new Promise((resolve) => {
+        resolvePending = resolve;
+        timer = setTimeout(() => {
+          timer = null;
+          resolvePending = null;
+          resolve();
+        }, ms);
+      });
+    },
+    cancel(): void {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      resolvePending?.();
+      resolvePending = null;
+    },
+  };
+}
+
+/**
+ * Calls `onResume` when the document becomes visible while `isIdle()` reports
+ * the stream has been silent for too long (a connection left open across a
+ * background suspension is often dead without ever erroring). Returns the
+ * uninstaller.
+ */
+export function installVisibilityResume(isIdle: () => boolean, onResume: () => void): () => void {
+  if (typeof document === "undefined") {
+    return () => {};
+  }
+  const handler = (): void => {
+    if (document.visibilityState === "visible" && isIdle()) {
+      onResume();
+    }
+  };
+  document.addEventListener("visibilitychange", handler);
+  return () => document.removeEventListener("visibilitychange", handler);
+}
 
 type ActivityLogFrame = {
   entries: ActivityEntry[];
@@ -98,27 +149,17 @@ export function useActivityLog(
 
     let isCancelled = false;
     let activeController: AbortController | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryAttempt = 0;
+    let generation = 0;
+    let lastFrameAt = Date.now();
+    const retry = createRetryWaiter();
     const shouldReset = previousBoundaryRef.current !== resetKey;
     let latestIsComplete = shouldReset ? false : isCompleteRef.current;
 
     previousBoundaryRef.current = resetKey;
 
-    function clearRetryTimer(): void {
-      if (retryTimer !== null) {
-        clearTimeout(retryTimer);
-        retryTimer = null;
-      }
-    }
-
     function waitForRetry(): Promise<void> {
-      return new Promise((resolve) => {
-        retryTimer = setTimeout(() => {
-          retryTimer = null;
-          resolve();
-        }, backoffDelayMs(retryAttempt++));
-      });
+      return retry.wait(backoffDelayMs(retryAttempt++));
     }
 
     function commitEntries(next: ActivityEntry[]): void {
@@ -203,6 +244,7 @@ export function useActivityLog(
       }
 
       retryAttempt = 0;
+      lastFrameAt = Date.now();
       latestIsComplete = frame.isComplete;
       isCompleteRef.current = frame.isComplete;
       if (frame.delta) {
@@ -231,8 +273,8 @@ export function useActivityLog(
       }
     }
 
-    async function run(): Promise<void> {
-      while (!isCancelled) {
+    async function run(myGeneration: number): Promise<void> {
+      while (!isCancelled && myGeneration === generation) {
         let sawFrame = false;
         const controller = new AbortController();
         activeController = controller;
@@ -247,6 +289,9 @@ export function useActivityLog(
             sinceEventId: entriesRef.current.length > 0 ? lastEventIdRef.current : 0n,
           };
           for await (const update of client.watchActivityLog(request, { signal: controller.signal })) {
+            if (myGeneration !== generation) {
+              return;
+            }
             sawFrame = true;
             applyResponse(update);
             if (update.isComplete) {
@@ -288,13 +333,29 @@ export function useActivityLog(
           }
         }
 
-        if (latestIsComplete || isCancelled) {
+        if (latestIsComplete || isCancelled || myGeneration !== generation) {
           return;
         }
 
         await waitForRetry();
       }
     }
+
+    const removeVisibilityResume = installVisibilityResume(
+      () => Date.now() - lastFrameAt > STREAM_RESUME_IDLE_MS,
+      () => {
+        if (isCancelled || latestIsComplete) {
+          return;
+        }
+        const next = ++generation;
+        activeController?.abort();
+        activeController = null;
+        retry.cancel();
+        retryAttempt = 0;
+        lastFrameAt = Date.now();
+        void run(next);
+      },
+    );
 
     if (shouldReset) {
       entriesRef.current = [];
@@ -310,11 +371,12 @@ export function useActivityLog(
     setLoading(true);
     setError(null);
 
-    void run();
+    void run(generation);
 
     return () => {
       isCancelled = true;
-      clearRetryTimer();
+      retry.cancel();
+      removeVisibilityResume();
       activeController?.abort();
     };
   }, [namespace, name, boundaryKey, resetKey, enabled]);

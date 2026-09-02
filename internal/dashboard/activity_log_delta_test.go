@@ -403,3 +403,126 @@ func TestSubagentGraphFingerprintTracksProgressFields(t *testing.T) {
 		t.Fatal("root entry_count growth alone must not change the fingerprint")
 	}
 }
+
+// overlappingDeltaStore returns every stored event from GetActivityEventsSince
+// regardless of the cursor, simulating a store whose delta overlaps the
+// memoized history. The memo must skip events it already holds.
+type overlappingDeltaStore struct {
+	*mockStateStore
+}
+
+func (s *overlappingDeltaStore) GetActivityEventsSince(_ context.Context, sessionID uuid.UUID, _ int64) ([]store.ActivityEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]store.ActivityEvent(nil), s.allActivityBySession[sessionID]...), nil
+}
+
+func TestActivityMemoCursorIsMaxIDAndDeltaMergeSkipsKnownEvents(t *testing.T) {
+	// Loaded out of ID order: the memo cursor must be the max ID (3), not
+	// the last row's ID (2).
+	srv, ms, sessID := newActivityLogTestServer(t, "run-memo", []store.ActivityEvent{
+		toolResultEvent(3, "t3", "in3", "out3"),
+		toolResultEvent(1, "t1", "in1", "out1"),
+		toolResultEvent(2, "t2", "in2", "out2"),
+	})
+	srv.stateStore = &overlappingDeltaStore{mockStateStore: ms}
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "run-memo", Namespace: "default"},
+		Status:     platformv1alpha1.AgentRunStatus{Phase: platformv1alpha1.AgentRunPhaseRunning},
+	}
+
+	resp, source := srv.getAgentRunActivityLogSourced(context.Background(), run)
+	if source != activityLogSourcePostgres || len(resp.Entries) != 3 {
+		t.Fatalf("initial load: source=%v entries=%d, want postgres/3", source, len(resp.Entries))
+	}
+	srv.activityMemoMu.Lock()
+	memo := srv.activityMemo["default/run-memo"]
+	srv.activityMemoMu.Unlock()
+	if memo == nil || memo.lastEventID != 3 {
+		t.Fatalf("memo lastEventID = %v, want 3 (max ID, not last row)", memo)
+	}
+	wantBytes := 0
+	for _, ev := range ms.allActivityBySession[sessID] {
+		wantBytes += len(ev.Summary) + len(ev.Detail)
+	}
+	if memo.approxBytes != wantBytes {
+		t.Fatalf("memo approxBytes = %d, want %d", memo.approxBytes, wantBytes)
+	}
+
+	// A new event arrives; the (overlapping) delta re-delivers 1..3 too.
+	setMockActivity(ms, sessID, []store.ActivityEvent{
+		toolResultEvent(3, "t3", "in3", "out3"),
+		toolResultEvent(1, "t1", "in1", "out1"),
+		toolResultEvent(2, "t2", "in2", "out2"),
+		toolResultEvent(4, "t4", "in4", "out4"),
+	})
+	srv.probes.reset()
+	resp, _ = srv.getAgentRunActivityLogSourced(context.Background(), run)
+	if len(resp.Entries) != 4 {
+		t.Fatalf("merged entries = %d, want 4 (duplicates skipped)", len(resp.Entries))
+	}
+	seen := map[int64]bool{}
+	for _, e := range resp.Entries {
+		if seen[e.EventId] {
+			t.Fatalf("event %d appears twice after delta merge", e.EventId)
+		}
+		seen[e.EventId] = true
+	}
+	srv.activityMemoMu.Lock()
+	memo = srv.activityMemo["default/run-memo"]
+	srv.activityMemoMu.Unlock()
+	if memo.lastEventID != 4 {
+		t.Fatalf("memo lastEventID after delta = %d, want 4", memo.lastEventID)
+	}
+}
+
+func TestStoreActivityMemoBoundsByBytesAndCount(t *testing.T) {
+	srv := &Server{}
+	big := activityMemoMaxBytes / 2
+	srv.storeActivityMemo("a", &activityMemoEntry{approxBytes: big})
+	time.Sleep(time.Millisecond)
+	srv.storeActivityMemo("b", &activityMemoEntry{approxBytes: big})
+	time.Sleep(time.Millisecond)
+	srv.storeActivityMemo("c", &activityMemoEntry{approxBytes: big})
+
+	srv.activityMemoMu.Lock()
+	_, hasA := srv.activityMemo["a"]
+	_, hasB := srv.activityMemo["b"]
+	_, hasC := srv.activityMemo["c"]
+	n := len(srv.activityMemo)
+	srv.activityMemoMu.Unlock()
+	if hasA || !hasB || !hasC || n != 2 {
+		t.Fatalf("after byte-budget eviction: a=%t b=%t c=%t n=%d, want LRU 'a' evicted", hasA, hasB, hasC, n)
+	}
+
+	// A single oversized entry is still stored (it is what the caller serves)
+	// and evicts everything else.
+	srv.storeActivityMemo("huge", &activityMemoEntry{approxBytes: activityMemoMaxBytes + 1})
+	srv.activityMemoMu.Lock()
+	_, hasHuge := srv.activityMemo["huge"]
+	n = len(srv.activityMemo)
+	srv.activityMemoMu.Unlock()
+	if !hasHuge || n != 1 {
+		t.Fatalf("after oversized store: huge=%t n=%d, want only huge", hasHuge, n)
+	}
+
+	srv.activityMemo = nil
+	for i := 0; i < activityMemoMaxEntries+5; i++ {
+		srv.storeActivityMemo(fmt.Sprintf("k%d", i), &activityMemoEntry{approxBytes: 1})
+	}
+	srv.activityMemoMu.Lock()
+	n = len(srv.activityMemo)
+	srv.activityMemoMu.Unlock()
+	if n != activityMemoMaxEntries {
+		t.Fatalf("count bound: len = %d, want %d", n, activityMemoMaxEntries)
+	}
+
+	srv.dropActivityMemo("k5")
+	srv.dropActivityMemo("missing")
+	srv.activityMemoMu.Lock()
+	_, hasK5 := srv.activityMemo["k5"]
+	srv.activityMemoMu.Unlock()
+	if hasK5 {
+		t.Fatal("dropActivityMemo left the entry in place")
+	}
+}

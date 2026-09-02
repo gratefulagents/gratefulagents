@@ -570,8 +570,6 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		log.Printf("SubAgentScheduler disabled for standing overseer run")
 	}
 
-	var pgCursor int64
-	var immediateCursor int64
 	var turnNumber int32
 	handledImmediate := make(map[int64]struct{})
 	handoffHistoryConfig := resolveHandoffHistoryConfig()
@@ -592,26 +590,33 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		}
 	}
 
-	// On resume: load the assistant cursor plus the durable floor for a turn
-	// explicitly stopped by the user. The latter prevents a replacement pod
-	// from automatically restarting that same prompt.
+	// On resume: load the durable ID of the prompt the user explicitly
+	// stopped. Its claim is completed on every stop path, but should that
+	// write have failed (or predate the fix), RecoverClaimedUserMessages
+	// below hands the message back as pending — the floor makes every queue
+	// read skip that exact prompt so a replacement pod never re-runs it.
 	workingStateAtResume, stateErr := sc.ReadWorkingState(ctx)
 	if stateErr != nil {
 		log.Printf("WARN: failed to read stopped-turn cursor: %v", stateErr)
 	}
+	stoppedMessageID := workingStateAtResume.LastStoppedUserMessageID
 	if err := sc.RecoverClaimedUserMessages(ctx); err != nil {
 		return runResult{Status: "failed", Error: fmt.Sprintf("recovering claimed messages: %v", err)}
 	}
-	resumeSession, _, cursor, resumeErr := sc.ResumeState(ctx)
+	resumeSession, _, _, resumeErr := sc.ResumeState(ctx)
 	if resumeErr != nil {
 		log.Printf("WARN: failed to resume session state: %v — starting fresh", resumeErr)
-	} else {
-		if workingStateAtResume.LastStoppedUserMessageID > cursor {
-			cursor = workingStateAtResume.LastStoppedUserMessageID
-		}
-		pgCursor = cursor
-		immediateCursor = cursor
 	}
+	// noteUserStop records a user stop durably (recordUserStop) and updates
+	// this pod's in-memory stopped-message filter.
+	noteUserStop := func(messageID int64) {
+		stoppedMessageID = messageID
+		recordUserStop(ctx, sc, messageID)
+	}
+	// Set when a stop skipped the Stopped banner because a queued message was
+	// about to continue the session; the message loop re-checks before it
+	// blocks so a cancelled queued message cannot leave the run silently idle.
+	deferredStopBanner := false
 
 	// Publish the initial idle boundary only when there is neither a prompt
 	// waiting to run nor an existing input request waiting to be answered.
@@ -687,19 +692,35 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 
 messageLoop:
 	for {
-		nextReply, newCursor, err := waitForNextUserReply(ctx, sc, pgCursor, 3*time.Second, handledImmediate)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				writeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				_ = sc.WriteActivity(writeCtx, "pod_terminating", "Pod terminating; flushing run state", nil)
-				cancel()
-				return runResult{}
+		var nextReply sessionclient.UserMessage
+		claimedQueued := false
+		if deferredStopBanner {
+			// The queued message seen at stop time is a peek, not a claim: the
+			// user may have cancelled it since. Claim it right now or park the
+			// session in the Stopped state before blocking on the queue.
+			deferredStopBanner = false
+			msg, ok, claimErr := claimQueuedUserMessage(ctx, sc, stoppedMessageID, handledImmediate)
+			if claimErr != nil {
+				log.Printf("WARN: failed to claim queued message after stop: %v", claimErr)
 			}
-			return runResult{Status: "failed", Error: fmt.Sprintf("waiting for user reply: %v", err)}
+			if ok {
+				nextReply, claimedQueued = msg, true
+			} else {
+				_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputStopped, "Stopped by user.", nil)
+			}
 		}
-		pgCursor = newCursor
-		if immediateCursor < newCursor {
-			immediateCursor = newCursor
+		if !claimedQueued {
+			var err error
+			nextReply, err = waitForNextUserReply(ctx, sc, stoppedMessageID, 3*time.Second, handledImmediate)
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					writeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					_ = sc.WriteActivity(writeCtx, "pod_terminating", "Pod terminating; flushing run state", nil)
+					cancel()
+					return runResult{}
+				}
+				return runResult{Status: "failed", Error: fmt.Sprintf("waiting for user reply: %v", err)}
+			}
 		}
 		reply := strings.TrimSpace(nextReply.Content)
 		currentUserMessageID := nextReply.ID
@@ -727,23 +748,28 @@ messageLoop:
 		} else {
 			_ = sc.ClearIdleUserInputRequest(ctx)
 		}
-		// Honor a stop that survived pod replacement when it was requested for
-		// this message. A stop older than this message is stale: the newer user
-		// input is an explicit request to resume, so consuming it must not cancel
-		// the new turn. The CRD fallback annotation follows the same rule: a
-		// stale one is cleared here, a newer one is left for the in-turn watcher.
-		drainCRDInterruptThrough(ctx, crdClient, cfg.TaskName, cfg.Namespace, nextReply.CreatedAt.Add(-time.Nanosecond))
-		if interrupt, interruptErr := sc.DrainInterruptsThrough(ctx, nextReply.CreatedAt); interruptErr != nil {
+		// Honor a stop that survived pod replacement (or landed while this
+		// message sat in the queue). Drain every pending stop from both
+		// channels now, then decide by time: a stop requested at or after this
+		// message targets it — park instead of starting the turn. An older
+		// stop is stale: the newer user input is an explicit request to
+		// resume, so it is consumed without cancelling the new turn.
+		drainedAt := time.Now().UTC()
+		interrupt, interruptErr := sc.DrainInterruptsThrough(ctx, drainedAt)
+		if interruptErr != nil {
 			log.Printf("WARN: failed to drain pending stop requests: %v", interruptErr)
-		} else if interruptAppliesToMessage(interrupt, nextReply.CreatedAt) {
-			_ = sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
-				state.LastStoppedUserMessageID = currentUserMessageID
-				return nil
-			})
+		}
+		if crdRequestedAt, found := drainCRDInterruptThrough(ctx, crdClient, cfg.TaskName, cfg.Namespace, drainedAt); found &&
+			(interrupt == nil || crdRequestedAt.After(interrupt.RequestedAt)) {
+			interrupt = &sessionclient.InterruptRequest{RequestedAt: crdRequestedAt, RequestedBy: "annotation"}
+		}
+		if interruptAppliesToMessage(interrupt, nextReply.CreatedAt) {
+			noteUserStop(currentUserMessageID)
 			// A newer message queued behind the stopped one continues
 			// directly instead of parking the session in the Stopped
 			// awaiting-input state.
-			if queuedUserMessageWaiting(ctx, sc, handledImmediate) {
+			if queuedUserMessageWaiting(ctx, sc, stoppedMessageID, handledImmediate) {
+				deferredStopBanner = true
 				_ = sc.WriteActivity(ctx, "turn_interrupted", "Stopped by user before the replacement runtime started the turn — continuing with the next queued message.", nil)
 			} else {
 				_ = sc.WriteActivity(ctx, "turn_interrupted", "Stopped by user before the replacement runtime started the turn.", nil)
@@ -769,18 +795,10 @@ messageLoop:
 				// Non-blocking check: has the user sent a message (including /stop)?
 				if autoLoopCount > 1 { // Skip first iteration — that's the initial prompt.
 					if peeked, peekErr := sc.PeekForUserMessages(ctx); peekErr == nil && len(peeked) > 0 {
-						nextMsg, ok, skipCursor, immediate := nextPendingUserMessage(peeked, handledImmediate)
-						if skipCursor > pgCursor {
-							pgCursor = skipCursor
-						}
-						if immediateCursor < latestUserMessageID(peeked, immediateCursor) {
-							immediateCursor = latestUserMessageID(peeked, immediateCursor)
-						}
+						nextMsg, ok, _, immediate := nextPendingUserMessage(withoutStoppedMessage(peeked, stoppedMessageID), handledImmediate)
 						if ok {
 							if immediate {
 								handledImmediate[nextMsg.ID] = struct{}{}
-							} else {
-								pgCursor = nextMsg.ID
 							}
 							claimed, won, claimErr := sc.ClaimUserMessage(ctx, nextMsg)
 							if claimErr != nil {
@@ -795,10 +813,7 @@ messageLoop:
 							if strings.EqualFold(trimmed, "/stop") {
 								log.Printf("Autonomous run: /stop received from user — pausing")
 								_ = sc.WriteActivity(ctx, "auto_stop", "User requested stop — pausing autonomous work", nil)
-								_ = sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
-									state.LastStoppedUserMessageID = nextMsg.ID
-									return nil
-								})
+								noteUserStop(nextMsg.ID)
 								_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputStopped, "Stopped by user. Send a message to resume.", nil)
 								break agentLoop
 							}
@@ -1074,6 +1089,11 @@ messageLoop:
 				}
 			}
 
+			// The full post-floor history is needed here, not just a tail:
+			// the out-of-band fold below scans everything above the
+			// transcript watermark, and after a restart or context clear the
+			// durable-tail fallback and asset re-materialization need the
+			// recent messages the transcript no longer covers.
 			messages, err := sc.GetMessagesSince(ctx, workingState.HistoryFloorMessageID)
 			if err != nil {
 				log.Printf("WARN: failed to load session messages for context rebuild: %v", err)
@@ -1259,11 +1279,7 @@ messageLoop:
 					},
 				},
 				ImmediateInputPoller: func(ctx context.Context) ([]agent.RunItem, error) {
-					items, newCursor, err := pollImmediateInputs(ctx, sc, cfg.RepoDir, activeRun, immediateCursor, handledImmediate)
-					if newCursor > immediateCursor {
-						immediateCursor = newCursor
-					}
-					return items, err
+					return pollImmediateInputs(ctx, sc, cfg.RepoDir, activeRun, stoppedMessageID, handledImmediate)
 				},
 				CompactionConfig:          &compactionConfig,
 				CompactionModelResolver:   compactionResolver,
@@ -1379,13 +1395,17 @@ messageLoop:
 				if req, cErr := sc.DrainInterruptsThrough(ctx, time.Now().UTC()); cErr == nil && req != nil {
 					turnInterrupted = true
 				}
-				if drainCRDInterruptThrough(ctx, crdClient, cfg.TaskName, cfg.Namespace, time.Now().UTC()) {
+				if _, found := drainCRDInterruptThrough(ctx, crdClient, cfg.TaskName, cfg.Namespace, time.Now().UTC()); found {
 					turnInterrupted = true
 				}
 			} else {
-				// The stop was claimed from the session channel; consume the
-				// CRD fallback copy of the same request so it cannot linger
-				// and cancel a later, innocent turn.
+				// The watcher claimed the stop from one channel; the dashboard
+				// writes both, so consume the other channel's copy of the same
+				// request too — a lingering copy would cancel a later,
+				// innocent turn.
+				if _, cErr := sc.DrainInterruptsThrough(ctx, time.Now().UTC()); cErr != nil {
+					log.Printf("WARN: failed to drain the session copy of the consumed stop request: %v", cErr)
+				}
 				drainCRDInterruptThrough(ctx, crdClient, cfg.TaskName, cfg.Namespace, time.Now().UTC())
 			}
 			releaseFailedRun := func() {
@@ -1420,16 +1440,14 @@ messageLoop:
 						activeWorkspaceSnapshotter.Load().SnapshotAsync("turn-interrupted")
 						log.Printf("Turn %d: preserved %d interrupted-turn conversation items", turnNumber, len(sessionTranscript))
 					}
-					_ = sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
-						state.LastStoppedUserMessageID = currentUserMessageID
-						return nil
-					})
+					noteUserStop(currentUserMessageID)
 					_ = sc.WriteActivity(ctx, "turn_interrupted", turnInterruptNotice(stoppedTasks), nil)
 					// A steered message the user queued before (or while)
 					// stopping must flow directly into the next turn instead
 					// of bouncing the session through the Stopped
 					// awaiting-input state.
-					if queuedUserMessageWaiting(ctx, sc, handledImmediate) {
+					if queuedUserMessageWaiting(ctx, sc, stoppedMessageID, handledImmediate) {
+						deferredStopBanner = true
 						log.Printf("Turn %d: queued user message found after stop — continuing with it directly", turnNumber)
 						_ = sc.WriteActivity(ctx, "turn_interrupted", "A queued message is waiting — continuing with it now.", nil)
 					} else {
@@ -1663,18 +1681,13 @@ messageLoop:
 			// user asked to stop: halt here (matters in autonomous mode)
 			// instead of letting the claimed request vanish silently.
 			if turnInterrupted {
-				if err := sc.CompleteClaims(ctx); err != nil {
-					return runResult{Status: "failed", Error: fmt.Sprintf("completing interrupted claims: %v", err)}
-				}
 				log.Printf("Turn %d: user stop request arrived as the turn completed — breaking to await user", turnNumber)
-				_ = sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
-					state.LastStoppedUserMessageID = currentUserMessageID
-					return nil
-				})
+				noteUserStop(currentUserMessageID)
 				// Same as the mid-turn stop: a message the user queued
 				// alongside the stop continues directly instead of parking
 				// the session in the Stopped awaiting-input state.
-				if queuedUserMessageWaiting(ctx, sc, handledImmediate) {
+				if queuedUserMessageWaiting(ctx, sc, stoppedMessageID, handledImmediate) {
+					deferredStopBanner = true
 					log.Printf("Turn %d: queued user message found after stop — continuing with it directly", turnNumber)
 					_ = sc.WriteActivity(ctx, "turn_interrupted", "Stopped by user as the turn completed — a queued message is waiting; continuing with it now.", nil)
 				} else {
@@ -1848,25 +1861,18 @@ func closeRuntimeClosers(closers []io.Closer) {
 	}
 }
 
-func latestUserMessageID(messages []sessionclient.UserMessage, fallback int64) int64 {
-	if len(messages) == 0 {
-		return fallback
-	}
-	return messages[len(messages)-1].ID
-}
-
 // queuedUserMessageWaiting reports whether an undelivered, turn-starting user
 // message is already queued for this session — e.g. steering the user sent
 // just before stopping the turn. When one is waiting, the loop should break
 // straight back to the message loop and consume it instead of parking the
 // session in the Stopped awaiting-input state: the user's clear intent is
 // "stop what you are doing and do this instead", not "stop and wait".
-func queuedUserMessageWaiting(ctx context.Context, sc *sessionclient.Client, handledImmediate map[int64]struct{}) bool {
+func queuedUserMessageWaiting(ctx context.Context, sc *sessionclient.Client, stoppedMessageID int64, handledImmediate map[int64]struct{}) bool {
 	peeked, err := sc.PeekForUserMessages(ctx)
 	if err != nil || len(peeked) == 0 {
 		return false
 	}
-	msg, ok, _, _ := nextPendingUserMessage(peeked, handledImmediate)
+	msg, ok, _, _ := nextPendingUserMessage(withoutStoppedMessage(peeked, stoppedMessageID), handledImmediate)
 	if !ok {
 		return false
 	}
@@ -1878,47 +1884,143 @@ func queuedUserMessageWaiting(ctx context.Context, sc *sessionclient.Client, han
 	return !isControlSlashCommand(content)
 }
 
+// recordUserStop persists a user stop of the prompt that drives the current
+// turn: the durable stopped-message floor for replacement pods, plus the
+// claim completion that marks the prompt delivered. Without the latter the
+// message stays claimed under this pod's token and a replacement pod's
+// RecoverClaimedUserMessages hands it back as pending — re-running the very
+// prompt the user stopped. Best-effort: a failed write must not turn a user
+// stop into a failed run.
+func recordUserStop(ctx context.Context, sc *sessionclient.Client, messageID int64) {
+	if err := sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
+		state.LastStoppedUserMessageID = messageID
+		return nil
+	}); err != nil {
+		log.Printf("WARN: failed to record stopped message %d: %v", messageID, err)
+	}
+	if err := sc.CompleteClaims(ctx); err != nil {
+		log.Printf("WARN: failed to complete claims for stopped message %d: %v", messageID, err)
+	}
+}
+
+// claimQueuedUserMessage makes one non-blocking attempt to claim the next
+// turn-starting user message. It reports false when nothing is pending or the
+// claim was lost (the user cancelled the message after it was peeked).
+func claimQueuedUserMessage(
+	ctx context.Context,
+	sc *sessionclient.Client,
+	stoppedMessageID int64,
+	handledImmediate map[int64]struct{},
+) (sessionclient.UserMessage, bool, error) {
+	peeked, err := sc.PeekForUserMessages(ctx)
+	if err != nil {
+		return sessionclient.UserMessage{}, false, err
+	}
+	return claimNextUserMessage(ctx, sc, peeked, stoppedMessageID, handledImmediate)
+}
+
+// waitForNextUserReply blocks until a turn-starting user message is claimed.
+// Pending delivery state in the store is authoritative — there is no cursor;
+// stoppedMessageID is the one prompt that must never be claimed again (see
+// withoutStoppedMessage).
 func waitForNextUserReply(
 	ctx context.Context,
 	sc *sessionclient.Client,
-	afterID int64,
+	stoppedMessageID int64,
 	pollInterval time.Duration,
 	handledImmediate map[int64]struct{},
-) (sessionclient.UserMessage, int64, error) {
-	cursor := afterID
+) (sessionclient.UserMessage, error) {
 	for {
 		messages, err := sc.PollForUserMessages(ctx, pollInterval)
 		if err != nil {
-			return sessionclient.UserMessage{}, cursor, err
+			return sessionclient.UserMessage{}, err
 		}
-		msg, ok, skipCursor, immediate := nextPendingUserMessage(messages, handledImmediate)
-		if skipCursor > cursor {
-			cursor = skipCursor
+		msg, ok, err := claimNextUserMessage(ctx, sc, messages, stoppedMessageID, handledImmediate)
+		if err != nil {
+			return sessionclient.UserMessage{}, err
 		}
-		if !ok {
-			continue
+		if ok {
+			return msg, nil
 		}
-		if immediate {
-			handledImmediate[msg.ID] = struct{}{}
-		} else {
-			cursor = msg.ID
+		// Nothing claimable from a non-empty snapshot (the stopped prompt,
+		// an empty message, a lost claim). PollForUserMessages returns the
+		// same rows again immediately, so pause briefly instead of spinning
+		// against the store until the state changes.
+		select {
+		case <-ctx.Done():
+			return sessionclient.UserMessage{}, ctx.Err()
+		case <-time.After(unclaimableSnapshotBackoff):
 		}
-		// Establish ownership before the content enters model context. A cancel
-		// or another claimant may have won after the poll snapshot.
-		claimed, won, claimErr := sc.ClaimUserMessage(ctx, msg)
-		if claimErr != nil {
-			return sessionclient.UserMessage{}, cursor, claimErr
-		}
-		if !won {
-			continue
-		}
-		msg = claimed
-		content := strings.TrimSpace(msg.Content)
-		if content == "" && len(msg.Images) == 0 {
-			continue
-		}
-		return msg, cursor, nil
 	}
+}
+
+// unclaimableSnapshotBackoff bounds the re-poll rate when a pending snapshot
+// contains only messages this loop will not start a turn from.
+const unclaimableSnapshotBackoff = 250 * time.Millisecond
+
+// claimNextUserMessage selects the next turn-starting message from a queue
+// snapshot and claims it. ok is false when nothing was claimable: no
+// candidate, a lost claim (cancelled or taken by another claimant after the
+// snapshot), or a claimed message with no content.
+func claimNextUserMessage(
+	ctx context.Context,
+	sc *sessionclient.Client,
+	messages []sessionclient.UserMessage,
+	stoppedMessageID int64,
+	handledImmediate map[int64]struct{},
+) (sessionclient.UserMessage, bool, error) {
+	messages = consumeStoppedMessage(ctx, sc, messages, stoppedMessageID)
+	msg, ok, _, immediate := nextPendingUserMessage(messages, handledImmediate)
+	if !ok {
+		return sessionclient.UserMessage{}, false, nil
+	}
+	if immediate {
+		handledImmediate[msg.ID] = struct{}{}
+	}
+	// Establish ownership before the content enters model context. A cancel
+	// or another claimant may have won after the poll snapshot.
+	claimed, won, claimErr := sc.ClaimUserMessage(ctx, msg)
+	if claimErr != nil {
+		return sessionclient.UserMessage{}, false, claimErr
+	}
+	if !won {
+		// The message never entered the turn; a later claimant (or a retry
+		// after a cancel is undone) must still be able to select it.
+		delete(handledImmediate, msg.ID)
+		return sessionclient.UserMessage{}, false, nil
+	}
+	content := strings.TrimSpace(claimed.Content)
+	if content == "" && len(claimed.Images) == 0 {
+		return sessionclient.UserMessage{}, false, nil
+	}
+	return claimed, true, nil
+}
+
+// consumeStoppedMessage durably retires the user-stopped prompt if a queue
+// snapshot still lists it as pending (its claim completion was lost and the
+// replacement pod's RecoverClaimedUserMessages handed it back). It is claimed
+// and completed in place so it never re-enters model context and stops
+// reappearing in every poll; the returned snapshot omits it either way.
+func consumeStoppedMessage(ctx context.Context, sc *sessionclient.Client, messages []sessionclient.UserMessage, stoppedMessageID int64) []sessionclient.UserMessage {
+	if stoppedMessageID == 0 {
+		return messages
+	}
+	for _, msg := range messages {
+		if msg.ID != stoppedMessageID {
+			continue
+		}
+		if _, won, err := sc.ClaimUserMessage(ctx, msg); err != nil {
+			log.Printf("WARN: failed to retire stopped user message %d: %v", msg.ID, err)
+		} else if won {
+			if err := sc.CompleteClaims(ctx); err != nil {
+				log.Printf("WARN: failed to complete retired stopped user message %d: %v", msg.ID, err)
+			} else {
+				log.Printf("Retired user-stopped message %d instead of re-running it", msg.ID)
+			}
+		}
+		break
+	}
+	return withoutStoppedMessage(messages, stoppedMessageID)
 }
 
 func pollImmediateInputs(
@@ -1926,14 +2028,15 @@ func pollImmediateInputs(
 	sc *sessionclient.Client,
 	workDir string,
 	run *platformv1alpha1.AgentRun,
-	afterID int64,
+	stoppedMessageID int64,
 	handledImmediate map[int64]struct{},
-) ([]agent.RunItem, int64, error) {
+) ([]agent.RunItem, error) {
 	messages, err := sc.PeekForUserMessages(ctx)
 	if err != nil {
-		return nil, afterID, err
+		return nil, err
 	}
-	_, consumedIDs, cursor := collectImmediateRunItems(messages, handledImmediate)
+	messages = withoutStoppedMessage(messages, stoppedMessageID)
+	_, consumedIDs, _ := collectImmediateRunItems(messages, handledImmediate)
 	items := []agent.RunItem(nil)
 	if len(consumedIDs) > 0 {
 		claimedItems := make([]agent.RunItem, 0, len(consumedIDs))
@@ -1947,7 +2050,7 @@ func pollImmediateInputs(
 			}
 			claimed, won, claimErr := sc.ClaimUserMessage(ctx, selected)
 			if claimErr != nil {
-				return nil, afterID, claimErr
+				return nil, claimErr
 			}
 			if !won {
 				continue
@@ -1974,8 +2077,5 @@ func pollImmediateInputs(
 		}
 		items = claimedItems
 	}
-	if cursor == 0 {
-		cursor = afterID
-	}
-	return items, cursor, nil
+	return items, nil
 }

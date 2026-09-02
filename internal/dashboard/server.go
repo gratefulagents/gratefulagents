@@ -99,6 +99,7 @@ type activityMemoEntry struct {
 	isTerminal  bool
 	entries     []*platform.ActivityEntry
 	resp        *platform.GetActivityLogResponse
+	approxBytes int
 	lastAccess  time.Time
 }
 

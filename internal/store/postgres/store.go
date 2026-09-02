@@ -472,6 +472,9 @@ func (s *Store) AnswerPendingInput(ctx context.Context, sessionID uuid.UUID, ans
 		RETURNING id, session_id, role, content, metadata, created_at`,
 		sessionID, answer.Content, metadata,
 	).Scan(&inserted.ID, &inserted.SessionID, &inserted.Role, &inserted.Content, &inserted.Metadata, &inserted.CreatedAt); err != nil {
+		if isUniqueViolation(err) {
+			return nil, false, store.ErrMessageAlreadyExists
+		}
 		return nil, false, fmt.Errorf("recording pending input answer message: %w", err)
 	}
 	result, err := tx.Exec(ctx, `
@@ -540,18 +543,12 @@ func (s *Store) RecoverExpiredHeldInputResponses(ctx context.Context, sessionID 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Lock the session row first (matching the reserve lock order) so recovery
-	// cannot interleave with an in-flight reserve/release on the same session.
-	var currentRequestID string
-	if err := tx.QueryRow(ctx, `
-		SELECT pending_request_id FROM agent_sessions WHERE id = $1 FOR UPDATE`, sessionID).
-		Scan(&currentRequestID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, store.ErrSessionNotFound
-		}
-		return 0, fmt.Errorf("locking session for held input recovery: %w", err)
-	}
-
+	// Lock order is messages-then-session, matching every other writer:
+	// ReleasePendingInputResponse / CancelPendingInputResponse update a
+	// message row whose statement trigger then updates the session row. Taking
+	// the session lock first here would deadlock against them. The session row
+	// is locked after the held rows and pending_request_id re-read under that
+	// lock, so the restore decision below still cannot race a newer request.
 	rows, err := tx.Query(ctx, `
 		SELECT id, metadata FROM conversation_messages
 		WHERE session_id = $1
@@ -581,6 +578,16 @@ func (s *Store) RecoverExpiredHeldInputResponses(ctx context.Context, sessionID 
 	}
 	if len(expired) == 0 {
 		return 0, tx.Commit(ctx)
+	}
+
+	var currentRequestID string
+	if err := tx.QueryRow(ctx, `
+		SELECT pending_request_id FROM agent_sessions WHERE id = $1 FOR UPDATE`, sessionID).
+		Scan(&currentRequestID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, store.ErrSessionNotFound
+		}
+		return 0, fmt.Errorf("locking session for held input recovery: %w", err)
 	}
 
 	for _, hold := range expired {
@@ -1492,6 +1499,42 @@ func (s *Store) GetSessionFingerprint(ctx context.Context, sessionID uuid.UUID) 
 		return "", fmt.Errorf("getting session fingerprint: %w", err)
 	}
 	return fmt.Sprintf("%d|%d", changeSeq, sessionUpdatedAt.UnixNano()), nil
+}
+
+// GetSessionConversationFingerprint returns an opaque version string that
+// changes only for conversation-relevant writes: session-row field changes,
+// conversation_messages and agent_artifacts writes, and interrupts
+// (conversation_seq, migration 059). Activity events do not advance it, so
+// the conversation watch is not invalidated by every tool-call log line.
+// updated_at is deliberately excluded because it moves on every write.
+func (s *Store) GetSessionConversationFingerprint(ctx context.Context, sessionID uuid.UUID) (string, error) {
+	var conversationSeq int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT conversation_seq FROM agent_sessions WHERE id = $1`,
+		sessionID).Scan(&conversationSeq)
+	if err != nil {
+		return "", fmt.Errorf("getting session conversation fingerprint: %w", err)
+	}
+	return strconv.FormatInt(conversationSeq, 10), nil
+}
+
+// GetMessage returns one message by primary key, scoped to the session.
+// Implements store.MessageGetter.
+func (s *Store) GetMessage(ctx context.Context, sessionID uuid.UUID, messageID int64) (*store.Message, error) {
+	var row sqlc.ConversationMessage
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, session_id, role, content, metadata, created_at, delivery_state, delivery_sequence, claimed_at
+		FROM conversation_messages
+		WHERE id = $1 AND session_id = $2`, messageID, sessionID).Scan(
+		&row.ID, &row.SessionID, &row.Role, &row.Content, &row.Metadata, &row.CreatedAt,
+		&row.DeliveryState, &row.DeliverySequence, &row.ClaimedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, store.ErrMessageNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting message: %w", err)
+	}
+	return messageFromRow(row), nil
 }
 
 // --- Artifacts ---

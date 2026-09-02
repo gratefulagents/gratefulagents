@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -49,6 +50,7 @@ type mockStateStore struct {
 	observabilityQuery         store.ObservabilityQuery
 	observabilityResult        *store.ObservabilityOverview
 	observabilityErr           error
+	getMessagesCalls           atomic.Int64
 }
 
 type agentRunDataDeleteCall struct {
@@ -97,7 +99,7 @@ func (m *mockStateStore) GetSessionByRun(_ context.Context, name, ns string) (*s
 			return s, nil
 		}
 	}
-	return nil, fmt.Errorf("session not found for %s/%s", ns, name)
+	return nil, fmt.Errorf("session not found for %s/%s: %w", ns, name, store.ErrSessionNotFound)
 }
 
 func (m *mockStateStore) ListSessionsByNamespace(_ context.Context, namespace string) ([]store.Session, error) {
@@ -282,6 +284,7 @@ func (m *mockStateStore) DeleteAgentRunData(_ context.Context, name, namespace, 
 	return nil
 }
 func (m *mockStateStore) GetMessages(_ context.Context, sessionID uuid.UUID) ([]store.Message, error) {
+	m.getMessagesCalls.Add(1)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.getMessagesErr != nil {
@@ -404,6 +407,9 @@ func (m *mockStateStore) GetSessionFingerprint(_ context.Context, sessionID uuid
 		}
 	}
 	return fmt.Sprintf("%d|%d|%s|%d", maxMsgID, maxEventID, sess.PendingInputType, len(sess.PendingActions)), nil
+}
+func (m *mockStateStore) GetSessionConversationFingerprint(ctx context.Context, sessionID uuid.UUID) (string, error) {
+	return m.GetSessionFingerprint(ctx, sessionID)
 }
 func (m *mockStateStore) UpsertArtifact(context.Context, uuid.UUID, string, string, string, string, json.RawMessage) (*store.Artifact, error) {
 	return nil, nil

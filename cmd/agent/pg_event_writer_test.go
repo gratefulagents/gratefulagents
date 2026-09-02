@@ -127,6 +127,9 @@ func (m *recordingStateStore) GetActivityEventsSince(context.Context, uuid.UUID,
 func (m *recordingStateStore) GetSessionFingerprint(context.Context, uuid.UUID) (string, error) {
 	panic("unexpected call")
 }
+func (m *recordingStateStore) GetSessionConversationFingerprint(context.Context, uuid.UUID) (string, error) {
+	panic("unexpected call")
+}
 func (m *recordingStateStore) UpsertArtifact(context.Context, uuid.UUID, string, string, string, string, json.RawMessage) (*store.Artifact, error) {
 	panic("unexpected call")
 }
@@ -378,5 +381,191 @@ func TestPGEventWriterUsesToolNameWhenMessageIsEmpty(t *testing.T) {
 	}
 	if got := ss.writes[0].summary; got != "grep" {
 		t.Fatalf("summary = %q, want grep", got)
+	}
+}
+
+// batchingStateStore adds the optional batch-write capability. Batches are
+// recorded whole so tests can assert both batching and per-event ordering.
+type batchingStateStore struct {
+	recordingStateStore
+	batchStarted chan struct{}
+	batchRelease chan struct{}
+	batches      [][]store.ActivityEventInput
+}
+
+func (m *batchingStateStore) WriteActivityEvents(_ context.Context, _ uuid.UUID, events []store.ActivityEventInput) ([]int64, error) {
+	if m.batchStarted != nil {
+		select {
+		case m.batchStarted <- struct{}{}:
+		default:
+		}
+	}
+	if m.batchRelease != nil {
+		<-m.batchRelease
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	batch := append([]store.ActivityEventInput(nil), events...)
+	m.batches = append(m.batches, batch)
+	ids := make([]int64, len(events))
+	for i, ev := range events {
+		m.writes = append(m.writes, writeCall{eventType: ev.EventType, summary: ev.Summary, detail: append(json.RawMessage(nil), ev.Detail...)})
+		ids[i] = int64(len(m.writes))
+	}
+	return ids, nil
+}
+
+func TestPGEventWriterBatchesBufferedEventsInOrder(t *testing.T) {
+	ss := &batchingStateStore{
+		batchStarted: make(chan struct{}, 1),
+		batchRelease: make(chan struct{}),
+	}
+	writer := newPGEventWriter(ss, uuid.New())
+
+	// The first event is picked up alone (the drainer is idle); everything
+	// written while its batch is blocked must be flushed in bounded batches.
+	total := 3*pgEventWriterBatchSize + 5
+	for i := 0; i < total; i++ {
+		if _, err := writer.Write([]byte(fmt.Sprintf(`{"type":"tool_use","tool":"event-%04d"}`, i))); err != nil {
+			t.Fatalf("Write(%d) error = %v", i, err)
+		}
+		if i == 0 {
+			select {
+			case <-ss.batchStarted:
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for the first batch write")
+			}
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = writer.Close()
+	}()
+	// One release per batch: 1 (first event) + ceil((total-1)/batchSize).
+	for i := 0; i < 5; i++ {
+		ss.batchRelease <- struct{}{}
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close() timed out")
+	}
+
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	if got := len(ss.writes); got != total {
+		t.Fatalf("written events = %d, want %d", got, total)
+	}
+	for i, write := range ss.writes {
+		if want := fmt.Sprintf("event-%04d", i); write.summary != want {
+			t.Fatalf("write[%d].summary = %q, want %q", i, write.summary, want)
+		}
+		if write.eventType != "tool_use" {
+			t.Fatalf("write[%d].eventType = %q, want tool_use", i, write.eventType)
+		}
+	}
+	if got := len(ss.batches); got != 5 {
+		t.Fatalf("batches = %d, want 5", got)
+	}
+	for i, batch := range ss.batches {
+		if len(batch) > pgEventWriterBatchSize {
+			t.Fatalf("batch[%d] size = %d, exceeds %d", i, len(batch), pgEventWriterBatchSize)
+		}
+	}
+}
+
+func TestPGEventWriterCountsWholeBatchAsUnflushedOnExpiry(t *testing.T) {
+	oldTimeout := pgEventWriterCloseTimeout
+	pgEventWriterCloseTimeout = 25 * time.Millisecond
+	t.Cleanup(func() { pgEventWriterCloseTimeout = oldTimeout })
+
+	ss := &batchingStateStore{
+		batchStarted: make(chan struct{}, 1),
+		batchRelease: make(chan struct{}),
+	}
+	writer := newPGEventWriter(ss, uuid.New())
+	if _, err := writer.Write([]byte(`{"type":"assistant_text","message":"first"}`)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	<-ss.batchStarted
+	for i := 0; i < 3; i++ {
+		if _, err := writer.Write([]byte(`{"type":"assistant_text","message":"buffered"}`)); err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	close(ss.batchRelease)
+	if writer.unflushed != 4 {
+		t.Fatalf("unflushed = %d, want 4 (1 in-flight batch + 3 buffered)", writer.unflushed)
+	}
+}
+
+func TestPGEventWriterByteBudgetDropsOldest(t *testing.T) {
+	ss := &recordingStateStore{
+		writeStarted: make(chan struct{}, 1),
+		writeRelease: make(chan struct{}),
+	}
+	writer := newPGEventWriter(ss, uuid.New())
+
+	if _, err := writer.Write([]byte(`{"type":"assistant_text","message":"blocking"}`)); err != nil {
+		t.Fatalf("Write(blocking) error = %v", err)
+	}
+	<-ss.writeStarted
+
+	// Four payloads fit the budget (just under 1/4 each, envelope included);
+	// the fifth must evict the oldest buffered event while the count cap is
+	// nowhere near.
+	payload := make([]byte, pgEventWriterMaxBytes/4-256)
+	for i := range payload {
+		payload[i] = 'x'
+	}
+	for i := 0; i < 5; i++ {
+		raw := []byte(fmt.Sprintf(`{"type":"assistant_text","message":"big-%d","status":"%s"}`, i, payload))
+		if _, err := writer.Write(raw); err != nil {
+			t.Fatalf("Write(big-%d) error = %v", i, err)
+		}
+	}
+
+	writer.mu.Lock()
+	buffered, bufBytes, dropped := writer.bufferedLocked(), writer.bufBytes, writer.dropped
+	writer.mu.Unlock()
+	if dropped != 1 {
+		t.Fatalf("dropped = %d, want 1", dropped)
+	}
+	if buffered != 4 {
+		t.Fatalf("buffered = %d, want 4", buffered)
+	}
+	if bufBytes > pgEventWriterMaxBytes {
+		t.Fatalf("bufBytes = %d, exceeds budget %d", bufBytes, pgEventWriterMaxBytes)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = writer.Close()
+	}()
+	for i := 0; i < 5; i++ {
+		ss.writeRelease <- struct{}{}
+	}
+	<-done
+
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	if got := len(ss.writes); got != 5 {
+		t.Fatalf("written events = %d, want 5", got)
+	}
+	for i, want := range []string{"blocking", "big-1", "big-2", "big-3", "big-4"} {
+		if ss.writes[i].summary != want {
+			t.Fatalf("write[%d].summary = %q, want %q", i, ss.writes[i].summary, want)
+		}
+	}
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	if writer.bufBytes != 0 {
+		t.Fatalf("bufBytes after drain = %d, want 0", writer.bufBytes)
 	}
 }

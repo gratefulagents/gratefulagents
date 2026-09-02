@@ -15,7 +15,7 @@ import (
 const getActivityEvents = `-- name: GetActivityEvents :many
 SELECT id, session_id, event_type, summary, detail, created_at FROM activity_events
 WHERE session_id = $1
-ORDER BY created_at ASC, id ASC
+ORDER BY id ASC
 `
 
 func (q *Queries) GetActivityEvents(ctx context.Context, sessionID uuid.UUID) ([]ActivityEvent, error) {
@@ -48,7 +48,7 @@ func (q *Queries) GetActivityEvents(ctx context.Context, sessionID uuid.UUID) ([
 const getRecentActivityEvents = `-- name: GetRecentActivityEvents :many
 SELECT id, session_id, event_type, summary, detail, created_at FROM activity_events
 WHERE session_id = $1
-ORDER BY created_at DESC, id DESC
+ORDER BY id DESC
 LIMIT $2
 `
 

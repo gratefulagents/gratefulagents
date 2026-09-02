@@ -44,6 +44,18 @@ func (w watchTicker) interval() time.Duration {
 	return w.fast
 }
 
+// intervalAfter picks the re-arm delay for the next poll. A wake-driven
+// iteration whose probe saw no change re-arms at fast rather than slow: the
+// hint fired because something was written, so if the probe has not caught
+// up yet (or the hint was for state this probe ignores) the change must not
+// wait a full slow interval to be noticed.
+func (w watchTicker) intervalAfter(wakeDriven, changed bool) time.Duration {
+	if wakeDriven && !changed {
+		return w.fast
+	}
+	return w.interval()
+}
+
 // sessionWatchTicker subscribes a stream to session-change wake-up hints when
 // the state store supports them (store.SessionChangeSubscriber). The returned
 // cancel must be called when the stream ends. Streams for runs whose session
@@ -145,12 +157,15 @@ func streamSnapshots[T any](ctx context.Context, interval time.Duration, load fu
 // version probe to skip building (and DeepEqual-walking) the snapshot when
 // nothing changed. probe returns an opaque version string; an empty version
 // means "unknown", which falls back to building the snapshot every tick and
-// comparing with DeepEqual before sending. build returns the snapshot and
+// comparing with DeepEqual before sending. fresh is set on wake-driven
+// iterations: the probe must then bypass any value it cached before the
+// wake-up (see probeCacheDoFresh) or the write that triggered the hint would
+// be invisible until the cache expires. build returns the snapshot and
 // whether the stream should keep polling.
 func streamVersionedSnapshots[T any](
 	ctx context.Context,
 	tick watchTicker,
-	probe func(context.Context) (string, error),
+	probe func(ctx context.Context, fresh bool) (string, error),
 	build func(context.Context) (T, bool, error),
 	send func(T) error,
 ) error {
@@ -161,18 +176,21 @@ func streamVersionedSnapshots[T any](
 	defer timer.Stop()
 
 	for {
+		wakeDriven := false
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-timer.C:
 		case <-tick.wake: // nil channel when wake-ups are unavailable
+			wakeDriven = true
 		}
 
-		version, err := probe(ctx)
+		version, err := probe(ctx, wakeDriven)
 		if err != nil {
 			return err
 		}
-		if !sent || version == "" || version != lastVersion {
+		changed := !sent || version == "" || version != lastVersion
+		if changed {
 			msg, active, err := build(ctx)
 			if err != nil {
 				return err
@@ -191,7 +209,7 @@ func streamVersionedSnapshots[T any](
 			}
 		}
 
-		timer.Reset(tick.interval())
+		timer.Reset(tick.intervalAfter(wakeDriven, changed))
 	}
 }
 
@@ -300,7 +318,7 @@ func (s *Server) WatchAgentRun(ctx context.Context, req *platform.WatchAgentRunR
 	}
 	var sessID uuid.UUID
 	var haveSess bool
-	probe := func(ctx context.Context) (string, error) {
+	probe := func(ctx context.Context, fresh bool) (string, error) {
 		run := &platformv1alpha1.AgentRun{}
 		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: req.Name}, run); err != nil {
 			return "", mapK8sError("watch AgentRun", err)
@@ -316,12 +334,12 @@ func (s *Server) WatchAgentRun(ctx context.Context, req *platform.WatchAgentRunR
 			sessID = sess.ID
 			haveSess = true
 		}
-		// Fingerprints are shared across every stream watching this run for
+		// The conversation fingerprint ignores activity-log writes: this
+		// stream rebuilds the full transcript (messages incl. inline images)
+		// on every change, and tool-call logging must not force that. The
+		// fingerprint is shared across every stream watching this run for
 		// probeFingerprintTTL, so extra open tabs do not add query load.
-		fp, err := probeCacheDo(ctx, &s.probes, "fp|"+sessID.String(), probeFingerprintTTL,
-			func(ctx context.Context) (string, error) {
-				return s.stateStore.GetSessionFingerprint(ctx, sessID)
-			})
+		fp, err := s.conversationFingerprint(ctx, sessID, fresh)
 		if err != nil {
 			return "", nil
 		}
@@ -332,7 +350,7 @@ func (s *Server) WatchAgentRun(ctx context.Context, req *platform.WatchAgentRunR
 		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: req.Name}, run); err != nil {
 			return nil, false, mapK8sError("watch AgentRun", err)
 		}
-		pb, err := s.enrichAgentRunProto(ctx, k8sAgentRunToProto(run))
+		pb, err := s.enrichAgentRunProto(withSharedConversationMemo(ctx), k8sAgentRunToProto(run))
 		if err != nil {
 			return nil, false, err
 		}
@@ -365,14 +383,14 @@ func shouldContinueAgentRunWatch(run *platformv1alpha1.AgentRun) bool {
 // for a run: the immutable S3 artifact URL for terminal runs, or the latest
 // Postgres event ID. Empty means the version cannot be determined cheaply
 // (e.g. pod-exec fallback) and the caller must rebuild every tick.
-func (s *Server) activityLogVersion(ctx context.Context, run *platformv1alpha1.AgentRun) string {
+func (s *Server) activityLogVersion(ctx context.Context, run *platformv1alpha1.AgentRun, fresh bool) string {
 	isTerminal := isTerminalAgentRunPhase(run.Status.Phase)
 	if isTerminal && s.s3Reader != nil && run.Status.Artifacts != nil && run.Status.Artifacts.EventsLogURL != "" {
 		return "s3|" + run.Status.Artifacts.EventsLogURL
 	}
 	if s.stateStore != nil {
 		if sess, err := s.cachedSessionByRun(ctx, run.Name, run.Namespace); err == nil {
-			if latestID, err := s.latestActivityEventID(ctx, sess.ID); err == nil && latestID > 0 {
+			if latestID, err := s.latestActivityEventID(ctx, sess.ID, fresh); err == nil && latestID > 0 {
 				return fmt.Sprintf("pg|%d|%t", latestID, isTerminal)
 			}
 		}
@@ -397,12 +415,12 @@ func (s *Server) WatchActivityLog(ctx context.Context, req *platform.GetActivity
 		}
 		return run, nil
 	}
-	probe := func(ctx context.Context) (string, error) {
+	probe := func(ctx context.Context, fresh bool) (string, error) {
 		run, err := getRun(ctx)
 		if err != nil {
 			return "", err
 		}
-		return s.activityLogVersion(ctx, run), nil
+		return s.activityLogVersion(ctx, run, fresh), nil
 	}
 	if req.Delta {
 		buildSourced := func(ctx context.Context) (*platform.GetActivityLogResponse, activityLogSource, error) {
@@ -471,7 +489,7 @@ func watchActivityLogDelta(
 	ctx context.Context,
 	tick watchTicker,
 	req *platform.GetActivityLogRequest,
-	probe func(context.Context) (string, error),
+	probe func(ctx context.Context, fresh bool) (string, error),
 	build func(context.Context) (*platform.GetActivityLogResponse, activityLogSource, error),
 	send func(*platform.GetActivityLogResponse) error,
 ) error {
@@ -487,19 +505,21 @@ func watchActivityLogDelta(
 	defer timer.Stop()
 
 	for {
+		wakeDriven := false
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-timer.C:
 		case <-tick.wake: // nil channel when wake-ups are unavailable
+			wakeDriven = true
 		}
 
-		version, err := probe(ctx)
+		version, err := probe(ctx, wakeDriven)
 		if err != nil {
 			return err
 		}
 		if sentInitial && version != "" && version == lastVersion {
-			timer.Reset(tick.interval())
+			timer.Reset(tick.intervalAfter(wakeDriven, false))
 			continue
 		}
 		resp, source, err := build(ctx)

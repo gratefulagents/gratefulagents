@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type RefObject, type SetStateAction } from "react";
-import { CircleStop, Clock, Paperclip, RotateCcw, Send } from "lucide-react";
+import { CircleStop, Clock, Loader2, Paperclip, RotateCcw, Send } from "lucide-react";
 
 import { ImageAttachmentStrip } from "@/components/ImageAttachmentStrip";
 import { ContextUsageBar } from "@/components/run-session/ContextUsageBar";
@@ -52,7 +52,15 @@ interface RunSessionFooterProps {
    * composer is empty. Stops the in-flight turn without killing the run. */
   canInterrupt?: boolean;
   interrupting?: boolean;
+  /** An interrupt was accepted and the turn hasn't ended yet: the stop control
+   * stays disabled as "Stopping…" so repeat clicks don't pile up requests. */
+  interruptPending?: boolean;
+  /** The accepted interrupt has not taken effect for a while; surface the
+   * "Stop run" fallback hint. */
+  interruptStalled?: boolean;
   onInterrupt?: () => void | Promise<void>;
+  /** Steer vs. Queue only differs while the agent is mid-turn; hidden otherwise. */
+  showSendMode?: boolean;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   /** Run identity for the "@" workspace file picker. When omitted the picker is disabled. */
   namespace?: string;
@@ -94,7 +102,10 @@ export function RunSessionFooter({
   retrying,
   canInterrupt = false,
   interrupting = false,
+  interruptPending = false,
+  interruptStalled = false,
   onInterrupt,
+  showSendMode = true,
   textareaRef,
   namespace,
   name,
@@ -359,17 +370,31 @@ export function RunSessionFooter({
                       attachments.images.length === 0 &&
                       attachments.videos.length === 0 &&
                       !attachments.processing ? (
-                        <Button
-                          size="icon"
-                          variant="destructive"
-                          className="size-10 md:size-8"
-                          onClick={onInterrupt}
-                          disabled={interrupting}
-                          aria-label="Stop the current turn"
-                          title="Stop the current turn without stopping the run"
-                        >
-                          <CircleStop className="size-4" />
-                        </Button>
+                        interruptPending ? (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="h-10 gap-1.5 md:h-8"
+                            disabled
+                            aria-label="Stopping the current turn"
+                            title="Waiting for the agent to stop the current turn"
+                          >
+                            <Loader2 className="size-4 animate-spin" />
+                            Stopping…
+                          </Button>
+                        ) : (
+                          <Button
+                            size="icon"
+                            variant="destructive"
+                            className="size-10 md:size-8"
+                            onClick={onInterrupt}
+                            disabled={interrupting}
+                            aria-label="Stop the current turn"
+                            title="Stop the current turn without stopping the run"
+                          >
+                            <CircleStop className="size-4" />
+                          </Button>
+                        )
                       ) : (
                         <Button
                           size="icon"
@@ -389,36 +414,44 @@ export function RunSessionFooter({
                         </Button>
                       )}
                     </div>
+                    {interruptStalled && (
+                      <p className="text-[11px] text-muted-foreground" role="status">
+                        Still running — the stop request hasn't taken effect yet. Use Stop run from the
+                        header to end the run, or try again.
+                      </p>
+                    )}
                     <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
-                        <span className="mr-0.5">Delivery</span>
-                        <div className="flex items-center rounded-md bg-muted p-0.5">
-                          <button
-                            type="button"
-                            onClick={() => setSendMode(AgentRunMessageMode.IMMEDIATE)}
-                            className={cn(
-                              "rounded-sm px-2.5 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 md:px-2 md:py-0.5",
-                              sendMode === AgentRunMessageMode.IMMEDIATE
-                                ? "bg-background text-foreground shadow-sm"
-                                : "hover:text-foreground",
-                            )}
-                          >
-                            Steer
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSendMode(AgentRunMessageMode.ENQUEUE)}
-                            className={cn(
-                              "rounded-sm px-2.5 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 md:px-2 md:py-0.5",
-                              sendMode === AgentRunMessageMode.ENQUEUE
-                                ? "bg-background text-foreground shadow-sm"
-                                : "hover:text-foreground",
-                            )}
-                          >
-                            Queue
-                          </button>
+                      {showSendMode && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="mr-0.5">Delivery</span>
+                          <div className="flex items-center rounded-md bg-muted p-0.5">
+                            <button
+                              type="button"
+                              onClick={() => setSendMode(AgentRunMessageMode.IMMEDIATE)}
+                              className={cn(
+                                "rounded-sm px-2.5 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 md:px-2 md:py-0.5",
+                                sendMode === AgentRunMessageMode.IMMEDIATE
+                                  ? "bg-background text-foreground shadow-sm"
+                                  : "hover:text-foreground",
+                              )}
+                            >
+                              Steer
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSendMode(AgentRunMessageMode.ENQUEUE)}
+                              className={cn(
+                                "rounded-sm px-2.5 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 md:px-2 md:py-0.5",
+                                sendMode === AgentRunMessageMode.ENQUEUE
+                                  ? "bg-background text-foreground shadow-sm"
+                                  : "hover:text-foreground",
+                              )}
+                            >
+                              Queue
+                            </button>
+                          </div>
                         </div>
-                      </div>
+                      )}
                       <span className="hidden text-muted-foreground/70 md:inline">
                         <kbd className="rounded border bg-muted px-1 font-mono">/</kbd> for commands ·{" "}
                         <kbd className="rounded border bg-muted px-1 font-mono">@</kbd> for files

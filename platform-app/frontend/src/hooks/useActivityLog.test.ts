@@ -1,7 +1,38 @@
-import { describe, expect, it } from "vitest";
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { applyDeltaEntries } from "./useActivityLog";
+const clientMock = vi.hoisted(() => ({
+  watchActivityLog: vi.fn(),
+  getActivityLog: vi.fn(),
+}));
+
+vi.mock("@/lib/client", () => ({ client: clientMock }));
+vi.mock("@/lib/auth-interceptor", () => ({
+  refreshOnUnauthenticated: vi.fn().mockResolvedValue(false),
+}));
+
+import { applyDeltaEntries, createRetryWaiter, useActivityLog } from "./useActivityLog";
+import { useRunActivityLog } from "./useRunActivityLog";
 import type { ActivityEntry } from "@/rpc/platform/service_pb";
+
+/** A stream that yields its frames and then stays open. */
+function openStream<T>(values: T[]): AsyncIterable<T> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const value of values) {
+        yield value;
+      }
+      await new Promise<void>(() => {});
+    },
+  };
+}
+
+function flush(): Promise<void> {
+  return act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
 
 function entry(overrides: Partial<ActivityEntry>): ActivityEntry {
   return {
@@ -67,5 +98,97 @@ describe("applyDeltaEntries", () => {
     const result = applyDeltaEntries(existing, [entry({ eventId: 2n }), entry({ eventId: 1n })], 2n);
     expect(result.entries).toBe(existing);
     expect(result.lastEventId).toBe(2n);
+  });
+});
+
+describe("useActivityLog stream lifecycle", () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    clientMock.watchActivityLog.mockReset();
+    clientMock.getActivityLog.mockReset();
+  });
+
+  it("opens a single stream when the refresh key settles after the run loads", async () => {
+    clientMock.watchActivityLog.mockImplementation(() => openStream([]));
+
+    // Mirrors RunSessionView: the key is empty until the run snapshot arrives,
+    // and the stream is gated on the run being known.
+    const { rerender } = renderHook(
+      ({ key, enabled }: { key: string; enabled: boolean }) =>
+        useRunActivityLog("ns", "run", "Running", key, { enabled }),
+      { initialProps: { key: "", enabled: false } },
+    );
+    await flush();
+    expect(clientMock.watchActivityLog).not.toHaveBeenCalled();
+
+    rerender({ key: "ns::run::1::0", enabled: true });
+    await flush();
+    expect(clientMock.watchActivityLog).toHaveBeenCalledTimes(1);
+
+    rerender({ key: "ns::run::1::0", enabled: true });
+    await flush();
+    expect(clientMock.watchActivityLog).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconnects an idle stream when the page becomes visible again", async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    clientMock.watchActivityLog.mockImplementation((_req: unknown, opts: { signal: AbortSignal }) => {
+      signals.push(opts.signal);
+      return openStream([
+        { entries: [], isComplete: false, delta: true, reset: true, lastEventId: 0n },
+      ]);
+    });
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+
+    renderHook(() => useActivityLog("ns", "run", "Running", "k"));
+    await flush();
+    expect(clientMock.watchActivityLog).toHaveBeenCalledTimes(1);
+
+    // Fresh frame: the stream is trusted.
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await flush();
+    expect(clientMock.watchActivityLog).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await flush();
+    expect(signals[0].aborted).toBe(true);
+    expect(clientMock.watchActivityLog).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("createRetryWaiter", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("resolves after the delay and immediately on cancel", async () => {
+    vi.useFakeTimers();
+    const waiter = createRetryWaiter();
+    let resolved = false;
+    void waiter.wait(1000).then(() => {
+      resolved = true;
+    });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(resolved).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(resolved).toBe(true);
+
+    let cancelled = false;
+    void waiter.wait(5000).then(() => {
+      cancelled = true;
+    });
+    waiter.cancel();
+    await Promise.resolve();
+    expect(cancelled).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

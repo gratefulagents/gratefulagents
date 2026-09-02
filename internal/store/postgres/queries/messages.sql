@@ -48,7 +48,7 @@ WHERE candidate.session_id = $1 AND candidate.role = 'user'
   AND candidate.delivery_state = 'pending'
   AND candidate.id < COALESCE((
       SELECT min(held.id) FROM conversation_messages AS held
-      WHERE held.session_id = candidate.session_id
+      WHERE held.session_id = $1
         AND COALESCE(held.metadata, '{}'::jsonb) ? 'overseer_held'
   ), 9223372036854775807)
 ORDER BY candidate.id ASC;

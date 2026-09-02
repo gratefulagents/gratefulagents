@@ -35,14 +35,15 @@ func initSessionClient(ctx context.Context, crdClient client.Client, runName, na
 		return nil, fmt.Errorf("configuring S3 project asset storage: %w", err)
 	}
 	stateStore.SetProjectContentBlobStore(contentBlobs)
-	// Live session wake-up hints (LISTEN session_change): optional and lossy;
-	// the message loop and interrupt watcher poll faster while it is down.
-	stateStore.StartSessionChangeListener(ctx)
 	sc, err := sessionclient.New(ctx, stateStore, crdClient, runName, namespace, phase, currentStep)
 	if err != nil {
 		stateStore.Close()
 		return nil, fmt.Errorf("creating session client: %w", err)
 	}
+	// Live session wake-up hints: optional and lossy; the message loop and
+	// interrupt watcher poll faster while it is down. LISTEN only on this
+	// session's channel so every agent pod is not woken by every session.
+	stateStore.StartSessionChangeListenerFor(ctx, sc.SessionID())
 
 	log.Printf("Postgres session client initialized (session=%s)", sc.SessionID())
 	return sc, nil
