@@ -414,24 +414,26 @@ export const WorkCard = memo(function WorkCard({ item, live }: { item: WorkItem;
     return null;
   }
 
-  // Collapsed live cards still need to communicate progress. In flight: the
-  // call's target plus a ticking elapsed time. Between calls: what just
-  // finished, clearly marked as done, so nobody reads a result as "running".
+  // Collapsed live cards only peek while a call is actually in flight: the
+  // call's target plus a ticking elapsed time. Between calls there is nothing
+  // to add — the step row below the card already says what the agent is doing,
+  // and echoing the last command back reads as noise.
   let peek = "";
-  if (live && !open) {
-    if (activity.kind === "tool") {
-      const elapsed = elapsedSince(activity.use, now);
-      peek = elapsed ? `${actionLine(activity.use)} · ${elapsed}` : actionLine(activity.use);
-    } else if (activity.kind === "idle" && activity.last) {
-      const took = activity.last.result ? formatDuration(activity.last.result.toolDurationMs) : "";
-      peek = `Finished ${actionLine(activity.last.use)}${took ? ` · ${took}` : ""}`;
-    } else if (activity.kind === "thinking") {
-      peek = firstLine(activity.entry.message || "").slice(0, 140);
-    }
+  if (live && !open && activity.kind === "tool") {
+    const elapsed = elapsedSince(activity.use, now);
+    peek = elapsed ? `${actionLine(activity.use)} · ${elapsed}` : actionLine(activity.use);
   }
 
+  // Live title: what is happening now. In flight → "Running X…"; thinking →
+  // "Thinking…"; between calls → the past-tense verb for what the unit has
+  // done so far ("Ran commands") with the live dot carrying the "still open"
+  // signal, instead of a vague "Working…".
   const title = live
-    ? `${liveLabel}…`
+    ? activity.kind === "idle"
+      ? stats.toolTotal > 0
+        ? workVerb(stats)
+        : "Working…"
+      : `${liveLabel}…`
     : onlyReasoning
       ? "Reasoned"
       : duration
@@ -466,9 +468,8 @@ export const WorkCard = memo(function WorkCard({ item, live }: { item: WorkItem;
           {showSummary && (
             <span
               className="flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground"
-              title={live ? `Completed so far: ${summary}` : summary}
+              title={live && inFlightUse ? `Finished so far: ${summary}` : summary}
             >
-              {live && <Check className={`size-3 shrink-0 ${toneText.success}`} aria-hidden="true" />}
               <span className="truncate">{summary}</span>
             </span>
           )}
@@ -489,10 +490,7 @@ export const WorkCard = memo(function WorkCard({ item, live }: { item: WorkItem;
         </span>
         {peek && (
           <span
-            className={cn(
-              "pl-6 text-2xs line-clamp-1",
-              activity.kind === "tool" ? toneText.running : "text-muted-foreground/80",
-            )}
+            className={cn("pl-6 font-mono text-2xs line-clamp-1", toneText.running)}
             title={peek}
           >
             {peek}

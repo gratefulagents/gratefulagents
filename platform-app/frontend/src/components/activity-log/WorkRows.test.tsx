@@ -185,14 +185,26 @@ describe("WorkCard (live)", () => {
     expect(screen.queryByText(/submit_maintainer_report$/)).toBeNull();
   });
 
-  it("marks the last call as finished once its result is in", () => {
+  it("describes finished work in past tense between calls, with no echo of the last command", () => {
     const entries = [
-      entry({ tool: "wait_for_repo_events", toolUseId: "a", inputRaw: '{"since":"latest"}' }),
+      entry({ tool: "Bash", toolUseId: "a", inputRaw: '{"command":"cd repo && sed -i s/a/b/ file.go"}' }),
       entry({ type: "tool_result", toolUseId: "a", output: "ok", toolDurationMs: 364n }),
     ];
     render(<WorkCard item={item(entries)} live />);
-    expect(screen.getByText("Working…")).toBeTruthy();
-    expect(screen.getByText(/^Finished wait_for_repo_events/)).toBeTruthy();
+    expect(screen.getByText("Ran commands")).toBeTruthy();
+    expect(screen.getByText("1× Bash")).toBeTruthy();
+    expect(screen.queryByText(/Finished/)).toBeNull();
+    expect(screen.queryByText(/sed -i/)).toBeNull();
+  });
+
+  it("peeks only the in-flight command, with an elapsed timer", () => {
+    const startedAt = BigInt(Math.floor(Date.now() / 1000) - 12);
+    const entries = [
+      entry({ tool: "Bash", toolUseId: "a", inputRaw: '{"command":"go test ./..."}', timestampUnix: startedAt }),
+    ];
+    render(<WorkCard item={item(entries)} live />);
+    expect(screen.getByText("Running Bash…")).toBeTruthy();
+    expect(screen.getByText(/^Bash go test \.\/\.\.\. · 1\d(?:\.\d)?s$/)).toBeTruthy();
   });
 
   it("folds system events into a single trailing row when expanded", () => {
