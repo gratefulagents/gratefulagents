@@ -4,8 +4,9 @@ import { Check, ChevronRight, CornerDownRight, GitFork, Maximize2 } from "lucide
 
 import { AgentTypeChip } from "@/components/ui/agent-type-chip";
 import { LiveDot } from "@/components/ui/live-dot";
+import { useSubagentContext } from "./subagentContext";
 import { assignOrdinals, buildLayout, isWaitingStatus, type LayoutDims } from "@/lib/subagentGraphLayout";
-import {
+import { cleanSubagentDescription,
   formatDuration,
   formatTokens,
   subagentTitleFromPrompt,
@@ -37,9 +38,7 @@ function groupDependsOn(group: SubagentGroup): string[] {
 
 function groupTitle(group: SubagentGroup): string {
   return (
-    (group.subagentDescription && group.subagentDescription !== "spawned"
-      ? group.subagentDescription
-      : "") ||
+    cleanSubagentDescription(group.subagentDescription) ||
     subagentTitleFromPrompt(group.subagentPrompt) ||
     (group.taskId ? `Task ${group.taskId.replace(/^task_/, "").slice(0, 8)}` : "task")
   );
@@ -142,7 +141,16 @@ export function SubagentDagCard({
   // Ordinals (#n) come from the shared layout numbering so the dock, this
   // card and the graph tab all mean the same task by "#3". Rows render in
   // ordinal order; ids are task ids (or `idx-i` for tasks without one).
-  const ordinalById = useMemo(() => assignOrdinals(layout), [layout]);
+  // Run-wide numbers win when the graph knows this task; the burst-local
+  // layout numbering is the fallback for logs without a graph.
+  const shared = useSubagentContext();
+  const openGraph = onOpenGraph ?? shared.onOpenGraph;
+  const ordinalById = useMemo(() => {
+    const local = assignOrdinals(layout);
+    const merged = new Map<string, number>();
+    for (const [id, ordinal] of local) merged.set(id, shared.ordinalByTaskId.get(id) ?? ordinal);
+    return merged;
+  }, [layout, shared.ordinalByTaskId]);
   const rowOrder = useMemo(
     () =>
       groups
@@ -255,7 +263,7 @@ export function SubagentDagCard({
                 deps={deps}
                 selected={selectedId === id}
                 onSelect={() => setSelectedId((cur) => (cur === id ? null : id))}
-                onOpenGraph={onOpenGraph}
+                onOpenGraph={openGraph}
               />
             );
           })}

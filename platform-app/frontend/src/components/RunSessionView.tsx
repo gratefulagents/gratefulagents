@@ -24,6 +24,7 @@ import { useRepositories } from "@/hooks/useRepositories";
 import { useRunActivityLog } from "@/hooks/useRunActivityLog";
 import { useActivityEntryDetail } from "@/hooks/useActivityEntryDetail";
 import { ActivityDetailProvider } from "@/components/activity-log/detailContext";
+import { SubagentContextProvider } from "@/components/activity-log/subagentContext";
 import { usePresence } from "@/hooks/usePresence";
 import { useAgentRunUsage } from "@/hooks/useAgentRunUsage";
 import { client } from "@/lib/client";
@@ -217,6 +218,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     setInspectorTab(tab);
     setInspectorOpen(true);
   }, []);
+  const openGraphTab = useCallback(() => openInspector("graph"), [openInspector]);
   // Panes that hold view state (graph zoom, diff scroll) mount on first visit
   // and then stay mounted, hidden, so switching tabs never resets them.
   const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<InspectorTab>>(() => new Set());
@@ -1324,6 +1326,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
 
   return (
     <ActivityDetailProvider value={fetchActivityEntryDetail}>
+    <SubagentContextProvider graph={subagentGraph} onOpenGraph={openGraphTab}>
     <MotionConfig reducedMotion="user">
     <RunActionsProvider value={runActions}>
     <div className="flex h-full gap-px overflow-hidden bg-muted/30">
@@ -1406,6 +1409,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     </div>
     </RunActionsProvider>
     </MotionConfig>
+    </SubagentContextProvider>
     </ActivityDetailProvider>
   );
 }

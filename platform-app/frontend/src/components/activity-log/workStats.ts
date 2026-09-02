@@ -86,16 +86,64 @@ export function workVerb(s: WorkStats): string {
   return "Worked";
 }
 
-export function liveVerb(entries: ActivityEntry[]): string {
+/**
+ * What a live work unit is doing *right now*, distinguished from what it has
+ * already finished. A tool_use is in flight only while no tool_result has
+ * answered it; once it returns, the agent is composing (or thinking), and the
+ * card must not keep claiming "Running X".
+ */
+export type LiveActivity =
+  | { kind: "tool"; use: ActivityEntry }
+  | { kind: "thinking"; entry: ActivityEntry }
+  | { kind: "idle"; last?: { use: ActivityEntry; result?: ActivityEntry } }
+  | { kind: "none" };
+
+export function liveActivity(entries: ActivityEntry[]): LiveActivity {
+  const answered = new Set<string>();
+  let lastResult: ActivityEntry | undefined;
+  for (const e of entries) {
+    if (e.type === "tool_result") {
+      if (e.toolUseId) answered.add(e.toolUseId);
+      lastResult = e;
+    }
+  }
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
-    if (e.type === "assistant_thinking") return "Thinking";
+    if (e.type === "assistant_thinking") return { kind: "thinking", entry: e };
     if (e.type !== "tool_use") continue;
-    return e.tool ? `Running ${e.tool}` : "Running a tool";
+    // Without ids, a tool_result that arrived after the call counts as its answer.
+    const done = e.toolUseId
+      ? answered.has(e.toolUseId)
+      : entries.slice(i + 1).some((x) => x.type === "tool_result");
+    if (!done) return { kind: "tool", use: e };
+    const result = e.toolUseId
+      ? entries.find((x) => x.type === "tool_result" && x.toolUseId === e.toolUseId)
+      : lastResult;
+    return { kind: "idle", last: { use: e, result } };
   }
-  // No concrete action to describe (e.g. only system bookkeeping like
-  // system init). The run header's "Preparing work…" status covers this.
-  return "";
+  return { kind: "none" };
+}
+
+/** Entries minus the in-flight tool call, so "what's done" stats exclude "what's running". */
+export function completedEntries(entries: ActivityEntry[], live: LiveActivity): ActivityEntry[] {
+  if (live.kind !== "tool") return entries;
+  return entries.filter((e) => e !== live.use);
+}
+
+export function liveVerb(entries: ActivityEntry[]): string {
+  const live = liveActivity(entries);
+  switch (live.kind) {
+    case "tool":
+      return live.use.tool ? `Running ${live.use.tool}` : "Running a tool";
+    case "thinking":
+      return "Thinking";
+    case "idle":
+      return "Working";
+    case "none":
+      // No concrete action to describe (e.g. only system bookkeeping like
+      // system init). The run header's "Preparing work…" status covers this.
+      return "";
+  }
 }
 
 // ─── Detail panes ───────────────────────────────────────────────────────────

@@ -6,7 +6,8 @@ import { RowDetail } from "./DetailPanes";
 import { useResolvedEntry } from "./detailContext";
 import { entryIdentity, workUnitKey } from "./feedModel";
 import type { WorkItem, WorkUnit } from "./types";
-import { computeStats, liveVerb, statsSummary, workVerb } from "./workStats";
+import { completedEntries, computeStats, liveActivity, liveVerb, statsSummary, workVerb } from "./workStats";
+import { useNow } from "@/hooks/useNow";
 import { MarkdownViewer } from "@/components/MarkdownViewer";
 import { formatDuration, shortPath } from "@/lib/activityGrouping";
 import { bashCommand, fileTarget, firstLine, firstMeaningfulLine, formatClock, formatWall, genericTarget, searchPattern, systemLabel, wallSeconds } from "@/lib/activityLogFormat";
@@ -99,9 +100,12 @@ function entryPanelId(entry: ActivityEntry): string {
 export function WorkRowView({
   use,
   result,
+  inFlight = false,
 }: {
   use: ActivityEntry;
   result?: ActivityEntry;
+  /** The call has no result yet and the work unit is live: show it as running. */
+  inFlight?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const { Icon, verb, target } = useMemo(() => rowPresentation(use), [use]);
@@ -109,7 +113,12 @@ export function WorkRowView({
   const hasDetail = Boolean(
     use.inputRaw || use.input || result?.output || use.output,
   );
-  const duration = result ? formatDuration(result.toolDurationMs) : "";
+  const now = useNow(inFlight ? 1_000 : 0);
+  const duration = result
+    ? formatDuration(result.toolDurationMs)
+    : inFlight
+      ? elapsedSince(use, now)
+      : "";
   const isMono = use.type === "tool_use" && use.tool !== "Agent";
   const panelId = hasDetail ? entryPanelId(use) : undefined;
 
@@ -128,8 +137,14 @@ export function WorkRowView({
         {target && <span className={isMono ? "font-mono" : ""}>{target}</span>}
       </span>
       <RowStatusIcon use={use} result={result} />
+      {inFlight && <LiveDot tone="running" pulse size="xs" />}
       {duration && (
-        <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+        <span
+          className={cn(
+            "shrink-0 font-mono text-2xs tabular-nums",
+            inFlight ? toneText.running : "text-muted-foreground",
+          )}
+        >
           {duration}
         </span>
       )}
@@ -324,10 +339,16 @@ export function StepRowView({ entry }: { entry: ActivityEntry }) {
   );
 }
 
-export function WorkUnitView({ unit }: { unit: WorkUnit }) {
+export function WorkUnitView({ unit, inFlightUse }: { unit: WorkUnit; inFlightUse?: ActivityEntry }) {
   switch (unit.kind) {
     case "row":
-      return <WorkRowView use={unit.use} result={unit.result} />;
+      return (
+        <WorkRowView
+          use={unit.use}
+          result={unit.result}
+          inFlight={inFlightUse !== undefined && unit.use === inFlightUse && !unit.result}
+        />
+      );
     case "batch":
       return <BatchRowView tool={unit.tool} entries={unit.entries} />;
     case "thinking":
@@ -341,23 +362,49 @@ export function WorkUnitView({ unit }: { unit: WorkUnit }) {
 
 // ─── Work card ──────────────────────────────────────────────────────────────
 
-function latestActionLine(entries: ActivityEntry[]): string {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const e = entries[i];
-    if (e.type !== "tool_use") continue;
-    const { verb, target } = rowPresentation(e);
-    return target ? `${verb} ${target}` : verb;
-  }
-  return "";
+function actionLine(use: ActivityEntry): string {
+  const { verb, target } = rowPresentation(use);
+  return target ? `${verb} ${target}` : verb;
+}
+
+/** Live elapsed time for an in-flight tool call, from its start timestamp. */
+function elapsedSince(use: ActivityEntry, now: number): string {
+  const started = Number(use.timestampUnix) * 1_000;
+  if (!started || now <= started) return "";
+  return formatDuration(now - started);
 }
 
 export const WorkCard = memo(function WorkCard({ item, live }: { item: WorkItem; live: boolean }) {
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? false;
-  const stats = useMemo(() => computeStats(item.entries), [item.entries]);
+  // "Now" and "done" are separate questions for a live card: the title says
+  // what is in flight, the summary counts only calls that already returned.
+  const activity = useMemo<ReturnType<typeof liveActivity>>(
+    () => (live ? liveActivity(item.entries) : { kind: "none" }),
+    [live, item.entries],
+  );
+  const inFlightUse = activity.kind === "tool" ? activity.use : undefined;
+  const stats = useMemo(
+    () => computeStats(live ? completedEntries(item.entries, activity) : item.entries),
+    [live, item.entries, activity],
+  );
   const summary = statsSummary(stats);
   const duration = formatWall(wallSeconds(item.entries));
   const onlyReasoning = stats.toolTotal === 0 && stats.thoughts > 0;
+  const now = useNow(inFlightUse ? 1_000 : 0);
+
+  // System bookkeeping (llm attempts, retries) is folded into one trailing row
+  // so the expanded card reads as the sequence of tool calls, not the plumbing
+  // between them.
+  const { actionUnits, systemEntries } = useMemo(() => {
+    const actionUnits: WorkUnit[] = [];
+    const systemEntries: ActivityEntry[] = [];
+    for (const unit of item.units) {
+      if (unit.kind === "system") systemEntries.push(...unit.entries);
+      else actionUnits.push(unit);
+    }
+    return { actionUnits, systemEntries };
+  }, [item.units]);
 
   const liveLabel = live ? liveVerb(item.entries) : "";
   // A live work unit with no concrete action (e.g. only system bookkeeping
@@ -367,9 +414,21 @@ export const WorkCard = memo(function WorkCard({ item, live }: { item: WorkItem;
     return null;
   }
 
-  // Collapsed live cards still need to communicate progress: surface the
-  // most recent concrete action (last tool target) as a one-line peek.
-  const peek = live && !open ? latestActionLine(item.entries) : "";
+  // Collapsed live cards still need to communicate progress. In flight: the
+  // call's target plus a ticking elapsed time. Between calls: what just
+  // finished, clearly marked as done, so nobody reads a result as "running".
+  let peek = "";
+  if (live && !open) {
+    if (activity.kind === "tool") {
+      const elapsed = elapsedSince(activity.use, now);
+      peek = elapsed ? `${actionLine(activity.use)} · ${elapsed}` : actionLine(activity.use);
+    } else if (activity.kind === "idle" && activity.last) {
+      const took = activity.last.result ? formatDuration(activity.last.result.toolDurationMs) : "";
+      peek = `Finished ${actionLine(activity.last.use)}${took ? ` · ${took}` : ""}`;
+    } else if (activity.kind === "thinking") {
+      peek = firstLine(activity.entry.message || "").slice(0, 140);
+    }
+  }
 
   const title = live
     ? `${liveLabel}…`
@@ -378,6 +437,7 @@ export const WorkCard = memo(function WorkCard({ item, live }: { item: WorkItem;
       : duration
         ? `${workVerb(stats)} for ${duration}`
         : workVerb(stats);
+  const showSummary = summary && !onlyReasoning && !(live && stats.toolTotal === 0);
 
   return (
     <div className="overflow-hidden rounded-lg border border-border/50 bg-muted/[0.15]">
@@ -403,9 +463,13 @@ export const WorkCard = memo(function WorkCard({ item, live }: { item: WorkItem;
           <span className="shrink-0 text-xs font-medium text-foreground/90">
             {title}
           </span>
-          {summary && !onlyReasoning && (
-            <span className="min-w-0 truncate text-xs text-muted-foreground">
-              {summary}
+          {showSummary && (
+            <span
+              className="flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground"
+              title={live ? `Completed so far: ${summary}` : summary}
+            >
+              {live && <Check className={`size-3 shrink-0 ${toneText.success}`} aria-hidden="true" />}
+              <span className="truncate">{summary}</span>
             </span>
           )}
           {stats.errors > 0 && (
@@ -424,15 +488,22 @@ export const WorkCard = memo(function WorkCard({ item, live }: { item: WorkItem;
           <Chevron open={open} className="size-3.5 text-muted-foreground/50" />
         </span>
         {peek && (
-          <span className="pl-6 text-2xs text-muted-foreground/80 line-clamp-1" title={peek}>
+          <span
+            className={cn(
+              "pl-6 text-2xs line-clamp-1",
+              activity.kind === "tool" ? toneText.running : "text-muted-foreground/80",
+            )}
+            title={peek}
+          >
             {peek}
           </span>
         )}
       </button>
       <Collapse open={open} className="space-y-px border-t border-border/40 px-1.5 py-1.5">
-        {item.units.map((unit, i) => (
-          <WorkUnitView key={workUnitKey(unit, i)} unit={unit} />
+        {actionUnits.map((unit, i) => (
+          <WorkUnitView key={workUnitKey(unit, i)} unit={unit} inFlightUse={inFlightUse} />
         ))}
+        {systemEntries.length > 0 && <SystemRowView entries={systemEntries} />}
       </Collapse>
     </div>
   );

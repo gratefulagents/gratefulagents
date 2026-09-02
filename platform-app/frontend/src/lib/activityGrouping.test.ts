@@ -1,7 +1,7 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
 
-import { groupActivityEntries, subagentPromptMarkdown } from "@/lib/activityGrouping";
+import { cleanSubagentDescription, groupActivityEntries, subagentPromptMarkdown, subagentTitleFromPrompt } from "@/lib/activityGrouping";
 import { ActivityEntrySchema } from "@/rpc/platform/service_pb";
 
 function entry(partial: MessageInitShape<typeof ActivityEntrySchema>) {
@@ -251,5 +251,52 @@ describe("subagentPromptMarkdown", () => {
   it("falls back to the raw text for unparseable or unrecognized JSON", () => {
     expect(subagentPromptMarkdown('{"broken": ')).toBe('{"broken":');
     expect(subagentPromptMarkdown('{"other": true}')).toBe('{"other": true}');
+  });
+});
+
+describe("cleanSubagentDescription", () => {
+  it("drops lifecycle markers, including ones not in the explicit list", () => {
+    for (const noise of ["parent_wait", "dependency_wait", "spawned", "future_marker_x", " running "]) {
+      expect(cleanSubagentDescription(noise)).toBe("");
+    }
+  });
+
+  it("keeps real objectives", () => {
+    expect(cleanSubagentDescription("Review the diff viewer")).toBe("Review the diff viewer");
+    expect(cleanSubagentDescription("fix_bug in parser")).toBe("fix_bug in parser");
+  });
+
+  it("titles a parent_wait snapshot from the prompt, not the marker", () => {
+    const groups = groupActivityEntries([
+      entry({
+        type: "subagent_started",
+        taskId: "task_1",
+        subagentType: "executor",
+        subagentDescription: "spawned",
+        subagentPrompt: "## Task: Inspector shell & tabs overhaul\nDetails…",
+        timestampUnix: 1n,
+      }),
+      entry({
+        type: "subagent_progress",
+        taskId: "task_1",
+        subagentType: "executor",
+        subagentDescription: "parent_wait",
+        subagentStatus: "running",
+        timestampUnix: 2n,
+      }),
+    ]);
+    const group = groups.find((g) => g.kind === "subagent");
+    expect(group && group.kind === "subagent" ? group.subagentDescription : "x").toBe("");
+    expect(subagentTitleFromPrompt(group && group.kind === "subagent" ? group.subagentPrompt : "")).toBe(
+      "Inspector shell & tabs overhaul",
+    );
+  });
+});
+
+describe("subagentTitleFromPrompt", () => {
+  it("strips markdown heading, bullet and emphasis syntax", () => {
+    expect(subagentTitleFromPrompt("## Review the graph")).toBe("Review the graph");
+    expect(subagentTitleFromPrompt("- **Audit tokens**")).toBe("Audit tokens");
+    expect(subagentTitleFromPrompt("\n\n1. First step\nsecond")).toBe("First step");
   });
 });

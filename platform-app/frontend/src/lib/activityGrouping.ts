@@ -57,6 +57,7 @@ const SUBAGENT_STATUS_NOISE = new Set([
   "spawned",
   "dependency_wait",
   "managed_wait",
+  "parent_wait",
   "final_join",
   "resumed",
   "pending",
@@ -74,6 +75,9 @@ const SUBAGENT_STATUS_NOISE = new Set([
 export function cleanSubagentDescription(raw: string | undefined): string {
   const s = (raw ?? "").trim();
   if (!s || SUBAGENT_STATUS_NOISE.has(s.toLowerCase())) return "";
+  // Any bare snake_case token is a lifecycle marker, not an objective — real
+  // descriptions have spaces. Guards against markers added after this list.
+  if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(s)) return "";
   return s;
 }
 
@@ -81,7 +85,14 @@ export function cleanSubagentDescription(raw: string | undefined): string {
  * by code points so surrogate pairs (emoji) are never split. */
 export function subagentTitleFromPrompt(prompt: string | undefined): string {
   for (const line of (prompt ?? "").split("\n")) {
-    const trimmed = line.trim();
+    // Prompts are often markdown: drop a leading heading marker, list bullet
+    // or emphasis so the title reads as a sentence, not as syntax.
+    const trimmed = line
+      .trim()
+      .replace(/^(?:#{1,6}\s+|[-*]\s+|\d+\.\s+)/, "")
+      .replace(/^\*\*(.+?)\*\*:?$/, "$1")
+      .replace(/^(?:Task|Objective|Goal):\s*/i, "")
+      .trim();
     if (!trimmed) continue;
     const points = Array.from(trimmed);
     return points.length > 90 ? `${points.slice(0, 89).join("").trimEnd()}…` : trimmed;

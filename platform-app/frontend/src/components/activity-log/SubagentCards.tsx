@@ -7,9 +7,10 @@ import { LiveDot } from "@/components/ui/live-dot";
 import { Collapse } from "./Collapse";
 import { CodePane } from "./DetailPanes";
 import { useResolvedEntry } from "./detailContext";
+import { useSubagentContext } from "./subagentContext";
 import { entryIdentity, groupsToUnits, workUnitKey } from "./feedModel";
 import { WorkUnitView } from "./WorkRows";
-import { groupActivityEntries, formatDuration, formatTokens, subagentPromptMarkdown, subagentTitleFromPrompt, type ActivityGroup } from "@/lib/activityGrouping";
+import { cleanSubagentDescription, groupActivityEntries, formatDuration, formatTokens, subagentPromptMarkdown, subagentTitleFromPrompt, type ActivityGroup } from "@/lib/activityGrouping";
 import { firstLine, formatClock, formatUsd } from "@/lib/activityLogFormat";
 import { getSubagentColor } from "@/lib/subagentColors";
 import { isWaitingStatus } from "@/lib/subagentGraphLayout";
@@ -61,10 +62,13 @@ export function SubagentShell({
   timestamp,
   children,
   defaultOpen = false,
+  ordinal,
 }: {
   name: string;
   status: string;
   title: string;
+  /** Run-wide `#n`, when the run's graph knows this task. */
+  ordinal?: number;
   liveLine?: string;
   /** One-line outcome shown on the collapsed card once the subagent finished. */
   resultPreview?: string;
@@ -94,6 +98,11 @@ export function SubagentShell({
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {ordinal !== undefined && (
+              <span className="shrink-0 font-mono text-3xs font-semibold tabular-nums text-muted-foreground/80">
+                #{ordinal}
+              </span>
+            )}
             {name && <AgentTypeChip type={name} />}
             <span className="min-w-0 truncate text-xs font-medium text-foreground/90">
               {title}
@@ -260,6 +269,7 @@ export const SubagentCard = memo(function SubagentCard({
   const waitingOn = liveEntry?.subagentWaitingOn ?? [];
   const dependsOn = liveEntry?.subagentDependsOn ?? [];
 
+  const shared = useSubagentContext();
   const metrics: string[] = [];
   if (group.subagentModel) metrics.push(group.subagentModel);
   if (group.toolCount > 0) metrics.push(`${group.toolCount} tools`);
@@ -269,19 +279,19 @@ export const SubagentCard = memo(function SubagentCard({
   if (group.subagentCostKnown) metrics.push(formatUsd(group.subagentCostUsd));
 
   const title =
-    (group.subagentDescription && group.subagentDescription !== "spawned"
-      ? group.subagentDescription
-      : "") ||
+    cleanSubagentDescription(group.subagentDescription) ||
     subagentTitleFromPrompt(group.subagentPrompt) ||
     (group.toolCount > 0
       ? `${group.toolCount} tool ${group.toolCount === 1 ? "call" : "calls"}`
       : "Subagent task");
+  const ordinal = group.taskId ? shared.ordinalByTaskId.get(group.taskId) : undefined;
 
   return (
     <SubagentShell
       name={group.subagentType}
       status={group.subagentStatus}
       title={title}
+      ordinal={ordinal}
       liveLine={liveLine}
       resultPreview={resultIsError ? "" : firstLine(resultContent)}
       metrics={metrics}

@@ -234,3 +234,33 @@ describe("SubagentDagCard", () => {
     expect(onOpenGraph).toHaveBeenCalledOnce();
   });
 });
+
+describe("SubagentDagCard shared ordinals", () => {
+  it("numbers rows from the run-wide graph when provided", async () => {
+    const { SubagentContextProvider } = await import("./subagentContext");
+    const graph = create(SubagentGraphSchema, {
+      rootId: "root",
+      hasSubagents: true,
+      nodes: [
+        create(SubagentGraphNodeSchema, { id: "root", kind: "root", label: "main", status: "running" }),
+        create(SubagentGraphNodeSchema, { id: "task_a", kind: "subagent", label: "A", status: "completed", timestampUnix: 1n }),
+        create(SubagentGraphNodeSchema, { id: "task_b", kind: "subagent", label: "B", status: "completed", timestampUnix: 2n }),
+        create(SubagentGraphNodeSchema, { id: "task_c", kind: "subagent", label: "C", status: "completed", timestampUnix: 3n }),
+      ],
+      edges: ["task_a", "task_b", "task_c"].map((to) =>
+        create(SubagentGraphEdgeSchema, { id: `root=>${to}`, from: "root", to, kind: "spawn" }),
+      ),
+    });
+    // A card that only sees tasks b and c must still call them #2 and #3.
+    const c = { ...group(2, "completed"), taskId: "task_c" };
+    const b = { ...group(1, "completed"), taskId: "task_b" };
+    render(
+      <SubagentContextProvider graph={graph}>
+        <SubagentDagCard groups={[c, b]} />
+      </SubagentContextProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    const rows = screen.getAllByTestId("subagent-roster-row");
+    expect(rows.map((r) => r.getAttribute("title")?.slice(0, 2))).toEqual(["#2", "#3"]);
+  });
+});

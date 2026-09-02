@@ -5,6 +5,7 @@ package dashboard
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -70,6 +71,7 @@ func isTerminalSubagentStatus(status string) bool {
 var subagentStatusNoise = map[string]bool{
 	"spawned":         true,
 	"dependency_wait": true,
+	"parent_wait":     true,
 	"managed_wait":    true,
 	"final_join":      true,
 	"resumed":         true,
@@ -85,10 +87,18 @@ var subagentStatusNoise = map[string]bool{
 	"canceled":        true,
 }
 
+var snakeCaseToken = regexp.MustCompile(`^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$`)
+
 // cleanSubagentDescription filters lifecycle noise out of a candidate title.
 func cleanSubagentDescription(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" || subagentStatusNoise[strings.ToLower(s)] {
+		return ""
+	}
+	// Any bare snake_case token is a lifecycle marker rather than an
+	// objective — real descriptions contain spaces. This guards against
+	// markers the SDK adds after the explicit list above.
+	if snakeCaseToken.MatchString(s) {
 		return ""
 	}
 	return s
