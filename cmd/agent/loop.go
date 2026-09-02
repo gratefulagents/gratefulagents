@@ -484,6 +484,13 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	runtimeCfg.ExtraTools = agentTools
 	runtimeCfg.TracingProcessor = tp
 	runtimeCfg.Debug = cfg.Debug
+	// Own the session state so the runtime does not register it in
+	// Bundle.Closers (SDK v0.0.111+ closes a runtime-owned state with the
+	// bundle, cancelling every managed child). This process exits between user
+	// messages and on pod recycles while children must stay resumable as
+	// reconciling; the loop cancels children explicitly on the exits where
+	// that is the intended outcome (user stop, cost cap, turn failure).
+	runtimeCfg.SessionState = sdkruntime.NewSessionState()
 	runtimeBundle, err := sdkruntime.NewBuilder(runtimeCfg).Build(ctx)
 	if err != nil {
 		return runResult{Status: "failed", Error: fmt.Sprintf("build runtime: %v", err)}

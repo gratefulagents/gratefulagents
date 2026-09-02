@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -116,18 +117,16 @@ type stuckSubAgentTask struct {
 	Reason    string
 }
 
-// resumeReconcilingSubAgentTasks attempts exactly one automatic resume per
-// restored reconciling task and returns the tasks that could not be resumed.
-// Every failure is recorded in attempted: the SDK only rejects a resume for
-// reasons that are permanent within this process (checkpoint boundary with an
-// unresolved external effect, unsupported schema, missing agent or runner,
-// weaker security baseline), so retrying on every turn would just log the
-// same error forever while the task stays reconciling and blocks the parent's
-// final answer. Callers surface the returned tasks once so the model can
-// cancel or reconcile them.
+// resumeReconcilingSubAgentTasks attempts one automatic resume per restored
+// reconciling task and returns the tasks that will never resume on their own.
 //
-// TODO: switch to errors.Is(err, agent.ErrSubAgentReconciliationRequired /
-// ErrSubAgentResumeRejected) once the pinned SDK exposes those sentinels.
+// The SDK reports permanent outcomes with sentinels: ErrSubAgentReconciliationRequired
+// (checkpoint holds an unresolved external effect) and ErrSubAgentResumeRejected
+// (schema, agent catalog, runner, or security baseline no longer match). Both
+// are recorded in attempted and surfaced once so the model can cancel or
+// reconcile them; retrying every turn would only log the same error while the
+// task blocks the parent's final answer. Any other error is unexpected and
+// treated as transient: it is logged and retried on the next turn.
 func resumeReconcilingSubAgentTasks(ctx context.Context, registry *agent.SubAgentScheduler, attempted map[string]struct{}) []stuckSubAgentTask {
 	if registry == nil {
 		return nil
@@ -140,13 +139,18 @@ func resumeReconcilingSubAgentTasks(ctx context.Context, registry *agent.SubAgen
 		if _, done := attempted[task.ID]; done {
 			continue
 		}
-		attempted[task.ID] = struct{}{}
-		if err := registry.ResumeRestoredTask(ctx, task.ID); err != nil {
+		err := registry.ResumeRestoredTask(ctx, task.ID)
+		switch {
+		case err == nil:
+			attempted[task.ID] = struct{}{}
+			log.Printf("Resumed durable sub-agent task %s", task.ID)
+		case errors.Is(err, agent.ErrSubAgentReconciliationRequired), errors.Is(err, agent.ErrSubAgentResumeRejected):
+			attempted[task.ID] = struct{}{}
 			log.Printf("Sub-agent task %s remains reconciling: %v", task.ID, err)
 			stuck = append(stuck, stuckSubAgentTask{ID: task.ID, AgentName: task.AgentName, Reason: err.Error()})
-			continue
+		default:
+			log.Printf("WARN: transient failure resuming sub-agent task %s (will retry next turn): %v", task.ID, err)
 		}
-		log.Printf("Resumed durable sub-agent task %s", task.ID)
 	}
 	return stuck
 }
