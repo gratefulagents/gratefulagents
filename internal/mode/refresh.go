@@ -32,12 +32,14 @@ func RefreshCurrentSnapshot(ctx context.Context, c client.Client, key client.Obj
 		if err := c.Get(ctx, client.ObjectKey{Name: modeName}, tmpl); err != nil {
 			return fmt.Errorf("getting current ModeTemplate %q: %w", modeName, err)
 		}
-		next := tmpl.Spec.DeepCopy()
+		next := StatusSnapshot(&tmpl.Spec)
 		next.Name = modeName
 		// Match normal mode resolution: all runs use autonomous pacing even when
 		// an older template omits the legacy autonomous field.
 		next.Autonomous = true
-		if reflect.DeepEqual(run.Status.ModeSnapshot, next) {
+		// Compare without instructions: snapshots pinned before they were
+		// omitted must not look changed on every refresh.
+		if reflect.DeepEqual(StatusSnapshot(run.Status.ModeSnapshot), next) {
 			return nil
 		}
 

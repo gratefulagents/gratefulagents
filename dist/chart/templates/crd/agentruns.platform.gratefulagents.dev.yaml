@@ -829,8 +829,10 @@ spec:
                 format: int64
                 type: integer
               modeSnapshot:
-                description: Mode system fields — populated by controller from resolved
-                  ModeTemplate.
+                description: |-
+                  Mode system fields — populated by controller from resolved ModeTemplate.
+                  The snapshot pins everything except instructions, which are always read
+                  from the live ModeTemplate so template edits apply to running work.
                 properties:
                   allowedMutatingTools:
                     description: |-

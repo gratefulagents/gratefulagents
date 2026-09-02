@@ -792,6 +792,8 @@ type AgentRunStatus struct {
 	LastWakeReason string `json:"lastWakeReason,omitempty"`
 
 	// Mode system fields — populated by controller from resolved ModeTemplate.
+	// The snapshot pins everything except instructions, which are always read
+	// from the live ModeTemplate so template edits apply to running work.
 	// +optional
 	ModeSnapshot *ModeTemplateSpec `json:"modeSnapshot,omitempty"`
 	// +optional

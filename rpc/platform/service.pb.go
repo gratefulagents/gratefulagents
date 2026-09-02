@@ -350,10 +350,21 @@ func (SecurityCatalogInstallState) EnumDescriptor() ([]byte, []int) {
 }
 
 type ListAgentRunsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`                              // Optional: filter by namespace (empty = all)
-	OwnedByMe     bool                   `protobuf:"varint,2,opt,name=owned_by_me,json=ownedByMe,proto3" json:"owned_by_me,omitempty"`          // If true, return only runs owned by the caller
-	SharedWithMe  bool                   `protobuf:"varint,3,opt,name=shared_with_me,json=sharedWithMe,proto3" json:"shared_with_me,omitempty"` // If true, return only runs shared with the caller
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Namespace    string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`                              // Optional: filter by namespace (empty = all)
+	OwnedByMe    bool                   `protobuf:"varint,2,opt,name=owned_by_me,json=ownedByMe,proto3" json:"owned_by_me,omitempty"`          // If true, return only runs owned by the caller
+	SharedWithMe bool                   `protobuf:"varint,3,opt,name=shared_with_me,json=sharedWithMe,proto3" json:"shared_with_me,omitempty"` // If true, return only runs shared with the caller
+	// Fleet window. When limit > 0 the response is ordered newest first and
+	// bounded: the first page holds every non-terminal run plus the newest
+	// `limit` terminal runs; later pages (page_token from the previous
+	// response) hold the next `limit` older terminal runs. limit = 0 returns
+	// every visible run (legacy behaviour).
+	Limit     int32  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	PageToken string `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// Optional source filter: keep runs whose trigger or project ref matches
+	// the given kind and/or name (same semantics as the fleet page filter).
+	SourceKind    string `protobuf:"bytes,6,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"`
+	SourceName    string `protobuf:"bytes,7,opt,name=source_name,json=sourceName,proto3" json:"source_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -409,9 +420,41 @@ func (x *ListAgentRunsRequest) GetSharedWithMe() bool {
 	return false
 }
 
+func (x *ListAgentRunsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListAgentRunsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *ListAgentRunsRequest) GetSourceKind() string {
+	if x != nil {
+		return x.SourceKind
+	}
+	return ""
+}
+
+func (x *ListAgentRunsRequest) GetSourceName() string {
+	if x != nil {
+		return x.SourceName
+	}
+	return ""
+}
+
 type ListAgentRunsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Runs          []*AgentRun            `protobuf:"bytes,1,rep,name=runs,proto3" json:"runs,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Runs  []*AgentRun            `protobuf:"bytes,1,rep,name=runs,proto3" json:"runs,omitempty"`
+	// Cursor for the next page of older terminal runs; empty when exhausted.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	// Total number of visible runs matching the filters across all pages.
+	TotalCount    int32 `protobuf:"varint,3,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -451,6 +494,20 @@ func (x *ListAgentRunsResponse) GetRuns() []*AgentRun {
 		return x.Runs
 	}
 	return nil
+}
+
+func (x *ListAgentRunsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+func (x *ListAgentRunsResponse) GetTotalCount() int32 {
+	if x != nil {
+		return x.TotalCount
+	}
+	return 0
 }
 
 type GetAgentRunRequest struct {
@@ -972,8 +1029,16 @@ func (x *UpdateAgentRunRuntimeConfigRequest) GetReasoningLevel() string {
 }
 
 type WatchAgentRunsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"` // Optional: filter by namespace (empty = all)
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Namespace string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"` // Optional: filter by namespace (empty = all)
+	// Fleet window, matching ListAgentRuns: when limit > 0 the stream emits
+	// every non-terminal run plus the newest `limit` terminal runs and keeps
+	// them live; terminal runs outside that window are not re-emitted (they
+	// are immutable) but a DELETED event is still sent when a previously
+	// emitted run disappears. limit = 0 streams every visible run.
+	Limit         int32  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	SourceKind    string `protobuf:"bytes,3,opt,name=source_kind,json=sourceKind,proto3" json:"source_kind,omitempty"`
+	SourceName    string `protobuf:"bytes,4,opt,name=source_name,json=sourceName,proto3" json:"source_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1011,6 +1076,27 @@ func (*WatchAgentRunsRequest) Descriptor() ([]byte, []int) {
 func (x *WatchAgentRunsRequest) GetNamespace() string {
 	if x != nil {
 		return x.Namespace
+	}
+	return ""
+}
+
+func (x *WatchAgentRunsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *WatchAgentRunsRequest) GetSourceKind() string {
+	if x != nil {
+		return x.SourceKind
+	}
+	return ""
+}
+
+func (x *WatchAgentRunsRequest) GetSourceName() string {
+	if x != nil {
+		return x.SourceName
 	}
 	return ""
 }
@@ -42749,13 +42835,23 @@ var File_rpc_platform_service_proto protoreflect.FileDescriptor
 
 const file_rpc_platform_service_proto_rawDesc = "" +
 	"\n" +
-	"\x1arpc/platform/service.proto\x12\vplatform.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bgoogle/protobuf/empty.proto\"z\n" +
+	"\x1arpc/platform/service.proto\x12\vplatform.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xf1\x01\n" +
 	"\x14ListAgentRunsRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x1e\n" +
 	"\vowned_by_me\x18\x02 \x01(\bR\townedByMe\x12$\n" +
-	"\x0eshared_with_me\x18\x03 \x01(\bR\fsharedWithMe\"B\n" +
+	"\x0eshared_with_me\x18\x03 \x01(\bR\fsharedWithMe\x12\x14\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x05 \x01(\tR\tpageToken\x12\x1f\n" +
+	"\vsource_kind\x18\x06 \x01(\tR\n" +
+	"sourceKind\x12\x1f\n" +
+	"\vsource_name\x18\a \x01(\tR\n" +
+	"sourceName\"\x8b\x01\n" +
 	"\x15ListAgentRunsResponse\x12)\n" +
-	"\x04runs\x18\x01 \x03(\v2\x15.platform.v1.AgentRunR\x04runs\"F\n" +
+	"\x04runs\x18\x01 \x03(\v2\x15.platform.v1.AgentRunR\x04runs\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12\x1f\n" +
+	"\vtotal_count\x18\x03 \x01(\x05R\n" +
+	"totalCount\"F\n" +
 	"\x12GetAgentRunRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"I\n" +
@@ -42787,9 +42883,14 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\bprovider\x18\x03 \x01(\tR\bprovider\x12\x14\n" +
 	"\x05model\x18\x04 \x01(\tR\x05model\x124\n" +
 	"\x16update_reasoning_level\x18\x05 \x01(\bR\x14updateReasoningLevel\x12'\n" +
-	"\x0freasoning_level\x18\x06 \x01(\tR\x0ereasoningLevel\"5\n" +
+	"\x0freasoning_level\x18\x06 \x01(\tR\x0ereasoningLevel\"\x8d\x01\n" +
 	"\x15WatchAgentRunsRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"H\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x1f\n" +
+	"\vsource_kind\x18\x03 \x01(\tR\n" +
+	"sourceKind\x12\x1f\n" +
+	"\vsource_name\x18\x04 \x01(\tR\n" +
+	"sourceName\"H\n" +
 	"\x14WatchAgentRunRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"L\n" +

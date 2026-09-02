@@ -14,6 +14,9 @@ export interface WatchStoreSnapshot<T> {
   items: T[];
   loading: boolean;
   error: string | null;
+  nextPageToken: string;
+  totalCount: number;
+  loadingMore: boolean;
 }
 
 export interface WatchStoreConfig<T, L, E> {
@@ -23,13 +26,20 @@ export interface WatchStoreConfig<T, L, E> {
   /** Pure merge of one watch event into the current items (never mutates). */
   applyEvent(prev: T[], event: E): T[];
   label: string;
+  /** Optional paging: when provided, `loadMore` appends `listPage(nextPageToken)` results. */
+  extractPage?(res: L): { nextPageToken: string; totalCount: number };
+  listPage?(pageToken: string): Promise<L>;
+  /** Identity used to dedupe appended pages against already-loaded items. */
+  itemKey?(item: T): string;
 }
 
 const LINGER_MS = 5000;
 
+const EMPTY_SNAPSHOT = { items: [], loading: true, error: null, nextPageToken: "", totalCount: 0, loadingMore: false };
+
 export class WatchStore<T, L = unknown, E = unknown> {
   private listeners = new Set<() => void>();
-  private snapshot: WatchStoreSnapshot<T> = { items: [], loading: true, error: null };
+  private snapshot: WatchStoreSnapshot<T> = EMPTY_SNAPSHOT;
   private controller: AbortController | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private resolveRetry: (() => void) | null = null;
@@ -84,13 +94,46 @@ export class WatchStore<T, L = unknown, E = unknown> {
     try {
       const res = await this.config.list();
       if (!this.running || generation !== this.generation) return;
-      this.emit({ items: this.config.extractList(res), error: null, loading: false });
+      const page = this.config.extractPage?.(res) ?? { nextPageToken: "", totalCount: 0 };
+      this.emit({ items: this.config.extractList(res), error: null, loading: false, ...page, loadingMore: false });
     } catch (e) {
       if (!this.running || generation !== this.generation) return;
       this.emit({
         error: describeRpcError(e, `load ${this.config.label}`),
         loading: false,
       });
+    }
+  };
+
+  loadMore = async (): Promise<void> => {
+    const { listPage, extractPage } = this.config;
+    const token = this.snapshot.nextPageToken;
+    if (!listPage || !extractPage || !token || this.snapshot.loadingMore || !this.running) return;
+    const generation = this.generation;
+    this.emit({ loadingMore: true });
+    try {
+      const res = await listPage(token);
+      if (!this.running || generation !== this.generation) return;
+      // A refetch (resync/foreground) that completed meanwhile reset paging; its
+      // first page supersedes this stale continuation.
+      if (this.snapshot.nextPageToken !== token) return;
+      const keyOf = this.config.itemKey;
+      const seen = new Set(keyOf ? this.snapshot.items.map(keyOf) : []);
+      const appended = this.config.extractList(res).filter((item) => {
+        if (!keyOf) return true;
+        const key = keyOf(item);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      this.emit({
+        items: appended.length ? [...this.snapshot.items, ...appended] : this.snapshot.items,
+        ...extractPage(res),
+        loadingMore: false,
+      });
+    } catch (e) {
+      if (!this.running || generation !== this.generation) return;
+      this.emit({ error: describeRpcError(e, `load more ${this.config.label}`), loadingMore: false });
     }
   };
 
@@ -216,7 +259,7 @@ export class WatchStore<T, L = unknown, E = unknown> {
   };
 
   invalidate(): void {
-    this.emit({ items: [], loading: true, error: null });
+    this.emit(EMPTY_SNAPSHOT);
     this.stop();
   }
 

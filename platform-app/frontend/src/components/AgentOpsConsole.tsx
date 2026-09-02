@@ -28,6 +28,7 @@ import { ShareDialog } from "@/components/ShareDialog";
 import { StatusBadge } from "@/components/StatusBadge";
 import { OwnerAvatar } from "@/components/OwnerAvatar";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -216,7 +217,7 @@ function latestTimestamp(run: AgentRun): bigint {
 }
 
 export function AgentOpsConsole() {
-  const { runs, loading, error, refetch } = useAgentRuns();
+  const { runs, loading, error, refetch, totalCount, hasMore, loadingMore, loadMore } = useAgentRuns();
   const now = useNow();
   const [query, setQuery] = React.useState("");
   const [bucket, setBucket] = React.useState<BucketFilter>("active");
@@ -794,6 +795,20 @@ export function AgentOpsConsole() {
           </TableBody>
         </Table>
       </ListState>
+
+      {(hasMore || totalCount > runs.length) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3 text-xs text-muted-foreground">
+          <span className="tabular-nums">
+            Showing {runs.length} of {totalCount} runs.{hasMore ? ` Counts reflect the ${runs.length} loaded runs.` : ""}
+          </span>
+          {hasMore && (
+            <Button size="sm" variant="outline" disabled={loadingMore} onClick={() => void loadMore()}>
+              {loadingMore ? <Spinner /> : null}
+              {loadingMore ? "Loading…" : "Load older runs"}
+            </Button>
+          )}
+        </div>
+      )}
 
       {confirm && (
         <ConfirmDialog

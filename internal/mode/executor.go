@@ -40,8 +40,8 @@ func ExecuteSwitch(
 			Timestamp: now,
 		}
 
-		// Apply snapshot.
-		run.Status.ModeSnapshot = eval.Target.DeepCopy()
+		// Apply snapshot (instructions are read live, see StatusSnapshot).
+		run.Status.ModeSnapshot = StatusSnapshot(eval.Target)
 		run.Status.ModeName = eval.Target.Name
 		run.Status.ModeVersion = eval.Target.Version
 		run.Status.ModeRevision++
