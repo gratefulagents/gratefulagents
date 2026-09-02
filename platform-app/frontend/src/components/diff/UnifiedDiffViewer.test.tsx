@@ -171,6 +171,15 @@ describe("UnifiedDiffViewer", () => {
     expect(screen.getByRole("alert").textContent).toContain("partial");
   });
 
+  it("fills its flex-row host instead of shrinking to content width", () => {
+    // The inspector mounts the viewer inside a `flex` row; without flex-1/w-full
+    // the section collapses to the width of its widest banner.
+    renderViewer(<UnifiedDiffViewer diff={diff} truncated />);
+    const section = screen.getByRole("region", { name: "Diff" });
+    expect(section.className).toMatch(/\bflex-1\b/);
+    expect(section.className).toMatch(/\bw-full\b/);
+  });
+
   it("renders the toolbar slot and wraps the body", () => {
     renderViewer(
       <UnifiedDiffViewer
