@@ -67,7 +67,8 @@ func newRebaseFixture(t *testing.T, siblings ...rebaseSibling) (*GitHubRepositor
 		},
 	}
 	mergedRun := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "merged-implementer", Namespace: maintainerWorkItemTestNamespace}, Status: platformv1alpha1.AgentRunStatus{Phase: platformv1alpha1.AgentRunPhaseRunning}}
-	objects := []client.Object{repository, merged, mergedRun}
+	objects := make([]client.Object, 0, 3+2*len(siblings))
+	objects = append(objects, repository, merged, mergedRun)
 	stateStore := newPRLoopStateStore()
 	if _, err := stateStore.CreateSession(context.Background(), mergedRun.Name, mergedRun.Namespace, "", ""); err != nil {
 		t.Fatal(err)
@@ -93,7 +94,7 @@ func rebaseMessagesFor(t *testing.T, stateStore *prLoopStateStore, runName strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	var contents []string
+	contents := make([]string, 0, len(messages))
 	for _, message := range messages {
 		contents = append(contents, message.Content)
 	}

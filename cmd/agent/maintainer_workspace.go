@@ -59,7 +59,9 @@ func newStandingWorkspaceRefreshHooks(repoDir, baseBranch string) *standingWorks
 
 // OnToolEnd refreshes the checkout after a waiter result that carries changes.
 // Timeouts, empty snapshots and errors do not trigger a fetch.
-func (h *standingWorkspaceRefreshHooks) OnToolEnd(_ *agent.RunContext, _ *agent.Agent, tool agent.Tool, _ agent.ToolCallData, result agent.ToolResult) {
+func (h *standingWorkspaceRefreshHooks) OnToolEnd(
+	_ *agent.RunContext, _ *agent.Agent, tool agent.Tool, _ agent.ToolCallData, result agent.ToolResult,
+) {
 	if h == nil || tool == nil || tool.Name() != "wait_for_repo_events" || result.IsError {
 		return
 	}
@@ -119,7 +121,8 @@ func refreshReadOnlyCheckout(ctx context.Context, repoDir, baseBranch string) er
 	}
 	after, _ := gitOutput(ctx, repoDir, nil, "rev-parse", "HEAD")
 	if before != after {
-		log.Printf("Standing maintainer workspace refreshed: %s → %s (origin/%s)", shortSHA(before), shortSHA(after), baseBranch)
+		log.Printf("Standing maintainer workspace refreshed: %s → %s (origin/%s)",
+			shortSHA(before), shortSHA(after), baseBranch)
 	}
 	return nil
 }

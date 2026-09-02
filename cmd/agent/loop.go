@@ -1563,12 +1563,16 @@ messageLoop:
 					// event wait still ends up parked for a human.
 					if maintainedRepositoryName != "" && standingRollovers < maxStandingBudgetRollovers {
 						standingRollovers++
-						notice := standingBudgetRolloverNotice(turnNumber, budgetErr.MaxTurns, standingRollovers, maxStandingBudgetRollovers)
-						log.Printf("Turn %d exhausted the %d-turn budget — standing maintainer rollover %d/%d", turnNumber, budgetErr.MaxTurns, standingRollovers, maxStandingBudgetRollovers)
+						notice := standingBudgetRolloverNotice(
+							turnNumber, budgetErr.MaxTurns, standingRollovers, maxStandingBudgetRollovers)
+						log.Printf("Turn %d exhausted the %d-turn budget — standing maintainer rollover %d/%d",
+							turnNumber, budgetErr.MaxTurns, standingRollovers, maxStandingBudgetRollovers)
 						_ = sc.WriteActivity(ctx, "turn_budget_rollover", notice, nil)
-						if _, appendErr := sc.AppendUserMessageWithMode(ctx, standingBudgetRolloverPrompt, sessionclient.UserMessageModeEnqueue); appendErr != nil {
+						if _, appendErr := sc.AppendUserMessageWithMode(
+							ctx, standingBudgetRolloverPrompt, sessionclient.UserMessageModeEnqueue); appendErr != nil {
 							log.Printf("WARN: failed to enqueue standing maintainer continuation: %v", appendErr)
-							_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak, turnBudgetNotice(turnNumber, budgetErr.MaxTurns), nil)
+							_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak,
+								turnBudgetNotice(turnNumber, budgetErr.MaxTurns), nil)
 						}
 						releaseFailedRun()
 						break agentLoop
@@ -1890,13 +1894,15 @@ const maxStandingBudgetRollovers = 12
 // runtime-authored user message so the resume path is identical to a human
 // "continue", and it names the exact re-entry step so the model does not
 // replay the whole snapshot.
-const standingBudgetRolloverPrompt = "Standing maintainer: the previous episode reached its turn budget and was rolled over automatically. " +
-	"The transcript is preserved. Do not repeat completed commands. Re-establish state with wait_for_repo_events using cursor \"latest\" " +
-	"(it returns every projection change since your last successful wait, including receipts for commands you had in flight), " +
+const standingBudgetRolloverPrompt = "Standing maintainer: the previous episode reached its turn budget " +
+	"and was rolled over automatically. The transcript is preserved. Do not repeat completed commands. " +
+	"Re-establish state with wait_for_repo_events using cursor \"latest\" (it returns every projection " +
+	"change since your last successful wait, including receipts for commands you had in flight), " +
 	"act on the highest-priority frontier, and return to the event wait."
 
 func standingBudgetRolloverNotice(turnNumber int32, maxTurns, rollover, maxRollovers int) string {
-	return fmt.Sprintf("Turn %d used its entire %d-turn budget; standing maintainer rolled over automatically (%d/%d consecutive) and continues on the preserved transcript.", turnNumber, maxTurns, rollover, maxRollovers)
+	return fmt.Sprintf("Turn %d used its entire %d-turn budget; standing maintainer rolled over automatically "+
+		"(%d/%d consecutive) and continues on the preserved transcript.", turnNumber, maxTurns, rollover, maxRollovers)
 }
 
 func firstNonEmptyRunMode(run *platformv1alpha1.AgentRun) string {

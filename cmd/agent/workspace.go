@@ -20,7 +20,8 @@ const workspaceScratchDir = "/workspace/scratch"
 // runs that are read-only by configuration qualify; a degraded read-only
 // fallback of a write-capable run may still hold WIP worth restoring.
 func skipReadOnlyCheckpointRestore(cfg *runConfig) bool {
-	return cfg != nil && cfg.WorkspaceCheckpoint != nil && !cfg.PermissionMode.AllowsWriteTools() && !cfg.PermissionModeDegraded
+	return cfg != nil && cfg.WorkspaceCheckpoint != nil &&
+		!cfg.PermissionMode.AllowsWriteTools() && !cfg.PermissionModeDegraded
 }
 
 // setupWorkspace clones the repo and builds the task context.

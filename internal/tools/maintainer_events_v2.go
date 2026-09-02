@@ -191,7 +191,7 @@ func (t *waitForRepoEventsTool) executeSemanticWorkItemWait(ctx context.Context,
 // instead of surfacing as a reconnect_required turn for the model.
 func (t *waitForRepoEventsTool) reconnectWorkItemSnapshotAndWatch(ctx context.Context) (maintainerRepoEventsSnapshot, watch.Interface, error) {
 	var lastErr error
-	for attempt := 0; attempt < maintainerSemanticWatchReconnectAttempts; attempt++ {
+	for attempt := range maintainerSemanticWatchReconnectAttempts {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():

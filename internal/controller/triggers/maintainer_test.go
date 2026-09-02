@@ -148,10 +148,10 @@ func TestMaintainerResumeNudges(t *testing.T) {
 		wantRequeue time.Duration
 	}{
 		{name: "terminal run with open work after cooldown", phase: platformv1alpha1.AgentRunPhaseSucceeded, issues: []*github.Issue{{Number: github.Int(42)}}, wantNudge: true, wantRequeue: 5 * time.Minute},
-		{name: "running run", phase: platformv1alpha1.AgentRunPhaseRunning, issues: []*github.Issue{{Number: github.Int(42)}}, wantRequeue: 5 * time.Minute},
+		{name: "running run", phase: platformv1alpha1.AgentRunPhaseRunning, issues: []*github.Issue{{Number: new(42)}}, wantRequeue: 5 * time.Minute},
 		{name: "running idle run", phase: platformv1alpha1.AgentRunPhaseRunning, idle: true, issues: []*github.Issue{{Number: github.Int(42)}}, wantNudge: true, wantRequeue: 5 * time.Minute},
-		{name: "running run parked on circuit breaker", phase: platformv1alpha1.AgentRunPhaseRunning, parked: true, issues: []*github.Issue{{Number: github.Int(42)}}, wantNudge: true, wantRequeue: 5 * time.Minute},
-		{name: "running run without session", phase: platformv1alpha1.AgentRunPhaseRunning, noSession: true, issues: []*github.Issue{{Number: github.Int(42)}}, wantRequeue: 5 * time.Minute},
+		{name: "running run parked on circuit breaker", phase: platformv1alpha1.AgentRunPhaseRunning, parked: true, issues: []*github.Issue{{Number: new(42)}}, wantNudge: true, wantRequeue: 5 * time.Minute},
+		{name: "running run without session", phase: platformv1alpha1.AgentRunPhaseRunning, noSession: true, issues: []*github.Issue{{Number: new(42)}}, wantRequeue: 5 * time.Minute},
 		{name: "terminal run without work", phase: platformv1alpha1.AgentRunPhaseSucceeded, wantRequeue: defaultMaintainerStandupInterval},
 		{name: "within cooldown", phase: platformv1alpha1.AgentRunPhaseSucceeded, issues: []*github.Issue{{Number: github.Int(42)}}, lastResume: -9 * time.Minute, wantRequeue: 5 * time.Minute},
 		{name: "standup", phase: platformv1alpha1.AgentRunPhasePaused, standupDue: true, wantNudge: true, wantRequeue: defaultMaintainerStandupInterval},

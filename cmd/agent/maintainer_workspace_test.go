@@ -13,6 +13,11 @@ import (
 
 func namedTool(name string) agent.Tool { return &agent.FunctionTool{ToolName: name} }
 
+const (
+	waiterChanged = `{"changed":true,"migration_mode":"Controller","work_item_changes":[{"name":"mwi-a"}]}`
+	waiterTimeout = `{"changed":false,"timed_out":true,"migration_mode":"Controller","work_item_changes":null}`
+)
+
 func TestWaiterResultReportsChange(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -20,9 +25,10 @@ func TestWaiterResultReportsChange(t *testing.T) {
 		content string
 		want    bool
 	}{
-		{"controller change", `{"changed":true,"migration_mode":"Controller","work_item_changes":[{"name":"mwi-a"}]}`, true},
-		{"controller timeout", `{"changed":false,"timed_out":true,"migration_mode":"Controller","work_item_changes":null}`, false},
-		{"controller reconnect without changes", `{"changed":false,"migration_mode":"Controller","reconnect_required":true}`, false},
+		{"controller change", waiterChanged, true},
+		{"controller timeout", waiterTimeout, false},
+		{"controller reconnect without changes",
+			`{"changed":false,"migration_mode":"Controller","reconnect_required":true}`, false},
 		{"legacy change", `{"changed":true,"migration_mode":"Legacy","changed_issues":[1]}`, true},
 		{"not json", `context canceled`, false},
 	}
@@ -47,31 +53,33 @@ func TestStandingWorkspaceRefreshHooksRateLimitsAndFilters(t *testing.T) {
 		return nil
 	}
 	waiter := namedTool("wait_for_repo_events")
-	changed := agent.ToolResult{Content: `{"changed":true,"migration_mode":"Controller","work_item_changes":[{"name":"mwi-a"}]}`}
+	end := func(tool agent.Tool, result agent.ToolResult) {
+		h.OnToolEnd(nil, nil, tool, agent.ToolCallData{}, result)
+	}
 
-	h.OnToolEnd(nil, nil, namedTool("get_fleet_runs"), agent.ToolCallData{}, changed)
+	end(namedTool("get_fleet_runs"), agent.ToolResult{Content: waiterChanged})
 	if calls.Load() != 0 {
 		t.Fatalf("unrelated tool triggered refresh")
 	}
-	h.OnToolEnd(nil, nil, waiter, agent.ToolCallData{}, agent.ToolResult{Content: changed.Content, IsError: true})
+	end(waiter, agent.ToolResult{Content: waiterChanged, IsError: true})
 	if calls.Load() != 0 {
 		t.Fatalf("error result triggered refresh")
 	}
-	h.OnToolEnd(nil, nil, waiter, agent.ToolCallData{}, agent.ToolResult{Content: `{"changed":false,"timed_out":true,"migration_mode":"Controller"}`})
+	end(waiter, agent.ToolResult{Content: waiterTimeout})
 	if calls.Load() != 0 {
 		t.Fatalf("timeout triggered refresh")
 	}
-	h.OnToolEnd(nil, nil, waiter, agent.ToolCallData{}, changed)
+	end(waiter, agent.ToolResult{Content: waiterChanged})
 	if calls.Load() != 1 {
 		t.Fatalf("first change: refresh calls = %d, want 1", calls.Load())
 	}
 	now = now.Add(30 * time.Second)
-	h.OnToolEnd(nil, nil, waiter, agent.ToolCallData{}, changed)
+	end(waiter, agent.ToolResult{Content: waiterChanged})
 	if calls.Load() != 1 {
 		t.Fatalf("within interval: refresh calls = %d, want 1", calls.Load())
 	}
 	now = now.Add(standingWorkspaceRefreshInterval)
-	h.OnToolEnd(nil, nil, waiter, agent.ToolCallData{}, changed)
+	end(waiter, agent.ToolResult{Content: waiterChanged})
 	if calls.Load() != 2 {
 		t.Fatalf("after interval: refresh calls = %d, want 2", calls.Load())
 	}
@@ -81,7 +89,8 @@ func TestStandingWorkspaceRefreshHooksSurvivesRefreshError(t *testing.T) {
 	t.Parallel()
 	h := newStandingWorkspaceRefreshHooks("/tmp/repo", "main")
 	h.refresh = func(context.Context, string, string) error { return errors.New("remote unavailable") }
-	h.OnToolEnd(nil, nil, namedTool("wait_for_repo_events"), agent.ToolCallData{}, agent.ToolResult{Content: `{"changed":true,"migration_mode":"Controller","work_item_changes":[{}]}`})
+	h.OnToolEnd(nil, nil, namedTool("wait_for_repo_events"), agent.ToolCallData{},
+		agent.ToolResult{Content: waiterChanged})
 	if h.lastRefresh.IsZero() {
 		t.Fatal("failed refresh should still consume the rate-limit slot")
 	}
@@ -90,6 +99,13 @@ func TestStandingWorkspaceRefreshHooksSurvivesRefreshError(t *testing.T) {
 func TestSkipReadOnlyCheckpointRestore(t *testing.T) {
 	t.Parallel()
 	checkpoint := &workspaceCheckpointManifest{}
+	readOnly := func(degraded bool) *runConfig {
+		return &runConfig{
+			WorkspaceCheckpoint:    checkpoint,
+			PermissionMode:         agentpolicy.PermissionModeReadOnly,
+			PermissionModeDegraded: degraded,
+		}
+	}
 	cases := []struct {
 		name string
 		cfg  *runConfig
@@ -97,9 +113,11 @@ func TestSkipReadOnlyCheckpointRestore(t *testing.T) {
 	}{
 		{"nil", nil, false},
 		{"no checkpoint", &runConfig{PermissionMode: agentpolicy.PermissionModeReadOnly}, false},
-		{"read-only by configuration", &runConfig{WorkspaceCheckpoint: checkpoint, PermissionMode: agentpolicy.PermissionModeReadOnly}, true},
-		{"degraded read-only keeps WIP", &runConfig{WorkspaceCheckpoint: checkpoint, PermissionMode: agentpolicy.PermissionModeReadOnly, PermissionModeDegraded: true}, false},
-		{"write mode", &runConfig{WorkspaceCheckpoint: checkpoint, PermissionMode: agentpolicy.PermissionModeWorkspaceWrite}, false},
+		{"read-only by configuration", readOnly(false), true},
+		{"degraded read-only keeps WIP", readOnly(true), false},
+		{"write mode", &runConfig{
+			WorkspaceCheckpoint: checkpoint, PermissionMode: agentpolicy.PermissionModeWorkspaceWrite,
+		}, false},
 	}
 	for _, tc := range cases {
 		if got := skipReadOnlyCheckpointRestore(tc.cfg); got != tc.want {
