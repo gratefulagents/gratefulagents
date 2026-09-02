@@ -127,7 +127,9 @@ type stuckSubAgentTask struct {
 // reconcile them; retrying every turn would only log the same error while the
 // task blocks the parent's final answer. Any other error is unexpected and
 // treated as transient: it is logged and retried on the next turn.
-func resumeReconcilingSubAgentTasks(ctx context.Context, registry *agent.SubAgentScheduler, attempted map[string]struct{}) []stuckSubAgentTask {
+func resumeReconcilingSubAgentTasks(
+	ctx context.Context, registry *agent.SubAgentScheduler, attempted map[string]struct{},
+) []stuckSubAgentTask {
 	if registry == nil {
 		return nil
 	}
@@ -162,9 +164,11 @@ func stuckSubAgentNotice(stuck []stuckSubAgentTask) string {
 		return ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "[SYSTEM] %d restored sub-agent task(s) could not be resumed automatically and will stay in the reconciling state until you act. "+
+	fmt.Fprintf(&b, "[SYSTEM] %d restored sub-agent task(s) could not be resumed automatically "+
+		"and will stay in the reconciling state until you act. "+
 		"Their partial checkpoints hold work with an unresolved external effect or a configuration that no longer matches. "+
-		"For each task either cancel it (subagent_control action=\"cancel\") and re-delegate the work, or leave it and proceed without its result. "+
+		"For each task either cancel it (subagent_control action=\"cancel\") and re-delegate the work, "+
+		"or leave it and proceed without its result. "+
 		"Do not wait for these tasks to finish on their own.\n", len(stuck))
 	for _, task := range stuck {
 		fmt.Fprintf(&b, "- %s", task.ID)
@@ -188,5 +192,6 @@ func stuckSubAgentActivity(stuck []stuckSubAgentTask) string {
 	for _, task := range stuck {
 		ids = append(ids, task.ID)
 	}
-	return fmt.Sprintf("%d restored sub-agent task(s) need reconciliation and were not resumed: %s. The agent has been told to cancel or proceed without them.", len(stuck), strings.Join(ids, ", "))
+	return fmt.Sprintf("%d restored sub-agent task(s) need reconciliation and were not resumed: %s. "+
+		"The agent has been told to cancel or proceed without them.", len(stuck), strings.Join(ids, ", "))
 }

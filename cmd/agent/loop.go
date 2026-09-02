@@ -959,7 +959,8 @@ messageLoop:
 					// that is already exhausted; the pause must stop them too.
 					stoppedTasks := cancelActiveSubAgentTasks(subAgentRegistry)
 					msg := fmt.Sprintf("Cost cap reached: $%.4f spent of the $%.2f limit — increase spec.limits.maxCostUsd to resume.", spentUSD, capUSD)
-					log.Printf("Cost cap reached ($%.4f >= $%.2f) — pausing run (cancelled %d sub-agent tasks)", spentUSD, capUSD, stoppedTasks)
+					log.Printf("Cost cap reached ($%.4f >= $%.2f) — pausing run (cancelled %d sub-agent tasks)",
+						spentUSD, capUSD, stoppedTasks)
 					_ = sc.WriteActivity(ctx, "cost_cap", msg, nil)
 					_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak, msg, nil)
 					if err := patchAgentRunStatus(ctx, crdClient, cfg.TaskName, cfg.Namespace, func(fresh *platformv1alpha1.AgentRun) {
@@ -1557,7 +1558,8 @@ messageLoop:
 				// children it spawned; stop them before parking the session.
 				stoppedTasks := cancelActiveSubAgentTasks(subAgentRegistry)
 				notice := turnFailureNotice(turnNumber, err)
-				log.Printf("ERROR: chat session %d failed (recoverable, awaiting user; cancelled %d sub-agent tasks): %v", turnNumber, stoppedTasks, err)
+				log.Printf("ERROR: chat session %d failed (recoverable, awaiting user; cancelled %d sub-agent tasks): %v",
+					turnNumber, stoppedTasks, err)
 				_ = sc.WriteActivity(ctx, "turn_failed", notice, nil)
 				_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak, notice, nil)
 				// Newer SDKs hand the failed turn's accumulated conversation

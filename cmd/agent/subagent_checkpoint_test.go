@@ -174,7 +174,9 @@ func TestResumeReconcilingSubAgentTasksAttemptsOnceAndReportsStuck(t *testing.T)
 		Checkpoint: func(agent.SubAgentSchedulerCheckpoint) error { return nil },
 	})
 	record := agent.SubAgentSchedulerCheckpointRecord{
-		Task: agent.SubAgentTask{ID: "task_stuck", AgentName: "executor", Status: agent.SubAgentTaskRunning, Message: "finish work"},
+		Task: agent.SubAgentTask{
+			ID: "task_stuck", AgentName: "executor", Status: agent.SubAgentTaskRunning, Message: "finish work",
+		},
 		DurableCheckpoint: &agent.DurableCheckpoint{
 			SchemaVersion: agent.DurableCheckpointSchemaVersion,
 			Boundary:      agent.DurableBoundaryModelCompleted,
@@ -240,7 +242,8 @@ func TestResumeReconcilingSubAgentTasksSkipsTerminalAndNilRegistry(t *testing.T)
 		t.Fatal(err)
 	}
 	attempted := map[string]struct{}{}
-	if got := resumeReconcilingSubAgentTasks(context.Background(), registry, attempted); len(got) != 0 || len(attempted) != 0 {
+	got := resumeReconcilingSubAgentTasks(context.Background(), registry, attempted)
+	if len(got) != 0 || len(attempted) != 0 {
 		t.Fatalf("terminal task was touched: stuck=%+v attempted=%v", got, attempted)
 	}
 }
@@ -266,7 +269,9 @@ func TestResumeReconcilingSubAgentTasksClassifiesSentinelErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	state := agent.SubAgentSchedulerCheckpoint{Records: []agent.SubAgentSchedulerCheckpointRecord{needsReconcile, rejected}}
+	state := agent.SubAgentSchedulerCheckpoint{
+		Records: []agent.SubAgentSchedulerCheckpointRecord{needsReconcile, rejected},
+	}
 	if err := registry.RestoreSchedulerCheckpoint(state); err != nil {
 		t.Fatal(err)
 	}
