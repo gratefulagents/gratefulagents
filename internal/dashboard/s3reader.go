@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -207,18 +208,27 @@ func contentEventToActivityEntry(ev *agent.ContentEvent) *platform.ActivityEntry
 	return entry
 }
 
-// s3ActivityReader fetches and caches event streams from S3.
-// Caching is safe because completed task logs are immutable; the cache is
-// bounded with FIFO eviction so long-lived processes don't grow unboundedly.
+// s3ActivityReader fetches and parses event streams from S3. It does not
+// retain parsed entries itself: the built activity-log response is memoized
+// per run in Server.activityMemo under a shared byte budget, so a second
+// cache here would only pin the same payloads twice. Concurrent fetches of
+// the same URL (several tabs opening one finished run) are coalesced so the
+// artifact is downloaded and parsed once.
 type s3ActivityReader struct {
-	client *s3.Client
-	mu     sync.RWMutex
-	cache  map[string][]*platform.ActivityEntry
-	order  []string
+	client   *s3.Client
+	mu       sync.Mutex
+	inflight map[string]*s3Fetch
+	// fetch, when set, replaces the S3 download (tests).
+	fetch func(ctx context.Context, s3URL string) ([]*platform.ActivityEntry, error)
 }
 
-// maxS3ActivityCacheEntries bounds the number of cached event streams.
-const maxS3ActivityCacheEntries = 128
+// s3Fetch is one in-flight download shared by every caller that asked for
+// the same URL while it was running.
+type s3Fetch struct {
+	done    chan struct{}
+	entries []*platform.ActivityEntry
+	err     error
+}
 
 func newS3ActivityReader() *s3ActivityReader {
 	bucket := os.Getenv("S3_BUCKET")
@@ -244,7 +254,6 @@ func newS3ActivityReader() *s3ActivityReader {
 
 	return &s3ActivityReader{
 		client: s3.New(opts),
-		cache:  make(map[string][]*platform.ActivityEntry),
 	}
 }
 
@@ -263,14 +272,53 @@ func parseS3URL(s3URL string) (bucket, key string, err error) {
 
 // FetchEventStream downloads and parses a thin events.jsonl from S3.
 // Returns ActivityEntry protos with ContentEvent types mapped to legacy names.
+// Concurrent calls for the same URL share one download; the returned slice is
+// shared between those callers and must be treated as read-only.
 func (r *s3ActivityReader) FetchEventStream(ctx context.Context, s3URL string) ([]*platform.ActivityEntry, error) {
-	r.mu.RLock()
-	if cached, ok := r.cache[s3URL]; ok {
-		r.mu.RUnlock()
-		return cached, nil
+	r.mu.Lock()
+	if r.inflight == nil {
+		r.inflight = make(map[string]*s3Fetch)
 	}
-	r.mu.RUnlock()
+	if f, ok := r.inflight[s3URL]; ok {
+		r.mu.Unlock()
+		select {
+		case <-f.done:
+			return f.entries, f.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	f := &s3Fetch{done: make(chan struct{})}
+	r.inflight[s3URL] = f
+	r.mu.Unlock()
 
+	// Detach the download from the first caller's context so one tab
+	// closing mid-download does not fail every other tab that joined it.
+	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s3FetchTimeout)
+	go func() {
+		defer cancel()
+		f.entries, f.err = r.fetchEventStream(fetchCtx, s3URL)
+		r.mu.Lock()
+		delete(r.inflight, s3URL)
+		r.mu.Unlock()
+		close(f.done)
+	}()
+	select {
+	case <-f.done:
+		return f.entries, f.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// s3FetchTimeout bounds one events.jsonl download once it has been detached
+// from the requesting caller's context.
+const s3FetchTimeout = 2 * time.Minute
+
+func (r *s3ActivityReader) fetchEventStream(ctx context.Context, s3URL string) ([]*platform.ActivityEntry, error) {
+	if r.fetch != nil {
+		return r.fetch(ctx, s3URL)
+	}
 	bucket, key, err := parseS3URL(s3URL)
 	if err != nil {
 		return nil, err
@@ -315,18 +363,5 @@ func (r *s3ActivityReader) FetchEventStream(ctx context.Context, s3URL string) (
 			break
 		}
 	}
-
-	r.mu.Lock()
-	if _, exists := r.cache[s3URL]; !exists {
-		for len(r.order) >= maxS3ActivityCacheEntries {
-			oldest := r.order[0]
-			r.order = r.order[1:]
-			delete(r.cache, oldest)
-		}
-		r.order = append(r.order, s3URL)
-	}
-	r.cache[s3URL] = entries
-	r.mu.Unlock()
-
 	return entries, nil
 }

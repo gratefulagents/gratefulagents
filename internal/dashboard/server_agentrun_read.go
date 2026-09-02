@@ -120,22 +120,86 @@ func (s *Server) GetActivityEntryDetail(ctx context.Context, req *platform.GetAc
 	}, run); err != nil {
 		return nil, mapK8sError(fmt.Sprintf("get AgentRun %s/%s", req.Namespace, req.Name), err)
 	}
+	// Prefer the already-built memo (a viewer asking for detail has almost
+	// always just streamed the log) and, for Postgres-sourced live runs, a
+	// single primary-key row: neither loads the run's full history.
+	if resp, ok := s.activityEntryDetailFast(ctx, run, req); ok {
+		return resp, nil
+	}
 	activity := s.getAgentRunActivityLog(ctx, run)
+	if resp := findActivityEntryDetail(activity.Entries, req); resp != nil {
+		return resp, nil
+	}
+	return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("activity entry not found in %s/%s", req.Namespace, req.Name))
+}
+
+// findActivityEntryDetail locates an entry by event ID (preferred) or
+// tool-use ID in an already-built entry list.
+func findActivityEntryDetail(entries []*platform.ActivityEntry, req *platform.GetActivityEntryDetailRequest) *platform.GetActivityEntryDetailResponse {
 	if req.EventId > 0 {
-		for _, e := range activity.Entries {
+		for _, e := range entries {
 			if e.EventId == req.EventId {
-				return &platform.GetActivityEntryDetailResponse{InputRaw: e.InputRaw, Output: e.Output}, nil
+				return &platform.GetActivityEntryDetailResponse{InputRaw: e.InputRaw, Output: e.Output}
 			}
 		}
 	}
 	if req.ToolUseId != "" {
-		for _, e := range activity.Entries {
+		for _, e := range entries {
 			if e.ToolUseId == req.ToolUseId {
-				return &platform.GetActivityEntryDetailResponse{InputRaw: e.InputRaw, Output: e.Output}, nil
+				return &platform.GetActivityEntryDetailResponse{InputRaw: e.InputRaw, Output: e.Output}
 			}
 		}
 	}
-	return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("activity entry not found in %s/%s", req.Namespace, req.Name))
+	return nil
+}
+
+// activityEntryDetailFast answers an entry-detail request without loading
+// the run's history: from the memoized response when one exists, or with a
+// single-row Postgres lookup when the run's log is served from Postgres and
+// the request carries a durable event ID. Returns ok=false when neither
+// applies and the caller must fall back to the full log.
+func (s *Server) activityEntryDetailFast(ctx context.Context, run *platformv1alpha1.AgentRun, req *platform.GetActivityEntryDetailRequest) (*platform.GetActivityEntryDetailResponse, bool) {
+	memoKey := run.Namespace + "/" + run.Name
+	// Terminal runs with an S3 artifact carry synthetic ordinals, not
+	// Postgres IDs: a memo built from another source must not answer them.
+	var s3URL string
+	if isTerminalAgentRunPhase(run.Status.Phase) && s.s3Reader != nil && run.Status.Artifacts != nil {
+		s3URL = run.Status.Artifacts.EventsLogURL
+	}
+	s.activityMemoMu.Lock()
+	memo, ok := s.activityMemo[memoKey]
+	var resp *platform.GetActivityLogResponse
+	if ok && memo.s3URL == s3URL {
+		memo.lastAccess = time.Now()
+		resp = memo.resp
+	}
+	s.activityMemoMu.Unlock()
+	if resp != nil {
+		if detail := findActivityEntryDetail(resp.Entries, req); detail != nil {
+			return detail, true
+		}
+	}
+	if req.EventId <= 0 || s.stateStore == nil {
+		return nil, false
+	}
+	getter, ok := s.stateStore.(store.ActivityEventGetter)
+	if !ok {
+		return nil, false
+	}
+	// Only the live Postgres source can be answered by row.
+	if s3URL != "" {
+		return nil, false
+	}
+	sess, err := s.cachedSessionByRun(ctx, run.Name, run.Namespace)
+	if err != nil {
+		return nil, false
+	}
+	ev, err := getter.GetActivityEvent(ctx, sess.ID, req.EventId)
+	if err != nil {
+		return nil, false
+	}
+	e := activityEventToActivityEntry(*ev)
+	return &platform.GetActivityEntryDetailResponse{InputRaw: e.InputRaw, Output: e.Output}, true
 }
 
 func (s *Server) GetAgentRunUsage(ctx context.Context, req *platform.GetAgentRunUsageRequest) (*platform.AgentRunUsageResponse, error) {
@@ -317,14 +381,39 @@ func (s *Server) getAgentRunActivityLogSourced(ctx context.Context, run *platfor
 	// For terminal runs, read events.jsonl from S3.
 	if isTerminal && s.s3Reader != nil && run.Status.Artifacts != nil {
 		if evURL := run.Status.Artifacts.EventsLogURL; evURL != "" {
+			memoKey := run.Namespace + "/" + run.Name
+			// The artifact is immutable, so the built response (coalesced
+			// entries + subagent graph) is reused for every viewer of the
+			// finished run instead of being rebuilt on each call or tick.
+			s.activityMemoMu.Lock()
+			memo, ok := s.activityMemo[memoKey]
+			if ok && memo.s3URL == evURL {
+				memo.lastAccess = time.Now()
+			}
+			s.activityMemoMu.Unlock()
+			if ok && memo.s3URL == evURL {
+				return memo.resp, activityLogSourceS3
+			}
 			entries, err := s.s3Reader.FetchEventStream(ctx, evURL)
 			if err != nil {
 				log.Printf("WARN: failed to fetch event stream from S3 (%s): %v", evURL, err)
 			} else {
-				// The immutable artifact is now authoritative; the Postgres
-				// memo for this run will never be read again.
-				s.dropActivityMemo(run.Namespace + "/" + run.Name)
-				return buildActivityLogResponse(entries, true, run.Name), activityLogSourceS3
+				resp := buildActivityLogResponse(entries, true, run.Name)
+				approxBytes := 0
+				for _, e := range entries {
+					approxBytes += activityEntryApproxBytes(e)
+				}
+				// Replaces any Postgres memo for this run: the immutable
+				// artifact is now authoritative and the Postgres memo would
+				// never be read again.
+				s.storeActivityMemo(memoKey, &activityMemoEntry{
+					isTerminal:  true,
+					s3URL:       evURL,
+					entries:     entries,
+					resp:        resp,
+					approxBytes: approxBytes,
+				})
+				return resp, activityLogSourceS3
 			}
 		}
 	}
@@ -342,6 +431,12 @@ func (s *Server) getAgentRunActivityLogSourced(ctx context.Context, run *platfor
 			if latestID, err := s.latestActivityEventID(ctx, sess.ID, false); err == nil && latestID > 0 {
 				s.activityMemoMu.Lock()
 				memo, ok := s.activityMemo[memoKey]
+				if ok && memo.s3URL != "" {
+					// An S3-built memo has no Postgres cursor; when the
+					// artifact became unreadable, rebuild from Postgres
+					// instead of appending events onto S3 entries.
+					ok = false
+				}
 				if ok {
 					memo.lastAccess = time.Now()
 				}
@@ -470,6 +565,15 @@ const (
 
 func activityEventApproxBytes(ev store.ActivityEvent) int {
 	return len(ev.Summary) + len(ev.Detail)
+}
+
+// activityEntryApproxBytes estimates the retained size of an already-parsed
+// entry (S3-sourced logs never pass through store.ActivityEvent).
+func activityEntryApproxBytes(e *platform.ActivityEntry) int {
+	if e == nil {
+		return 0
+	}
+	return len(e.Message) + len(e.InputRaw) + len(e.Output)
 }
 
 // storeActivityMemo caches an activity-log response, evicting
@@ -634,6 +738,64 @@ type agentRunEnrichBatch struct {
 	ownerOf func(userID string) *platform.ResourceOwner
 }
 
+// enrichSessionState is the session-derived half of an enrich batch: the
+// session row and newest activity summary per run.
+type enrichSessionState struct {
+	sessions       map[string]*store.Session
+	latestActivity map[uuid.UUID]store.ActivityEvent
+}
+
+// probeEnrichSessionsTTL caches the namespace-wide session/latest-activity
+// load shared by fleet streams that need to enrich most of the fleet at once
+// (initial ticks). Kept below the 2s fleet tick so a single stream still
+// observes every tick's changes.
+const probeEnrichSessionsTTL = 1 * time.Second
+
+// loadEnrichSessionState loads sessions and their newest activity summary.
+// With a non-nil keys set only those runs are loaded (one indexed query
+// bounded by the changed set, the common fleet-tick case); with nil keys the
+// whole namespace is loaded and, when shared is true, coalesced across
+// concurrent streams for probeEnrichSessionsTTL. The returned maps are
+// read-only when shared.
+func (s *Server) loadEnrichSessionState(ctx context.Context, namespace string, keys []store.AgentRunKey, shared bool) (*enrichSessionState, error) {
+	load := func(ctx context.Context) (*enrichSessionState, error) {
+		var sessions []store.Session
+		var err error
+		if lister, ok := s.stateStore.(store.SessionsByRunsLister); ok && keys != nil {
+			sessions, err = lister.ListSessionsByRuns(ctx, keys)
+		} else {
+			sessions, err = s.stateStore.ListSessionsByNamespace(ctx, namespace)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("bulk-listing sessions for run enrichment: %w", err)
+		}
+		st := &enrichSessionState{
+			sessions:       make(map[string]*store.Session, len(sessions)),
+			latestActivity: make(map[uuid.UUID]store.ActivityEvent),
+		}
+		sessionIDs := make([]uuid.UUID, 0, len(sessions))
+		for i := range sessions {
+			sess := &sessions[i]
+			st.sessions[sess.AgentRunNS+"/"+sess.AgentRunName] = sess
+			sessionIDs = append(sessionIDs, sess.ID)
+		}
+		if activityStore, ok := s.stateStore.(interface {
+			GetLatestActivityBySessions(context.Context, []uuid.UUID) (map[uuid.UUID]store.ActivityEvent, error)
+		}); ok && len(sessionIDs) > 0 {
+			if latest, err := activityStore.GetLatestActivityBySessions(ctx, sessionIDs); err == nil {
+				st.latestActivity = latest
+			} else {
+				log.Printf("WARN: bulk-listing latest AgentRun activity: %v", err)
+			}
+		}
+		return st, nil
+	}
+	if keys != nil || !shared {
+		return load(ctx)
+	}
+	return probeCacheDo(ctx, &s.probes, "enrichsess|"+namespace, probeEnrichSessionsTTL, load)
+}
+
 // newAgentRunEnrichBatch bulk-loads the session, ownership, and share state
 // needed to enrich every run in a namespace ("" = all namespaces) with one
 // query per state kind. Returns nil when the store cannot bulk-load (no state
@@ -642,6 +804,15 @@ type agentRunEnrichBatch struct {
 // cachedACL selects the coalesced (watch-tick) ACL loads; unary paths pass
 // false so ownership/share mutations are visible in the next request.
 func (s *Server) newAgentRunEnrichBatch(ctx context.Context, namespace string, cachedACL bool) *agentRunEnrichBatch {
+	return s.newAgentRunEnrichBatchForRuns(ctx, namespace, nil, cachedACL)
+}
+
+// newAgentRunEnrichBatchForRuns is newAgentRunEnrichBatch restricted to an
+// explicit set of runs: session state is loaded only for keys (nil = the
+// whole namespace), so a fleet tick that re-emits a handful of changed runs
+// does not reload every session in the fleet. Ownership and share state are
+// namespace-wide bulk loads either way (cached across ticks when cachedACL).
+func (s *Server) newAgentRunEnrichBatchForRuns(ctx context.Context, namespace string, keys []store.AgentRunKey, cachedACL bool) *agentRunEnrichBatch {
 	if s.stateStore == nil {
 		return nil
 	}
@@ -649,9 +820,9 @@ func (s *Server) newAgentRunEnrichBatch(ctx context.Context, namespace string, c
 	if !ok {
 		return nil
 	}
-	sessions, err := s.stateStore.ListSessionsByNamespace(ctx, namespace)
+	sessionState, err := s.loadEnrichSessionState(ctx, namespace, keys, cachedACL)
 	if err != nil {
-		log.Printf("WARN: bulk-listing sessions for run enrichment: %v", err)
+		log.Printf("WARN: %v", err)
 		return nil
 	}
 	owners, err := s.cachedResourceOwnersByType(ctx, bulk, "agent_run", cachedACL)
@@ -660,27 +831,12 @@ func (s *Server) newAgentRunEnrichBatch(ctx context.Context, namespace string, c
 		return nil
 	}
 	b := &agentRunEnrichBatch{
-		sessions:       make(map[string]*store.Session, len(sessions)),
-		latestActivity: make(map[uuid.UUID]store.ActivityEvent),
+		sessions:       sessionState.sessions,
+		latestActivity: sessionState.latestActivity,
 		owners:         make(map[string]string, len(owners)),
 		triggerOwners:  make(map[string]map[string]string, len(agentRunTriggerResourceTypes)),
 		shares:         make(map[string]string),
 		ownerOf:        s.ownerEnricher(ctx),
-	}
-	sessionIDs := make([]uuid.UUID, 0, len(sessions))
-	for i := range sessions {
-		sess := &sessions[i]
-		b.sessions[sess.AgentRunNS+"/"+sess.AgentRunName] = sess
-		sessionIDs = append(sessionIDs, sess.ID)
-	}
-	if activityStore, ok := s.stateStore.(interface {
-		GetLatestActivityBySessions(context.Context, []uuid.UUID) (map[uuid.UUID]store.ActivityEvent, error)
-	}); ok {
-		if latest, err := activityStore.GetLatestActivityBySessions(ctx, sessionIDs); err == nil {
-			b.latestActivity = latest
-		} else {
-			log.Printf("WARN: bulk-listing latest AgentRun activity: %v", err)
-		}
 	}
 	for _, o := range owners {
 		b.owners[o.ResourceNamespace+"/"+o.ResourceID] = o.OwnerID

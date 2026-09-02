@@ -13,7 +13,6 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 	"google.golang.org/protobuf/proto"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type resourceMetricsKey struct {
@@ -22,49 +21,52 @@ type resourceMetricsKey struct {
 	Name      string
 }
 
-const resourceMetricsCacheTTL = 5 * time.Second
+// resourceMetricsCacheTTL bounds how long an aggregated metrics map is served
+// to trigger get/list/watch surfaces. Trigger watches tick every 5s, so the
+// TTL sits just above that: consecutive ticks from every open dashboard reuse
+// one aggregate per namespace instead of each recomputing it, and the result
+// is at most ~two ticks stale, which is fine for cost/run counters.
+const resourceMetricsCacheTTL = 6 * time.Second
 
+// listResourceMetrics aggregates per-trigger run counters and cost/token
+// totals for a namespace ("" = all). The computation is coalesced across
+// concurrent callers and cached for resourceMetricsCacheTTL; the returned
+// map is shared read-only (resourceMetrics clones entries for callers).
 func (s *Server) listResourceMetrics(ctx context.Context, namespace string) (map[resourceMetricsKey]*platform.ProjectMetrics, error) {
-	s.metricsCacheMu.Lock()
-	if entry, ok := s.metricsCache[namespace]; ok && time.Since(entry.at) < resourceMetricsCacheTTL {
-		data := entry.data
-		s.metricsCacheMu.Unlock()
-		return data, nil
-	}
-	s.metricsCacheMu.Unlock()
-
-	runs := &platformv1alpha1.AgentRunList{}
-	var opts []client.ListOption
-	if namespace != "" {
-		opts = append(opts, client.InNamespace(namespace))
-	}
-	if err := s.k8sClient.List(ctx, runs, opts...); err != nil {
-		return nil, mapK8sError("list AgentRuns for resource metrics", err)
-	}
-
-	// Load metrics from Postgres (source of truth) to overlay on CRD data.
-	var pgMetrics map[string]store.SessionMetricsEntry
-	if s.stateStore != nil {
-		if entries, err := s.stateStore.ListAllSessionMetrics(ctx); err == nil {
-			pgMetrics = make(map[string]store.SessionMetricsEntry, len(entries))
-			for _, e := range entries {
-				pgMetrics[e.AgentRunNS+"/"+e.AgentRunName] = e
+	return probeCacheDo(ctx, &s.probes, "resmetrics|"+namespace, resourceMetricsCacheTTL,
+		func(ctx context.Context) (map[resourceMetricsKey]*platform.ProjectMetrics, error) {
+			// Reuse the fleet snapshot shared with WatchAgentRuns instead of
+			// deep-copying every cached AgentRun again for this aggregate.
+			snap, err := s.cachedAgentRunList(ctx, namespace)
+			if err != nil {
+				return nil, err
 			}
-		}
-	}
+			var runs []platformv1alpha1.AgentRun
+			if !snap.skip && snap.runs != nil {
+				runs = snap.runs.Items
+			}
 
-	result := buildResourceMetricsMap(runs.Items, pgMetrics)
+			// Load metrics from Postgres (source of truth) to overlay on CRD
+			// data, scoped to the namespace when the store can.
+			var pgMetrics map[string]store.SessionMetricsEntry
+			if s.stateStore != nil {
+				var entries []store.SessionMetricsEntry
+				var err error
+				if scoped, ok := s.stateStore.(store.SessionMetricsByNamespaceLister); ok {
+					entries, err = scoped.ListSessionMetricsByNamespace(ctx, namespace)
+				} else {
+					entries, err = s.stateStore.ListAllSessionMetrics(ctx)
+				}
+				if err == nil {
+					pgMetrics = make(map[string]store.SessionMetricsEntry, len(entries))
+					for _, e := range entries {
+						pgMetrics[e.AgentRunNS+"/"+e.AgentRunName] = e
+					}
+				}
+			}
 
-	// The cached map is shared read-only: resourceMetrics() clones entries
-	// before handing them to callers.
-	s.metricsCacheMu.Lock()
-	if s.metricsCache == nil {
-		s.metricsCache = make(map[string]*resourceMetricsCacheEntry)
-	}
-	s.metricsCache[namespace] = &resourceMetricsCacheEntry{at: time.Now(), data: result}
-	s.metricsCacheMu.Unlock()
-
-	return result, nil
+			return buildResourceMetricsMap(runs, pgMetrics), nil
+		})
 }
 
 func buildResourceMetricsMap(runs []platformv1alpha1.AgentRun, pgMetrics map[string]store.SessionMetricsEntry) map[resourceMetricsKey]*platform.ProjectMetrics {

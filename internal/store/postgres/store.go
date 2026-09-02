@@ -184,6 +184,42 @@ func (s *Store) ListSessionsByNamespace(ctx context.Context, namespace string) (
 	return out, nil
 }
 
+// ListSessionsByRuns returns the sessions for an explicit set of AgentRuns
+// (implements store.SessionsByRunsLister). Keys are matched as
+// (namespace, name) pairs through unnest so the per-run unique index is used
+// and the row count is bounded by the requested set, not by the namespace.
+func (s *Store) ListSessionsByRuns(ctx context.Context, keys []store.AgentRunKey) ([]store.Session, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	namespaces := make([]string, len(keys))
+	names := make([]string, len(keys))
+	for i, k := range keys {
+		namespaces[i] = k.Namespace
+		names[i] = k.Name
+	}
+	rows, err := s.pool.Query(ctx, `
+SELECT s.id, s.agentrun_name, s.agentrun_ns, s.phase, s.current_step, s.pending_question, s.metadata, s.created_at, s.updated_at, s.pending_actions, s.pending_input_type, s.pending_request_id
+FROM unnest($1::text[], $2::text[]) AS k(ns, name)
+JOIN agent_sessions s ON s.agentrun_ns = k.ns AND s.agentrun_name = k.name`, namespaces, names)
+	if err != nil {
+		return nil, fmt.Errorf("listing sessions by runs: %w", err)
+	}
+	defer rows.Close()
+	out := make([]store.Session, 0, len(keys))
+	for rows.Next() {
+		var r sqlc.AgentSession
+		if err := rows.Scan(&r.ID, &r.AgentrunName, &r.AgentrunNs, &r.Phase, &r.CurrentStep, &r.PendingQuestion, &r.Metadata, &r.CreatedAt, &r.UpdatedAt, &r.PendingActions, &r.PendingInputType, &r.PendingRequestID); err != nil {
+			return nil, fmt.Errorf("scanning session: %w", err)
+		}
+		out = append(out, *sessionFromRow(r))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listing sessions by runs: %w", err)
+	}
+	return out, nil
+}
+
 func (s *Store) UpdatePhase(ctx context.Context, id uuid.UUID, phase, currentStep string) error {
 	return s.queries.UpdateSessionPhase(ctx, sqlc.UpdateSessionPhaseParams{
 		ID:          id,
@@ -836,34 +872,59 @@ func (s *Store) MarkWakeIntentApplied(ctx context.Context, sessionID uuid.UUID, 
 }
 
 func (s *Store) ListAllSessionMetrics(ctx context.Context) ([]store.SessionMetricsEntry, error) {
-	rows, err := s.queries.ListAllSessionMetrics(ctx)
+	return s.ListSessionMetricsByNamespace(ctx, "")
+}
+
+// ListSessionMetricsByNamespace returns per-run cost/token metrics for one
+// namespace ("" = all namespaces); implements
+// store.SessionMetricsByNamespaceLister. Only the metrics object is read out
+// of each session's metadata so the result size does not depend on whatever
+// else the agent stores there, and the namespace filter is an explicit SQL
+// branch so the agentrun_ns index stays usable.
+func (s *Store) ListSessionMetricsByNamespace(ctx context.Context, namespace string) ([]store.SessionMetricsEntry, error) {
+	query := `SELECT agentrun_name, agentrun_ns, metadata->'metrics'
+		FROM agent_sessions
+		WHERE metadata ? 'metrics'`
+	var args []any
+	if namespace != "" {
+		query += ` AND agentrun_ns = $1`
+		args = append(args, namespace)
+	}
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing session metrics: %w", err)
 	}
+	defer rows.Close()
 
-	type metricsEnvelope struct {
-		Metrics struct {
-			CostUSD       float64 `json:"cost_usd"`
-			InputTokens   int64   `json:"input_tokens"`
-			OutputTokens  int64   `json:"output_tokens"`
-			ToolCallCount int32   `json:"tool_call_count"`
-		} `json:"metrics"`
+	type metrics struct {
+		CostUSD       float64 `json:"cost_usd"`
+		InputTokens   int64   `json:"input_tokens"`
+		OutputTokens  int64   `json:"output_tokens"`
+		ToolCallCount int32   `json:"tool_call_count"`
 	}
 
 	var entries []store.SessionMetricsEntry
-	for _, row := range rows {
-		var env metricsEnvelope
-		if err := json.Unmarshal(row.Metadata, &env); err != nil || env.Metrics.CostUSD == 0 && env.Metrics.InputTokens == 0 {
+	for rows.Next() {
+		var name, ns string
+		var raw []byte
+		if err := rows.Scan(&name, &ns, &raw); err != nil {
+			return nil, fmt.Errorf("scanning session metrics: %w", err)
+		}
+		var m metrics
+		if err := json.Unmarshal(raw, &m); err != nil || m.CostUSD == 0 && m.InputTokens == 0 {
 			continue
 		}
 		entries = append(entries, store.SessionMetricsEntry{
-			AgentRunName:  row.AgentrunName,
-			AgentRunNS:    row.AgentrunNs,
-			CostUSD:       env.Metrics.CostUSD,
-			InputTokens:   env.Metrics.InputTokens,
-			OutputTokens:  env.Metrics.OutputTokens,
-			ToolCallCount: env.Metrics.ToolCallCount,
+			AgentRunName:  name,
+			AgentRunNS:    ns,
+			CostUSD:       m.CostUSD,
+			InputTokens:   m.InputTokens,
+			OutputTokens:  m.OutputTokens,
+			ToolCallCount: m.ToolCallCount,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listing session metrics: %w", err)
 	}
 	return entries, nil
 }
@@ -1284,11 +1345,14 @@ func (s *Store) GetLatestActivityBySessions(ctx context.Context, sessionIDs []uu
 	if len(sessionIDs) == 0 {
 		return out, nil
 	}
+	// detail is deliberately not selected: list surfaces render only the
+	// summary line, and detail holds the full tool payload (often tens of
+	// KB per event), which would be fetched for every session in the fleet.
 	rows, err := s.pool.Query(ctx, `
-SELECT e.id, e.session_id, e.event_type, e.summary, e.detail, e.created_at
+SELECT e.id, e.session_id, e.event_type, e.summary, e.created_at
 FROM unnest($1::uuid[]) AS sid(id)
 CROSS JOIN LATERAL (
-    SELECT id, session_id, event_type, summary, detail, created_at
+    SELECT id, session_id, event_type, summary, created_at
     FROM activity_events
     WHERE session_id = sid.id
     ORDER BY id DESC
@@ -1305,7 +1369,6 @@ CROSS JOIN LATERAL (
 			&event.SessionID,
 			&event.EventType,
 			&event.Summary,
-			&event.Detail,
 			&event.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning latest activity by sessions: %w", err)
@@ -1316,6 +1379,25 @@ CROSS JOIN LATERAL (
 		return nil, fmt.Errorf("reading latest activity by sessions: %w", err)
 	}
 	return out, nil
+}
+
+// GetActivityEvent returns one activity event by primary key, scoped to the
+// session; implements store.ActivityEventGetter. Detail surfaces use it to
+// serve a single untruncated payload without loading the run's history.
+func (s *Store) GetActivityEvent(ctx context.Context, sessionID uuid.UUID, eventID int64) (*store.ActivityEvent, error) {
+	var ev store.ActivityEvent
+	err := s.pool.QueryRow(ctx, `
+SELECT id, session_id, event_type, summary, detail, created_at
+FROM activity_events
+WHERE id = $1 AND session_id = $2`, eventID, sessionID).Scan(
+		&ev.ID, &ev.SessionID, &ev.EventType, &ev.Summary, &ev.Detail, &ev.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, store.ErrActivityEventNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting activity event: %w", err)
+	}
+	return &ev, nil
 }
 
 // GetLatestActivityEventID returns the newest activity event ID for a

@@ -714,10 +714,45 @@ func (s *Server) agentRunVisibilityFilter(ctx context.Context, cached bool) func
 	for _, share := range shares {
 		shareOf[share.ResourceNamespace+"/"+share.ResourceID] = struct{}{}
 	}
+	// Project-scoped runs are authorized through their Project, not their
+	// own ownership record. Preload Project owners and the caller's Project
+	// shares once so the predicate below stays a map lookup instead of two
+	// Postgres round-trips per project run per list/watch tick.
+	projectOwners, err := s.cachedResourceOwnersByType(ctx, bulk, projectResourceType, cached)
+	if err != nil {
+		log.Printf("WARN: listing project owners for AgentRun visibility filter: %v", err)
+		return func(run *platformv1alpha1.AgentRun) bool {
+			return s.requireAgentRunViewerForRun(ctx, run) == nil
+		}
+	}
+	projectOwnerOf := make(map[string]string, len(projectOwners))
+	for _, ownership := range projectOwners {
+		projectOwnerOf[ownership.ResourceNamespace+"/"+ownership.ResourceID] = ownership.OwnerID
+	}
+	projectShares, err := s.cachedSharedWithMe(ctx, actor.Subject, projectResourceType, cached)
+	if err != nil {
+		log.Printf("WARN: listing project shares for AgentRun visibility filter: %v", err)
+		return func(run *platformv1alpha1.AgentRun) bool {
+			return s.requireAgentRunViewerForRun(ctx, run) == nil
+		}
+	}
+	projectShareOf := make(map[string]struct{}, len(projectShares))
+	for _, share := range projectShares {
+		projectShareOf[share.ResourceNamespace+"/"+share.ResourceID] = struct{}{}
+	}
 
 	return func(run *platformv1alpha1.AgentRun) bool {
 		if projectName := agentRunProjectName(run); projectName != "" {
-			return s.requireResourceAccess(ctx, projectResourceType, projectName, run.Namespace, AccessViewer, "view this run") == nil
+			// Mirrors requireResourceAccess(AccessViewer): unowned projects
+			// are visible to any authenticated user; owned ones require
+			// ownership or any share (every share grants at least viewer).
+			projectKey := run.Namespace + "/" + projectName
+			ownerID := projectOwnerOf[projectKey]
+			if ownerID == "" || ownerID == actor.Subject {
+				return true
+			}
+			_, shared := projectShareOf[projectKey]
+			return shared
 		}
 		key := run.Namespace + "/" + run.Name
 		ownerID := ownerOf[key]
