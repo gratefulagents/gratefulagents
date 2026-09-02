@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CircleStop, Clock, Paperclip, RotateCcw, Send } from "lucide-react";
+import { CircleStop, Clock, Loader2, Paperclip, RotateCcw, Send } from "lucide-react";
 
 import { ImageAttachmentStrip } from "@/components/ImageAttachmentStrip";
 import { ContextUsageBar } from "@/components/run-session/ContextUsageBar";
@@ -43,6 +43,8 @@ export interface RunSessionComposer {
   setSendMode: Dispatch<SetStateAction<AgentRunMessageMode>>;
   slashCommands: SlashCommand[];
   onRunSlashCommand: (command: SlashCommand) => void | Promise<void>;
+  /** Steer vs. Queue only differs while the agent is mid-turn; hidden otherwise. */
+  showSendMode?: boolean;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   fileInputRef: RefObject<HTMLInputElement | null>;
   attachments: RunSessionFooterAttachments;
@@ -91,6 +93,7 @@ export function RunSessionFooter({
     handleSend,
     sendMode,
     setSendMode,
+    showSendMode = true,
     slashCommands,
     onRunSlashCommand,
     textareaRef,
@@ -392,17 +395,31 @@ export function RunSessionFooter({
                       <AnimatePresence mode="wait" initial={false}>
                         {showInterrupt ? (
                           <motion.span key="interrupt" className="inline-flex" {...fade}>
-                            <Button
-                              size="icon"
-                              variant="destructive"
-                              className={cn("size-10 md:size-8", composerFocusRing)}
-                              onClick={interrupt.run}
-                              disabled={interrupt.busy}
-                              aria-label="Stop the current turn"
-                              title="Stop the current turn without stopping the run"
-                            >
-                              <CircleStop className="size-4" />
-                            </Button>
+                            {interrupt.pending ? (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className={cn("h-10 gap-1.5 md:h-8", composerFocusRing)}
+                                disabled
+                                aria-label="Stopping the current turn"
+                                title="Waiting for the agent to stop the current turn"
+                              >
+                                <Loader2 className="size-4 animate-spin" />
+                                Stopping…
+                              </Button>
+                            ) : (
+                              <Button
+                                size="icon"
+                                variant="destructive"
+                                className={cn("size-10 md:size-8", composerFocusRing)}
+                                onClick={interrupt.run}
+                                disabled={interrupt.busy}
+                                aria-label="Stop the current turn"
+                                title="Stop the current turn without stopping the run"
+                              >
+                                <CircleStop className="size-4" />
+                              </Button>
+                            )}
                           </motion.span>
                         ) : (
                           <motion.span key="send" className="inline-flex" {...fade}>
@@ -426,8 +443,15 @@ export function RunSessionFooter({
                         )}
                       </AnimatePresence>
                     </div>
+                    {interrupt.stalled && (
+                      <p className="text-2xs text-muted-foreground" role="status">
+                        Still running — the stop request hasn't taken effect yet. Use Stop run from the
+                        header to end the run, or try again.
+                      </p>
+                    )}
                     <div className="flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
+                      {showSendMode && (
+                        <div className="flex items-center gap-1.5">
                         <span id={deliveryLabelId} className="mr-0.5">Delivery</span>
                         <div
                           role="radiogroup"
@@ -461,8 +485,9 @@ export function RunSessionFooter({
                               </button>
                             );
                           })}
+                          </div>
                         </div>
-                      </div>
+                      )}
                       <span className="hidden text-muted-foreground/70 md:inline">
                         <kbd className="rounded border bg-muted px-1 font-mono">/</kbd> for commands ·{" "}
                         <kbd className="rounded border bg-muted px-1 font-mono">@</kbd> for files

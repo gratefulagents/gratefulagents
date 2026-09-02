@@ -65,12 +65,6 @@ type Server struct {
 	// issue creator used by CreateSecurityFindingTicket (tests).
 	securityTicketCreator securityIssueCreator
 
-	// metricsCache caches aggregated resource metrics per namespace for a
-	// short TTL: every project/cron/repo get/list/watch tick otherwise lists
-	// all AgentRuns and scans all Postgres session metadata.
-	metricsCacheMu sync.Mutex
-	metricsCache   map[string]*resourceMetricsCacheEntry
-
 	// activityMemo caches the last built activity-log response per run so the
 	// 500ms watch tick can skip rebuilding when no new events arrived.
 	activityMemoMu sync.Mutex
@@ -89,16 +83,16 @@ type Server struct {
 	probes probeCache
 }
 
-type resourceMetricsCacheEntry struct {
-	at   time.Time
-	data map[resourceMetricsKey]*platform.ProjectMetrics
-}
-
 type activityMemoEntry struct {
 	lastEventID int64
 	isTerminal  bool
+	// s3URL is set when the response was built from the immutable S3
+	// events artifact of a terminal run; such entries are keyed by run and
+	// valid for as long as the run points at the same artifact.
+	s3URL       string
 	entries     []*platform.ActivityEntry
 	resp        *platform.GetActivityLogResponse
+	approxBytes int
 	lastAccess  time.Time
 }
 

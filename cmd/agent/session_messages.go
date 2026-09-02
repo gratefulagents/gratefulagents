@@ -18,6 +18,28 @@ func nextPendingUserMessage(messages []sessionclient.UserMessage, consumedImmedi
 	return sessionclient.UserMessage{}, false, skipCursor, immediate
 }
 
+// withoutStoppedMessage drops the prompt the user explicitly stopped
+// (WorkingState.LastStoppedUserMessageID) from a queue snapshot. Every stop
+// path completes that message's claim, but if the completion was lost the
+// replacement pod's RecoverClaimedUserMessages hands the prompt back as
+// pending — and re-running a stopped prompt is exactly what the user asked
+// not to happen. Only that one ID is removed: an earlier queued message can
+// legitimately still be pending (a later immediate steer is selected ahead
+// of it), so this is deliberately not an ID floor.
+func withoutStoppedMessage(messages []sessionclient.UserMessage, stoppedMessageID int64) []sessionclient.UserMessage {
+	if stoppedMessageID == 0 {
+		return messages
+	}
+	out := make([]sessionclient.UserMessage, 0, len(messages))
+	for _, msg := range messages {
+		if msg.ID == stoppedMessageID {
+			continue
+		}
+		out = append(out, msg)
+	}
+	return out
+}
+
 // collectImmediateRunItems converts unconsumed immediate user messages into run
 // items. Alongside the SDK result it reports which message IDs were newly
 // consumed so the caller can record their delivery.

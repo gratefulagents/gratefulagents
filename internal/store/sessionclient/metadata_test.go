@@ -169,6 +169,10 @@ func (s *metadataTestStore) GetSessionFingerprint(context.Context, uuid.UUID) (s
 	return "", nil
 }
 
+func (s *metadataTestStore) GetSessionConversationFingerprint(context.Context, uuid.UUID) (string, error) {
+	return "", nil
+}
+
 func (s *metadataTestStore) UpsertArtifact(context.Context, uuid.UUID, string, string, string, string, json.RawMessage) (*store.Artifact, error) {
 	return nil, nil
 }

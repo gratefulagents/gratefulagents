@@ -97,3 +97,29 @@ func TestCollectImmediateRunItemsReportsOnlyNewlyConsumedIDs(t *testing.T) {
 		t.Fatalf("consumedIDs = %v, want [31]", consumedIDs)
 	}
 }
+
+// Only the exact stopped prompt is removed: an earlier queued message that a
+// later immediate steer overtook must stay pending, so this is not a floor.
+func TestWithoutStoppedMessageRemovesOnlyTheStoppedPrompt(t *testing.T) {
+	messages := []sessionclient.UserMessage{
+		{Message: store.Message{ID: 30, Content: "queued earlier"}, Mode: sessionclient.UserMessageModeEnqueue},
+		{Message: store.Message{ID: 31, Content: "stopped steer"}, Mode: sessionclient.UserMessageModeImmediate},
+		{Message: store.Message{ID: 32, Content: "newer"}, Mode: sessionclient.UserMessageModeEnqueue},
+	}
+
+	got := withoutStoppedMessage(messages, 31)
+	if len(got) != 2 || got[0].ID != 30 || got[1].ID != 32 {
+		t.Fatalf("withoutStoppedMessage() IDs = %v, want [30 32]", messageIDs(got))
+	}
+	if same := withoutStoppedMessage(messages, 0); len(same) != 3 {
+		t.Fatalf("zero stopped ID must keep every message, got %d", len(same))
+	}
+}
+
+func messageIDs(messages []sessionclient.UserMessage) []int64 {
+	ids := make([]int64, 0, len(messages))
+	for _, msg := range messages {
+		ids = append(ids, msg.ID)
+	}
+	return ids
+}

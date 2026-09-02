@@ -1361,9 +1361,21 @@ message SendAgentRunMessageRequest {
   // replaced, so a stale tab cannot answer a newer question. When empty the
   // message is treated as generic input (legacy clients).
   string pending_request_id = 7;
+  // client_message_id is an optional client-generated idempotency key (UUID).
+  // A retried or duplicated request carrying the same key for the same run
+  // returns success without inserting a second user message, so a network
+  // retry never produces two agent turns. Empty disables deduplication.
+  string client_message_id = 8;
 }
 
-message SendAgentRunMessageResponse {}
+message SendAgentRunMessageResponse {
+  // message_id is the persisted conversation message id, so clients can
+  // reconcile an optimistic pending message with the watched conversation.
+  int64 message_id = 1;
+  // deduplicated is true when client_message_id matched an existing message
+  // and no new message was inserted.
+  bool deduplicated = 2;
+}
 
 message CancelAgentRunMessageRequest {
   string namespace = 1;

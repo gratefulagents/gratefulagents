@@ -44,6 +44,18 @@ func (w watchTicker) interval() time.Duration {
 	return w.fast
 }
 
+// intervalAfter picks the re-arm delay for the next poll. A wake-driven
+// iteration whose probe saw no change re-arms at fast rather than slow: the
+// hint fired because something was written, so if the probe has not caught
+// up yet (or the hint was for state this probe ignores) the change must not
+// wait a full slow interval to be noticed.
+func (w watchTicker) intervalAfter(wakeDriven, changed bool) time.Duration {
+	if wakeDriven && !changed {
+		return w.fast
+	}
+	return w.interval()
+}
+
 // sessionWatchTicker subscribes a stream to session-change wake-up hints when
 // the state store supports them (store.SessionChangeSubscriber). The returned
 // cancel must be called when the stream ends. Streams for runs whose session
@@ -145,12 +157,15 @@ func streamSnapshots[T any](ctx context.Context, interval time.Duration, load fu
 // version probe to skip building (and DeepEqual-walking) the snapshot when
 // nothing changed. probe returns an opaque version string; an empty version
 // means "unknown", which falls back to building the snapshot every tick and
-// comparing with DeepEqual before sending. build returns the snapshot and
+// comparing with DeepEqual before sending. fresh is set on wake-driven
+// iterations: the probe must then bypass any value it cached before the
+// wake-up (see probeCacheDoFresh) or the write that triggered the hint would
+// be invisible until the cache expires. build returns the snapshot and
 // whether the stream should keep polling.
 func streamVersionedSnapshots[T any](
 	ctx context.Context,
 	tick watchTicker,
-	probe func(context.Context) (string, error),
+	probe func(ctx context.Context, fresh bool) (string, error),
 	build func(context.Context) (T, bool, error),
 	send func(T) error,
 ) error {
@@ -161,18 +176,21 @@ func streamVersionedSnapshots[T any](
 	defer timer.Stop()
 
 	for {
+		wakeDriven := false
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-timer.C:
 		case <-tick.wake: // nil channel when wake-ups are unavailable
+			wakeDriven = true
 		}
 
-		version, err := probe(ctx)
+		version, err := probe(ctx, wakeDriven)
 		if err != nil {
 			return err
 		}
-		if !sent || version == "" || version != lastVersion {
+		changed := !sent || version == "" || version != lastVersion
+		if changed {
 			msg, active, err := build(ctx)
 			if err != nil {
 				return err
@@ -191,7 +209,7 @@ func streamVersionedSnapshots[T any](
 			}
 		}
 
-		timer.Reset(tick.interval())
+		timer.Reset(tick.intervalAfter(wakeDriven, changed))
 	}
 }
 
@@ -201,6 +219,21 @@ func streamVersionedSnapshots[T any](
 type agentRunListSnapshot struct {
 	runs *platformv1alpha1.AgentRunList
 	skip bool
+}
+
+// cachedAgentRunList returns the per-namespace AgentRun list snapshot shared
+// by every fleet consumer (WatchAgentRuns streams, resource metrics,
+// observability scoping) for probeAgentRunListTTL. Listing from the manager
+// cache deep-copies every cached run, so sharing one snapshot keeps that at
+// ~one copy per TTL window regardless of how many consumers ask. The
+// returned list is read-only: callers must never mutate it.
+func (s *Server) cachedAgentRunList(ctx context.Context, namespace string) (agentRunListSnapshot, error) {
+	return probeCacheDo(ctx, &s.probes, "runlist|"+namespace, probeAgentRunListTTL,
+		func(ctx context.Context) (agentRunListSnapshot, error) {
+			list := &platformv1alpha1.AgentRunList{}
+			skip, err := s.listNamespaced(ctx, namespace, list, "list AgentRuns")
+			return agentRunListSnapshot{runs: list, skip: skip}, err
+		})
 }
 
 // WatchAgentRuns streams AgentRun updates. It sends the initial list immediately,
@@ -214,12 +247,7 @@ func (s *Server) WatchAgentRuns(ctx context.Context, req *platform.WatchAgentRun
 		// tick — a major source of controller heap and GC pressure on large
 		// clusters. Share one snapshot across all streams per TTL window.
 		// The shared list is read-only: streams must never mutate it.
-		snap, err := probeCacheDo(ctx, &s.probes, "runlist|"+req.Namespace, probeAgentRunListTTL,
-			func(ctx context.Context) (agentRunListSnapshot, error) {
-				list := &platformv1alpha1.AgentRunList{}
-				skip, err := s.listNamespaced(ctx, req.Namespace, list, "watch AgentRuns")
-				return agentRunListSnapshot{runs: list, skip: skip}, err
-			})
+		snap, err := s.cachedAgentRunList(ctx, req.Namespace)
 		if err != nil || snap.skip {
 			return err
 		}
@@ -243,34 +271,55 @@ func (s *Server) WatchAgentRuns(ctx context.Context, req *platform.WatchAgentRun
 				summaryVersions = current
 			}
 		}
-		// Bulk enrichment state is built lazily on the first changed run of
-		// this tick and discarded at tick end, so unchanged ticks avoid the
-		// richer ownership/session loading path.
-		var batch *agentRunEnrichBatch
-		var batchBuilt bool
+		// Pass 1: decide which runs changed. Pass 2 loads enrichment state
+		// for exactly that set, so a tick that re-emits a handful of runs
+		// out of thousands does not reload every session in the fleet.
+		// Nothing is emitted until the batch is ready, so a stream that
+		// fails mid-tick never leaves `versions` claiming a run was sent.
+		type changedRun struct {
+			run     *platformv1alpha1.AgentRun
+			key     string
+			version string
+		}
+		var changed []changedRun
+		visibleCount := 0
 		seen := make(map[string]struct{}, len(runs.Items))
-		for _, run := range runs.Items {
-			if !visible(&run) {
+		for i := range runs.Items {
+			run := &runs.Items[i]
+			if !visible(run) {
 				continue
 			}
+			visibleCount++
 			key := run.Namespace + "/" + run.Name
 			seen[key] = struct{}{}
 			version := run.ResourceVersion + "|" + summaryVersions[key]
-			if err := emitIfChanged(versions, key, version,
-				func() (*platform.AgentRunEvent, error) {
-					if !batchBuilt {
-						batch = s.newAgentRunEnrichBatch(ctx, req.Namespace, true)
-						batchBuilt = true
-					}
-					pb, err := s.enrichAgentRunSummaryProto(ctx, k8sAgentRunToProto(&run), batch)
-					if err != nil {
-						return nil, err
-					}
-					return &platform.AgentRunEvent{Type: "MODIFIED", Run: pb}, nil
-				},
-				stream.Send,
-			); err != nil {
-				return err
+			if versions[key] == version {
+				continue
+			}
+			changed = append(changed, changedRun{run: run, key: key, version: version})
+		}
+		if len(changed) > 0 {
+			// When most of the fleet changed (initial tick, mass phase
+			// change) the namespace-wide load is cheaper than a huge key
+			// list and is shared across streams via the probe cache; a
+			// small changed set is loaded by key.
+			var keys []store.AgentRunKey
+			if len(changed)*2 < visibleCount {
+				keys = make([]store.AgentRunKey, 0, len(changed))
+				for _, c := range changed {
+					keys = append(keys, store.AgentRunKey{Namespace: c.run.Namespace, Name: c.run.Name})
+				}
+			}
+			batch := s.newAgentRunEnrichBatchForRuns(ctx, req.Namespace, keys, true)
+			for _, c := range changed {
+				pb, err := s.enrichAgentRunSummaryProto(ctx, k8sAgentRunToProto(c.run), batch)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(&platform.AgentRunEvent{Type: "MODIFIED", Run: pb}); err != nil {
+					return err
+				}
+				versions[c.key] = c.version
 			}
 		}
 		for key := range versions {
@@ -300,7 +349,7 @@ func (s *Server) WatchAgentRun(ctx context.Context, req *platform.WatchAgentRunR
 	}
 	var sessID uuid.UUID
 	var haveSess bool
-	probe := func(ctx context.Context) (string, error) {
+	probe := func(ctx context.Context, fresh bool) (string, error) {
 		run := &platformv1alpha1.AgentRun{}
 		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: req.Name}, run); err != nil {
 			return "", mapK8sError("watch AgentRun", err)
@@ -316,12 +365,12 @@ func (s *Server) WatchAgentRun(ctx context.Context, req *platform.WatchAgentRunR
 			sessID = sess.ID
 			haveSess = true
 		}
-		// Fingerprints are shared across every stream watching this run for
+		// The conversation fingerprint ignores activity-log writes: this
+		// stream rebuilds the full transcript (messages incl. inline images)
+		// on every change, and tool-call logging must not force that. The
+		// fingerprint is shared across every stream watching this run for
 		// probeFingerprintTTL, so extra open tabs do not add query load.
-		fp, err := probeCacheDo(ctx, &s.probes, "fp|"+sessID.String(), probeFingerprintTTL,
-			func(ctx context.Context) (string, error) {
-				return s.stateStore.GetSessionFingerprint(ctx, sessID)
-			})
+		fp, err := s.conversationFingerprint(ctx, sessID, fresh)
 		if err != nil {
 			return "", nil
 		}
@@ -332,7 +381,7 @@ func (s *Server) WatchAgentRun(ctx context.Context, req *platform.WatchAgentRunR
 		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: req.Namespace, Name: req.Name}, run); err != nil {
 			return nil, false, mapK8sError("watch AgentRun", err)
 		}
-		pb, err := s.enrichAgentRunProto(ctx, k8sAgentRunToProto(run))
+		pb, err := s.enrichAgentRunProto(withSharedConversationMemo(ctx), k8sAgentRunToProto(run))
 		if err != nil {
 			return nil, false, err
 		}
@@ -365,14 +414,14 @@ func shouldContinueAgentRunWatch(run *platformv1alpha1.AgentRun) bool {
 // for a run: the immutable S3 artifact URL for terminal runs, or the latest
 // Postgres event ID. Empty means the version cannot be determined cheaply
 // (e.g. pod-exec fallback) and the caller must rebuild every tick.
-func (s *Server) activityLogVersion(ctx context.Context, run *platformv1alpha1.AgentRun) string {
+func (s *Server) activityLogVersion(ctx context.Context, run *platformv1alpha1.AgentRun, fresh bool) string {
 	isTerminal := isTerminalAgentRunPhase(run.Status.Phase)
 	if isTerminal && s.s3Reader != nil && run.Status.Artifacts != nil && run.Status.Artifacts.EventsLogURL != "" {
 		return "s3|" + run.Status.Artifacts.EventsLogURL
 	}
 	if s.stateStore != nil {
 		if sess, err := s.cachedSessionByRun(ctx, run.Name, run.Namespace); err == nil {
-			if latestID, err := s.latestActivityEventID(ctx, sess.ID); err == nil && latestID > 0 {
+			if latestID, err := s.latestActivityEventID(ctx, sess.ID, fresh); err == nil && latestID > 0 {
 				return fmt.Sprintf("pg|%d|%t", latestID, isTerminal)
 			}
 		}
@@ -397,12 +446,12 @@ func (s *Server) WatchActivityLog(ctx context.Context, req *platform.GetActivity
 		}
 		return run, nil
 	}
-	probe := func(ctx context.Context) (string, error) {
+	probe := func(ctx context.Context, fresh bool) (string, error) {
 		run, err := getRun(ctx)
 		if err != nil {
 			return "", err
 		}
-		return s.activityLogVersion(ctx, run), nil
+		return s.activityLogVersion(ctx, run, fresh), nil
 	}
 	if req.Delta {
 		buildSourced := func(ctx context.Context) (*platform.GetActivityLogResponse, activityLogSource, error) {
@@ -471,7 +520,7 @@ func watchActivityLogDelta(
 	ctx context.Context,
 	tick watchTicker,
 	req *platform.GetActivityLogRequest,
-	probe func(context.Context) (string, error),
+	probe func(ctx context.Context, fresh bool) (string, error),
 	build func(context.Context) (*platform.GetActivityLogResponse, activityLogSource, error),
 	send func(*platform.GetActivityLogResponse) error,
 ) error {
@@ -487,19 +536,21 @@ func watchActivityLogDelta(
 	defer timer.Stop()
 
 	for {
+		wakeDriven := false
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-timer.C:
 		case <-tick.wake: // nil channel when wake-ups are unavailable
+			wakeDriven = true
 		}
 
-		version, err := probe(ctx)
+		version, err := probe(ctx, wakeDriven)
 		if err != nil {
 			return err
 		}
 		if sentInitial && version != "" && version == lastVersion {
-			timer.Reset(tick.interval())
+			timer.Reset(tick.intervalAfter(wakeDriven, false))
 			continue
 		}
 		resp, source, err := build(ctx)

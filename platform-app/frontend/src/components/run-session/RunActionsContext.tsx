@@ -14,8 +14,13 @@ export interface RunActions {
   stop: RunAction;
   promote: RunAction;
   delete: RunAction;
-  /** Stop the in-flight turn without killing the run. */
-  interrupt: RunAction;
+  /**
+   * Stop the in-flight turn without killing the run. `pending` = the interrupt
+   * was accepted and the turn has not ended yet (control stays disabled as
+   * "Stopping…"); `stalled` = it has not taken effect for a while, so surface
+   * the "Stop run" fallback hint.
+   */
+  interrupt: RunAction & { pending?: boolean; stalled?: boolean };
   rename: { can: boolean; run: (displayName: string) => void | Promise<void> };
   extendRuntime: {
     can: boolean;

@@ -184,6 +184,42 @@ func (s *Store) ListSessionsByNamespace(ctx context.Context, namespace string) (
 	return out, nil
 }
 
+// ListSessionsByRuns returns the sessions for an explicit set of AgentRuns
+// (implements store.SessionsByRunsLister). Keys are matched as
+// (namespace, name) pairs through unnest so the per-run unique index is used
+// and the row count is bounded by the requested set, not by the namespace.
+func (s *Store) ListSessionsByRuns(ctx context.Context, keys []store.AgentRunKey) ([]store.Session, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	namespaces := make([]string, len(keys))
+	names := make([]string, len(keys))
+	for i, k := range keys {
+		namespaces[i] = k.Namespace
+		names[i] = k.Name
+	}
+	rows, err := s.pool.Query(ctx, `
+SELECT s.id, s.agentrun_name, s.agentrun_ns, s.phase, s.current_step, s.pending_question, s.metadata, s.created_at, s.updated_at, s.pending_actions, s.pending_input_type, s.pending_request_id
+FROM unnest($1::text[], $2::text[]) AS k(ns, name)
+JOIN agent_sessions s ON s.agentrun_ns = k.ns AND s.agentrun_name = k.name`, namespaces, names)
+	if err != nil {
+		return nil, fmt.Errorf("listing sessions by runs: %w", err)
+	}
+	defer rows.Close()
+	out := make([]store.Session, 0, len(keys))
+	for rows.Next() {
+		var r sqlc.AgentSession
+		if err := rows.Scan(&r.ID, &r.AgentrunName, &r.AgentrunNs, &r.Phase, &r.CurrentStep, &r.PendingQuestion, &r.Metadata, &r.CreatedAt, &r.UpdatedAt, &r.PendingActions, &r.PendingInputType, &r.PendingRequestID); err != nil {
+			return nil, fmt.Errorf("scanning session: %w", err)
+		}
+		out = append(out, *sessionFromRow(r))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listing sessions by runs: %w", err)
+	}
+	return out, nil
+}
+
 func (s *Store) UpdatePhase(ctx context.Context, id uuid.UUID, phase, currentStep string) error {
 	return s.queries.UpdateSessionPhase(ctx, sqlc.UpdateSessionPhaseParams{
 		ID:          id,
@@ -472,6 +508,9 @@ func (s *Store) AnswerPendingInput(ctx context.Context, sessionID uuid.UUID, ans
 		RETURNING id, session_id, role, content, metadata, created_at`,
 		sessionID, answer.Content, metadata,
 	).Scan(&inserted.ID, &inserted.SessionID, &inserted.Role, &inserted.Content, &inserted.Metadata, &inserted.CreatedAt); err != nil {
+		if isUniqueViolation(err) {
+			return nil, false, store.ErrMessageAlreadyExists
+		}
 		return nil, false, fmt.Errorf("recording pending input answer message: %w", err)
 	}
 	result, err := tx.Exec(ctx, `
@@ -540,18 +579,12 @@ func (s *Store) RecoverExpiredHeldInputResponses(ctx context.Context, sessionID 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Lock the session row first (matching the reserve lock order) so recovery
-	// cannot interleave with an in-flight reserve/release on the same session.
-	var currentRequestID string
-	if err := tx.QueryRow(ctx, `
-		SELECT pending_request_id FROM agent_sessions WHERE id = $1 FOR UPDATE`, sessionID).
-		Scan(&currentRequestID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, store.ErrSessionNotFound
-		}
-		return 0, fmt.Errorf("locking session for held input recovery: %w", err)
-	}
-
+	// Lock order is messages-then-session, matching every other writer:
+	// ReleasePendingInputResponse / CancelPendingInputResponse update a
+	// message row whose statement trigger then updates the session row. Taking
+	// the session lock first here would deadlock against them. The session row
+	// is locked after the held rows and pending_request_id re-read under that
+	// lock, so the restore decision below still cannot race a newer request.
 	rows, err := tx.Query(ctx, `
 		SELECT id, metadata FROM conversation_messages
 		WHERE session_id = $1
@@ -581,6 +614,16 @@ func (s *Store) RecoverExpiredHeldInputResponses(ctx context.Context, sessionID 
 	}
 	if len(expired) == 0 {
 		return 0, tx.Commit(ctx)
+	}
+
+	var currentRequestID string
+	if err := tx.QueryRow(ctx, `
+		SELECT pending_request_id FROM agent_sessions WHERE id = $1 FOR UPDATE`, sessionID).
+		Scan(&currentRequestID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, store.ErrSessionNotFound
+		}
+		return 0, fmt.Errorf("locking session for held input recovery: %w", err)
 	}
 
 	for _, hold := range expired {
@@ -829,34 +872,59 @@ func (s *Store) MarkWakeIntentApplied(ctx context.Context, sessionID uuid.UUID, 
 }
 
 func (s *Store) ListAllSessionMetrics(ctx context.Context) ([]store.SessionMetricsEntry, error) {
-	rows, err := s.queries.ListAllSessionMetrics(ctx)
+	return s.ListSessionMetricsByNamespace(ctx, "")
+}
+
+// ListSessionMetricsByNamespace returns per-run cost/token metrics for one
+// namespace ("" = all namespaces); implements
+// store.SessionMetricsByNamespaceLister. Only the metrics object is read out
+// of each session's metadata so the result size does not depend on whatever
+// else the agent stores there, and the namespace filter is an explicit SQL
+// branch so the agentrun_ns index stays usable.
+func (s *Store) ListSessionMetricsByNamespace(ctx context.Context, namespace string) ([]store.SessionMetricsEntry, error) {
+	query := `SELECT agentrun_name, agentrun_ns, metadata->'metrics'
+		FROM agent_sessions
+		WHERE metadata ? 'metrics'`
+	var args []any
+	if namespace != "" {
+		query += ` AND agentrun_ns = $1`
+		args = append(args, namespace)
+	}
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing session metrics: %w", err)
 	}
+	defer rows.Close()
 
-	type metricsEnvelope struct {
-		Metrics struct {
-			CostUSD       float64 `json:"cost_usd"`
-			InputTokens   int64   `json:"input_tokens"`
-			OutputTokens  int64   `json:"output_tokens"`
-			ToolCallCount int32   `json:"tool_call_count"`
-		} `json:"metrics"`
+	type metrics struct {
+		CostUSD       float64 `json:"cost_usd"`
+		InputTokens   int64   `json:"input_tokens"`
+		OutputTokens  int64   `json:"output_tokens"`
+		ToolCallCount int32   `json:"tool_call_count"`
 	}
 
 	var entries []store.SessionMetricsEntry
-	for _, row := range rows {
-		var env metricsEnvelope
-		if err := json.Unmarshal(row.Metadata, &env); err != nil || env.Metrics.CostUSD == 0 && env.Metrics.InputTokens == 0 {
+	for rows.Next() {
+		var name, ns string
+		var raw []byte
+		if err := rows.Scan(&name, &ns, &raw); err != nil {
+			return nil, fmt.Errorf("scanning session metrics: %w", err)
+		}
+		var m metrics
+		if err := json.Unmarshal(raw, &m); err != nil || m.CostUSD == 0 && m.InputTokens == 0 {
 			continue
 		}
 		entries = append(entries, store.SessionMetricsEntry{
-			AgentRunName:  row.AgentrunName,
-			AgentRunNS:    row.AgentrunNs,
-			CostUSD:       env.Metrics.CostUSD,
-			InputTokens:   env.Metrics.InputTokens,
-			OutputTokens:  env.Metrics.OutputTokens,
-			ToolCallCount: env.Metrics.ToolCallCount,
+			AgentRunName:  name,
+			AgentRunNS:    ns,
+			CostUSD:       m.CostUSD,
+			InputTokens:   m.InputTokens,
+			OutputTokens:  m.OutputTokens,
+			ToolCallCount: m.ToolCallCount,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listing session metrics: %w", err)
 	}
 	return entries, nil
 }
@@ -1277,11 +1345,14 @@ func (s *Store) GetLatestActivityBySessions(ctx context.Context, sessionIDs []uu
 	if len(sessionIDs) == 0 {
 		return out, nil
 	}
+	// detail is deliberately not selected: list surfaces render only the
+	// summary line, and detail holds the full tool payload (often tens of
+	// KB per event), which would be fetched for every session in the fleet.
 	rows, err := s.pool.Query(ctx, `
-SELECT e.id, e.session_id, e.event_type, e.summary, e.detail, e.created_at
+SELECT e.id, e.session_id, e.event_type, e.summary, e.created_at
 FROM unnest($1::uuid[]) AS sid(id)
 CROSS JOIN LATERAL (
-    SELECT id, session_id, event_type, summary, detail, created_at
+    SELECT id, session_id, event_type, summary, created_at
     FROM activity_events
     WHERE session_id = sid.id
     ORDER BY id DESC
@@ -1298,7 +1369,6 @@ CROSS JOIN LATERAL (
 			&event.SessionID,
 			&event.EventType,
 			&event.Summary,
-			&event.Detail,
 			&event.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning latest activity by sessions: %w", err)
@@ -1309,6 +1379,25 @@ CROSS JOIN LATERAL (
 		return nil, fmt.Errorf("reading latest activity by sessions: %w", err)
 	}
 	return out, nil
+}
+
+// GetActivityEvent returns one activity event by primary key, scoped to the
+// session; implements store.ActivityEventGetter. Detail surfaces use it to
+// serve a single untruncated payload without loading the run's history.
+func (s *Store) GetActivityEvent(ctx context.Context, sessionID uuid.UUID, eventID int64) (*store.ActivityEvent, error) {
+	var ev store.ActivityEvent
+	err := s.pool.QueryRow(ctx, `
+SELECT id, session_id, event_type, summary, detail, created_at
+FROM activity_events
+WHERE id = $1 AND session_id = $2`, eventID, sessionID).Scan(
+		&ev.ID, &ev.SessionID, &ev.EventType, &ev.Summary, &ev.Detail, &ev.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, store.ErrActivityEventNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting activity event: %w", err)
+	}
+	return &ev, nil
 }
 
 // GetLatestActivityEventID returns the newest activity event ID for a
@@ -1492,6 +1581,42 @@ func (s *Store) GetSessionFingerprint(ctx context.Context, sessionID uuid.UUID) 
 		return "", fmt.Errorf("getting session fingerprint: %w", err)
 	}
 	return fmt.Sprintf("%d|%d", changeSeq, sessionUpdatedAt.UnixNano()), nil
+}
+
+// GetSessionConversationFingerprint returns an opaque version string that
+// changes only for conversation-relevant writes: session-row field changes,
+// conversation_messages and agent_artifacts writes, and interrupts
+// (conversation_seq, migration 059). Activity events do not advance it, so
+// the conversation watch is not invalidated by every tool-call log line.
+// updated_at is deliberately excluded because it moves on every write.
+func (s *Store) GetSessionConversationFingerprint(ctx context.Context, sessionID uuid.UUID) (string, error) {
+	var conversationSeq int64
+	err := s.pool.QueryRow(ctx,
+		`SELECT conversation_seq FROM agent_sessions WHERE id = $1`,
+		sessionID).Scan(&conversationSeq)
+	if err != nil {
+		return "", fmt.Errorf("getting session conversation fingerprint: %w", err)
+	}
+	return strconv.FormatInt(conversationSeq, 10), nil
+}
+
+// GetMessage returns one message by primary key, scoped to the session.
+// Implements store.MessageGetter.
+func (s *Store) GetMessage(ctx context.Context, sessionID uuid.UUID, messageID int64) (*store.Message, error) {
+	var row sqlc.ConversationMessage
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, session_id, role, content, metadata, created_at, delivery_state, delivery_sequence, claimed_at
+		FROM conversation_messages
+		WHERE id = $1 AND session_id = $2`, messageID, sessionID).Scan(
+		&row.ID, &row.SessionID, &row.Role, &row.Content, &row.Metadata, &row.CreatedAt,
+		&row.DeliveryState, &row.DeliverySequence, &row.ClaimedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, store.ErrMessageNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting message: %w", err)
+	}
+	return messageFromRow(row), nil
 }
 
 // --- Artifacts ---

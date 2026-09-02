@@ -222,3 +222,71 @@ func TestProbeCacheEvictsWhenFull(t *testing.T) {
 		t.Errorf("entries = %d, want <= %d", n, probeCacheMaxEntries)
 	}
 }
+
+func TestProbeCacheDoFreshBypassesCachedValueButJoinsInFlight(t *testing.T) {
+	var c probeCache
+	var computes atomic.Int32
+	fn := func(context.Context) (int, error) {
+		return int(computes.Add(1)), nil
+	}
+
+	if v, _ := probeCacheDo(context.Background(), &c, "k", time.Minute, fn); v != 1 {
+		t.Fatalf("prime = %d, want 1", v)
+	}
+	if v, _ := probeCacheDo(context.Background(), &c, "k", time.Minute, fn); v != 1 {
+		t.Fatalf("cached = %d, want 1", v)
+	}
+	if v, _ := probeCacheDoFresh(context.Background(), &c, "k", time.Minute, fn); v != 2 {
+		t.Fatalf("fresh = %d, want 2 (recomputed despite fresh cache)", v)
+	}
+	if v, _ := probeCacheDo(context.Background(), &c, "k", time.Minute, fn); v != 2 {
+		t.Fatalf("after fresh = %d, want 2 (fresh result is cached for others)", v)
+	}
+
+	// Fresh callers still coalesce with an in-flight computation.
+	var c2 probeCache
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var slowComputes atomic.Int32
+	slow := func(context.Context) (int, error) {
+		slowComputes.Add(1)
+		close(started)
+		<-release
+		return 42, nil
+	}
+	var wg sync.WaitGroup
+	results := make([]int, 2)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		results[0], _ = probeCacheDoFresh(context.Background(), &c2, "k", time.Minute, slow)
+	}()
+	<-started
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		results[1], _ = probeCacheDoFresh(context.Background(), &c2, "k", time.Minute, slow)
+	}()
+	time.Sleep(10 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	if slowComputes.Load() != 1 || results[0] != 42 || results[1] != 42 {
+		t.Fatalf("computes=%d results=%v, want one shared computation", slowComputes.Load(), results)
+	}
+}
+
+func TestProbeCacheInvalidateDropsReadyEntry(t *testing.T) {
+	var c probeCache
+	var computes atomic.Int32
+	fn := func(context.Context) (int, error) {
+		return int(computes.Add(1)), nil
+	}
+	if v, _ := probeCacheDo(context.Background(), &c, "k", time.Minute, fn); v != 1 {
+		t.Fatalf("prime = %d, want 1", v)
+	}
+	c.invalidate("other") // unknown key is a no-op
+	c.invalidate("k")
+	if v, _ := probeCacheDo(context.Background(), &c, "k", time.Minute, fn); v != 2 {
+		t.Fatalf("after invalidate = %d, want 2", v)
+	}
+}

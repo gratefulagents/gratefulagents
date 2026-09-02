@@ -331,4 +331,53 @@ describe("RunSessionFooter", () => {
     expect(readout.textContent).toContain("api");
     expect(readout.textContent).toContain("gpt-5.2");
   });
+
+  function renderActiveFooter(
+    composerOverrides: Partial<RunSessionComposer> = {},
+    actions: Parameters<typeof renderWithRunActions>[1] = {},
+  ) {
+    return renderWithRunActions(
+      <RunSessionFooter
+        run={runWith("Running")}
+        isActive
+        isViewer={false}
+        sending={false}
+        canSendMessage
+        startupCopy="Preparing run…"
+        composer={composer(composerOverrides)}
+      />,
+      actions,
+    );
+  }
+
+  it("keeps the stop control disabled as Stopping… once an interrupt was accepted", () => {
+    const { actions } = renderActiveFooter({}, { interrupt: { can: true, pending: true } });
+
+    const stopping = screen.getByRole("button", { name: "Stopping the current turn" });
+    expect((stopping as HTMLButtonElement).disabled).toBe(true);
+    expect(stopping.textContent).toContain("Stopping…");
+    expect(screen.queryByRole("button", { name: "Stop the current turn" })).toBeNull();
+    fireEvent.click(stopping);
+    expect(actions.interrupt.run).not.toHaveBeenCalled();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("re-enables the stop control and shows the fallback hint when the interrupt stalls", () => {
+    const { actions } = renderActiveFooter({}, { interrupt: { can: true, pending: false, stalled: true } });
+
+    expect(screen.getByRole("status").textContent).toContain("Still running");
+    fireEvent.click(screen.getByRole("button", { name: "Stop the current turn" }));
+    expect(actions.interrupt.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the Steer/Queue toggle unless the agent is mid-turn", () => {
+    renderActiveFooter({ showSendMode: false });
+    expect(screen.queryByRole("radio", { name: "Steer" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Queue" })).toBeNull();
+    cleanup();
+
+    renderActiveFooter({ showSendMode: true });
+    expect(screen.getByRole("radio", { name: "Steer" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Queue" })).toBeTruthy();
+  });
 });

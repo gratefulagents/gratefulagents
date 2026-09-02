@@ -20,12 +20,17 @@ type pgEventWriter struct {
 	mu        sync.Mutex
 	notify    chan struct{}
 	buf       []json.RawMessage
+	bufBytes  int64
 	head      int
 	closed    bool
 	expired   bool
-	inFlight  bool
+	inFlight  int
 	dropped   int64
 	unflushed int64
+
+	dropWarnMu    sync.Mutex
+	lastDropWarn  time.Time
+	droppedWarned int64
 
 	drainCtx    context.Context
 	cancelDrain context.CancelFunc
@@ -41,9 +46,27 @@ type pgEventEnvelope struct {
 	Status  string `json:"status,omitempty"`
 }
 
+// activityEventBatchWriter is the optional store capability for writing a
+// batch of activity events in one round trip. Declared locally (identical to
+// store.ActivityEventBatchWriter) so the writer type-asserts against the
+// capability rather than the store package's interface set.
+type activityEventBatchWriter interface {
+	WriteActivityEvents(ctx context.Context, sessionID uuid.UUID, events []store.ActivityEventInput) ([]int64, error)
+}
+
 const (
 	pgEventWriterBuffer    = 1024
 	pgEventWriterMaxEvents = 64 * 1024
+	// pgEventWriterMaxBytes bounds buffered payload: a few large events
+	// (base64 screenshots, big tool outputs) must not hold gigabytes of
+	// memory just because the count cap is far away.
+	pgEventWriterMaxBytes = 64 << 20
+	// pgEventWriterBatchSize is the most events one drain pass hands to the
+	// store at once.
+	pgEventWriterBatchSize = 64
+	// pgEventWriterDropWarnInterval rate-limits the backpressure WARN log
+	// while drops are still happening (the total is repeated at Close).
+	pgEventWriterDropWarnInterval = 30 * time.Second
 )
 
 var pgEventWriterCloseTimeout = 5 * time.Second
@@ -74,19 +97,48 @@ func (w *pgEventWriter) Write(p []byte) (int, error) {
 		return 0, io.ErrClosedPipe
 	}
 	if w.bufferedLocked() >= pgEventWriterMaxEvents {
-		w.buf[w.head] = nil
-		w.head++
-		w.dropped++
-		w.compactLocked()
+		w.dropOldestLocked()
 	}
 	w.buf = append(w.buf, json.RawMessage(cp))
+	w.bufBytes += int64(len(cp))
+	// The newest event always stays buffered, even when it alone exceeds
+	// the byte budget: dropping it would lose the event that just happened.
+	for w.bufBytes > pgEventWriterMaxBytes && w.bufferedLocked() > 1 {
+		w.dropOldestLocked()
+	}
+	dropped := w.dropped
 	w.mu.Unlock()
 
+	if dropped > 0 {
+		w.warnDropped(dropped)
+	}
 	select {
 	case w.notify <- struct{}{}:
 	default:
 	}
 	return len(p), nil
+}
+
+func (w *pgEventWriter) dropOldestLocked() {
+	w.bufBytes -= int64(len(w.buf[w.head]))
+	w.buf[w.head] = nil
+	w.head++
+	w.dropped++
+	w.compactLocked()
+}
+
+// warnDropped logs backpressure drops while they happen, at most once per
+// pgEventWriterDropWarnInterval, so a long run that is shedding events is
+// visible in the logs before it exits.
+func (w *pgEventWriter) warnDropped(dropped int64) {
+	w.dropWarnMu.Lock()
+	defer w.dropWarnMu.Unlock()
+	if dropped <= w.droppedWarned || time.Since(w.lastDropWarn) < pgEventWriterDropWarnInterval {
+		return
+	}
+	log.Printf("WARN: pgEventWriter: dropped %d oldest event(s) under backpressure (%d since last report)", dropped, dropped-w.droppedWarned)
+	w.droppedWarned = dropped
+	w.lastDropWarn = time.Now()
 }
 
 func (w *pgEventWriter) Close() error {
@@ -114,14 +166,12 @@ func (w *pgEventWriter) close() {
 		w.mu.Lock()
 		w.expired = true
 		w.cancelDrain()
-		w.unflushed += int64(w.bufferedLocked())
-		if w.inFlight {
-			w.unflushed++
-		}
+		w.unflushed += int64(w.bufferedLocked()) + int64(w.inFlight)
 		for i := w.head; i < len(w.buf); i++ {
 			w.buf[i] = nil
 		}
 		w.buf = w.buf[:0]
+		w.bufBytes = 0
 		w.head = 0
 		w.mu.Unlock()
 	}
@@ -139,28 +189,50 @@ func (w *pgEventWriter) close() {
 
 func (w *pgEventWriter) drain() {
 	defer close(w.drainDone)
+	batchWriter, batching := w.store.(activityEventBatchWriter)
 	for {
-		raw, ok := w.pop()
+		batch, ok := w.popBatch()
 		if !ok {
 			return
 		}
-		var env pgEventEnvelope
-		_ = json.Unmarshal(raw, &env)
-
-		eventType := env.Type
-		if eventType == "" {
-			eventType = "unknown"
+		if batching {
+			w.writeBatch(batchWriter, batch)
+		} else {
+			w.writeOneByOne(batch)
 		}
-		summary := env.Message
-		if summary == "" && env.Tool != "" {
-			summary = env.Tool
-		}
+	}
+}
 
+func (w *pgEventWriter) writeBatch(batchWriter activityEventBatchWriter, batch []json.RawMessage) {
+	inputs := make([]store.ActivityEventInput, 0, len(batch))
+	for _, raw := range batch {
+		eventType, summary := describePGEvent(raw)
+		inputs = append(inputs, store.ActivityEventInput{EventType: eventType, Summary: summary, Detail: raw})
+	}
+	ctx, cancel := context.WithTimeout(w.drainCtx, 5*time.Second)
+	_, err := batchWriter.WriteActivityEvents(ctx, w.sessionID, inputs)
+	cancel()
+	w.mu.Lock()
+	w.inFlight = 0
+	w.mu.Unlock()
+	if err != nil {
+		log.Printf("WARN: pgEventWriter: writing %d event(s): %v", len(batch), err)
+	}
+}
+
+func (w *pgEventWriter) writeOneByOne(batch []json.RawMessage) {
+	for _, raw := range batch {
+		if w.drainCtx.Err() != nil {
+			// Close expired mid-batch: the remaining events were already
+			// counted as unflushed; do not spam one WARN per event.
+			return
+		}
+		eventType, summary := describePGEvent(raw)
 		ctx, cancel := context.WithTimeout(w.drainCtx, 5*time.Second)
 		_, err := w.store.WriteActivityEvent(ctx, w.sessionID, eventType, summary, raw)
 		cancel()
 		w.mu.Lock()
-		w.inFlight = false
+		w.inFlight--
 		w.mu.Unlock()
 		if err != nil {
 			log.Printf("WARN: pgEventWriter: %v", err)
@@ -168,21 +240,45 @@ func (w *pgEventWriter) drain() {
 	}
 }
 
-func (w *pgEventWriter) pop() (json.RawMessage, bool) {
+func describePGEvent(raw json.RawMessage) (eventType, summary string) {
+	var env pgEventEnvelope
+	_ = json.Unmarshal(raw, &env)
+	eventType = env.Type
+	if eventType == "" {
+		eventType = "unknown"
+	}
+	summary = env.Message
+	if summary == "" && env.Tool != "" {
+		summary = env.Tool
+	}
+	return eventType, summary
+}
+
+// popBatch blocks until events are buffered and hands back up to
+// pgEventWriterBatchSize of them in arrival order. It returns false once the
+// writer is closed and empty, or the close deadline expired.
+func (w *pgEventWriter) popBatch() ([]json.RawMessage, bool) {
 	for {
 		w.mu.Lock()
 		if w.expired {
 			w.mu.Unlock()
 			return nil, false
 		}
-		if w.bufferedLocked() > 0 {
-			raw := w.buf[w.head]
-			w.buf[w.head] = nil
-			w.head++
-			w.inFlight = true
+		if n := w.bufferedLocked(); n > 0 {
+			if n > pgEventWriterBatchSize {
+				n = pgEventWriterBatchSize
+			}
+			batch := make([]json.RawMessage, n)
+			copy(batch, w.buf[w.head:w.head+n])
+			for i := 0; i < n; i++ {
+				w.bufBytes -= int64(len(w.buf[w.head+i]))
+				w.buf[w.head+i] = nil
+			}
+			w.head += n
+			w.inFlight = n
 			w.compactLocked()
 			w.mu.Unlock()
-			return raw, true
+			return batch, true
 		}
 		if w.closed {
 			w.mu.Unlock()

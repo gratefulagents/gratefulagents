@@ -226,13 +226,14 @@ func TestListAgentRunsUsesBulkQueriesNotPerRunLookups(t *testing.T) {
 		t.Errorf("GetLatestActivityBySessions calls = %d, want 1", cs.latestActivityCalls)
 	}
 	// Visibility and enrichment each load agent_run plus every distinct
-	// trigger resource type — independent of run count.
-	if want := 2 + 2*len(agentRunTriggerResourceTypes); cs.listOwnersCalls != want {
+	// trigger resource type, and visibility additionally loads project
+	// owners — independent of run count.
+	if want := 3 + 2*len(agentRunTriggerResourceTypes); cs.listOwnersCalls != want {
 		t.Errorf("ListResourceOwnersByType calls = %d, want %d", cs.listOwnersCalls, want)
 	}
-	// One for the visibility filter, one for the batch.
-	if cs.listSharedCalls != 2 {
-		t.Errorf("ListSharedWithMe calls = %d, want 2", cs.listSharedCalls)
+	// Two for the visibility filter (agent_run + project), one for the batch.
+	if cs.listSharedCalls != 3 {
+		t.Errorf("ListSharedWithMe calls = %d, want 3", cs.listSharedCalls)
 	}
 }
 

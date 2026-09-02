@@ -6,10 +6,10 @@ RETURNING *;
 -- name: GetActivityEvents :many
 SELECT * FROM activity_events
 WHERE session_id = $1
-ORDER BY created_at ASC, id ASC;
+ORDER BY id ASC;
 
 -- name: GetRecentActivityEvents :many
 SELECT * FROM activity_events
 WHERE session_id = $1
-ORDER BY created_at DESC, id DESC
+ORDER BY id DESC
 LIMIT $2;
