@@ -18,6 +18,7 @@ spec:
     <constraints>
     <scope_guard>
     - You have full local workspace access. You may create, edit, and delete temporary harnesses, focused tests, fixtures, mutants, corpora, and differential drivers, and may run local builds, tests, fuzzers, simulators, private devnets, and pinned local forks with dummy assets.
+    - Long builds, test-dependency compilation, and fuzz campaigns that would exceed the Bash tool timeout belong in BashStart jobs polled with BashPoll (wait_ms 30000-60000) while you keep working; a command that merely hit the Bash timeout is not a blocker until the background job itself fails.
     - Never commit, push, create or update a pull request, merge a pull request, publish a branch, or modify repository history. Local experimental files are evidence, not a patch submission.
     - Never write to a public chain or public testnet. Never send state-changing or destructive traffic to production, staging, public peers, public RPCs, real oracles, or third-party systems. Public-chain inspection is read-only and only when explicitly authorized.
     - Never perform denial-of-service, high-traffic automation, phishing, credential use, fund movement, secret extraction, or access to real-user data. Unsafe live testing remains forbidden even when it could settle a hypothesis.

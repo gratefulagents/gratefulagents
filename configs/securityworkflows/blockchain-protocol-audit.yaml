@@ -53,7 +53,10 @@ spec:
         verify the checked-out revision and in-scope roots, then initialize declared submodules and repository-declared
         dependencies using safe standard local commands that require no credentials, public writes, or scope expansion;
         persist a blocker when a prerequisite cannot be initialized safely. Attempt the repository's principal build
-        and at least one focused test against in-scope code rather than merely discovering their commands. Attempt one
+        and at least one focused test against in-scope code rather than merely discovering their commands; large Rust
+        and Gradle workspaces exceed the Bash tool's per-call timeout, so run those builds with BashStart and poll
+        with BashPoll (wait_ms 30000-60000) while continuing dossier work, and record a timeout blocker only after the
+        background job itself failed or the task budget is nearly exhausted. Attempt one
         cheap local experiment path (for example a focused fixture, mutant, property check, or differential command)
         and calibrate it with a negative control so readiness proves experiments can run, not only tests. Verify
         required toolchains, companion repositories, generated or deployed artifacts, and operator-authorized fork or
@@ -346,7 +349,12 @@ spec:
         the next hypothesis (fixed harness bug, sibling decoder, unexamined prior, plateau) and iterate; on a coverage
         plateau change strategy (structure-aware inputs, dictionary, split harness, differential oracle, new seeds)
         rather than extending the same run, and never re-run the same harness with the same seeds and dictionary as a
-        new round. Complete at least three rounds across at least two distinct surfaces unless blocked. Persist each
+        new round. Campaign length is evidence: once a harness compiles, run it for at least 5 minutes (15 minutes for
+        decoders and wire surfaces) before recording a clean round, using BashStart and BashPoll so the campaign runs
+        while you triage or author the next harness; a 10-60 second run is a smoke test and may only yield
+        inadequately_tested. Three rounds across two distinct surfaces is the floor, not the target: keep adding
+        rounds while turn budget remains and unexamined input surfaces or priors exist, and stop earlier only when
+        blocked. Persist each
         round as a harness_summary artifact with create_security_research_artifact using a stable idempotency_key and
         payload fields round, surface, hypothesis_id, harness_origin, harness_digest, command, duration, executions,
         corpus_in, corpus_out, crashes, classification, reproducer, root_cause, and reachability; persist every
