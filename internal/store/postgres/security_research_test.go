@@ -256,8 +256,18 @@ func TestSecurityResearchSweepReservationsOutcomesAndPrecision(t *testing.T) {
 		t.Fatalf("expired reservation voided=%v err=%v", voided, err)
 	}
 
-	if err := s.MarkSecurityResearchSubmissionSubmitted(ctx, namespace, replacement.ID, time.Now().Add(-time.Minute)); err != nil {
+	if err := s.MarkSecurityResearchSubmissionPackaged(ctx, namespace, replacement.ID, time.Now().Add(-time.Minute)); err != nil {
 		t.Fatal(err)
+	}
+	if _, _, err := s.RecordSecuritySubmissionOutcome(ctx, namespace, replacement.ID, store.SecuritySubmissionOutcomeInput{RevisionID: revision.ID, Outcome: store.SecuritySubmissionOutcomeAccepted, IdempotencyKey: "outcome-0"}); err == nil {
+		t.Fatal("packaged bundle accepted an outcome before a human filed it")
+	}
+	if precision, err := s.GetSecuritySubmissionPrecision(ctx, namespace, target.ID, workflow, nil); err != nil || precision.Submitted != 0 {
+		t.Fatalf("packaged precision: value=%#v err=%v, want packaged rows outside the denominator", precision, err)
+	}
+	filed, err := s.MarkSecurityResearchSubmissionSubmitted(ctx, namespace, replacement.ID, store.SecuritySubmissionHandoff{Program: "immunefi", ExternalReference: "IMM-1", Actor: "alice"})
+	if err != nil || filed.Status != store.SecuritySubmissionStatusSubmitted || filed.Program != "immunefi" || filed.SubmittedBy != "alice" || filed.SubmittedAt == nil || filed.PackagedAt == nil || filed.TargetKey != "target" {
+		t.Fatalf("handoff: value=%+v err=%v", filed, err)
 	}
 	accepted, made, err := s.RecordSecuritySubmissionOutcome(ctx, namespace, replacement.ID, store.SecuritySubmissionOutcomeInput{RevisionID: revision.ID, Outcome: store.SecuritySubmissionOutcomeAccepted, ExternalReference: "report-1", IdempotencyKey: "outcome-1"})
 	if err != nil || !made {
@@ -304,7 +314,7 @@ func TestAmendSecurityResearchDossierExpectedVersionIsCurrentVersion(t *testing.
 	}
 }
 
-func TestListSecurityResearchSubmissionsAttachesLatestOutcomeAndSubmitsUnreservedCandidates(t *testing.T) {
+func TestListSecurityResearchSubmissionsAttachesLatestOutcomeAndPackagesUnreservedCandidates(t *testing.T) {
 	s, namespace := setupSecurityResearchTestStore(t)
 	_, revision := createSecurityResearchFixture(t, s, namespace)
 	ctx := context.Background()
@@ -316,8 +326,11 @@ func TestListSecurityResearchSubmissionsAttachesLatestOutcomeAndSubmitsUnreserve
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkSecurityResearchSubmissionSubmitted(ctx, namespace, first.ID, time.Now()); err != nil {
-		t.Fatalf("never-reserved candidate could not be handed over: %v", err)
+	if err := s.MarkSecurityResearchSubmissionPackaged(ctx, namespace, first.ID, time.Now()); err != nil {
+		t.Fatalf("never-reserved candidate could not be packaged: %v", err)
+	}
+	if _, err := s.MarkSecurityResearchSubmissionSubmitted(ctx, namespace, first.ID, store.SecuritySubmissionHandoff{Program: "hackerone", Actor: "alice"}); err != nil {
+		t.Fatalf("packaged candidate could not be handed over: %v", err)
 	}
 	if _, _, err := s.RecordSecuritySubmissionOutcome(ctx, namespace, first.ID, store.SecuritySubmissionOutcomeInput{RevisionID: revision.ID, Outcome: store.SecuritySubmissionOutcomeAccepted, IdempotencyKey: "outcome-1"}); err != nil {
 		t.Fatal(err)
@@ -329,7 +342,7 @@ func TestListSecurityResearchSubmissionsAttachesLatestOutcomeAndSubmitsUnreserve
 	if err := s.VoidSecurityResearchSubmissionReservation(ctx, namespace, second.ID, "reserve-second"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkSecurityResearchSubmissionSubmitted(ctx, namespace, second.ID, time.Now()); err == nil {
+	if err := s.MarkSecurityResearchSubmissionPackaged(ctx, namespace, second.ID, time.Now()); err == nil {
 		t.Fatal("candidate with a voided reservation bypassed the rolling budget")
 	}
 	values, err := s.ListSecurityResearchSubmissions(ctx, namespace, revision.ID)
@@ -339,10 +352,142 @@ func TestListSecurityResearchSubmissionsAttachesLatestOutcomeAndSubmitsUnreserve
 	if len(values) != 2 || values[0].ID != first.ID || values[1].ID != second.ID {
 		t.Fatalf("submissions = %+v", values)
 	}
-	if values[0].Status != "submitted" || values[0].Outcome != store.SecuritySubmissionOutcomeAccepted || values[0].OutcomeRecordedAt == nil {
+	if values[0].Status != "submitted" || values[0].Program != "hackerone" || values[0].Outcome != store.SecuritySubmissionOutcomeAccepted || values[0].OutcomeRecordedAt == nil {
 		t.Fatalf("first submission = %+v", values[0])
 	}
 	if values[1].Status != "candidate" || values[1].Outcome != "" || values[1].OutcomeRecordedAt != nil {
 		t.Fatalf("second submission = %+v", values[1])
+	}
+}
+
+func TestSecuritySubmissionQueueAndPrecisionRollup(t *testing.T) {
+	s, namespace := setupSecurityResearchTestStore(t)
+	ctx := context.Background()
+	target, revision := createSecurityResearchFixture(t, s, namespace)
+	t.Cleanup(func() {
+		_, _ = s.pool.Exec(context.Background(), `DELETE FROM security_scans WHERE namespace = $1`, namespace)
+	})
+	scan, err := s.UpsertSecurityScan(ctx, &store.SecurityScanRecord{Namespace: namespace, ScanName: "target", RunName: "target-run", Repository: "org/repo", Revision: revision.Revision})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	otherScan, err := s.UpsertSecurityScan(ctx, &store.SecurityScanRecord{Namespace: namespace, ScanName: "other", RunName: "other-run", Repository: "org/other", Revision: "cafe"})
+	if err != nil {
+		t.Fatalf("other scan: %v", err)
+	}
+	newFinding := func(scan *store.SecurityScanRecord, fingerprint, severity, status string) *store.SecurityFindingRecord {
+		finding, _, err := s.UpsertSecurityFinding(ctx, &store.SecurityFindingRecord{
+			ScanID: scan.ID, Namespace: namespace, ScanName: scan.ScanName, RunName: scan.RunName,
+			Repository: scan.Repository, Revision: scan.Revision, Fingerprint: fingerprint, Title: "Finding " + fingerprint, Severity: severity,
+		})
+		if err != nil {
+			t.Fatalf("finding %s: %v", fingerprint, err)
+		}
+		if _, err := s.pool.Exec(ctx, `UPDATE security_findings SET status = $2 WHERE id = $1`, finding.ID, status); err != nil {
+			t.Fatal(err)
+		}
+		return finding
+	}
+	// The updated_at trigger stamps ready_at, so readiness order follows call order.
+	readyBundle := func(finding *store.SecurityFindingRecord, execution string) {
+		if _, err := s.UpsertSecurityFindingArtifact(ctx, namespace, &store.SecurityFindingArtifact{FindingID: finding.ID, ExecutionID: execution, Kind: "submission_bundle", Status: "generating"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.UpsertSecurityFindingArtifact(ctx, namespace, &store.SecurityFindingArtifact{FindingID: finding.ID, ExecutionID: execution, Kind: "submission_bundle", Status: "ready", Filename: finding.Fingerprint + ".zip"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	high := newFinding(scan, "high-fp", "high", store.SecurityFindingStatusConfirmed)
+	criticalLate := newFinding(scan, "critical-late", "critical", store.SecurityFindingStatusTriaged)
+	criticalEarly := newFinding(scan, "critical-early", "critical", store.SecurityFindingStatusConfirmed)
+	open := newFinding(scan, "open-fp", "critical", store.SecurityFindingStatusOpen)
+	noBundle := newFinding(scan, "no-bundle", "critical", store.SecurityFindingStatusConfirmed)
+	hidden := newFinding(otherScan, "hidden-fp", "critical", store.SecurityFindingStatusConfirmed)
+	readyBundle(open, "exec-1")
+	readyBundle(hidden, "exec-1")
+	readyBundle(high, "exec-1")
+	readyBundle(criticalEarly, "exec-1")
+	readyBundle(criticalLate, "exec-1")
+	if _, err := s.UpsertSecurityFindingArtifact(ctx, namespace, &store.SecurityFindingArtifact{FindingID: noBundle.ID, ExecutionID: "exec-1", Kind: "submission_bundle", Status: "generating"}); err != nil {
+		t.Fatal(err)
+	}
+
+	submission, _, err := s.CreateSecurityResearchSubmission(ctx, namespace, &store.SecurityResearchSubmission{RevisionID: revision.ID, FindingID: &criticalEarly.ID, Workflow: "bounty", CandidateKey: criticalEarly.Fingerprint, Rank: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkSecurityResearchSubmissionPackaged(ctx, namespace, submission.ID, now.Add(-2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkSecurityResearchSubmissionPackaged(ctx, namespace, submission.ID, now); err != nil {
+		t.Fatalf("packaging is not idempotent: %v", err)
+	}
+	filedSubmission, _, err := s.CreateSecurityResearchSubmission(ctx, namespace, &store.SecurityResearchSubmission{RevisionID: revision.ID, FindingID: &high.ID, Workflow: "bounty", CandidateKey: high.Fingerprint, Rank: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkSecurityResearchSubmissionPackaged(ctx, namespace, filedSubmission.ID, now.Add(-3*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.MarkSecurityResearchSubmissionSubmitted(ctx, namespace, filedSubmission.ID, store.SecuritySubmissionHandoff{Program: "immunefi", ExternalReference: "IMM-7", Actor: "alice", SubmittedAt: now.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if replay, err := s.MarkSecurityResearchSubmissionSubmitted(ctx, namespace, filedSubmission.ID, store.SecuritySubmissionHandoff{Program: "other", Actor: "bob"}); err != nil || replay.Program != "immunefi" || replay.SubmittedBy != "alice" {
+		t.Fatalf("replayed handoff rewrote the record: value=%+v err=%v", replay, err)
+	}
+	if _, _, err := s.RecordSecuritySubmissionOutcome(ctx, namespace, filedSubmission.ID, store.SecuritySubmissionOutcomeInput{RevisionID: revision.ID, Outcome: store.SecuritySubmissionOutcomeAccepted, IdempotencyKey: "outcome-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	queue, err := s.ListSecuritySubmissionQueue(ctx, namespace, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queue) != 4 {
+		t.Fatalf("queue = %d items, want 4: %+v", len(queue), queue)
+	}
+	if queue[0].FindingID != hidden.ID || queue[1].FindingID != criticalEarly.ID || queue[2].FindingID != criticalLate.ID || queue[3].FindingID != high.ID {
+		t.Fatalf("queue order = %v %v %v %v, want severity desc then bundle readiness asc", queue[0].Fingerprint, queue[1].Fingerprint, queue[2].Fingerprint, queue[3].Fingerprint)
+	}
+	queue = queue[1:]
+	if queue[0].SubmissionID == nil || *queue[0].SubmissionID != submission.ID || queue[0].SubmissionStatus != store.SecuritySubmissionStatusPackaged || queue[0].TargetKey != "target" || queue[0].Revision != revision.Revision || queue[0].BundleFilename != "critical-early.zip" || queue[0].BundleReadyAt.IsZero() {
+		t.Fatalf("packaged queue item = %+v", queue[0])
+	}
+	if queue[1].SubmissionID != nil || queue[1].SubmissionStatus != "" {
+		t.Fatalf("bundle without a durable row = %+v", queue[1])
+	}
+	if queue[2].SubmissionStatus != store.SecuritySubmissionStatusSubmitted || queue[2].Program != "immunefi" || queue[2].ExternalReference != "IMM-7" || queue[2].SubmittedBy != "alice" || queue[2].Outcome != store.SecuritySubmissionOutcomeAccepted {
+		t.Fatalf("submitted queue item = %+v", queue[2])
+	}
+	visible, err := s.ListSecuritySubmissionQueue(ctx, namespace, []string{"other"})
+	if err != nil || len(visible) != 3 {
+		t.Fatalf("queue with hidden scan = %d items err=%v, want 3", len(visible), err)
+	}
+	for _, item := range visible {
+		if item.ScanName == "other" {
+			t.Fatalf("hidden scan leaked into the queue: %+v", item)
+		}
+	}
+
+	rollup, err := s.GetSecuritySubmissionPrecisionRollup(ctx, namespace, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rollup.Total.Submitted != 1 || rollup.Total.Accepted != 1 || len(rollup.ByProgram) != 1 || rollup.ByProgram[0].Key != "immunefi" || len(rollup.ByWorkflow) != 1 || rollup.ByWorkflow[0].Key != "bounty" {
+		t.Fatalf("rollup = %+v, want the single filed report and no packaged rows", rollup)
+	}
+	since := now.Add(-30 * time.Minute)
+	if windowed, err := s.GetSecuritySubmissionPrecisionRollup(ctx, namespace, &since, nil); err != nil || windowed.Total.Submitted != 0 {
+		t.Fatalf("windowed rollup = %+v err=%v", windowed, err)
+	}
+	if excluded, err := s.GetSecuritySubmissionPrecisionRollup(ctx, namespace, nil, []string{"target"}); err != nil || excluded.Total.Submitted != 0 {
+		t.Fatalf("rollup with hidden target = %+v err=%v", excluded, err)
+	}
+	if precision, err := s.GetSecuritySubmissionPrecision(ctx, namespace, target.ID, "bounty", nil); err != nil || precision.Submitted != 1 || precision.Accepted != 1 {
+		t.Fatalf("precision = %+v err=%v", precision, err)
+	}
+	if _, err := s.GetSecurityResearchSubmission(ctx, namespace, uuid.New()); !errors.Is(err, store.ErrSecurityResearchSubmissionNotFound) {
+		t.Fatalf("missing submission error = %v", err)
 	}
 }

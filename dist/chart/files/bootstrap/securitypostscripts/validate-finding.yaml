@@ -29,4 +29,11 @@ spec:
     `false_positive`, `accepted_risk`, or `fixed` keeps it: record your
     note and leave the status unchanged. Otherwise set status `confirmed`
     when you demonstrated it, `false_positive` when you disproved it, and
-    `triaged` when neither holds.
+    `triaged` when neither holds. If the proof-of-concept could not run
+    because of the environment — the repository would not build, a toolchain
+    was missing, or a fork endpoint was unconfigured — keep status `triaged`
+    and record `policy_check` `reproduction` with `policy_disposition`
+    `unreproducible_env` so the platform retries this step; never record
+    `accepted_risk` or `false_positive` for an environment failure.
+    `accepted_risk` is a human decision recorded from the dashboard; a
+    post-script never sets it.

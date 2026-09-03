@@ -55,6 +55,7 @@ func TestSecurityScanSpecAcceptsExactlyOneWebsiteTarget(t *testing.T) {
 func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
 	taskRetries := int32(2)
 	execRetries := int32(3)
+	envRetries := int32(4)
 	return &platform.SecurityScanConfigSpec{
 		RepoUrl:         "https://github.com/example/payments.git",
 		BaseBranch:      "release",
@@ -80,6 +81,7 @@ func fullSecurityScanSpec() *platform.SecurityScanConfigSpec {
 			Mode:           "deterministic",
 			TaskMaxRetries: &execRetries,
 			RetryBackoff:   "45s",
+			MaxEnvRetries:  &envRetries,
 		},
 		ParameterValues:    map[string]string{"target_env": "staging"},
 		SecurityProgramRef: "acme-bounty",
@@ -149,7 +151,8 @@ func TestCreateSecurityScanHappyPathFullSpec(t *testing.T) {
 		t.Fatalf("proto budgets = %+v", ps.Budgets)
 	}
 	if ps.Execution == nil || ps.Execution.Mode != "deterministic" ||
-		ps.Execution.TaskMaxRetries == nil || *ps.Execution.TaskMaxRetries != 3 || ps.Execution.RetryBackoff != "45s" {
+		ps.Execution.TaskMaxRetries == nil || *ps.Execution.TaskMaxRetries != 3 || ps.Execution.RetryBackoff != "45s" ||
+		ps.Execution.MaxEnvRetries == nil || *ps.Execution.MaxEnvRetries != 4 {
 		t.Fatalf("proto execution = %+v", ps.Execution)
 	}
 	if ps.ParameterValues["target_env"] != "staging" {
@@ -228,7 +231,8 @@ func assertFullScanAdvancedSpec(t *testing.T, spec triggersv1alpha1.SecurityScan
 	}
 	if spec.Execution == nil || spec.Execution.Mode != "deterministic" ||
 		spec.Execution.TaskMaxRetries == nil || *spec.Execution.TaskMaxRetries != 3 ||
-		spec.Execution.RetryBackoff.Duration != 45*time.Second {
+		spec.Execution.RetryBackoff.Duration != 45*time.Second ||
+		spec.Execution.MaxEnvRetries == nil || *spec.Execution.MaxEnvRetries != 4 {
 		t.Fatalf("Execution = %+v", spec.Execution)
 	}
 	if len(spec.ParameterValues) != 1 || spec.ParameterValues["target_env"] != "staging" {
@@ -542,6 +546,18 @@ func TestCreateSecurityScanValidationFailures(t *testing.T) {
 			s := base()
 			retries := int32(11)
 			s.Execution = &platform.SecurityScanExecutionConfig{TaskMaxRetries: &retries}
+			return s
+		}()},
+		{"execution max_env_retries too high", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			retries := int32(11)
+			s.Execution = &platform.SecurityScanExecutionConfig{MaxEnvRetries: &retries}
+			return s
+		}()},
+		{"execution max_env_retries negative", func() *platform.SecurityScanConfigSpec {
+			s := base()
+			retries := int32(-1)
+			s.Execution = &platform.SecurityScanExecutionConfig{MaxEnvRetries: &retries}
 			return s
 		}()},
 		{"bad parameter name", func() *platform.SecurityScanConfigSpec {

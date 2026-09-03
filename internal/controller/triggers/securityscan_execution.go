@@ -558,6 +558,7 @@ func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
+	r.reopenBlockedResearchHypotheses(ctx, scan, exec.ResolvedRevision)
 
 	fresh := &triggersv1alpha1.SecurityScan{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(scan), fresh); err != nil {
@@ -577,6 +578,44 @@ func (r *SecurityScanReconciler) startDeterministicExecution(ctx context.Context
 	setSecurityScanCondition(fresh, metav1.ConditionTrue, "ExecutionRunning", fmt.Sprintf("Deterministic execution %s is running", exec.ID))
 	setSecurityScanCoverageCondition(fresh, metav1.ConditionUnknown, "ExecutionRunning", "coverage completeness is unknown while the execution is running")
 	return r.advanceDeterministicExecution(ctx, fresh)
+}
+
+// reopenBlockedResearchHypotheses gives hypotheses that an earlier execution
+// of the same revision left blocked (typically by an environment that could
+// not run their tests) another chance in the new execution. It is best-effort:
+// the revision may never have been bound, and a store failure must not stop
+// the execution that was just started.
+func (r *SecurityScanReconciler) reopenBlockedResearchHypotheses(ctx context.Context, scan *triggersv1alpha1.SecurityScan, revision string) {
+	if strings.TrimSpace(revision) == "" {
+		return
+	}
+	research, ok := r.Findings.(store.SecurityResearchStore)
+	if !ok {
+		if research, ok = r.StateStore.(store.SecurityResearchStore); !ok {
+			return
+		}
+	}
+	reopener, ok := research.(store.SecurityResearchHypothesisReopenStore)
+	if !ok {
+		return
+	}
+	log := logf.FromContext(ctx).WithValues("scan", scan.Name, "revision", revision)
+	bound, err := research.GetSecurityResearchRevision(ctx, scan.Namespace, scan.Name, revision)
+	if err != nil {
+		log.Error(err, "looking up the research revision to reopen blocked hypotheses")
+		return
+	}
+	if bound == nil {
+		return
+	}
+	reopened, err := reopener.ReopenBlockedSecurityResearchHypotheses(ctx, scan.Namespace, bound.ID)
+	if err != nil {
+		log.Error(err, "reopening blocked research hypotheses for the new execution")
+		return
+	}
+	if reopened > 0 {
+		log.Info("reopened blocked research hypotheses for the new execution", "count", reopened)
+	}
 }
 
 // preflightDeterministicExecution rejects static dispatch failures before an

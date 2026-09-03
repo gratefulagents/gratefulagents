@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -934,14 +935,15 @@ func (s *Store) ListSecurityResearchVariantSweepEvents(ctx context.Context, name
 func scanSecurityResearchSubmission(row securityResearchScanner) (*store.SecurityResearchSubmission, error) {
 	var value store.SecurityResearchSubmission
 	var payload []byte
-	if err := row.Scan(&value.ID, &value.RevisionID, &value.TargetID, &value.FindingID, &value.Workflow, &value.CandidateKey, &value.Rank, &payload, &value.Status, &value.CreatedAt, &value.SubmittedAt); err != nil {
+	if err := row.Scan(&value.ID, &value.RevisionID, &value.TargetID, &value.FindingID, &value.Workflow, &value.CandidateKey, &value.Rank, &payload, &value.Status, &value.CreatedAt, &value.SubmittedAt,
+		&value.Program, &value.ExternalReference, &value.SubmittedBy, &value.PackagedAt); err != nil {
 		return nil, err
 	}
 	value.Payload = payload
 	return &value, nil
 }
 
-const securityResearchSubmissionColumns = `s.id, s.revision_id, s.target_id, s.finding_id, s.workflow, s.candidate_key, s.rank, s.payload, s.status, s.created_at, s.submitted_at`
+const securityResearchSubmissionColumns = `s.id, s.revision_id, s.target_id, s.finding_id, s.workflow, s.candidate_key, s.rank, s.payload, s.status, s.created_at, s.submitted_at, s.program, s.external_reference, s.submitted_by, s.packaged_at`
 
 func (s *Store) CreateSecurityResearchSubmission(ctx context.Context, namespace string, value *store.SecurityResearchSubmission) (*store.SecurityResearchSubmission, bool, error) {
 	if err := requireSecurityNamespace(namespace); err != nil {
@@ -968,7 +970,7 @@ func (s *Store) CreateSecurityResearchSubmission(ctx context.Context, namespace 
 		WHERE r.id = $1 AND t.namespace = $2
 			AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM security_findings f WHERE f.id = $3 AND f.namespace = $2))
 		ON CONFLICT (revision_id, workflow, candidate_key) DO NOTHING
-		RETURNING id, revision_id, target_id, finding_id, workflow, candidate_key, rank, payload, status, created_at, submitted_at`,
+		RETURNING id, revision_id, target_id, finding_id, workflow, candidate_key, rank, payload, status, created_at, submitted_at, program, external_reference, submitted_by, packaged_at`,
 		value.RevisionID, namespace, value.FindingID, strings.TrimSpace(value.Workflow), strings.TrimSpace(value.CandidateKey), value.Rank, payload))
 	created := true
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1008,6 +1010,7 @@ func (s *Store) ListSecurityResearchSubmissions(ctx context.Context, namespace s
 		var value store.SecurityResearchSubmission
 		var payload []byte
 		if err := rows.Scan(&value.ID, &value.RevisionID, &value.TargetID, &value.FindingID, &value.Workflow, &value.CandidateKey, &value.Rank, &payload, &value.Status, &value.CreatedAt, &value.SubmittedAt,
+			&value.Program, &value.ExternalReference, &value.SubmittedBy, &value.PackagedAt,
 			&value.FindingFingerprint, &value.FindingTitle, &value.Outcome, &value.OutcomeRecordedAt); err != nil {
 			return nil, fmt.Errorf("scanning security research submission: %w", err)
 		}
@@ -1180,19 +1183,49 @@ func (s *Store) VoidSecurityResearchSubmissionReservation(ctx context.Context, n
 	return nil
 }
 
-func (s *Store) MarkSecurityResearchSubmissionSubmitted(ctx context.Context, namespace string, submissionID uuid.UUID, submittedAt time.Time) error {
+func (s *Store) GetSecurityResearchSubmission(ctx context.Context, namespace string, submissionID uuid.UUID) (*store.SecurityResearchSubmission, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	if submissionID == uuid.Nil {
+		return nil, errors.New("submission is required")
+	}
+	var value store.SecurityResearchSubmission
+	var payload []byte
+	err := s.pool.QueryRow(ctx, `SELECT `+securityResearchSubmissionColumns+`,
+			t.target_key, r.revision, COALESCE(f.fingerprint, ''), COALESCE(f.title, ''), COALESCE(o.outcome, ''), o.recorded_at
+		FROM security_research_submissions s
+		JOIN security_research_targets t ON t.id = s.target_id
+		JOIN security_research_revisions r ON r.id = s.revision_id
+		LEFT JOIN security_findings f ON f.id = s.finding_id
+		LEFT JOIN security_research_submission_outcomes o ON o.submission_id = s.id
+		WHERE t.namespace = $1 AND s.id = $2`, namespace, submissionID).Scan(
+		&value.ID, &value.RevisionID, &value.TargetID, &value.FindingID, &value.Workflow, &value.CandidateKey, &value.Rank, &payload, &value.Status, &value.CreatedAt, &value.SubmittedAt,
+		&value.Program, &value.ExternalReference, &value.SubmittedBy, &value.PackagedAt,
+		&value.TargetKey, &value.Revision, &value.FindingFingerprint, &value.FindingTitle, &value.Outcome, &value.OutcomeRecordedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, store.ErrSecurityResearchSubmissionNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting security research submission: %w", err)
+	}
+	value.Payload = payload
+	return &value, nil
+}
+
+func (s *Store) MarkSecurityResearchSubmissionPackaged(ctx context.Context, namespace string, submissionID uuid.UUID, packagedAt time.Time) error {
 	if err := requireSecurityNamespace(namespace); err != nil {
 		return err
 	}
 	if submissionID == uuid.Nil {
 		return errors.New("submission is required")
 	}
-	if submittedAt.IsZero() {
-		submittedAt = time.Now().UTC()
+	if packagedAt.IsZero() {
+		packagedAt = time.Now().UTC()
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("beginning submitted transition: %w", err)
+		return fmt.Errorf("beginning packaged transition: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var status string
@@ -1201,59 +1234,153 @@ func (s *Store) MarkSecurityResearchSubmissionSubmitted(ctx context.Context, nam
 		WHERE t.namespace = $1 AND s.id = $2 FOR UPDATE`, namespace, submissionID).Scan(&status); errors.Is(err, pgx.ErrNoRows) {
 		return store.ErrSecurityResearchSubmissionNotFound
 	} else if err != nil {
-		return fmt.Errorf("locking submitted transition: %w", err)
+		return fmt.Errorf("locking packaged transition: %w", err)
 	}
-	if status == "submitted" || status == "resolved" {
+	switch status {
+	case store.SecuritySubmissionStatusPackaged, store.SecuritySubmissionStatusSubmitted, store.SecuritySubmissionStatusResolved:
 		return nil
-	}
-	if status == "candidate" {
+	case store.SecuritySubmissionStatusCandidate:
 		// Programs without a rolling budget never reserve, so a candidate that
-		// has no reservation history is handed over directly. A candidate whose
+		// has no reservation history is packaged directly. A candidate whose
 		// reservation was voided or expired must reserve again.
 		var everReserved bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM security_research_submission_reservations WHERE submission_id = $1)`, submissionID).Scan(&everReserved); err != nil {
 			return fmt.Errorf("checking submission reservation history: %w", err)
 		}
 		if everReserved {
-			return errors.New("submission must be reserved before it is submitted")
+			return errors.New("submission must be reserved before it is packaged")
 		}
-		if _, err := tx.Exec(ctx, `UPDATE security_research_submissions SET status = 'submitted', submitted_at = $2 WHERE id = $1`, submissionID, submittedAt); err != nil {
-			return fmt.Errorf("marking security research submission submitted: %w", err)
+	case store.SecuritySubmissionStatusReserved:
+		var reservationActive bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM security_research_submission_reservations
+			WHERE submission_id = $1 AND voided_at IS NULL AND expires_at > now())`, submissionID).Scan(&reservationActive); err != nil {
+			return fmt.Errorf("checking submission reservation expiry: %w", err)
 		}
-		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("committing submitted transition: %w", err)
+		if !reservationActive {
+			if _, err := tx.Exec(ctx, `UPDATE security_research_submission_reservations SET voided_at = now()
+				WHERE submission_id = $1 AND voided_at IS NULL`, submissionID); err != nil {
+				return fmt.Errorf("voiding expired submission reservation: %w", err)
+			}
+			if _, err := tx.Exec(ctx, `UPDATE security_research_submissions SET status = 'candidate' WHERE id = $1`, submissionID); err != nil {
+				return fmt.Errorf("releasing expired submission reservation: %w", err)
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return fmt.Errorf("committing expired submission reservation: %w", err)
+			}
+			return errors.New("submission reservation has expired")
 		}
-		return nil
+	default:
+		return errors.New("submission must be reserved before it is packaged")
 	}
-	if status != "reserved" {
-		return errors.New("submission must be reserved before it is submitted")
-	}
-	var reservationActive bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(
-		SELECT 1 FROM security_research_submission_reservations
-		WHERE submission_id = $1 AND voided_at IS NULL AND expires_at > now())`, submissionID).Scan(&reservationActive); err != nil {
-		return fmt.Errorf("checking submission reservation expiry: %w", err)
-	}
-	if !reservationActive {
-		if _, err := tx.Exec(ctx, `UPDATE security_research_submission_reservations SET voided_at = now()
-			WHERE submission_id = $1 AND voided_at IS NULL`, submissionID); err != nil {
-			return fmt.Errorf("voiding expired submission reservation: %w", err)
-		}
-		if _, err := tx.Exec(ctx, `UPDATE security_research_submissions SET status = 'candidate' WHERE id = $1`, submissionID); err != nil {
-			return fmt.Errorf("releasing expired submission reservation: %w", err)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("committing expired submission reservation: %w", err)
-		}
-		return errors.New("submission reservation has expired")
-	}
-	if _, err := tx.Exec(ctx, `UPDATE security_research_submissions SET status = 'submitted', submitted_at = $2 WHERE id = $1`, submissionID, submittedAt); err != nil {
-		return fmt.Errorf("marking security research submission submitted: %w", err)
+	if _, err := tx.Exec(ctx, `UPDATE security_research_submissions SET status = 'packaged', packaged_at = $2 WHERE id = $1`, submissionID, packagedAt); err != nil {
+		return fmt.Errorf("marking security research submission packaged: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("committing submitted transition: %w", err)
+		return fmt.Errorf("committing packaged transition: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) MarkSecurityResearchSubmissionSubmitted(ctx context.Context, namespace string, submissionID uuid.UUID, handoff store.SecuritySubmissionHandoff) (*store.SecurityResearchSubmission, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	handoff.Program = strings.TrimSpace(handoff.Program)
+	handoff.ExternalReference = strings.TrimSpace(handoff.ExternalReference)
+	handoff.Actor = strings.TrimSpace(handoff.Actor)
+	if submissionID == uuid.Nil || handoff.Program == "" || handoff.Actor == "" {
+		return nil, errors.New("submission, program, and actor are required")
+	}
+	if handoff.SubmittedAt.IsZero() {
+		handoff.SubmittedAt = time.Now().UTC()
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("beginning submitted transition: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var status string
+	if err := tx.QueryRow(ctx, `SELECT s.status FROM security_research_submissions s
+		JOIN security_research_targets t ON t.id = s.target_id
+		WHERE t.namespace = $1 AND s.id = $2 FOR UPDATE`, namespace, submissionID).Scan(&status); errors.Is(err, pgx.ErrNoRows) {
+		return nil, store.ErrSecurityResearchSubmissionNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("locking submitted transition: %w", err)
+	}
+	switch status {
+	case store.SecuritySubmissionStatusSubmitted, store.SecuritySubmissionStatusResolved:
+		// Already filed: the handoff is a replay, keep the original record.
+	case store.SecuritySubmissionStatusCandidate, store.SecuritySubmissionStatusReserved, store.SecuritySubmissionStatusPackaged:
+		if _, err := tx.Exec(ctx, `UPDATE security_research_submissions
+			SET status = 'submitted', submitted_at = $2, program = $3, external_reference = $4, submitted_by = $5
+			WHERE id = $1`, submissionID, handoff.SubmittedAt, handoff.Program, handoff.ExternalReference, handoff.Actor); err != nil {
+			return nil, fmt.Errorf("marking security research submission submitted: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("%w: submission status %q cannot be submitted", store.ErrSecurityResearchInvalidTransition, status)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("committing submitted transition: %w", err)
+	}
+	return s.GetSecurityResearchSubmission(ctx, namespace, submissionID)
+}
+
+// securitySubmissionStatusRankSQL prefers the row that is furthest along the
+// human handoff when a finding has several durable submission rows.
+const securitySubmissionStatusRankSQL = `CASE s.status WHEN 'resolved' THEN 4 WHEN 'submitted' THEN 3 WHEN 'packaged' THEN 2 WHEN 'reserved' THEN 1 ELSE 0 END`
+
+func (s *Store) ListSecuritySubmissionQueue(ctx context.Context, namespace string, hiddenScanNames []string) ([]store.SecuritySubmissionQueueItem, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	if hiddenScanNames == nil {
+		hiddenScanNames = []string{}
+	}
+	rows, err := s.pool.Query(ctx, `WITH bundles AS (
+			SELECT DISTINCT ON (a.finding_id) a.finding_id, a.updated_at AS ready_at, a.filename
+			FROM security_finding_artifacts a
+			WHERE a.kind = 'submission_bundle' AND a.status = 'ready'
+			ORDER BY a.finding_id, a.updated_at DESC
+		), submissions AS (
+			SELECT DISTINCT ON (s.finding_id) s.finding_id, s.id, s.status, s.workflow, s.program, s.external_reference,
+				s.submitted_at, s.submitted_by, t.target_key, r.revision
+			FROM security_research_submissions s
+			JOIN security_research_targets t ON t.id = s.target_id
+			JOIN security_research_revisions r ON r.id = s.revision_id
+			WHERE t.namespace = $1 AND s.finding_id IS NOT NULL
+			ORDER BY s.finding_id, `+securitySubmissionStatusRankSQL+` DESC, s.created_at DESC, s.id
+		)
+		SELECT f.id, f.namespace, f.scan_name, f.run_name, f.title, f.severity, f.status, f.fingerprint, f.repository,
+			b.ready_at, b.filename,
+			sub.id, COALESCE(sub.status, ''), COALESCE(sub.target_key, ''), COALESCE(sub.revision, ''), COALESCE(sub.workflow, ''),
+			COALESCE(sub.program, ''), COALESCE(sub.external_reference, ''), sub.submitted_at, COALESCE(sub.submitted_by, ''),
+			COALESCE(o.outcome, ''), o.recorded_at
+		FROM security_findings f
+		JOIN bundles b ON b.finding_id = f.id
+		LEFT JOIN submissions sub ON sub.finding_id = f.id
+		LEFT JOIN security_research_submission_outcomes o ON o.submission_id = sub.id
+		WHERE f.namespace = $1 AND f.status IN ('confirmed', 'triaged')
+			AND f.duplicate_of IS NULL AND f.suppressed_by IS NULL
+			AND NOT (f.scan_name = ANY($2::text[]))
+		ORDER BY `+securitySeverityRankSQL("f.severity")+` DESC, b.ready_at ASC, f.id`, namespace, hiddenScanNames)
+	if err != nil {
+		return nil, fmt.Errorf("listing security submission queue: %w", err)
+	}
+	defer rows.Close()
+	var items []store.SecuritySubmissionQueueItem
+	for rows.Next() {
+		var item store.SecuritySubmissionQueueItem
+		if err := rows.Scan(&item.FindingID, &item.Namespace, &item.ScanName, &item.RunName, &item.Title, &item.Severity, &item.FindingStatus, &item.Fingerprint, &item.Repository,
+			&item.BundleReadyAt, &item.BundleFilename,
+			&item.SubmissionID, &item.SubmissionStatus, &item.TargetKey, &item.Revision, &item.Workflow,
+			&item.Program, &item.ExternalReference, &item.SubmittedAt, &item.SubmittedBy,
+			&item.Outcome, &item.OutcomeRecordedAt); err != nil {
+			return nil, fmt.Errorf("scanning security submission queue: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func validSecuritySubmissionOutcome(outcome string) bool {
@@ -1309,6 +1436,9 @@ func (s *Store) RecordSecuritySubmissionOutcome(ctx context.Context, namespace s
 			return nil, false, fmt.Errorf("finalizing externally submitted candidate: %w", err)
 		}
 		status = "submitted"
+	}
+	if status == store.SecuritySubmissionStatusPackaged {
+		return nil, false, errors.New("a packaged bundle must be marked submitted to a program before an outcome is recorded")
 	}
 	if status != "submitted" && status != "resolved" {
 		return nil, false, errors.New("outcome requires a reserved or submitted submission")
@@ -1419,12 +1549,88 @@ func (s *Store) GetSecuritySubmissionPrecision(ctx context.Context, namespace st
 		count(*) FILTER (WHERE o.outcome = 'resolved')::bigint
 		FROM security_research_submissions s
 		LEFT JOIN security_research_submission_outcomes o ON o.submission_id = s.id
-		WHERE s.target_id = $1 AND s.workflow = $2 AND s.submitted_at IS NOT NULL
+		WHERE s.target_id = $1 AND s.workflow = $2 AND s.status IN ('submitted', 'resolved') AND s.submitted_at IS NOT NULL
 			AND ($3::timestamptz IS NULL OR s.submitted_at >= $3)`, targetID, workflow, sinceValue).Scan(
 		&value.Submitted, &value.Accepted, &value.Duplicate, &value.Informative, &value.Rejected, &value.Resolved); err != nil {
 		return nil, fmt.Errorf("calculating submission precision: %w", err)
 	}
 	return &value, nil
+}
+
+func (s *Store) GetSecuritySubmissionPrecisionRollup(ctx context.Context, namespace string, since *time.Time, hiddenTargetKeys []string) (*store.SecuritySubmissionPrecisionRollup, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	var sinceValue any
+	if since != nil {
+		sinceValue = *since
+	}
+	if hiddenTargetKeys == nil {
+		hiddenTargetKeys = []string{}
+	}
+	// Packaged bundles are deliberately excluded: only human-filed reports
+	// belong in a precision denominator.
+	rows, err := s.pool.Query(ctx, `SELECT s.program, s.workflow,
+			count(*)::bigint,
+			count(*) FILTER (WHERE o.outcome = 'accepted')::bigint,
+			count(*) FILTER (WHERE o.outcome = 'duplicate')::bigint,
+			count(*) FILTER (WHERE o.outcome = 'informative')::bigint,
+			count(*) FILTER (WHERE o.outcome = 'rejected')::bigint,
+			count(*) FILTER (WHERE o.outcome = 'resolved')::bigint
+		FROM security_research_submissions s
+		JOIN security_research_targets t ON t.id = s.target_id
+		LEFT JOIN security_research_submission_outcomes o ON o.submission_id = s.id
+		WHERE t.namespace = $1 AND s.status IN ('submitted', 'resolved') AND s.submitted_at IS NOT NULL
+			AND ($2::timestamptz IS NULL OR s.submitted_at >= $2)
+			AND NOT (t.target_key = ANY($3::text[]))
+		GROUP BY s.program, s.workflow
+		ORDER BY s.program, s.workflow`, namespace, sinceValue, hiddenTargetKeys)
+	if err != nil {
+		return nil, fmt.Errorf("calculating submission precision rollup: %w", err)
+	}
+	defer rows.Close()
+	rollup := &store.SecuritySubmissionPrecisionRollup{}
+	byProgram := map[string]*store.SecuritySubmissionPrecision{}
+	byWorkflow := map[string]*store.SecuritySubmissionPrecision{}
+	var programKeys, workflowKeys []string
+	for rows.Next() {
+		var program, workflow string
+		var cell store.SecuritySubmissionPrecision
+		if err := rows.Scan(&program, &workflow, &cell.Submitted, &cell.Accepted, &cell.Duplicate, &cell.Informative, &cell.Rejected, &cell.Resolved); err != nil {
+			return nil, fmt.Errorf("scanning submission precision rollup: %w", err)
+		}
+		addSecuritySubmissionPrecision(&rollup.Total, cell)
+		if byProgram[program] == nil {
+			byProgram[program] = &store.SecuritySubmissionPrecision{}
+			programKeys = append(programKeys, program)
+		}
+		addSecuritySubmissionPrecision(byProgram[program], cell)
+		if byWorkflow[workflow] == nil {
+			byWorkflow[workflow] = &store.SecuritySubmissionPrecision{}
+			workflowKeys = append(workflowKeys, workflow)
+		}
+		addSecuritySubmissionPrecision(byWorkflow[workflow], cell)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, key := range programKeys {
+		rollup.ByProgram = append(rollup.ByProgram, store.SecuritySubmissionPrecisionGroup{Key: key, Precision: *byProgram[key]})
+	}
+	sort.Strings(workflowKeys)
+	for _, key := range workflowKeys {
+		rollup.ByWorkflow = append(rollup.ByWorkflow, store.SecuritySubmissionPrecisionGroup{Key: key, Precision: *byWorkflow[key]})
+	}
+	return rollup, nil
+}
+
+func addSecuritySubmissionPrecision(total *store.SecuritySubmissionPrecision, cell store.SecuritySubmissionPrecision) {
+	total.Submitted += cell.Submitted
+	total.Accepted += cell.Accepted
+	total.Duplicate += cell.Duplicate
+	total.Informative += cell.Informative
+	total.Rejected += cell.Rejected
+	total.Resolved += cell.Resolved
 }
 
 func scanSecurityResearchDecisionSnapshot(row securityResearchScanner) (*store.SecurityResearchDecisionSnapshot, error) {

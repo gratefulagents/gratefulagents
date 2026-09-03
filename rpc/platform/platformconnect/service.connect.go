@@ -614,6 +614,15 @@ const (
 	// PlatformServiceCorrectSecuritySubmissionOutcomeProcedure is the fully-qualified name of the
 	// PlatformService's CorrectSecuritySubmissionOutcome RPC.
 	PlatformServiceCorrectSecuritySubmissionOutcomeProcedure = "/platform.v1.PlatformService/CorrectSecuritySubmissionOutcome"
+	// PlatformServiceListSecuritySubmissionQueueProcedure is the fully-qualified name of the
+	// PlatformService's ListSecuritySubmissionQueue RPC.
+	PlatformServiceListSecuritySubmissionQueueProcedure = "/platform.v1.PlatformService/ListSecuritySubmissionQueue"
+	// PlatformServiceMarkSecuritySubmissionSubmittedProcedure is the fully-qualified name of the
+	// PlatformService's MarkSecuritySubmissionSubmitted RPC.
+	PlatformServiceMarkSecuritySubmissionSubmittedProcedure = "/platform.v1.PlatformService/MarkSecuritySubmissionSubmitted"
+	// PlatformServiceGetSecuritySubmissionPrecisionRollupProcedure is the fully-qualified name of the
+	// PlatformService's GetSecuritySubmissionPrecisionRollup RPC.
+	PlatformServiceGetSecuritySubmissionPrecisionRollupProcedure = "/platform.v1.PlatformService/GetSecuritySubmissionPrecisionRollup"
 	// PlatformServiceListSecurityScanConfigsProcedure is the fully-qualified name of the
 	// PlatformService's ListSecurityScanConfigs RPC.
 	PlatformServiceListSecurityScanConfigsProcedure = "/platform.v1.PlatformService/ListSecurityScanConfigs"
@@ -1055,6 +1064,15 @@ type PlatformServiceClient interface {
 	ListSecuritySubmissionOutcomeHistory(context.Context, *connect.Request[platform.ListSecuritySubmissionOutcomeHistoryRequest]) (*connect.Response[platform.ListSecuritySubmissionOutcomeHistoryResponse], error)
 	RecordSecuritySubmissionOutcome(context.Context, *connect.Request[platform.RecordSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error)
 	CorrectSecuritySubmissionOutcome(context.Context, *connect.Request[platform.CorrectSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error)
+	// ListSecuritySubmissionQueue returns the cross-scan bug-bounty handoff
+	// queue: confirmed or triaged findings with a ready submission bundle, each
+	// with its durable submission status, program, and adjudicated outcome.
+	ListSecuritySubmissionQueue(context.Context, *connect.Request[platform.ListSecuritySubmissionQueueRequest]) (*connect.Response[platform.ListSecuritySubmissionQueueResponse], error)
+	// MarkSecuritySubmissionSubmitted records that the caller filed a packaged
+	// bundle with an external program. Agents only ever package; this is the
+	// sole path to the submitted status that precision feedback counts.
+	MarkSecuritySubmissionSubmitted(context.Context, *connect.Request[platform.MarkSecuritySubmissionSubmittedRequest]) (*connect.Response[platform.MarkSecuritySubmissionSubmittedResponse], error)
+	GetSecuritySubmissionPrecisionRollup(context.Context, *connect.Request[platform.GetSecuritySubmissionPrecisionRollupRequest]) (*connect.Response[platform.SecuritySubmissionPrecisionRollup], error)
 	// Security scanning: SecurityScan trigger configuration (the CRs that
 	// create scan runs). ListSecurityScanConfigs returns configured SecurityScan
 	// resources; the older ListSecurityScans above returns persisted scan
@@ -2363,6 +2381,24 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("CorrectSecuritySubmissionOutcome")),
 			connect.WithClientOptions(opts...),
 		),
+		listSecuritySubmissionQueue: connect.NewClient[platform.ListSecuritySubmissionQueueRequest, platform.ListSecuritySubmissionQueueResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecuritySubmissionQueueProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecuritySubmissionQueue")),
+			connect.WithClientOptions(opts...),
+		),
+		markSecuritySubmissionSubmitted: connect.NewClient[platform.MarkSecuritySubmissionSubmittedRequest, platform.MarkSecuritySubmissionSubmittedResponse](
+			httpClient,
+			baseURL+PlatformServiceMarkSecuritySubmissionSubmittedProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("MarkSecuritySubmissionSubmitted")),
+			connect.WithClientOptions(opts...),
+		),
+		getSecuritySubmissionPrecisionRollup: connect.NewClient[platform.GetSecuritySubmissionPrecisionRollupRequest, platform.SecuritySubmissionPrecisionRollup](
+			httpClient,
+			baseURL+PlatformServiceGetSecuritySubmissionPrecisionRollupProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("GetSecuritySubmissionPrecisionRollup")),
+			connect.WithClientOptions(opts...),
+		),
 		listSecurityScanConfigs: connect.NewClient[platform.ListSecurityScanConfigsRequest, platform.ListSecurityScanConfigsResponse](
 			httpClient,
 			baseURL+PlatformServiceListSecurityScanConfigsProcedure,
@@ -2850,6 +2886,9 @@ type platformServiceClient struct {
 	listSecuritySubmissionOutcomeHistory   *connect.Client[platform.ListSecuritySubmissionOutcomeHistoryRequest, platform.ListSecuritySubmissionOutcomeHistoryResponse]
 	recordSecuritySubmissionOutcome        *connect.Client[platform.RecordSecuritySubmissionOutcomeRequest, platform.RecordSecuritySubmissionOutcomeResponse]
 	correctSecuritySubmissionOutcome       *connect.Client[platform.CorrectSecuritySubmissionOutcomeRequest, platform.RecordSecuritySubmissionOutcomeResponse]
+	listSecuritySubmissionQueue            *connect.Client[platform.ListSecuritySubmissionQueueRequest, platform.ListSecuritySubmissionQueueResponse]
+	markSecuritySubmissionSubmitted        *connect.Client[platform.MarkSecuritySubmissionSubmittedRequest, platform.MarkSecuritySubmissionSubmittedResponse]
+	getSecuritySubmissionPrecisionRollup   *connect.Client[platform.GetSecuritySubmissionPrecisionRollupRequest, platform.SecuritySubmissionPrecisionRollup]
 	listSecurityScanConfigs                *connect.Client[platform.ListSecurityScanConfigsRequest, platform.ListSecurityScanConfigsResponse]
 	getSecurityScanConfig                  *connect.Client[platform.GetSecurityScanConfigRequest, platform.SecurityScanConfig]
 	createSecurityScan                     *connect.Client[platform.CreateSecurityScanRequest, platform.SecurityScanConfig]
@@ -3887,6 +3926,23 @@ func (c *platformServiceClient) CorrectSecuritySubmissionOutcome(ctx context.Con
 	return c.correctSecuritySubmissionOutcome.CallUnary(ctx, req)
 }
 
+// ListSecuritySubmissionQueue calls platform.v1.PlatformService.ListSecuritySubmissionQueue.
+func (c *platformServiceClient) ListSecuritySubmissionQueue(ctx context.Context, req *connect.Request[platform.ListSecuritySubmissionQueueRequest]) (*connect.Response[platform.ListSecuritySubmissionQueueResponse], error) {
+	return c.listSecuritySubmissionQueue.CallUnary(ctx, req)
+}
+
+// MarkSecuritySubmissionSubmitted calls
+// platform.v1.PlatformService.MarkSecuritySubmissionSubmitted.
+func (c *platformServiceClient) MarkSecuritySubmissionSubmitted(ctx context.Context, req *connect.Request[platform.MarkSecuritySubmissionSubmittedRequest]) (*connect.Response[platform.MarkSecuritySubmissionSubmittedResponse], error) {
+	return c.markSecuritySubmissionSubmitted.CallUnary(ctx, req)
+}
+
+// GetSecuritySubmissionPrecisionRollup calls
+// platform.v1.PlatformService.GetSecuritySubmissionPrecisionRollup.
+func (c *platformServiceClient) GetSecuritySubmissionPrecisionRollup(ctx context.Context, req *connect.Request[platform.GetSecuritySubmissionPrecisionRollupRequest]) (*connect.Response[platform.SecuritySubmissionPrecisionRollup], error) {
+	return c.getSecuritySubmissionPrecisionRollup.CallUnary(ctx, req)
+}
+
 // ListSecurityScanConfigs calls platform.v1.PlatformService.ListSecurityScanConfigs.
 func (c *platformServiceClient) ListSecurityScanConfigs(ctx context.Context, req *connect.Request[platform.ListSecurityScanConfigsRequest]) (*connect.Response[platform.ListSecurityScanConfigsResponse], error) {
 	return c.listSecurityScanConfigs.CallUnary(ctx, req)
@@ -4422,6 +4478,15 @@ type PlatformServiceHandler interface {
 	ListSecuritySubmissionOutcomeHistory(context.Context, *connect.Request[platform.ListSecuritySubmissionOutcomeHistoryRequest]) (*connect.Response[platform.ListSecuritySubmissionOutcomeHistoryResponse], error)
 	RecordSecuritySubmissionOutcome(context.Context, *connect.Request[platform.RecordSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error)
 	CorrectSecuritySubmissionOutcome(context.Context, *connect.Request[platform.CorrectSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error)
+	// ListSecuritySubmissionQueue returns the cross-scan bug-bounty handoff
+	// queue: confirmed or triaged findings with a ready submission bundle, each
+	// with its durable submission status, program, and adjudicated outcome.
+	ListSecuritySubmissionQueue(context.Context, *connect.Request[platform.ListSecuritySubmissionQueueRequest]) (*connect.Response[platform.ListSecuritySubmissionQueueResponse], error)
+	// MarkSecuritySubmissionSubmitted records that the caller filed a packaged
+	// bundle with an external program. Agents only ever package; this is the
+	// sole path to the submitted status that precision feedback counts.
+	MarkSecuritySubmissionSubmitted(context.Context, *connect.Request[platform.MarkSecuritySubmissionSubmittedRequest]) (*connect.Response[platform.MarkSecuritySubmissionSubmittedResponse], error)
+	GetSecuritySubmissionPrecisionRollup(context.Context, *connect.Request[platform.GetSecuritySubmissionPrecisionRollupRequest]) (*connect.Response[platform.SecuritySubmissionPrecisionRollup], error)
 	// Security scanning: SecurityScan trigger configuration (the CRs that
 	// create scan runs). ListSecurityScanConfigs returns configured SecurityScan
 	// resources; the older ListSecurityScans above returns persisted scan
@@ -5726,6 +5791,24 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("CorrectSecuritySubmissionOutcome")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceListSecuritySubmissionQueueHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecuritySubmissionQueueProcedure,
+		svc.ListSecuritySubmissionQueue,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecuritySubmissionQueue")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceMarkSecuritySubmissionSubmittedHandler := connect.NewUnaryHandler(
+		PlatformServiceMarkSecuritySubmissionSubmittedProcedure,
+		svc.MarkSecuritySubmissionSubmitted,
+		connect.WithSchema(platformServiceMethods.ByName("MarkSecuritySubmissionSubmitted")),
+		connect.WithHandlerOptions(opts...),
+	)
+	platformServiceGetSecuritySubmissionPrecisionRollupHandler := connect.NewUnaryHandler(
+		PlatformServiceGetSecuritySubmissionPrecisionRollupProcedure,
+		svc.GetSecuritySubmissionPrecisionRollup,
+		connect.WithSchema(platformServiceMethods.ByName("GetSecuritySubmissionPrecisionRollup")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceListSecurityScanConfigsHandler := connect.NewUnaryHandler(
 		PlatformServiceListSecurityScanConfigsProcedure,
 		svc.ListSecurityScanConfigs,
@@ -6404,6 +6487,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceRecordSecuritySubmissionOutcomeHandler.ServeHTTP(w, r)
 		case PlatformServiceCorrectSecuritySubmissionOutcomeProcedure:
 			platformServiceCorrectSecuritySubmissionOutcomeHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecuritySubmissionQueueProcedure:
+			platformServiceListSecuritySubmissionQueueHandler.ServeHTTP(w, r)
+		case PlatformServiceMarkSecuritySubmissionSubmittedProcedure:
+			platformServiceMarkSecuritySubmissionSubmittedHandler.ServeHTTP(w, r)
+		case PlatformServiceGetSecuritySubmissionPrecisionRollupProcedure:
+			platformServiceGetSecuritySubmissionPrecisionRollupHandler.ServeHTTP(w, r)
 		case PlatformServiceListSecurityScanConfigsProcedure:
 			platformServiceListSecurityScanConfigsHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityScanConfigProcedure:
@@ -7283,6 +7372,18 @@ func (UnimplementedPlatformServiceHandler) RecordSecuritySubmissionOutcome(conte
 
 func (UnimplementedPlatformServiceHandler) CorrectSecuritySubmissionOutcome(context.Context, *connect.Request[platform.CorrectSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CorrectSecuritySubmissionOutcome is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecuritySubmissionQueue(context.Context, *connect.Request[platform.ListSecuritySubmissionQueueRequest]) (*connect.Response[platform.ListSecuritySubmissionQueueResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecuritySubmissionQueue is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) MarkSecuritySubmissionSubmitted(context.Context, *connect.Request[platform.MarkSecuritySubmissionSubmittedRequest]) (*connect.Response[platform.MarkSecuritySubmissionSubmittedResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.MarkSecuritySubmissionSubmitted is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) GetSecuritySubmissionPrecisionRollup(context.Context, *connect.Request[platform.GetSecuritySubmissionPrecisionRollupRequest]) (*connect.Response[platform.SecuritySubmissionPrecisionRollup], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetSecuritySubmissionPrecisionRollup is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) ListSecurityScanConfigs(context.Context, *connect.Request[platform.ListSecurityScanConfigsRequest]) (*connect.Response[platform.ListSecurityScanConfigsResponse], error) {

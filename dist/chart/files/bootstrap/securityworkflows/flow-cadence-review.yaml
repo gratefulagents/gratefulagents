@@ -317,7 +317,8 @@ spec:
         denial-of-service or load testing. Preserve an existing false_positive, accepted_risk, or fixed
         terminal status and add only an audit note. For every other finding, call update_security_finding with
         an evidence-backed disposition: a proven bounty-worthy finding remains status confirmed; a technically
-        real but not bounty-eligible finding must become status accepted_risk with the exact evidence-backed
+        real but not bounty-eligible finding must remain status triaged (accepted_risk is a human decision
+        recorded from the dashboard, never set by a scan) with the exact evidence-backed
         reason and the matching policy_disposition (scope_excluded, known_issue, or bot_findable when
         applicable); a technically disproved or unreachable finding must become status false_positive with
         policy_disposition disproved and the disproof; and a finding with missing evidence or unavailable

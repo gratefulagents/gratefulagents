@@ -3,12 +3,14 @@ package tools
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"maps"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -601,5 +603,54 @@ func TestValidateSecurityPoCEvidence(t *testing.T) {
 	}
 	if problems := validateSecurityPoCEvidence(disproof); len(problems) != 0 {
 		t.Fatalf("a disproof was rejected: %v", problems)
+	}
+}
+
+// packagingStore records which lifecycle transition the bounty tool requests
+// once a bundle is stored.
+type packagingStore struct {
+	store.SecurityResearchStore
+	packaged  []uuid.UUID
+	submitted []uuid.UUID
+	voided    []string
+}
+
+func (s *packagingStore) MarkSecurityResearchSubmissionPackaged(_ context.Context, _ string, id uuid.UUID, _ time.Time) error {
+	s.packaged = append(s.packaged, id)
+	return nil
+}
+
+func (s *packagingStore) MarkSecurityResearchSubmissionSubmitted(_ context.Context, _ string, id uuid.UUID, _ store.SecuritySubmissionHandoff) (*store.SecurityResearchSubmission, error) {
+	s.submitted = append(s.submitted, id)
+	return nil, nil
+}
+
+func (s *packagingStore) VoidSecurityResearchSubmissionReservation(_ context.Context, _ string, _ uuid.UUID, key string) error {
+	s.voided = append(s.voided, key)
+	return nil
+}
+
+func TestDurableSubmissionFinishPackagesInsteadOfSubmitting(t *testing.T) {
+	research := &packagingStore{}
+	attempt := durableSubmissionAttempt{
+		tool:           &saveSecurityBountySubmissionTool{state: &securityScanState{researchStore: research, scanCtx: SecurityScanContext{Namespace: "user-alice"}}},
+		reservationKey: "bounty-package:exec-1:fp",
+	}
+	candidate := &store.SecurityResearchSubmission{ID: uuid.New()}
+
+	if err := attempt.finish(candidate, true)(true); err != nil {
+		t.Fatal(err)
+	}
+	if len(research.packaged) != 1 || research.packaged[0] != candidate.ID {
+		t.Fatalf("packaged = %v, want the stored candidate", research.packaged)
+	}
+	if len(research.submitted) != 0 {
+		t.Fatalf("storing a bundle marked the candidate submitted: %v — only a human handoff may do that", research.submitted)
+	}
+	if err := attempt.finish(candidate, true)(false); err != nil || len(research.voided) != 1 || research.voided[0] != attempt.reservationKey {
+		t.Fatalf("failed packaging voided=%v err=%v, want the reservation released", research.voided, err)
+	}
+	if err := attempt.finish(candidate, false)(false); err != nil || len(research.voided) != 1 {
+		t.Fatalf("unreserved failure voided=%v err=%v, want no reservation change", research.voided, err)
 	}
 }

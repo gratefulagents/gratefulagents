@@ -574,6 +574,18 @@ spec:
               execution:
                 description: execution controls how the workflow DAG is executed.
                 properties:
+                  maxEnvRetries:
+                    description: |-
+                      maxEnvRetries bounds how many times a post-script job whose run
+                      recorded an inconclusive environment disposition (unreproducible_env or
+                      not_ready: the PoC could not run because the repository would not
+                      build, a toolchain was missing, or a fork endpoint was unconfigured) is
+                      re-run with retryBackoff before its result stands. The finding stays
+                      actionable either way. Default 2.
+                    format: int32
+                    maximum: 10
+                    minimum: 0
+                    type: integer
                   mode:
                     description: |-
                       mode selects the execution engine. "deterministic" (default) compiles

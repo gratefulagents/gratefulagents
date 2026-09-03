@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
 import { SecurityResearchPanel } from "@/components/SecurityResearchPanel";
 import {
@@ -96,6 +97,9 @@ beforeEach(() => {
         candidateKey: "fp-withdraw",
         rank: 1,
         status: "submitted",
+        program: "immunefi",
+        externalReference: "IMM-42",
+        submittedBy: "alice",
         latestOutcome: "accepted",
       }),
       create(SecurityResearchSubmissionSchema, {
@@ -105,7 +109,7 @@ beforeEach(() => {
         workflow: "bounty",
         candidateKey: "fp-oracle",
         rank: 2,
-        status: "candidate",
+        status: "packaged",
       }),
     ],
     truncated: false,
@@ -125,13 +129,15 @@ beforeEach(() => {
 
 function renderPanel(permission = "owner") {
   return render(
-    <SecurityResearchPanel
-      namespace="user-alice"
-      targetKey="nightly"
-      revision="abc123def456"
-      workflow="bounty"
-      permission={permission}
-    />,
+    <MemoryRouter>
+      <SecurityResearchPanel
+        namespace="user-alice"
+        targetKey="nightly"
+        revision="abc123def456"
+        workflow="bounty"
+        permission={permission}
+      />
+    </MemoryRouter>,
   );
 }
 
@@ -150,7 +156,7 @@ describe("SecurityResearchPanel", () => {
     expect(screen.getByText(/"scope": "contracts"/)).toBeTruthy();
     expect(screen.getByText("withdraw-owner-check")).toBeTruthy();
     expect(screen.getByText("Missing ownership check")).toBeTruthy();
-    expect(screen.getByText(/submissions 3 · accepted 2 · duplicates 1/)).toBeTruthy();
+    expect(screen.getByText(/submitted to programs 3 · accepted 2 · duplicates 1/)).toBeTruthy();
     expect(mocks.getSecurityCampaignResearchStatus).toHaveBeenCalledWith(expect.objectContaining({ workflow: "bounty" }));
     expect(mocks.listSecurityResearchHypotheses).toHaveBeenCalledWith(expect.objectContaining({ limit: 200 }));
   });
@@ -225,6 +231,11 @@ describe("SecurityResearchPanel", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(3);
     expect(within(table).getByText("accepted")).toBeTruthy();
     expect(within(table).getByText("pending")).toBeTruthy();
+    // A stored bundle must never read as a filed report.
+    expect(within(table).getByText("Packaged (not yet submitted)")).toBeTruthy();
+    expect(within(table).getByText("Submitted to program")).toBeTruthy();
+    expect(within(table).getByText("immunefi")).toBeTruthy();
+    expect(within(table).getByText("IMM-42")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Use submission 55555555-5555-4555-8555-555555555555" }));
 

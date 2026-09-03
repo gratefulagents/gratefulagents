@@ -286,7 +286,7 @@ func (s *Server) UpdateSecurityFindingStatus(ctx context.Context, req *platform.
 		}
 		err = confirmer.ConfirmSecurityFindingWithVariantSweep(ctx, finding.Namespace, finding.ID, actor.Subject, req.GetNote())
 	} else {
-		err = sec.SetSecurityFindingStatus(ctx, finding.Namespace, finding.ID, req.GetStatus(), actor.Subject, req.GetNote(), expiry)
+		err = sec.SetSecurityFindingStatus(ctx, finding.Namespace, finding.ID, req.GetStatus(), actor.Subject, req.GetNote(), store.SetSecurityFindingStatusOpts{HumanActor: true, AcceptedRiskExpiresAt: expiry})
 	}
 	if err != nil {
 		if errors.Is(err, store.ErrSecurityFindingNotFound) || errors.Is(err, store.ErrSecurityResearchRevisionNotFound) {

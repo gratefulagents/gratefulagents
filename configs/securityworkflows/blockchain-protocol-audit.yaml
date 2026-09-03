@@ -9,7 +9,7 @@ spec:
     - name: target-priors
       role: threat-modeler
       category: recon
-      timeout: 25m
+      timeout: 4h
       maxTurns: 250
       skillRefs:
         - name: blockchain-security-research-method
@@ -39,7 +39,7 @@ spec:
     - name: runtime-preflight-and-dossier
       role: protocol-investigator
       category: recon
-      timeout: 25m
+      timeout: 4h
       maxTurns: 250
       dockerInDocker: false
       tools:
@@ -76,7 +76,7 @@ spec:
     - name: consensus-and-execution-investigator
       role: protocol-investigator
       category: logic-flaw
-      timeout: 120m
+      timeout: 4h
       maxTurns: 250
       dockerInDocker: false
       tools:
@@ -134,7 +134,7 @@ spec:
     - name: network-and-state-investigator
       role: protocol-investigator
       category: denial-of-service
-      timeout: 120m
+      timeout: 4h
       maxTurns: 250
       dockerInDocker: false
       tools:
@@ -194,7 +194,7 @@ spec:
     - name: cross-chain-and-custody-investigator
       role: protocol-investigator
       category: authz
-      timeout: 120m
+      timeout: 4h
       maxTurns: 250
       dockerInDocker: false
       tools:
@@ -250,7 +250,7 @@ spec:
     - name: crypto-economics-and-release-investigator
       role: protocol-investigator
       category: supply-chain
-      timeout: 120m
+      timeout: 4h
       maxTurns: 250
       dockerInDocker: false
       tools:
@@ -311,7 +311,7 @@ spec:
     - name: hypothesis-driven-fuzz-research
       role: fuzz-researcher
       category: other
-      timeout: 120m
+      timeout: 4h
       maxTurns: 250
       dockerInDocker: false
       tools:
@@ -390,7 +390,7 @@ spec:
     - name: select-adaptive-challenges
       role: threat-modeler
       category: recon
-      timeout: 25m
+      timeout: 4h
       maxTurns: 250
       skillRefs:
         - name: blockchain-security-research-method
@@ -423,7 +423,7 @@ spec:
     - name: challenge-and-variant-sweep
       role: protocol-investigator
       category: other
-      timeout: 60m
+      timeout: 4h
       maxTurns: 250
       dockerInDocker: false
       tools:
@@ -461,7 +461,7 @@ spec:
     - name: red-team-bounty-worthiness
       role: exploit-validator
       category: triage
-      timeout: 45m
+      timeout: 4h
       maxTurns: 250
       dockerInDocker: false
       skillRefs:

@@ -258,7 +258,7 @@ func TestPurgeExpiredSecurityDataAuditEventsAndReports(t *testing.T) {
 	sessionID := retentionSeedReportSession(ctx, t, pool, "default", "nightly-1", &scanID)
 
 	// Give the finding a backdated audit event for the audit purge to sweep.
-	if err := s.SetSecurityFindingStatus(ctx, "default", findingID, store.SecurityFindingStatusTriaged, "tester", "seed audit event", nil); err != nil {
+	if err := s.SetSecurityFindingStatus(ctx, "default", findingID, store.SecurityFindingStatusTriaged, "tester", "seed audit event", store.SetSecurityFindingStatusOpts{}); err != nil {
 		t.Fatalf("SetSecurityFindingStatus: %v", err)
 	}
 	old := time.Now().UTC().Add(-100 * 24 * time.Hour)

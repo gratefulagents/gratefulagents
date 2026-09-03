@@ -42,12 +42,13 @@ type mockSecurityStore struct {
 
 	summaryIncludeSuppressed bool
 
-	lastStatusExpiry *time.Time
-	expireSweeps     []string
-	bulkErr          error
-	lastBulkUpdate   *store.SecurityFindingBulkUpdate
-	savedFilters     []store.SecuritySavedFilter
-	trends           *store.SecurityFindingTrends
+	lastStatusExpiry     *time.Time
+	lastStatusHumanActor bool
+	expireSweeps         []string
+	bulkErr              error
+	lastBulkUpdate       *store.SecurityFindingBulkUpdate
+	savedFilters         []store.SecuritySavedFilter
+	trends               *store.SecurityFindingTrends
 
 	// Visibility plumbing: shares feeds ListSharedWithMe, and the exclusion
 	// lists the handlers pushed into the last summary/trends call.
@@ -146,8 +147,9 @@ func (m *mockSecurityStore) GetSecurityFinding(_ context.Context, namespace stri
 	return finding, nil
 }
 
-func (m *mockSecurityStore) SetSecurityFindingStatus(_ context.Context, namespace string, id uuid.UUID, status, actor, note string, expiry *time.Time) error {
-	m.lastStatusExpiry = expiry
+func (m *mockSecurityStore) SetSecurityFindingStatus(_ context.Context, namespace string, id uuid.UUID, status, actor, note string, opts store.SetSecurityFindingStatusOpts) error {
+	m.lastStatusExpiry = opts.AcceptedRiskExpiresAt
+	m.lastStatusHumanActor = opts.HumanActor
 	if namespace == "" {
 		return errors.New("namespace is required")
 	}
@@ -721,6 +723,9 @@ func TestUpdateSecurityFindingStatus(t *testing.T) {
 	}
 	if sec.lastStatusNamespace != callerNS {
 		t.Fatalf("status namespace = %q, want %q", sec.lastStatusNamespace, callerNS)
+	}
+	if !sec.lastStatusHumanActor {
+		t.Fatal("dashboard status changes must be recorded as human decisions so accepted_risk stays available to reviewers")
 	}
 	events := sec.events[finding.ID]
 	if len(events) != 1 || events[0].Actor != "alice" || events[0].Note != "looked at it" {

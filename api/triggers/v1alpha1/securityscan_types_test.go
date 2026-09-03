@@ -193,6 +193,18 @@ func TestSecurityScanSpecEffectiveTaskMaxRetries(t *testing.T) {
 	}
 }
 
+func TestSecurityScanSpecEffectivePostScriptMaxEnvRetries(t *testing.T) {
+	var spec SecurityScanSpec
+	if got := spec.EffectivePostScriptMaxEnvRetries(); got != 2 {
+		t.Fatalf("EffectivePostScriptMaxEnvRetries() default = %d, want 2", got)
+	}
+	zero := int32(0)
+	spec.Execution = &SecurityScanExecution{MaxEnvRetries: &zero}
+	if got := spec.EffectivePostScriptMaxEnvRetries(); got != 0 {
+		t.Fatalf("EffectivePostScriptMaxEnvRetries() explicit zero = %d, want 0", got)
+	}
+}
+
 func TestSecurityScanSpecEffectiveRetryBackoff(t *testing.T) {
 	var spec SecurityScanSpec
 	if got := spec.EffectiveRetryBackoff(); got != 30*time.Second {

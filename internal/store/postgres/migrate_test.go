@@ -183,3 +183,47 @@ func TestOrderedMigrationsUniqueAndSorted(t *testing.T) {
 		}
 	}
 }
+
+func TestMigration063Registered(t *testing.T) {
+	for _, migration := range orderedMigrations() {
+		if migration.version != 63 {
+			continue
+		}
+		if migration.sql == "" || migration.sql != migration063Up {
+			t.Fatal("migration 063 must carry the embedded machine accepted_risk reset SQL")
+		}
+		if migration.optional || noTxMigrations[63] {
+			t.Fatal("migration 063 resets findings and audits each reset; it must run transactionally and is required")
+		}
+		for _, marker := range []string{
+			"e.detail->>'to' = 'accepted_risk'",
+			"latest.actor LIKE 'secscan-%'",
+			"SET status = 'triaged'",
+			"accepted_risk_expires_at = NULL",
+			"'migration-063'",
+			"reset: machine-set accepted_risk is not a risk acceptance; see policy_disposition events",
+		} {
+			if !strings.Contains(migration.sql, marker) {
+				t.Errorf("migration 063 is missing %q", marker)
+			}
+		}
+		return
+	}
+	t.Fatal("migration 063 is not registered in orderedMigrations and would never be applied")
+}
+
+func TestMigration062Registered(t *testing.T) {
+	for _, migration := range orderedMigrations() {
+		if migration.version != 62 {
+			continue
+		}
+		if migration.sql == "" || migration.sql != migration062Up {
+			t.Fatal("migration 062 must carry the embedded submission lifecycle SQL")
+		}
+		if migration.optional || noTxMigrations[62] {
+			t.Fatal("migration 062 is required and must run transactionally")
+		}
+		return
+	}
+	t.Fatal("migration 062 is not registered in orderedMigrations and would never be applied")
+}

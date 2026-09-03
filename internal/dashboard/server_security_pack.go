@@ -446,6 +446,9 @@ func validateImportedSecurityScanSpec(spec *triggersv1alpha1.SecurityScanSpec) [
 		if e.RetryBackoff.Duration < 0 {
 			add("execution.retryBackoff", "retryBackoff must not be negative")
 		}
+		if e.MaxEnvRetries != nil && (*e.MaxEnvRetries < 0 || *e.MaxEnvRetries > 10) {
+			add("execution.maxEnvRetries", "maxEnvRetries %d out of range (want 0-10)", *e.MaxEnvRetries)
+		}
 	}
 	if len(spec.ParameterValues) > 32 {
 		add("parameterValues", "at most 32 entries are allowed, got %d", len(spec.ParameterValues))

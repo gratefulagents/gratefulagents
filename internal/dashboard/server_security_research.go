@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -616,6 +617,136 @@ func (s *Server) recordSecuritySubmissionOutcome(ctx context.Context, scope *pla
 	return &platform.RecordSecuritySubmissionOutcomeResponse{Outcome: securitySubmissionOutcomeProto(value), Created: created}, nil
 }
 
+func (s *Server) ListSecuritySubmissionQueue(ctx context.Context, req *platform.ListSecuritySubmissionQueueRequest) (*platform.ListSecuritySubmissionQueueResponse, error) {
+	research, err := s.securityResearchStore()
+	if err != nil {
+		return nil, err
+	}
+	namespace, err := s.authorizeRequestNamespace(ctx, req.GetNamespace(), nil)
+	if err != nil {
+		return nil, err
+	}
+	visible, hidden, err := s.securityScanVisibility(ctx, namespace)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	items, err := research.ListSecuritySubmissionQueue(ctx, namespace, hidden)
+	if err != nil {
+		return nil, securityResearchError("listing security submission queue", err)
+	}
+	limit := securityResearchLimit(req.GetLimit())
+	response := &platform.ListSecuritySubmissionQueueResponse{}
+	for i := range items {
+		// Hidden scans are excluded in the store; the predicate stays as the
+		// second layer for stores that cannot push the exclusion down.
+		if !visible(items[i].ScanName) {
+			continue
+		}
+		if len(response.Items) == limit {
+			response.Truncated = true
+			break
+		}
+		response.Items = append(response.Items, securitySubmissionQueueItemProto(&items[i]))
+	}
+	return response, nil
+}
+
+func (s *Server) MarkSecuritySubmissionSubmitted(ctx context.Context, req *platform.MarkSecuritySubmissionSubmittedRequest) (*platform.MarkSecuritySubmissionSubmittedResponse, error) {
+	actor, err := securityResearchActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	research, err := s.securityResearchStore()
+	if err != nil {
+		return nil, err
+	}
+	namespace, err := s.authorizeRequestNamespace(ctx, req.GetNamespace(), nil)
+	if err != nil {
+		return nil, err
+	}
+	id, err := securityResearchID(req.GetSubmissionId(), "submission_id")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.GetProgram()) == "" || strings.TrimSpace(req.GetIdempotencyKey()) == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("program and idempotency key are required"))
+	}
+	visible, _, err := s.securityScanVisibility(ctx, namespace)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	existing, err := research.GetSecurityResearchSubmission(ctx, namespace, id)
+	if err != nil {
+		return nil, securityResearchError("getting security research submission", err)
+	}
+	if !visible(existing.TargetKey) {
+		return nil, connect.NewError(connect.CodeNotFound, store.ErrSecurityResearchSubmissionNotFound)
+	}
+	if err := s.authorizeSecurityResearchWrite(ctx, namespace, existing.TargetKey); err != nil {
+		return nil, err
+	}
+	handoff := store.SecuritySubmissionHandoff{Program: req.GetProgram(), ExternalReference: req.GetExternalReference(), Actor: actor}
+	if req.GetSubmittedAt() != nil {
+		handoff.SubmittedAt = req.GetSubmittedAt().AsTime()
+	}
+	value, err := research.MarkSecurityResearchSubmissionSubmitted(ctx, namespace, id, handoff)
+	if err != nil {
+		return nil, securityResearchError("marking security submission submitted", err)
+	}
+	return &platform.MarkSecuritySubmissionSubmittedResponse{Submission: securityResearchSubmissionProto(value)}, nil
+}
+
+func (s *Server) GetSecuritySubmissionPrecisionRollup(ctx context.Context, req *platform.GetSecuritySubmissionPrecisionRollupRequest) (*platform.SecuritySubmissionPrecisionRollup, error) {
+	research, err := s.securityResearchStore()
+	if err != nil {
+		return nil, err
+	}
+	namespace, err := s.authorizeRequestNamespace(ctx, req.GetNamespace(), nil)
+	if err != nil {
+		return nil, err
+	}
+	_, hidden, err := s.securityScanVisibility(ctx, namespace)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	var since *time.Time
+	if req.GetSince() != nil {
+		at := req.GetSince().AsTime()
+		since = &at
+	}
+	rollup, err := research.GetSecuritySubmissionPrecisionRollup(ctx, namespace, since, hidden)
+	if err != nil {
+		return nil, securityResearchError("calculating security submission precision rollup", err)
+	}
+	response := &platform.SecuritySubmissionPrecisionRollup{Total: securitySubmissionPrecisionProto(&rollup.Total)}
+	for i := range rollup.ByProgram {
+		response.ByProgram = append(response.ByProgram, &platform.SecuritySubmissionPrecisionGroup{Key: rollup.ByProgram[i].Key, Precision: securitySubmissionPrecisionProto(&rollup.ByProgram[i].Precision)})
+	}
+	for i := range rollup.ByWorkflow {
+		response.ByWorkflow = append(response.ByWorkflow, &platform.SecuritySubmissionPrecisionGroup{Key: rollup.ByWorkflow[i].Key, Precision: securitySubmissionPrecisionProto(&rollup.ByWorkflow[i].Precision)})
+	}
+	return response, nil
+}
+
+func securitySubmissionQueueItemProto(in *store.SecuritySubmissionQueueItem) *platform.SecuritySubmissionQueueItem {
+	out := &platform.SecuritySubmissionQueueItem{
+		FindingId: in.FindingID.String(), Namespace: in.Namespace, ScanName: in.ScanName, RunName: in.RunName, Title: in.Title, Severity: in.Severity,
+		FindingStatus: in.FindingStatus, Fingerprint: in.Fingerprint, Repository: in.Repository, BundleReadyAt: timestamppb.New(in.BundleReadyAt), BundleFilename: in.BundleFilename,
+		SubmissionStatus: in.SubmissionStatus, TargetKey: in.TargetKey, Revision: in.Revision, Workflow: in.Workflow, Program: in.Program, ExternalReference: in.ExternalReference,
+		SubmittedBy: in.SubmittedBy, LatestOutcome: in.Outcome,
+	}
+	if in.SubmissionID != nil {
+		out.SubmissionId = in.SubmissionID.String()
+	}
+	if in.SubmittedAt != nil {
+		out.SubmittedAt = timestamppb.New(*in.SubmittedAt)
+	}
+	if in.OutcomeRecordedAt != nil {
+		out.LatestOutcomeAt = timestamppb.New(*in.OutcomeRecordedAt)
+	}
+	return out
+}
+
 func securityResearchDossierProto(in *store.SecurityResearchDossier) *platform.SecurityResearchDossier {
 	out := &platform.SecurityResearchDossier{Id: in.ID.String(), RevisionId: in.RevisionID.String(), Version: in.Version, ContentJson: string(in.Content), ChangeSummary: in.ChangeSummary, Actor: in.Actor, IdempotencyKey: in.IdempotencyKey, CreatedAt: timestamppb.New(in.CreatedAt)}
 	if in.ParentID != nil {
@@ -651,9 +782,12 @@ func securityResearchVariantSweepProto(in *store.SecurityResearchVariantSweep) *
 }
 
 func securityResearchSubmissionProto(in *store.SecurityResearchSubmission) *platform.SecurityResearchSubmission {
-	out := &platform.SecurityResearchSubmission{Id: in.ID.String(), FindingFingerprint: in.FindingFingerprint, FindingTitle: in.FindingTitle, Workflow: in.Workflow, CandidateKey: in.CandidateKey, Rank: in.Rank, Status: in.Status, CreatedAt: timestamppb.New(in.CreatedAt), LatestOutcome: in.Outcome}
+	out := &platform.SecurityResearchSubmission{Id: in.ID.String(), FindingFingerprint: in.FindingFingerprint, FindingTitle: in.FindingTitle, Workflow: in.Workflow, CandidateKey: in.CandidateKey, Rank: in.Rank, Status: in.Status, CreatedAt: timestamppb.New(in.CreatedAt), LatestOutcome: in.Outcome, Program: in.Program, ExternalReference: in.ExternalReference, SubmittedBy: in.SubmittedBy}
 	if in.FindingID != nil {
 		out.FindingId = in.FindingID.String()
+	}
+	if in.PackagedAt != nil {
+		out.PackagedAt = timestamppb.New(*in.PackagedAt)
 	}
 	if in.SubmittedAt != nil {
 		out.SubmittedAt = timestamppb.New(*in.SubmittedAt)
@@ -790,6 +924,27 @@ func (h *PlatformServiceConnectHandler) RecordSecuritySubmissionOutcome(ctx cont
 }
 func (h *PlatformServiceConnectHandler) CorrectSecuritySubmissionOutcome(ctx context.Context, req *connect.Request[platform.CorrectSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error) {
 	resp, err := h.srv.CorrectSecuritySubmissionOutcome(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+func (h *PlatformServiceConnectHandler) ListSecuritySubmissionQueue(ctx context.Context, req *connect.Request[platform.ListSecuritySubmissionQueueRequest]) (*connect.Response[platform.ListSecuritySubmissionQueueResponse], error) {
+	resp, err := h.srv.ListSecuritySubmissionQueue(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+func (h *PlatformServiceConnectHandler) MarkSecuritySubmissionSubmitted(ctx context.Context, req *connect.Request[platform.MarkSecuritySubmissionSubmittedRequest]) (*connect.Response[platform.MarkSecuritySubmissionSubmittedResponse], error) {
+	resp, err := h.srv.MarkSecuritySubmissionSubmitted(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+func (h *PlatformServiceConnectHandler) GetSecuritySubmissionPrecisionRollup(ctx context.Context, req *connect.Request[platform.GetSecuritySubmissionPrecisionRollupRequest]) (*connect.Response[platform.SecuritySubmissionPrecisionRollup], error) {
+	resp, err := h.srv.GetSecuritySubmissionPrecisionRollup(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

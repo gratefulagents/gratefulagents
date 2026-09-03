@@ -906,6 +906,7 @@ describe("SecurityScanFormDialog execution & parameter values", () => {
     fireEvent.click(screen.getByRole("button", { name: /Execution/ }));
     fireEvent.change(screen.getByLabelText("Task max retries"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Retry backoff"), { target: { value: "45s" } });
+    fireEvent.change(screen.getByLabelText("Environment retries"), { target: { value: "4" } });
     fireEvent.click(screen.getByRole("button", { name: "Add parameter value" }));
     fireEvent.change(screen.getByLabelText("Parameter 1 name"), {
       target: { value: "target_service" },
@@ -922,6 +923,7 @@ describe("SecurityScanFormDialog execution & parameter values", () => {
     expect(request.spec?.execution?.mode).toBe("");
     expect(request.spec?.execution?.taskMaxRetries).toBe(3);
     expect(request.spec?.execution?.retryBackoff).toBe("45s");
+    expect(request.spec?.execution?.maxEnvRetries).toBe(4);
     expect(request.spec?.parameterValues).toEqual({ target_service: "payments-api" });
   });
 
@@ -966,7 +968,7 @@ describe("SecurityScanFormDialog execution & parameter values", () => {
             repeats: 2,
           },
         ],
-        execution: { mode: "deterministic", taskMaxRetries: 2, retryBackoff: "1m" },
+        execution: { mode: "deterministic", taskMaxRetries: 2, retryBackoff: "1m", maxEnvRetries: 0 },
         parameterValues: { depth: "full" },
       }),
     });
@@ -980,6 +982,7 @@ describe("SecurityScanFormDialog execution & parameter values", () => {
     expect(request.spec?.execution?.mode).toBe("deterministic");
     expect(request.spec?.execution?.taskMaxRetries).toBe(2);
     expect(request.spec?.execution?.retryBackoff).toBe("1m");
+    expect(request.spec?.execution?.maxEnvRetries).toBe(0);
     expect(request.spec?.parameterValues).toEqual({ depth: "full" });
     // Advanced task fields the inline editor does not expose survive the edit.
     const task = request.spec?.workflow?.[0];

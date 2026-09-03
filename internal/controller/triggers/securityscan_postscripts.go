@@ -379,6 +379,19 @@ func (e *securityScanExecutionEngine) observePostScripts(ctx context.Context) {
 				e.recordPostScriptFailure(job, reason, class)
 				continue
 			}
+			if disposition := e.postScriptRetryableDisposition(ctx, job); disposition != "" {
+				if job.Attempts < 1+e.resolved.spec.EffectivePostScriptMaxEnvRetries() {
+					job.State = triggersv1alpha1.SecurityScanPostScriptStatePending
+					job.LastError = truncateSecurityScanError(fmt.Sprintf("policy disposition %s: the environment could not run the validation; retrying", disposition))
+					continue
+				}
+				job.State = triggersv1alpha1.SecurityScanPostScriptStateSucceeded
+				job.LastError = ""
+				job.FinishedAt = &e.now
+				job.Result = truncateSecurityScanError(fmt.Sprintf("%s; policy disposition %s stands after %d attempt(s)", e.postScriptVerdict(ctx, job), disposition, job.Attempts))
+				appendSecurityScanCoverageGap(e.exec, securityScanPostScriptJobGapPrefix(securityScanPostScriptJobLabel(*job), job.Fingerprint)+fmt.Sprintf("the environment could not run the validation (policy disposition %s) in %d attempt(s)", disposition, job.Attempts))
+				continue
+			}
 			job.State = triggersv1alpha1.SecurityScanPostScriptStateSucceeded
 			job.LastError = ""
 			job.FinishedAt = &e.now
@@ -421,6 +434,29 @@ func (e *securityScanExecutionEngine) confirmedReportWriterArtifactFailure(ctx c
 		return fmt.Sprintf("report-writer submission_bundle artifact for execution %q has status %q, want %q", e.exec.ID, artifact.Status, "ready"), triggersv1alpha1.SecurityScanTaskFailureRetryable
 	}
 	return "", ""
+}
+
+// postScriptRetryableDisposition returns the inconclusive environment
+// disposition (unreproducible_env or not_ready) the job's run recorded for
+// this execution, or "" when it reached a verdict. Such a run succeeded as a
+// model job but could not test anything, so the finding stays actionable and
+// the controller re-runs the job within spec.execution.maxEnvRetries. A store
+// read failure is not treated as a retry: the audit trail still carries the
+// disposition and packaging remains blocked by it.
+func (e *securityScanExecutionEngine) postScriptRetryableDisposition(ctx context.Context, job *triggersv1alpha1.SecurityScanPostScriptJobStatus) string {
+	if e.r.Findings == nil || job.RunName == "" {
+		return ""
+	}
+	findingID, err := uuid.Parse(job.FindingID)
+	if err != nil {
+		return ""
+	}
+	events, err := e.r.Findings.ListSecurityFindingEvents(ctx, e.scan.Namespace, findingID, 1000)
+	if err != nil {
+		logf.FromContext(ctx).Error(err, "reading finding events to classify post-script verdict", "run", job.RunName)
+		return ""
+	}
+	return store.SecurityFindingRetryablePolicyDisposition(events, e.exec.ID, job.RunName)
 }
 
 // postScriptVerdict reloads the finding once to describe what the job left

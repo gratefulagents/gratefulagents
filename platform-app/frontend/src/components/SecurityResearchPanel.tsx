@@ -1,5 +1,6 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
 import { FlaskConical, Plus, RefreshCw } from "lucide-react";
 
@@ -46,6 +47,18 @@ const selectClass = "h-8 w-full rounded-lg border border-input bg-background px-
 
 function readable(value: string): string {
   return value.replace(/_/g, " ");
+}
+
+/**
+ * Agents only ever package a bundle; "submitted" is reserved for the human
+ * handoff recorded from the submission queue, so the two must not read alike.
+ */
+function submissionStatusLabel(status: string): string {
+  switch (status) {
+    case "packaged": return "Packaged (not yet submitted)";
+    case "submitted": return "Submitted to program";
+    default: return readable(status);
+  }
 }
 
 function prettyJSON(value: string, fallback: string): string {
@@ -586,7 +599,8 @@ export function SecurityResearchPanel({ namespace, targetKey, revision, workflow
           <CountGroup label="Coverage" values={status.coverageVerdictCounts} />
           <CountGroup label="Variant sweeps" values={status.variantSweepStatusCounts} />
           <div className="md:col-span-2 xl:col-span-4 text-xs text-muted-foreground">
-            Dossier v{status.dossierVersion} · submissions {String(status.precision?.submitted ?? 0n)} · accepted {String(status.precision?.accepted ?? 0n)} · duplicates {String(status.precision?.duplicate ?? 0n)} · rejected {String(status.precision?.rejected ?? 0n)}
+            Dossier v{status.dossierVersion} · submitted to programs {String(status.precision?.submitted ?? 0n)} · accepted {String(status.precision?.accepted ?? 0n)} · duplicates {String(status.precision?.duplicate ?? 0n)} · rejected {String(status.precision?.rejected ?? 0n)}
+            {" · "}<Link to="/security/queue" className="underline-offset-2 hover:underline">Open submission queue</Link>
           </div>
         </div>
       )}
@@ -709,6 +723,7 @@ export function SecurityResearchPanel({ namespace, targetKey, revision, workflow
                     <th scope="col" className="px-3 py-2 font-medium">Rank</th>
                     <th scope="col" className="px-3 py-2 font-medium">Finding</th>
                     <th scope="col" className="px-3 py-2 font-medium">Status</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Program</th>
                     <th scope="col" className="px-3 py-2 font-medium">Latest outcome</th>
                     <th scope="col" className="px-3 py-2 font-medium">Submitted</th>
                     <th scope="col" className="px-3 py-2"><span className="sr-only">Actions</span></th>
@@ -722,9 +737,17 @@ export function SecurityResearchPanel({ namespace, targetKey, revision, workflow
                         <span className="block truncate font-medium">{submission.findingTitle || submission.findingFingerprint || submission.candidateKey}</span>
                         <span className="block truncate font-mono text-[11px] text-muted-foreground">{submission.id}</span>
                       </td>
-                      <td className="px-3 py-2"><Badge variant="outline" className="capitalize">{readable(submission.status)}</Badge></td>
+                      <td className="px-3 py-2"><Badge variant={submission.status === "packaged" ? "outline" : "secondary"}>{submissionStatusLabel(submission.status)}</Badge></td>
+                      <td className="px-3 py-2">
+                        {submission.program ? (
+                          <>
+                            <span>{submission.program}</span>
+                            {submission.externalReference && <span className="block truncate font-mono text-[11px] text-muted-foreground">{submission.externalReference}</span>}
+                          </>
+                        ) : <span className="text-muted-foreground">—</span>}
+                      </td>
                       <td className="px-3 py-2">{submission.latestOutcome ? <Badge variant="secondary" className="capitalize">{readable(submission.latestOutcome)}</Badge> : <span className="text-muted-foreground">pending</span>}</td>
-                      <td className="px-3 py-2 text-muted-foreground">{when(submission.submittedAt)}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{submission.submittedAt ? `${when(submission.submittedAt)}${submission.submittedBy ? ` · ${submission.submittedBy}` : ""}` : submission.packagedAt ? `packaged ${when(submission.packagedAt)}` : "—"}</td>
                       <td className="px-3 py-2 text-right"><Button size="sm" variant="ghost" aria-label={`Use submission ${submission.id}`} onClick={() => selectSubmission(submission.id)}>Use</Button></td>
                     </tr>
                   ))}

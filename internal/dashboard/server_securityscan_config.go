@@ -660,7 +660,14 @@ func securityScanExecutionFromProto(pb *platform.SecurityScanExecutionConfig) (*
 		}
 		exec.RetryBackoff = metav1.Duration{Duration: d}
 	}
-	if exec.Mode == "" && exec.TaskMaxRetries == nil && exec.RetryBackoff.Duration == 0 {
+	if pb.MaxEnvRetries != nil {
+		retries := pb.GetMaxEnvRetries()
+		if retries < 0 || retries > 10 {
+			return nil, invalid("execution.max_env_retries %d out of range (want 0-10)", retries)
+		}
+		exec.MaxEnvRetries = &retries
+	}
+	if exec.Mode == "" && exec.TaskMaxRetries == nil && exec.RetryBackoff.Duration == 0 && exec.MaxEnvRetries == nil {
 		return nil, nil
 	}
 	return exec, nil
@@ -1364,6 +1371,10 @@ func securityScanSpecToProto(spec *triggersv1alpha1.SecurityScanSpec) *platform.
 		}
 		if e.RetryBackoff.Duration != 0 {
 			pb.Execution.RetryBackoff = e.RetryBackoff.Duration.String()
+		}
+		if e.MaxEnvRetries != nil {
+			retries := *e.MaxEnvRetries
+			pb.Execution.MaxEnvRetries = &retries
 		}
 	}
 	if len(spec.ParameterValues) != 0 {

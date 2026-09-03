@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Gauge, History, LibraryBig, Settings2 } from "lucide-react";
+import { Gauge, History, Inbox, LibraryBig, Settings2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -27,9 +27,16 @@ const SECURITY_PAGES: SecurityPage[] = [
       p.startsWith("/security/runs")
       || (/^\/security\/[^/]+\/[^/]+/.test(p)
         && !p.startsWith("/security/configs")
-        && !p.startsWith("/security/library")),
+        && !p.startsWith("/security/library")
+        && !p.startsWith("/security/queue")),
     label: "Scan runs",
     icon: <History />,
+  },
+  {
+    to: "/security/queue",
+    match: (p) => p.startsWith("/security/queue"),
+    label: "Submission queue",
+    icon: <Inbox />,
   },
   {
     to: "/security/configs",

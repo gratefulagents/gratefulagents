@@ -432,7 +432,9 @@ const FAILURE_COPY: Record<DetailErrorKind, { title: string; description: string
 };
 
 function statusChangeSummary(event: SecurityFindingEvent): string | null {
-  if ((event.eventType !== "status_changed" && event.eventType !== "status_reviewed") || !event.detail) return null;
+  if (!event.detail) return null;
+  if (event.eventType === "policy_disposition") return policyDispositionSummary(event.detail);
+  if (event.eventType !== "status_changed" && event.eventType !== "status_reviewed") return null;
   try {
     const detail = JSON.parse(event.detail) as Record<string, unknown>;
     const from = typeof detail.from === "string" ? detail.from : "";
@@ -442,6 +444,19 @@ function statusChangeSummary(event: SecurityFindingEvent): string | null {
       return findingStatusLabel(to || from || "?");
     }
     return `${findingStatusLabel(from || "?")} → ${findingStatusLabel(to || "?")}`;
+  } catch {
+    return null;
+  }
+}
+
+/** "<policy_check>: <policy_disposition>" for a policy_disposition event; null when the detail is unusable. */
+function policyDispositionSummary(detail: string): string | null {
+  try {
+    const parsed = JSON.parse(detail) as Record<string, unknown>;
+    const check = typeof parsed.policy_check === "string" ? parsed.policy_check : "";
+    const disposition = typeof parsed.policy_disposition === "string" ? parsed.policy_disposition : "";
+    if (!disposition) return null;
+    return check ? `${statusLabel(check)}: ${statusLabel(disposition)}` : statusLabel(disposition);
   } catch {
     return null;
   }

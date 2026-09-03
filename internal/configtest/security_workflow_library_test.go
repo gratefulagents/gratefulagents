@@ -1722,3 +1722,28 @@ func TestSmartContractReviewExecutionStatusEnums(t *testing.T) {
 		t.Error("smart-contract-review has no execution_status enums")
 	}
 }
+
+// TestBlockchainProtocolAuditTaskTimeoutsHonorTheBountyRuntimeBudget guards
+// against a per-task timeout silently undercutting the bug-bounty policy
+// pack's 4h maxRuntime. The controller applies the smallest of scan, budget,
+// and task limits, so a 25m task timeout paused preflight runs on large
+// client repositories (agave, reth) long before the 4h budget and stalled the
+// whole DAG until an operator extended maxRuntime by hand.
+func TestBlockchainProtocolAuditTaskTimeoutsHonorTheBountyRuntimeBudget(t *testing.T) {
+	t.Parallel()
+
+	var pack triggersv1alpha1.SecurityPolicyPack
+	readBootstrapAsset(t, "securitypolicypacks", "bug-bounty", &pack)
+	if pack.Spec.Budgets == nil || pack.Spec.Budgets.MaxRuntime.Duration <= 0 {
+		t.Fatal("bug-bounty policy pack must declare budgets.maxRuntime")
+	}
+	budget := pack.Spec.Budgets.MaxRuntime.Duration
+
+	var workflow triggersv1alpha1.SecurityWorkflow
+	readBootstrapAsset(t, "securityworkflows", "blockchain-protocol-audit", &workflow)
+	for _, task := range workflow.Spec.Tasks {
+		if task.Timeout.Duration > 0 && task.Timeout.Duration < budget {
+			t.Errorf("task %q timeout %s undercuts the bug-bounty maxRuntime %s; drop the task timeout or raise it to the budget", task.Name, task.Timeout.Duration, budget)
+		}
+	}
+}

@@ -27,6 +27,7 @@ const SecurityOverview = React.lazy(() => import("@/components/SecurityOverview"
 const SecurityScanList = React.lazy(() => import("@/components/SecurityScanList").then((m) => ({ default: m.SecurityScanList })));
 const SecurityScanConfigList = React.lazy(() => import("@/components/SecurityScanConfigList").then((m) => ({ default: m.SecurityScanConfigList })));
 const SecurityLibraryPage = React.lazy(() => import("@/components/SecurityLibraryPage").then((m) => ({ default: m.SecurityLibraryPage })));
+const SecuritySubmissionQueue = React.lazy(() => import("@/components/SecuritySubmissionQueue").then((m) => ({ default: m.SecuritySubmissionQueue })));
 const SecurityScanDetail = React.lazy(() => import("@/components/SecurityScanDetail").then((m) => ({ default: m.SecurityScanDetail })));
 const SecurityConfigDetail = React.lazy(() => import("@/components/SecurityConfigDetail").then((m) => ({ default: m.SecurityConfigDetail })));
 const SecurityFindingDetail = React.lazy(() => import("@/components/SecurityFindingDetail").then((m) => ({ default: m.SecurityFindingDetail })));
@@ -554,6 +555,7 @@ function AuthenticatedShell() {
               <Route path="/security/configs" element={<Scroll><SecurityScanConfigList /></Scroll>} />
               <Route path="/security/configs/:namespace/:name" element={<Scroll><SecurityConfigDetail /></Scroll>} />
               <Route path="/security/library" element={<Scroll><SecurityLibraryPage /></Scroll>} />
+              <Route path="/security/queue" element={<Scroll><SecuritySubmissionQueue /></Scroll>} />
               {/* Legacy/alias security paths. Redirects keep the query string so
                   filtered bookmarks and notification deep links survive renames. */}
               <Route path="/security/overview" element={<RedirectPreservingQuery to="/security" />} />

@@ -143,6 +143,7 @@ type SpecState = {
   executionMode: string;
   taskMaxRetries: string;
   retryBackoff: string;
+  maxEnvRetries: string;
   parameterValues: { key: string; value: string }[];
 };
 
@@ -206,6 +207,8 @@ function initialSpec(config?: SecurityScanConfig): SpecState {
     taskMaxRetries:
       spec?.execution?.taskMaxRetries !== undefined ? String(spec.execution.taskMaxRetries) : "",
     retryBackoff: spec?.execution?.retryBackoff ?? "",
+    maxEnvRetries:
+      spec?.execution?.maxEnvRetries !== undefined ? String(spec.execution.maxEnvRetries) : "",
     parameterValues: Object.entries(spec?.parameterValues ?? {})
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => ({ key, value })),
@@ -689,13 +692,19 @@ export function SecurityScanFormDialog({
       defaults: normalizedDefaults,
       maxRuntime: spec.maxRuntime.trim(),
       execution:
-        spec.executionMode.trim() || spec.taskMaxRetries.trim() || spec.retryBackoff.trim()
+        spec.executionMode.trim() ||
+        spec.taskMaxRetries.trim() ||
+        spec.retryBackoff.trim() ||
+        spec.maxEnvRetries.trim()
           ? create(SecurityScanExecutionConfigSchema, {
               mode: spec.executionMode.trim(),
               taskMaxRetries: spec.taskMaxRetries.trim()
                 ? Number(spec.taskMaxRetries)
                 : undefined,
               retryBackoff: spec.retryBackoff.trim(),
+              maxEnvRetries: spec.maxEnvRetries.trim()
+                ? Number(spec.maxEnvRetries)
+                : undefined,
             })
           : undefined,
       parameterValues: Object.fromEntries(
@@ -790,6 +799,11 @@ export function SecurityScanFormDialog({
     }
     if (spec.retryBackoff.trim() !== "" && !GO_DURATION_PATTERN.test(spec.retryBackoff.trim())) {
       setError('Retry backoff must be a Go duration like "30s".');
+      return;
+    }
+    const maxEnvRetries = spec.maxEnvRetries.trim();
+    if (maxEnvRetries !== "" && (!/^\d+$/.test(maxEnvRetries) || Number(maxEnvRetries) > 10)) {
+      setError("Environment retries must be a whole number between 0 and 10.");
       return;
     }
     setSubmitting(true);
@@ -1865,8 +1879,12 @@ export function SecurityScanFormDialog({
                 title="Execution"
                 summary={executionSummary(spec)}
                 modified={
-                  Boolean(spec.executionMode.trim() || spec.taskMaxRetries.trim() || spec.retryBackoff.trim()) ||
-                  spec.parameterValues.length > 0
+                  Boolean(
+                    spec.executionMode.trim() ||
+                      spec.taskMaxRetries.trim() ||
+                      spec.retryBackoff.trim() ||
+                      spec.maxEnvRetries.trim(),
+                  ) || spec.parameterValues.length > 0
                 }
               >
                 <FlowField
@@ -1914,6 +1932,21 @@ export function SecurityScanFormDialog({
                     />
                   </FlowField>
                 </div>
+                <FlowField
+                  id="scan-max-env-retries"
+                  label="Environment retries"
+                  hint="Re-runs a validation post-script up to this many times when its PoC could not run because of the environment (build failure, missing toolchain, unconfigured fork endpoint). Default 2."
+                >
+                  <Input
+                    id="scan-max-env-retries"
+                    type="number"
+                    min={0}
+                    max={10}
+                    value={spec.maxEnvRetries}
+                    onChange={(event) => update("maxEnvRetries", event.target.value)}
+                    placeholder="2"
+                  />
+                </FlowField>
                 <FlowField
                   id="scan-parameter-values"
                   label="Parameter values"

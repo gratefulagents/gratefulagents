@@ -148,8 +148,8 @@ func TestPolicyDispositionsPreserveTechnicalStatus(t *testing.T) {
 					t.Errorf("prompt is missing %q", marker)
 				}
 			}
-			if !strings.Contains(prompt, "Set status `accepted_risk` only when the workflow explicitly reaches a risk-acceptance decision") {
-				t.Error("prompt must require an explicit workflow risk-acceptance decision")
+			if !strings.Contains(prompt, "`accepted_risk` is a human decision recorded from the dashboard; a post-script never sets it.") {
+				t.Error("prompt must state that accepted_risk is a human-only decision")
 			}
 			for _, forbidden := range []string{
 				"set status `accepted_risk` for a confirmed known-issue",

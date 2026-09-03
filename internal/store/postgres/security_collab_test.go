@@ -316,10 +316,10 @@ func TestSecurityBaselineRegressionFlows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert fp: %v", err)
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "default", fixed.ID, store.SecurityFindingStatusFixed, "alice", "", nil); err != nil {
+	if err := s.SetSecurityFindingStatus(ctx, "default", fixed.ID, store.SecurityFindingStatusFixed, "alice", "", store.SetSecurityFindingStatusOpts{}); err != nil {
 		t.Fatalf("mark fixed: %v", err)
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "default", fp.ID, store.SecurityFindingStatusFalsePositive, "alice", "", nil); err != nil {
+	if err := s.SetSecurityFindingStatus(ctx, "default", fp.ID, store.SecurityFindingStatusFalsePositive, "alice", "", store.SetSecurityFindingStatusOpts{}); err != nil {
 		t.Fatalf("mark fp: %v", err)
 	}
 
@@ -405,14 +405,14 @@ func TestExpireAcceptedRisks(t *testing.T) {
 	}
 	past := time.Now().Add(-time.Hour)
 	ahead := time.Now().Add(24 * time.Hour)
-	if err := s.SetSecurityFindingStatus(ctx, "default", expired.ID, store.SecurityFindingStatusAcceptedRisk, "alice", "", &past); err != nil {
+	if err := s.SetSecurityFindingStatus(ctx, "default", expired.ID, store.SecurityFindingStatusAcceptedRisk, "alice", "", store.SetSecurityFindingStatusOpts{HumanActor: true, AcceptedRiskExpiresAt: &past}); err != nil {
 		t.Fatalf("accept expired: %v", err)
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "default", future.ID, store.SecurityFindingStatusAcceptedRisk, "alice", "", &ahead); err != nil {
+	if err := s.SetSecurityFindingStatus(ctx, "default", future.ID, store.SecurityFindingStatusAcceptedRisk, "alice", "", store.SetSecurityFindingStatusOpts{HumanActor: true, AcceptedRiskExpiresAt: &ahead}); err != nil {
 		t.Fatalf("accept future: %v", err)
 	}
 	// Expiry with a non-accepted_risk status is rejected.
-	if err := s.SetSecurityFindingStatus(ctx, "default", future.ID, store.SecurityFindingStatusTriaged, "alice", "", &ahead); err == nil {
+	if err := s.SetSecurityFindingStatus(ctx, "default", future.ID, store.SecurityFindingStatusTriaged, "alice", "", store.SetSecurityFindingStatusOpts{HumanActor: true, AcceptedRiskExpiresAt: &ahead}); err == nil {
 		t.Error("SetSecurityFindingStatus(triaged with expiry) = nil, want error")
 	}
 
@@ -581,7 +581,7 @@ func TestSecurityFindingTrendsAndExport(t *testing.T) {
 	if _, _, err := s.UpsertSecurityFinding(ctx, collabTestFinding(scan, "fp-2", "low")); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "default", f1.ID, store.SecurityFindingStatusConfirmed, "alice", "", nil); err != nil {
+	if err := s.SetSecurityFindingStatus(ctx, "default", f1.ID, store.SecurityFindingStatusConfirmed, "alice", "", store.SetSecurityFindingStatusOpts{}); err != nil {
 		t.Fatalf("triage: %v", err)
 	}
 
