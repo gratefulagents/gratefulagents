@@ -1,10 +1,8 @@
 import * as React from "react";
-import { BrowserRouter, Routes, Route, Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig } from "framer-motion";
 import { cn } from "@/lib/utils";
 
-import { ProjectTree } from "@/components/shell/ProjectTree";
-import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 import { ApiMonitorSidebar } from "@/components/ApiMonitorSidebar";
 import { AppVersionPrompt } from "@/components/AppVersionPrompt";
 
@@ -39,14 +37,7 @@ import {
   SidebarProvider,
   Sidebar,
   SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
   SidebarInset,
   SidebarRail,
   useSidebar,
@@ -60,7 +51,8 @@ import { CommandPalette, type PaletteItem } from "@/components/shell/CommandPale
 import { useGlobalShortcuts, useViewport } from "@/components/shell/shortcuts";
 import { ShortcutsOverlay } from "@/components/shell/ShortcutsOverlay";
 import { OfflineBanner } from "@/components/shell/OfflineBanner";
-import { WorkspaceSwitcher } from "@/components/shell/WorkspaceSwitcher";
+import { NavRail, type RailGroup } from "@/components/shell/NavRail";
+import { ProjectsPanel } from "@/components/shell/ProjectsPanel";
 import { Toaster } from "@/components/ui/toaster";
 import { useAgentRuns } from "@/hooks/useAgentRuns";
 import { useProjects } from "@/hooks/useWatchedList";
@@ -68,7 +60,6 @@ import { useRecentsTracker } from "@/hooks/useRecents";
 import { useRunTabsTracker, runTabsScope } from "@/hooks/useRunTabs";
 import { RunTabs } from "@/components/shell/RunTabs";
 import { useDesktopUpdateCheck } from "@/hooks/useDesktopUpdateCheck";
-import { writeLastProject } from "@/lib/lastProject";
 import { getRunAttention } from "@/lib/agentOps";
 import { Play, FolderKanban as FolderIcon } from "lucide-react";
 import {
@@ -89,13 +80,10 @@ import {
   Bug,
   Users,
   PanelLeft,
-  Plus,
-  Settings as SettingsIcon,
   Shield,
   ShieldCheck,
 } from "lucide-react";
 import { isTauri, platform } from "@/lib/platform";
-import { APP_VERSION } from "@/lib/build-info";
 
 // Settings sub-pages are code-split so /settings stays light: each section's
 // data is fetched only when its route mounts.
@@ -109,77 +97,11 @@ const SettingsGitIdentityPage = React.lazy(() => import("@/components/settings/G
 const SettingsUpdatesPage = React.lazy(() => import("@/components/settings/UpdatesPage"));
 const AdminUsersPage = React.lazy(() => import("@/components/admin/AdminUsersPage"));
 
-/** Uppercase micro-label used for every sidebar section header. */
-function SidebarSectionLabel({
-  children,
-  action,
-}: {
-  children: React.ReactNode;
-  action?: React.ReactNode;
-}) {
-  return (
-    <SidebarGroupLabel
-      className={cn(
-        "group/label h-7 px-2 pr-1 mb-0.5",
-        "text-[10.5px] uppercase tracking-[0.1em] font-semibold text-muted-foreground/70",
-        "flex items-center justify-between select-none",
-      )}
-    >
-      <span>{children}</span>
-      {action}
-    </SidebarGroupLabel>
-  );
-}
-
-/** A single top-level navigation row: icon, label, optional trailing slot. */
-function SidebarNavItem({
-  to,
-  active,
-  label,
-  icon: Icon,
-  trailing,
-}: {
-  to: string;
-  active: boolean;
-  label: string;
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-  trailing?: React.ReactNode;
-}) {
-  return (
-    <SidebarMenuItem>
-      <SidebarMenuButton
-        render={<Link to={to} />}
-        isActive={active}
-        tooltip={label}
-        className={cn(
-          "group/nav relative h-[30px] rounded-[7px] px-2 gap-2.5 text-[12.5px]",
-          "text-sidebar-foreground/85 transition-colors duration-[var(--dur-fast)]",
-          "hover:bg-sidebar-accent hover:text-foreground",
-          "data-active:bg-[color:var(--color-primary)]/10 data-active:text-foreground",
-          "data-active:font-medium",
-          // Active indicator: a short pill hugging the left edge.
-          "before:absolute before:left-0 before:top-1/2 before:h-3.5 before:w-[2px] before:-translate-y-1/2",
-          "before:rounded-full before:bg-[color:var(--color-primary)] before:opacity-0 before:transition-opacity",
-          "data-active:before:opacity-100",
-          "group-data-[collapsible=icon]:before:hidden",
-        )}
-      >
-        <Icon
-          strokeWidth={1.75}
-          className={cn(
-            "size-[15px] shrink-0 transition-colors duration-[var(--dur-fast)]",
-            active
-              ? "text-[color:var(--color-primary)]"
-              : "text-muted-foreground group-hover/nav:text-foreground/80",
-          )}
-        />
-        <span className="truncate tracking-tight">{label}</span>
-        {trailing}
-      </SidebarMenuButton>
-    </SidebarMenuItem>
-  );
-}
-
+/**
+ * App sidebar: a permanent 48px navigation rail plus a collapsible projects
+ * panel. Collapsing the sidebar hides only the panel, so the rail never has
+ * to render project rows as indistinguishable icons.
+ */
 function AppSidebar({
   projects,
   runs,
@@ -187,11 +109,42 @@ function AppSidebar({
   projects: ProjectT[];
   runs: AgentRunT[];
 }) {
-  const location = useLocation();
   const { user, activeWorkspaceId } = useAuth();
-  const navigate = useNavigate();
   const needsAttention = runs.some((run) => getRunAttention(run).kind !== "none");
-  const isSettings = location.pathname.startsWith("/settings");
+
+  const railGroups = React.useMemo<RailGroup[]>(() => {
+    const groups: RailGroup[] = [
+      {
+        id: "primary",
+        items: [
+          { to: "/", label: "Home", icon: HomeIcon },
+          {
+            to: "/runs",
+            label: "Agent Ops",
+            icon: Radio,
+            attention: needsAttention ? { label: "Runs need attention" } : undefined,
+          },
+          { to: "/observability", label: "Observability", icon: Activity },
+          { to: "/bug-reports", label: "Bug Reports", icon: Bug },
+        ],
+      },
+      {
+        id: "workspace",
+        items: [
+          { to: "/shared", label: "Shared", icon: Users },
+          { to: "/security", label: "Security", icon: Shield, match: (p) => p.startsWith("/security") },
+          { to: "/resources/skills", label: "Resources", icon: Blocks, match: (p) => p.startsWith("/resources") },
+        ],
+      },
+    ];
+    if (user?.role === "admin") {
+      groups.push({
+        id: "admin",
+        items: [{ to: "/admin/users", label: "Users", icon: ShieldCheck }],
+      });
+    }
+    return groups;
+  }, [needsAttention, user?.role]);
 
   return (
     <Sidebar
@@ -202,193 +155,12 @@ function AppSidebar({
       )}
     >
       {/* Space for macOS traffic lights — stays clean on iPad too */}
-      <SidebarHeader className="min-h-[44px] pt-safe px-2 pb-0 flex items-center gap-2 drag-region">
-        <div className="hidden md:block pl-[66px]" aria-hidden />
-      </SidebarHeader>
+      <SidebarHeader className={cn("pt-safe p-0 drag-region", isTauri ? "min-h-[40px]" : "min-h-[8px]")} />
 
-      <SidebarContent className="sidebar-scroll gap-0 px-1.5 no-drag">
-        <SidebarGroup className="pt-0 pb-1">
-          <SidebarGroupContent>
-            {isTauri ? (
-              <WorkspaceSwitcher />
-            ) : (
-              <div className="flex items-center gap-2.5 px-2 py-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-                <img src="/logo.png" alt="" className="size-[22px] shrink-0 rounded-[6px]" />
-                <span className="truncate text-[12.5px] font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
-                  Grateful Agents
-                </span>
-              </div>
-            )}
-            <div
-              className={cn(
-                "mt-1.5 flex items-center gap-1.5 px-2 font-mono text-[10px] tracking-tight text-muted-foreground/60",
-                "group-data-[collapsible=icon]:hidden",
-              )}
-              title={`App version ${APP_VERSION}`}
-            >
-              <span className="size-1 rounded-full bg-[color:var(--tone-success)]/70" aria-hidden />
-              <span className="truncate">build v{APP_VERSION}</span>
-            </div>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup className="py-1">
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-px">
-              <SidebarNavItem to="/" label="Home" icon={HomeIcon} active={location.pathname === "/"} />
-              <SidebarNavItem
-                to="/runs"
-                label="Agent Ops"
-                icon={Radio}
-                active={location.pathname === "/runs"}
-                trailing={
-                  needsAttention ? (
-                    <span
-                      className="relative ml-auto mr-0.5 inline-flex size-1.5 shrink-0 rounded-full bg-[color:var(--tone-warning)] group-data-[collapsible=icon]:hidden"
-                      role="img"
-                      aria-label="Runs need attention"
-                      title="Runs need attention"
-                    >
-                      <span className="absolute inset-0 rounded-full bg-[color:var(--tone-warning)] opacity-60 motion-safe:animate-ping" />
-                    </span>
-                  ) : undefined
-                }
-              />
-              <SidebarNavItem
-                to="/observability"
-                label="Observability"
-                icon={Activity}
-                active={location.pathname === "/observability"}
-              />
-              <SidebarNavItem
-                to="/bug-reports"
-                label="Bug Reports"
-                icon={Bug}
-                active={location.pathname === "/bug-reports"}
-              />
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup className="py-1 group/section">
-          <SidebarSectionLabel
-            action={
-              <CreateProjectDialog
-                trigger={
-                  <button
-                    type="button"
-                    title="New project"
-                    aria-label="New project"
-                    className={cn(
-                      "grid size-5 place-items-center rounded-[5px] text-muted-foreground/60",
-                      "transition-[opacity,background-color,color] duration-[var(--dur-fast)]",
-                      "opacity-75 group-hover/section:opacity-100 focus-visible:opacity-100",
-                      "hover:bg-sidebar-accent hover:text-foreground",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-                    )}
-                  >
-                    <Plus className="size-3.5" strokeWidth={2} />
-                  </button>
-                }
-              />
-            }
-          >
-            Projects
-          </SidebarSectionLabel>
-          <SidebarGroupContent>
-            <ProjectTree
-              key={activeWorkspaceId}
-              projects={projects}
-              runs={runs}
-              workspaceId={activeWorkspaceId}
-              onNewChat={(p) => { writeLastProject(p); navigate("/"); }}
-            />
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup className="py-1">
-          <SidebarSectionLabel>Workspace</SidebarSectionLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-px">
-              <SidebarNavItem to="/shared" label="Shared" icon={Users} active={location.pathname === "/shared"} />
-              <SidebarNavItem
-                to="/security"
-                label="Security"
-                icon={Shield}
-                active={location.pathname.startsWith("/security")}
-              />
-              <SidebarNavItem
-                to="/resources/skills"
-                label="Resources"
-                icon={Blocks}
-                active={location.pathname.startsWith("/resources")}
-              />
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {user?.role === "admin" && (
-          <SidebarGroup className="py-1">
-            <SidebarSectionLabel>Admin</SidebarSectionLabel>
-            <SidebarGroupContent>
-              <SidebarMenu className="gap-px">
-                <SidebarNavItem
-                  to="/admin/users"
-                  label="Users"
-                  icon={ShieldCheck}
-                  active={location.pathname === "/admin/users"}
-                />
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+      <SidebarContent className="no-drag flex-row gap-0 overflow-hidden p-0">
+        <NavRail groups={railGroups} />
+        <ProjectsPanel projects={projects} runs={runs} workspaceId={activeWorkspaceId} />
       </SidebarContent>
-
-      <SidebarFooter className="border-t border-sidebar-border px-1.5 pt-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] no-drag">
-        <Link
-          to="/settings"
-          className={cn(
-            "group/user flex items-center gap-2.5 px-1.5 py-1.5 rounded-[8px]",
-            "hover:bg-sidebar-accent transition-colors duration-[var(--dur-fast)]",
-            "outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-            "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0",
-            isSettings && "bg-[color:var(--color-primary)]/10",
-          )}
-          title="Settings"
-          aria-current={isSettings ? "page" : undefined}
-        >
-          <div
-            className={cn(
-              "grid size-[26px] shrink-0 place-items-center overflow-hidden rounded-full",
-              "bg-gradient-to-br from-[oklch(0.6_0.12_262)] to-[oklch(0.4_0.1_262)]",
-              "text-[11px] font-semibold text-white/90",
-              "ring-1 ring-inset ring-white/10 shadow-[0_0_0_1px_var(--color-sidebar-border)]",
-            )}
-          >
-            {user?.picture ? (
-              <img src={user.picture} alt="" className="size-full object-cover" />
-            ) : (
-              <span aria-hidden>{(user?.name || user?.username || "?").slice(0, 1).toUpperCase()}</span>
-            )}
-          </div>
-          <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
-            <div className="truncate text-[12px] font-medium leading-4 tracking-tight">
-              {user?.name || user?.username || "—"}
-            </div>
-            <div className="truncate font-mono text-[10.5px] leading-4 text-muted-foreground/70">
-              {user?.email || "offline"}
-            </div>
-          </div>
-          <SettingsIcon
-            strokeWidth={1.75}
-            className={cn(
-              "size-[15px] shrink-0 transition-colors duration-[var(--dur-fast)]",
-              "group-data-[collapsible=icon]:hidden",
-              isSettings ? "text-[color:var(--color-primary)]" : "text-muted-foreground/70 group-hover/user:text-foreground",
-            )}
-          />
-        </Link>
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );
@@ -557,7 +329,11 @@ function AuthenticatedShell() {
     <TooltipProvider>
       {/* Definite percentage height chain from #root (see index.css) — dvh/svh
           are unreliable in WebKitGTK and must not size the app shell. */}
-      <SidebarProvider defaultOpen={!compact} className="h-full min-h-0">
+      <SidebarProvider
+        defaultOpen={!compact}
+        className="h-full min-h-0"
+        style={{ "--sidebar-width": "18rem", "--sidebar-width-icon": "3rem" } as React.CSSProperties}
+      >
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md"

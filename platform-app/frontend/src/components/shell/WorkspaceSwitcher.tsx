@@ -3,6 +3,7 @@ import { Check, ChevronsUpDown, Loader2, Plus, Server } from "lucide-react";
 
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { monogramInitials, monogramStyle } from "@/lib/monogram";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,13 +29,19 @@ const inputClass = cn(
   "focus:ring-[color:var(--color-primary)]/40",
 );
 
-/** Slack-style switcher between configured backend workspaces. */
-export function WorkspaceSwitcher() {
+/**
+ * Slack-style switcher between configured backend workspaces.
+ *
+ * `compact` renders a square monogram tile for the navigation rail (name and
+ * endpoint move into the menu); the default renders the full card.
+ */
+export function WorkspaceSwitcher({ compact = false }: { compact?: boolean }) {
   const { workspaces, activeWorkspaceId, switchWorkspace, addWorkspace } = useAuth();
   const [addOpen, setAddOpen] = React.useState(false);
   const [switching, setSwitching] = React.useState<string | null>(null);
 
   const active = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
+  const activeName = active?.name || "Add workspace";
 
   async function handleSwitchWorkspace(id: string, isActive: boolean) {
     if (isActive || switching) return;
@@ -51,6 +58,23 @@ export function WorkspaceSwitcher() {
   return (
     <>
       <DropdownMenu>
+        {compact ? (
+          <DropdownMenuTrigger
+            className={cn(
+              "group/ws relative grid size-[34px] place-items-center rounded-[10px]",
+              "bg-[var(--mono-bg)] text-[var(--mono)] ring-1 ring-inset ring-[var(--mono)]/25",
+              "text-[12px] font-semibold tracking-tight",
+              "transition-[box-shadow,filter] duration-[var(--dur-fast)] hover:brightness-110",
+              "data-[popup-open]:ring-[var(--mono)]/60",
+              "outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-primary)]/60",
+            )}
+            style={monogramStyle(activeName)}
+            title={active?.endpointUrl ? `${activeName} — ${active.endpointUrl}` : activeName}
+            aria-label={`Workspace: ${activeName}. Switch workspace`}
+          >
+            {active ? monogramInitials(activeName) : <Server className="size-[15px]" strokeWidth={1.75} />}
+          </DropdownMenuTrigger>
+        ) : (
         <DropdownMenuTrigger
           className={cn(
             "group/ws flex w-full items-center gap-2.5 rounded-[9px] px-2 py-1.5",
@@ -87,8 +111,14 @@ export function WorkspaceSwitcher() {
             strokeWidth={1.75}
           />
         </DropdownMenuTrigger>
+        )}
 
-        <DropdownMenuContent align="start" className="w-[--anchor-width] min-w-[240px]">
+        <DropdownMenuContent
+          align="start"
+          side={compact ? "right" : "bottom"}
+          sideOffset={compact ? 8 : 4}
+          className={cn("min-w-[240px]", compact && "w-auto")}
+        >
           <DropdownMenuLabel className="text-[10.5px] tracking-[0.08em] uppercase text-muted-foreground/70">
             Workspaces
           </DropdownMenuLabel>
@@ -104,8 +134,11 @@ export function WorkspaceSwitcher() {
                 disabled={!!switching && switching !== ws.id}
                 className="gap-2"
               >
-                <div className="flex size-[22px] shrink-0 items-center justify-center rounded-[6px] bg-[color:var(--color-primary)]/12 text-[color:var(--color-primary)]">
-                  <Server className="size-[13px]" />
+                <div
+                  className="grid size-[22px] shrink-0 place-items-center rounded-[6px] bg-[var(--mono-bg)] text-[10px] font-semibold text-[var(--mono)]"
+                  style={monogramStyle(ws.name)}
+                >
+                  {monogramInitials(ws.name)}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[12.5px]">{ws.name}</div>

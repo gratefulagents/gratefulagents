@@ -1,8 +1,9 @@
 import * as React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ArrowRight, Check, ChevronRight, Eye, EyeOff, FolderKanban, MessageSquareDashed, MoreHorizontal, Plus } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, Eye, EyeOff, MessageSquareDashed, MoreHorizontal, Plus, SearchX } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { monogramInitials, monogramStyle } from "@/lib/monogram";
 import { phaseTone, toneColor, isLivePhase, isDonePhase } from "@/lib/status";
 import { formatAge } from "@/lib/format";
 import { writeLastProject } from "@/lib/lastProject";
@@ -36,6 +37,28 @@ const SHOW_COMPLETED_KEY = "sidebar.showCompletedRuns";
 
 function runLabel(r: AgentRun): string {
   return r.displayName || r.intentTitle || r.name;
+}
+
+function matches(haystack: string, needle: string): boolean {
+  return haystack.toLowerCase().includes(needle);
+}
+
+/** Coloured initials tile that identifies a project at a glance. */
+function ProjectMonogram({ name, emphasized }: { name: string; emphasized: boolean }) {
+  return (
+    <span
+      aria-hidden
+      style={monogramStyle(name)}
+      className={cn(
+        "grid size-[20px] shrink-0 place-items-center rounded-[6px] text-[9.5px] font-semibold leading-none tracking-tight",
+        "bg-[var(--mono-bg)] text-[var(--mono)] ring-1 ring-inset ring-[var(--mono)]/20",
+        "transition-[filter,box-shadow] duration-[var(--dur-fast)]",
+        emphasized && "ring-[var(--mono)]/50 brightness-110",
+      )}
+    >
+      {monogramInitials(name)}
+    </span>
+  );
 }
 
 /** Small pill showing how many runs are currently live for a project. */
@@ -101,8 +124,8 @@ function RunRow({ run, active }: { run: AgentRun; active: boolean }) {
         {run.createdAtUnix > 0n && (
           <span
             className={cn(
-              "ml-auto shrink-0 pl-1 font-mono text-[10px] tabular-nums tracking-tight",
-              active ? "text-muted-foreground/80" : "text-muted-foreground/55 group-hover/run:text-muted-foreground/80",
+              "ml-auto shrink-0 pl-2 font-mono text-[10px] tabular-nums tracking-tight",
+              active ? "text-muted-foreground/85" : "text-muted-foreground/65 group-hover/run:text-muted-foreground/85",
             )}
           >
             {formatAge(run.createdAtUnix)}
@@ -116,7 +139,7 @@ function RunRow({ run, active }: { run: AgentRun; active: boolean }) {
 /** Quiet trailing row under a project's runs ("View all", "N completed hidden"). */
 const subFooterClass = cn(
   "flex h-[24px] w-full items-center gap-1.5 rounded-[6px] px-1.5 text-left text-[10.5px] tracking-tight",
-  "text-muted-foreground/65 hover:bg-sidebar-accent hover:text-foreground",
+  "text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground",
   "transition-colors duration-[var(--dur-fast)]",
   "outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
 );
@@ -150,7 +173,7 @@ function ShowCompletedCheckbox({
         onClick={() => onChange(!checked)}
         className={cn(
           "flex h-[26px] w-full items-center gap-2 rounded-[6px] px-2",
-          "text-[11px] text-muted-foreground/65 hover:text-foreground hover:bg-sidebar-accent",
+          "text-[11px] text-muted-foreground/75 hover:text-foreground hover:bg-sidebar-accent",
           "transition-colors duration-[var(--dur-fast)]",
           "outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
           "group-data-[collapsible=icon]:hidden",
@@ -170,7 +193,7 @@ function ShowCompletedCheckbox({
           Show completed
         </span>
         {count > 0 && (
-          <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground/50">{count}</span>
+          <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground/60">{count}</span>
         )}
       </button>
     </li>
@@ -183,13 +206,17 @@ export function ProjectTree({
   runs,
   workspaceId,
   onNewChat,
+  filter = "",
 }: {
   projects: Project[];
   runs: AgentRun[];
   workspaceId: string;
   onNewChat: (p: Project) => void;
+  /** Case-insensitive text filter over project names and run titles. */
+  filter?: string;
 }) {
   const location = useLocation();
+  const query = filter.trim().toLowerCase();
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [hiddenProjectKeys, setHiddenProjectKeys] = React.useState<Set<string>>(
     () => readHiddenSidebarProjects(workspaceId),
@@ -227,6 +254,15 @@ export function ProjectTree({
     () => projects.filter((project) => !hiddenProjectKeys.has(sidebarProjectKey(project))),
     [hiddenProjectKeys, projects],
   );
+  // With a query, keep projects that match by name or own a matching run.
+  const listedProjects = React.useMemo(() => {
+    if (!query) return visibleProjects;
+    return visibleProjects.filter((project) => {
+      if (matches(project.displayName || project.name, query) || matches(project.name, query)) return true;
+      const projectRuns = runsByProject.get(sidebarProjectKey(project)) ?? [];
+      return projectRuns.some((run) => matches(runLabel(run), query));
+    });
+  }, [query, runsByProject, visibleProjects]);
   const totalCompleted = React.useMemo(() => {
     let count = 0;
     for (const project of visibleProjects) {
@@ -277,26 +313,40 @@ export function ProjectTree({
 
   return (
     <SidebarMenu className="gap-px">
-      {visibleProjects.map((p) => {
+      {query && listedProjects.length === 0 && (
+        <li className="flex flex-col items-center gap-1.5 px-3 py-6 text-center text-[11.5px] text-muted-foreground/70">
+          <SearchX className="size-4 text-muted-foreground/50" strokeWidth={1.5} />
+          <span>No projects or chats match “{filter.trim()}”</span>
+        </li>
+      )}
+      {listedProjects.map((p) => {
         const key = `${p.namespace}/${p.name}`;
         const projRuns = runsByProject.get(key) ?? [];
         const detail = `/projects/${p.namespace}/${p.name}`;
         const active = location.pathname === detail;
         const hasActiveChild = projRuns.some((r) => location.pathname === `/runs/${r.namespace}/${r.name}`);
-        const open = expanded[key] ?? hasActiveChild;
+        const projectNameMatches = query
+          ? matches(p.displayName || p.name, query) || matches(p.name, query)
+          : false;
+        // A search expands every listed project so matching chats are visible.
+        const open = query ? true : (expanded[key] ?? hasActiveChild);
 
         const activeRuns = projRuns.filter((r) => !isDonePhase(r.phase));
         const doneRuns = projRuns.filter((r) => isDonePhase(r.phase));
         // Keep the run the user is currently viewing visible even when
         // completed runs are hidden.
-        const visible = showCompleted
-          ? [...activeRuns.slice(0, MAX_RUNS), ...doneRuns.slice(0, MAX_RUNS)]
-          : [
-              ...activeRuns.slice(0, MAX_RUNS),
-              ...doneRuns.filter((r) => location.pathname === `/runs/${r.namespace}/${r.name}`),
-            ];
-        const hiddenDone = showCompleted ? 0 : doneRuns.length - (visible.length - Math.min(activeRuns.length, MAX_RUNS));
-        const overflow = projRuns.length - visible.length - hiddenDone;
+        const visible = query
+          ? (projectNameMatches ? projRuns : projRuns.filter((r) => matches(runLabel(r), query))).slice(0, MAX_RUNS * 2)
+          : showCompleted
+            ? [...activeRuns.slice(0, MAX_RUNS), ...doneRuns.slice(0, MAX_RUNS)]
+            : [
+                ...activeRuns.slice(0, MAX_RUNS),
+                ...doneRuns.filter((r) => location.pathname === `/runs/${r.namespace}/${r.name}`),
+              ];
+        const hiddenDone = query || showCompleted
+          ? 0
+          : doneRuns.length - (visible.length - Math.min(activeRuns.length, MAX_RUNS));
+        const overflow = query ? 0 : projRuns.length - visible.length - hiddenDone;
 
         return (
           <Collapsible
@@ -311,7 +361,7 @@ export function ProjectTree({
                   <button
                     className={cn(
                       "absolute left-0.5 top-1/2 z-10 grid size-5 -translate-y-1/2 place-items-center rounded-[5px]",
-                      "text-muted-foreground/60 hover:bg-sidebar-accent hover:text-foreground",
+                      "text-muted-foreground/85 hover:bg-sidebar-accent hover:text-foreground",
                       "transition-[opacity,color,background-color] duration-[var(--dur-fast)]",
                       "group-data-[collapsible=icon]:hidden",
                       "outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:opacity-100",
@@ -348,13 +398,7 @@ export function ProjectTree({
                   "group-data-[collapsible=icon]:pl-2! group-data-[collapsible=icon]:pr-2!",
                 )}
               >
-                <FolderKanban
-                  strokeWidth={1.75}
-                  className={cn(
-                    "size-[14px] shrink-0 transition-colors duration-[var(--dur-fast)]",
-                    active || open ? "text-[color:var(--color-primary)]" : "text-muted-foreground",
-                  )}
-                />
+                <ProjectMonogram name={p.displayName || p.name} emphasized={active || open} />
                 <span className="truncate tracking-tight">{p.displayName || p.name}</span>
                 <ActiveRunsBadge count={projRuns.filter((r) => isLivePhase(r.phase)).length} />
               </SidebarMenuButton>
@@ -389,7 +433,7 @@ export function ProjectTree({
               </DropdownMenu>
             </SidebarMenuItem>
             <CollapsibleContent>
-              <SidebarMenuSub className="mx-[13px] my-0.5 gap-px border-sidebar-border/90 px-1.5 py-0">
+              <SidebarMenuSub className="my-0.5 ml-[15px] mr-0 gap-px border-border/70 py-0 pl-2 pr-0">
                 {projRuns.length === 0 ? (
                   <SubEmptyRow>No chats yet</SubEmptyRow>
                 ) : (
@@ -447,7 +491,7 @@ export function ProjectTree({
               aria-label={`${hiddenProjects.length} hidden ${hiddenProjects.length === 1 ? "project" : "projects"}`}
               className={cn(
                 "flex h-[26px] w-full items-center gap-2 rounded-[6px] px-2",
-                "text-[11px] text-muted-foreground/65 hover:bg-sidebar-accent hover:text-foreground",
+                "text-[11px] text-muted-foreground/75 hover:bg-sidebar-accent hover:text-foreground",
                 "transition-colors duration-[var(--dur-fast)]",
                 "group-data-[collapsible=icon]:hidden",
                 "outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",

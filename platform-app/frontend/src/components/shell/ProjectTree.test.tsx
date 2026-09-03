@@ -15,6 +15,7 @@ const projects = [
 function renderTree(
   workspaceId = "workspace-a",
   runs: AgentRun[] = [],
+  filter = "",
 ) {
   return render(
     <MemoryRouter>
@@ -24,6 +25,7 @@ function renderTree(
           runs={runs}
           workspaceId={workspaceId}
           onNewChat={vi.fn()}
+          filter={filter}
         />
       </SidebarProvider>
     </MemoryRouter>,
@@ -101,5 +103,35 @@ describe("ProjectTree hidden projects", () => {
 
     renderTree("workspace-b");
     expect(screen.getByRole("link", { name: "Platform" })).toBeTruthy();
+  });
+
+  it("filters by project name or chat title and expands matches", () => {
+    const runs = [
+      create(AgentRunSchema, {
+        namespace: "team",
+        name: "run-a",
+        displayName: "Fix login redirect",
+        phase: "Succeeded",
+        project: { name: "website", kind: "Project" },
+      }),
+      create(AgentRunSchema, {
+        namespace: "team",
+        name: "run-b",
+        displayName: "Refactor billing",
+        phase: "Running",
+        project: { name: "platform", kind: "Project" },
+      }),
+    ];
+
+    const { unmount } = renderTree("workspace-a", runs, "login");
+    // Only the project owning a matching chat is listed, already expanded,
+    // and completed matches are shown regardless of the "show completed" toggle.
+    expect(screen.getByRole("link", { name: "Website" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Platform" })).toBeNull();
+    expect(screen.getByRole("link", { name: /Fix login redirect/ })).toBeTruthy();
+    unmount();
+
+    renderTree("workspace-a", runs, "zzz-nothing");
+    expect(screen.getByText(/No projects or chats match/)).toBeTruthy();
   });
 });
