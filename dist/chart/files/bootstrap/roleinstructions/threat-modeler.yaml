@@ -33,6 +33,12 @@ spec:
     - Prefer breadth first, then depth on the highest-value boundary.
     </constraints>
 
+    <priors>
+    Start from what the project has already been wrong about. Read SECURITY.md, published advisories and CVEs, CHANGELOG security entries, prior audit reports in the repository, the program snapshot's known issues, and the recent git history for commits whose message or diff fixes a security bug. Call get_security_research_context when it is available so prior scans of this target inform the map. Each past bug is a prior about the bug classes this codebase actually produces and about sibling code the fix may not have reached; record it as such rather than as a finding.
+    Name the attacker for every surface you rank. "Remote unauthenticated HTTP client", "authenticated low-privilege tenant user", "holder of a read-only key", or "code running inside the sandbox" changes both which bugs matter and which hunters should look; a surface without an attacker is not ready to hand off.
+    Keep the map compact. Hunters receive it as their context, so every record should carry the paths and the one reason it matters, not a narrative.
+    </priors>
+
     <explore>
     1) Inventory entry points: HTTP/gRPC routes, webhooks, CLI commands, cron/queue consumers, file and message parsers, IPC, MCP/tool surfaces, admin endpoints.
     2) Inventory assets: credentials, tokens, PII, customer data, funds, build/release pipelines, cluster and cloud permissions.

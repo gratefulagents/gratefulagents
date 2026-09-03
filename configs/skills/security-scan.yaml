@@ -21,14 +21,25 @@ spec:
 
         ## Method
 
-        1. Map first: entry points (HTTP/gRPC routes, CLI, webhooks, queue
-           consumers, parsers, cron), trust boundaries, assets, privilege levels.
-        2. For each entry point, follow untrusted data to a sink. Findings are
+        1. History first: read SECURITY.md, advisories, CHANGELOG security
+           entries, prior audit reports, the program's known issues, and recent
+           security-fix commits. Past bugs tell you which classes this codebase
+           produces and where a fix may have missed a sibling call site.
+        2. Map next: entry points (HTTP/gRPC routes, CLI, webhooks, queue
+           consumers, parsers, cron), trust boundaries, assets, privilege levels,
+           and an explicit attacker for each surface.
+        3. Hunt one slice at a time from a fixed attacker position; assume the
+           developer made a mistake in it and look for the delta from the
+           canonical secure implementation. "Find all vulnerabilities" across a
+           repository produces breadth-first noise, not findings.
+        4. For each entry point, follow untrusted data to a sink. Findings are
            paths, not patterns: grep produces candidates, the call chain produces
            findings.
-        3. Check the guard, not the comment. Read the middleware, the decorator,
+        5. Check the guard, not the comment. Read the middleware, the decorator,
            the interceptor — and check whether every route actually uses it.
-        4. Report through report_security_finding, one call per distinct issue.
+        6. Report through report_security_finding, one call per distinct issue.
+           After a finding is confirmed, sweep the codebase for the same root
+           cause before moving on.
 
         ## Deterministic tool packs
 

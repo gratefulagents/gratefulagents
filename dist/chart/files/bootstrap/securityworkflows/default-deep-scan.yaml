@@ -3,8 +3,28 @@ kind: SecurityWorkflow
 metadata:
   name: default-deep-scan
 spec:
-  description: The platform's default deep scan plan and sole source of its workflow content. SecurityScans that declare neither workflow nor workflowRef resolve this namespaced resource. Eleven specialist hunts plus conditional native fuzz execution fan into a final triage-and-report task.
+  description: The platform's default deep scan plan and sole source of its workflow content. SecurityScans that declare neither workflow nor workflowRef resolve this namespaced resource. A history-priors pass and an attack-surface map run first and are handed to ten specialist hunts, which hunt from the map's attacker positions instead of sweeping the repository per bug class; conditional native fuzz execution, a variant sweep over confirmed root causes, and an adversarial bounty-worthiness gate fan into a final triage-and-report task.
   tasks:
+    - name: target-priors
+      role: threat-modeler
+      category: recon
+      timeout: 30m
+      maxTurns: 60
+      skillRefs:
+        - name: trail-of-bits-differential-review
+      objective: >-
+        Build the history priors for this repository from the checkout alone; do not build or run the project.
+        Call get_security_research_context first and reuse only evidence for this exact target and revision;
+        note prior false_positive or accepted_risk findings so hunters do not re-report them. Read SECURITY.md,
+        advisories and CVEs referenced in the repository, CHANGELOG or release-note security entries, checked-in
+        audit reports, and the program snapshot's known issues, and select from the last 200 commits or 12 months
+        those whose message or diff fixes a security bug. For each source produce one compact prior: what went
+        wrong, the anchor (path plus line or symbol), the bug class it implies this codebase produces, and the
+        hunt it suggests (sibling call sites the fix did not touch, or a bypass of the patch). Rank most
+        promising first, return at most ten, mark classes that the runtime or a past fix now forbids as stale,
+        and report nothing as a finding from this task.
+      outputSchema: |-
+        {"type":"array","maxItems":10,"items":{"type":"object","additionalProperties":false,"required":["id","kind","summary","bug_class","anchor","hunt"],"properties":{"id":{"type":"string","minLength":2,"maxLength":8},"kind":{"type":"string","enum":["advisory_or_cve","security_fix_commit","changelog","prior_audit","known_issue","prior_scan","todo_or_unsafe"]},"summary":{"type":"string","minLength":1,"maxLength":240},"bug_class":{"type":"string","minLength":1,"maxLength":80},"anchor":{"type":"string","minLength":1,"maxLength":240},"commits":{"type":"array","maxItems":4,"items":{"type":"string","minLength":7,"maxLength":64}},"hunt":{"type":"string","minLength":1,"maxLength":300},"stale":{"type":"boolean"}}}}
     - name: attack-surface-mapping
       role: threat-modeler
       category: recon
@@ -12,10 +32,14 @@ spec:
         - name: trail-of-bits-audit-context-building
       objective: >-
         Map the application's attack surface: entry points, exposed endpoints, trust boundaries, privileged
-        operations, and data flows from untrusted input to sensitive sinks. Return a risk-ranked array of
-        concrete production surfaces with repository-relative evidence so downstream native fuzz selection can
-        match existing harnesses to attacker-controlled inputs. Return an empty array only when repository
-        evidence establishes that no production surface is in scope.
+        operations, and data flows from untrusted input to sensitive sinks. Name the exact attacker who reaches
+        each surface (for example "remote unauthenticated HTTP client", "authenticated low-privilege tenant
+        user", "holder of a read-only API key") and verify guards by reading the middleware, not the route
+        comment. Return a risk-ranked array of concrete production surfaces with repository-relative evidence;
+        every specialist hunt receives this array as its targeting context and native fuzz selection uses it to
+        match existing harnesses to attacker-controlled inputs, so keep each record compact and put unguarded or
+        weakly guarded privileged paths first. Return an empty array only when repository evidence establishes
+        that no production surface is in scope.
       outputSchema: |-
         {"type":"array","items":{"type":"object","additionalProperties":false,"required":["surface","entrypoint","attacker","files","risk"],"properties":{"surface":{"type":"string"},"entrypoint":{"type":"string"},"attacker":{"type":"string"},"files":{"type":"array","items":{"type":"string"}},"risk":{"type":"string","enum":["critical","high","medium","low"]}}}}
     - name: authn-authz
@@ -24,66 +48,136 @@ spec:
       skillRefs:
         - name: api-authz-hunting
         - name: web-app-hunting
-      objective: "Hunt for authentication and authorization flaws: missing or bypassable auth checks, broken session handling, privilege escalation paths, and insecure token validation."
+      objective: >-
+        Hunt for authentication and authorization flaws: missing or bypassable auth checks, broken session
+        handling, privilege escalation paths, and insecure token validation. Target this using the
+        attack-surface map and history priors below: take the surfaces most exposed to your domain in ranked
+        order, adopt the attacker each record names, and work one surface at a time rather than sweeping the
+        repository; treat priors in your domain as hypotheses (same root cause in sibling sites, bypass of the
+        patch) and skip stale classes and previously disproved findings. Attack-surface map:
+        {{tasks.attack-surface-mapping.output}} History priors: {{tasks.target-priors.output}}
+      dependsOn: [attack-surface-mapping, target-priors]
     - name: injection-and-input-handling
       role: vulnerability-hunter
       category: injection
       skillRefs:
         - name: web-app-hunting
         - name: trail-of-bits-codeql
-      objective: "Hunt for injection and unsafe input handling: SQL/NoSQL/command/template injection, XSS, path traversal, and unsanitized data reaching interpreters or shells."
+      objective: >-
+        Hunt for injection and unsafe input handling: SQL/NoSQL/command/template injection, XSS, path traversal,
+        and unsanitized data reaching interpreters or shells. Target this using the attack-surface map and
+        history priors below: take the surfaces most exposed to your domain in ranked order, adopt the attacker
+        each record names, and work one surface at a time rather than sweeping the repository; treat priors in
+        your domain as hypotheses (same root cause in sibling sites, bypass of the patch) and skip stale classes
+        and previously disproved findings. Attack-surface map: {{tasks.attack-surface-mapping.output}} History
+        priors: {{tasks.target-priors.output}}
+      dependsOn: [attack-surface-mapping, target-priors]
     - name: secrets-and-credentials
       role: secrets-auditor
       category: secrets
       skillRefs:
         - name: trail-of-bits-zeroize-audit
-      objective: Hunt for hardcoded secrets, credentials committed to the repository, secrets leaked into logs or errors, and insecure credential storage or transmission.
+      objective: >-
+        Hunt for hardcoded secrets, credentials committed to the repository, secrets leaked into logs or errors,
+        and insecure credential storage or transmission. Consult the history priors in
+        {{tasks.target-priors.output}} for past issues in this domain and skip stale classes and previously
+        disproved findings.
+      dependsOn: [target-priors]
     - name: crypto-and-randomness
       role: vulnerability-hunter
       category: crypto
       skillRefs:
         - name: trail-of-bits-constant-time-analysis
         - name: trail-of-bits-wycheproof
-      objective: "Hunt for cryptographic weaknesses: weak or misused algorithms, insecure randomness, missing integrity checks, improper key management, and TLS misconfiguration."
+      objective: >-
+        Hunt for cryptographic weaknesses: weak or misused algorithms, insecure randomness, missing integrity
+        checks, improper key management, and TLS misconfiguration. Target this using the attack-surface map and
+        history priors below: take the surfaces most exposed to your domain in ranked order, adopt the attacker
+        each record names, and work one surface at a time rather than sweeping the repository; treat priors in
+        your domain as hypotheses (same root cause in sibling sites, bypass of the patch) and skip stale classes
+        and previously disproved findings. Attack-surface map: {{tasks.attack-surface-mapping.output}} History
+        priors: {{tasks.target-priors.output}}
+      dependsOn: [attack-surface-mapping, target-priors]
     - name: ssrf-and-network
       role: vulnerability-hunter
       category: ssrf
       skillRefs:
         - name: web-app-hunting
-      objective: "Hunt for server-side request forgery and unsafe network egress: user-controlled URLs, open redirects, DNS rebinding exposure, and missing egress restrictions."
+      objective: >-
+        Hunt for server-side request forgery and unsafe network egress: user-controlled URLs, open redirects,
+        DNS rebinding exposure, and missing egress restrictions. Target this using the attack-surface map and
+        history priors below: take the surfaces most exposed to your domain in ranked order, adopt the attacker
+        each record names, and work one surface at a time rather than sweeping the repository; treat priors in
+        your domain as hypotheses (same root cause in sibling sites, bypass of the patch) and skip stale classes
+        and previously disproved findings. Attack-surface map: {{tasks.attack-surface-mapping.output}} History
+        priors: {{tasks.target-priors.output}}
+      dependsOn: [attack-surface-mapping, target-priors]
     - name: deserialization-and-parsing
       role: vulnerability-hunter
       category: deserialization
       skillRefs:
         - name: trail-of-bits-codeql
         - name: trail-of-bits-property-based-testing
-      objective: "Hunt for unsafe deserialization and parser abuse: untrusted data fed to deserializers, XML external entities, prototype pollution, and resource-exhausting parsers."
+      objective: >-
+        Hunt for unsafe deserialization and parser abuse: untrusted data fed to deserializers, XML external
+        entities, prototype pollution, and resource-exhausting parsers. Target this using the attack-surface map
+        and history priors below: take the surfaces most exposed to your domain in ranked order, adopt the
+        attacker each record names, and work one surface at a time rather than sweeping the repository; treat
+        priors in your domain as hypotheses (same root cause in sibling sites, bypass of the patch) and skip
+        stale classes and previously disproved findings. Attack-surface map:
+        {{tasks.attack-surface-mapping.output}} History priors: {{tasks.target-priors.output}}
+      dependsOn: [attack-surface-mapping, target-priors]
     - name: access-control-and-multitenancy
       role: vulnerability-hunter
       category: authz
       skillRefs:
         - name: api-authz-hunting
-      objective: "Hunt for access-control and tenant-isolation flaws: insecure direct object references, missing ownership checks, and cross-tenant data or resource leakage."
+      objective: >-
+        Hunt for access-control and tenant-isolation flaws: insecure direct object references, missing ownership
+        checks, and cross-tenant data or resource leakage. Target this using the attack-surface map and history
+        priors below: take the surfaces most exposed to your domain in ranked order, adopt the attacker each
+        record names, and work one surface at a time rather than sweeping the repository; treat priors in your
+        domain as hypotheses (same root cause in sibling sites, bypass of the patch) and skip stale classes and
+        previously disproved findings. Attack-surface map: {{tasks.attack-surface-mapping.output}} History
+        priors: {{tasks.target-priors.output}}
+      dependsOn: [attack-surface-mapping, target-priors]
     - name: dependency-and-supply-chain
       role: dependency-auditor
       category: supply-chain
       skillRefs:
         - name: trail-of-bits-supply-chain-risk-auditor
         - name: github-agent-supply-chain
-      objective: Hunt for vulnerable or malicious dependencies, unpinned versions, typosquatting risk, and insecure build or release pipeline steps.
+      objective: >-
+        Hunt for vulnerable or malicious dependencies, unpinned versions, typosquatting risk, and insecure build
+        or release pipeline steps. Consult the history priors in {{tasks.target-priors.output}} for past issues
+        in this domain and skip stale classes and previously disproved findings.
+      dependsOn: [target-priors]
     - name: infrastructure-and-configuration
       role: vulnerability-hunter
       category: misconfiguration
       skillRefs:
         - name: cloud-iac-hunting
-      objective: "Hunt for insecure infrastructure and configuration: overly permissive RBAC or IAM, exposed debug endpoints, missing security headers, and unsafe container or deployment settings."
+      objective: >-
+        Hunt for insecure infrastructure and configuration: overly permissive RBAC or IAM, exposed debug
+        endpoints, missing security headers, and unsafe container or deployment settings. Consult the history
+        priors in {{tasks.target-priors.output}} for past issues in this domain and skip stale classes and
+        previously disproved findings.
+      dependsOn: [target-priors]
     - name: business-logic
       role: vulnerability-hunter
       category: logic-flaw
       skillRefs:
         - name: trail-of-bits-sharp-edges
         - name: trail-of-bits-property-based-testing
-      objective: "Hunt for business-logic flaws: race conditions, state-machine bypasses, abuse of workflows (payments, quotas, invites), and missing server-side enforcement of invariants."
+      objective: >-
+        Hunt for business-logic flaws: race conditions, state-machine bypasses, abuse of workflows (payments,
+        quotas, invites), and missing server-side enforcement of invariants. Target this using the
+        attack-surface map and history priors below: take the surfaces most exposed to your domain in ranked
+        order, adopt the attacker each record names, and work one surface at a time rather than sweeping the
+        repository; treat priors in your domain as hypotheses (same root cause in sibling sites, bypass of the
+        patch) and skip stale classes and previously disproved findings. Attack-surface map:
+        {{tasks.attack-surface-mapping.output}} History priors: {{tasks.target-priors.output}}
+      dependsOn: [attack-surface-mapping, target-priors]
     - name: run-upstream-native-fuzz
       role: native-fuzz-runner
       category: other
@@ -109,6 +203,28 @@ spec:
       dependsOn: [attack-surface-mapping]
       outputSchema: |-
         {"type":"object","additionalProperties":false,"required":["status","inventory","runs","uncovered","limitations"],"properties":{"status":{"type":"string","enum":["examined","not_applicable","unsupported","inconclusive"]},"inventory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["tool","target","harness","surface","decision","reason"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"harness":{"type":"string"},"surface":{"type":"string"},"decision":{"type":"string","enum":["selected","skipped","unsupported"]},"reason":{"type":"string"}}}},"runs":{"type":"array","maxItems":2,"items":{"type":"object","additionalProperties":false,"required":["tool","target","revision","execution_status","tool_run","seed","duration","workers","corpus_provenance","artifacts","errors","limitations"],"properties":{"tool":{"type":"string","enum":["cargo-fuzz","go-fuzz-tests"]},"target":{"type":"string"},"revision":{"type":"string"},"execution_status":{"type":"string"},"tool_run":{"type":"string"},"seed":{"anyOf":[{"type":"integer"},{"type":"null"}]},"duration":{"type":"string"},"workers":{"type":"integer","minimum":1},"corpus_provenance":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"errors":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}},"uncovered":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
+    - name: variant-sweep
+      role: vulnerability-hunter
+      category: other
+      timeout: 30m
+      maxTurns: 60
+      skillRefs:
+        - name: trail-of-bits-variant-analysis
+      objective: >-
+        Variant analysis over the hunts' results. Call list_security_findings and take every finding whose
+        confidence is confirmed or firm and whose severity is medium or higher. For each, call
+        get_security_finding, extract the exact vulnerable pattern from its evidence (the sink, the missing or
+        bypassable check, the shape of attacker-controlled input), and search the whole in-scope codebase for
+        siblings: start with an exact-match pattern that must hit the original site, then generalize one element
+        at a time (same sink other callers, same guard other routes, same parser other formats), stopping when
+        more than half the matches are noise. Trace each sibling's reachability from the same attacker position
+        before reporting it; a pattern match without a path is not a variant. Report each real variant with
+        report_security_finding citing the original finding in references, and do not re-report or re-triage
+        the originals. Publish the variants as structured output, or an empty array when no root cause has
+        siblings.
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["title","fingerprint","severity","file","original_fingerprint"],"properties":{"fingerprint":{"type":"string"},"original_fingerprint":{"type":"string"},"title":{"type":"string"},"severity":{"type":"string","enum":["critical","high","medium","low","info"]},"file":{"type":"string"},"line":{"type":"integer"},"summary":{"type":"string"}}}}
+      dependsOn: [authn-authz, injection-and-input-handling, secrets-and-credentials, crypto-and-randomness, ssrf-and-network, deserialization-and-parsing, access-control-and-multitenancy, dependency-and-supply-chain, infrastructure-and-configuration, business-logic]
     - name: red-team-bounty-worthiness
       role: exploit-validator
       category: triage
@@ -138,7 +254,7 @@ spec:
         validation must remain status triaged with policy_disposition not_ready. Never use accepted_risk or
         false_positive merely because evidence is missing or validation is unavailable. Stop after every
         recorded finding has an evidence-backed disposition.
-      dependsOn: [attack-surface-mapping, authn-authz, injection-and-input-handling, secrets-and-credentials, crypto-and-randomness, ssrf-and-network, deserialization-and-parsing, access-control-and-multitenancy, dependency-and-supply-chain, infrastructure-and-configuration, business-logic, run-upstream-native-fuzz]
+      dependsOn: [target-priors, attack-surface-mapping, authn-authz, injection-and-input-handling, secrets-and-credentials, crypto-and-randomness, ssrf-and-network, deserialization-and-parsing, access-control-and-multitenancy, dependency-and-supply-chain, infrastructure-and-configuration, business-logic, run-upstream-native-fuzz, variant-sweep]
 
     - name: triage-and-report
       role: finding-triager
@@ -149,10 +265,13 @@ spec:
       objective: >-
         Triage every reported finding and the native-fuzz evidence in
         {{tasks.run-upstream-native-fuzz.output}}: verify exploitability, remove false positives and duplicates,
-        apply the ranking rules, then assemble and submit the final scan report. Preserve fuzz errors, timeouts,
+        merge variants that share a root cause into one finding listing every affected site, apply the ranking
+        rules, then assemble and submit the final scan report. Disclose surfaces from the attack-surface map and
+        priors from the history pass that no hunt examined. Preserve fuzz errors, timeouts,
         unsupported and skipped targets, uncovered surfaces, exact bounds, and corpus limitations; never turn a
         clean bounded run into a safety claim.
       dependsOn:
+        - target-priors
         - attack-surface-mapping
         - authn-authz
         - injection-and-input-handling
@@ -165,4 +284,5 @@ spec:
         - infrastructure-and-configuration
         - business-logic
         - run-upstream-native-fuzz
+        - variant-sweep
         - red-team-bounty-worthiness

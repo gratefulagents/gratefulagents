@@ -136,6 +136,29 @@ spec:
             "gaps": {"type": "array", "items": {"type": "string"}}
           }
         }
+    - name: target-priors
+      role: threat-modeler
+      category: recon
+      timeout: 30m
+      maxTurns: 60
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-differential-review
+      objective: >-
+        Build the history priors for this target from the checkout alone; do not build, deploy, or run the
+        project. Call get_security_research_context first and reuse only evidence for this exact target and
+        revision; note prior false_positive or accepted_risk findings so hunters do not re-report them. Read
+        SECURITY.md, advisories and CVEs referenced in the repository, CHANGELOG or release-note security
+        entries, checked-in audit reports and their finding tables, and the program snapshot's known issues, and
+        select from the last 200 commits or 12 months those whose message or diff fixes a security bug (missing
+        check added, bounds or overflow guard, access-control gate, replay or nonce fix, rounding or accounting
+        correction, upgrade or initialization guard). For each source produce one compact prior: what went wrong,
+        the anchor (path plus line or symbol), the bug class it implies this codebase produces, and the hunt it
+        suggests (sibling code the fix did not reach, or a bypass of the patch). Rank most promising first,
+        return at most ten, mark classes the runtime, framework, or a past fix now forbids as stale, and report
+        nothing as a finding from this task.
+      outputSchema: |-
+        {"type":"array","maxItems":10,"items":{"type":"object","additionalProperties":false,"required":["id","kind","summary","bug_class","anchor","hunt"],"properties":{"id":{"type":"string","minLength":2,"maxLength":8},"kind":{"type":"string","enum":["advisory_or_cve","security_fix_commit","changelog","prior_audit","known_issue","prior_scan","todo_or_unsafe"]},"summary":{"type":"string","minLength":1,"maxLength":240},"bug_class":{"type":"string","minLength":1,"maxLength":80},"anchor":{"type":"string","minLength":1,"maxLength":240},"commits":{"type":"array","maxItems":4,"items":{"type":"string","minLength":7,"maxLength":64}},"hunt":{"type":"string","minLength":1,"maxLength":300},"stale":{"type":"boolean"}}}}
     - name: map-contract-invariants
       role: vulnerability-hunter
       category: logic-flaw
@@ -182,8 +205,12 @@ spec:
         sandbox integration test, an existing sputnikdao2/tests helper to reuse, a unit test module, or a
         new test file path. Rank the hypotheses by the impact clause they would reach, not by novelty.
         Report no findings here.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
+        - target-priors
       outputSchema: |-
         {
           "type": "object",
@@ -234,9 +261,13 @@ spec:
         assumptions, DAO roles, initialization and migration authorization, callback privacy and alternate entry
         points using {{tasks.map-contract-invariants.output}}. Report concrete least-privileged attack paths with
         file:line evidence; leave execution to validation.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-contract-invariants
+        - target-priors
 
     - name: hunt-promises-callbacks-and-rollback
       role: vulnerability-hunter
@@ -249,9 +280,13 @@ spec:
         an external promise, missing private-callback checks, double settlement, retry/replay, partial failure and
         callback result decoding bugs. Compare synchronous assumptions with NEAR's asynchronous execution model and
         report each reachable invariant violation.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-contract-invariants
+        - target-priors
 
     - name: hunt-storage-deposits-and-accounting
       role: vulnerability-hunter
@@ -263,9 +298,13 @@ spec:
         Hunt attached-deposit accounting, storage staking/refunds, yoctoNEAR guards, integer and decimal conversion,
         token/share accounting and gas-locking paths. Check that every success, failure, unregister and cleanup path
         closes balances exactly and cannot strand another user's storage stake or funds.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-contract-invariants
+        - target-priors
 
     - name: hunt-token-receivers-migrations-and-intents
       role: vulnerability-hunter
@@ -278,9 +317,13 @@ spec:
         migration, intent signature/domain/nonce binding, DAO proposal execution and cross-contract return-value
         assumptions. Select the lanes that match the exact repository profile and report provider-specific paths,
         not generic Rust findings.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-contract-invariants
+        - target-priors
 
     - name: validate-candidates-in-harness
       role: exploit-validator

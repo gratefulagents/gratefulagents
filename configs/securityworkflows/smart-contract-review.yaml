@@ -88,6 +88,29 @@ spec:
           }
         }
 
+    - name: target-priors
+      role: threat-modeler
+      category: recon
+      timeout: 30m
+      maxTurns: 60
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-differential-review
+      objective: >-
+        Build the history priors for this target from the checkout alone; do not build, deploy, or run the
+        project. Call get_security_research_context first and reuse only evidence for this exact target and
+        revision; note prior false_positive or accepted_risk findings so hunters do not re-report them. Read
+        SECURITY.md, advisories and CVEs referenced in the repository, CHANGELOG or release-note security
+        entries, checked-in audit reports and their finding tables, and the program snapshot's known issues, and
+        select from the last 200 commits or 12 months those whose message or diff fixes a security bug (missing
+        check added, bounds or overflow guard, access-control gate, replay or nonce fix, rounding or accounting
+        correction, upgrade or initialization guard). For each source produce one compact prior: what went wrong,
+        the anchor (path plus line or symbol), the bug class it implies this codebase produces, and the hunt it
+        suggests (sibling code the fix did not reach, or a bypass of the patch). Rank most promising first,
+        return at most ten, mark classes the runtime, framework, or a past fix now forbids as stale, and report
+        nothing as a finding from this task.
+      outputSchema: |-
+        {"type":"array","maxItems":10,"items":{"type":"object","additionalProperties":false,"required":["id","kind","summary","bug_class","anchor","hunt"],"properties":{"id":{"type":"string","minLength":2,"maxLength":8},"kind":{"type":"string","enum":["advisory_or_cve","security_fix_commit","changelog","prior_audit","known_issue","prior_scan","todo_or_unsafe"]},"summary":{"type":"string","minLength":1,"maxLength":240},"bug_class":{"type":"string","minLength":1,"maxLength":80},"anchor":{"type":"string","minLength":1,"maxLength":240},"commits":{"type":"array","maxItems":4,"items":{"type":"string","minLength":7,"maxLength":64}},"hunt":{"type":"string","minLength":1,"maxLength":300},"stale":{"type":"boolean"}}}}
     - name: map-architecture-assets-roles-entrypoints
       role: threat-modeler
       category: recon
@@ -413,10 +436,14 @@ spec:
         bombs; gas assumptions; and delegatecall target control. Report only concrete attacker sequences with
         file:line evidence and the invariant/value impact. Submit coverage for every relevant call class,
         including explicit skipped, unsupported, or inconclusive areas.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
         - reproducible-build-artifact-deployment-review
+        - target-priors
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
@@ -449,10 +476,14 @@ spec:
         ERC-4337 validation, paymasters, bundlers and sponsored transactions; and EIP-7702 delegated-code
         assumptions. Trace alternate entry points, multicalls and callbacks around each guard. Report only an
         unauthorized production-reachable transition with file:line evidence and publish complete coverage.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - inventory-scope-repositories-deployments
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
+        - target-priors
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
@@ -488,9 +519,13 @@ spec:
         routers, settlement systems, force-sent ETH, blacklist/pause behavior, and upgradeable counterparties.
         Quantify attacker gain or victim loss and cite the precise expression/path. Publish examined and gap
         records even when no finding survives.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
+        - target-priors
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"unavailable_dependency":{"type":"string","description":"Tool or authorization missing for a deployed-state check, such as an unauthorized fork endpoint alias for chain-read"},"summary":{"type":"string"}}}}
 
@@ -514,9 +549,13 @@ spec:
         parameters and distinguish a concrete exploitable incentive failure from accepted market risk.
         Report actor, capital, sequence, ordering capability, profit/loss and decisive file:line evidence;
         publish explicit coverage for non-applicable mechanisms.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
+        - target-priors
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
@@ -545,9 +584,13 @@ spec:
         a price or random outcome profitable. Report the controllable input, consumer, transaction sequence,
         cost/profit and file:line evidence. Publish coverage gaps when state, liquidity or deployment data is
         needed but unavailable.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
+        - target-priors
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
@@ -569,9 +612,13 @@ spec:
         become permanently uncallable after growth or an EVM gas repricing. Quantify attacker cost, victim
         work, block-gas feasibility and recovery; do not report generic gas optimization. Publish status for
         each relevant queue, loop, callback and storage-growth surface.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
+        - target-priors
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"summary":{"type":"string"}}}}
 
@@ -611,11 +658,15 @@ spec:
         inheritance/packing/gaps and storage-layout differentials. Report a concrete state corruption,
         takeover or deployment substitution path with file:line evidence and publish explicit unsupported
         status where artifacts or version pairs are absent.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - inventory-scope-repositories-deployments
         - map-architecture-assets-roles-entrypoints
         - define-security-invariants
         - reproducible-build-artifact-deployment-review
+        - target-priors
       outputSchema: |-
         {"type":"array","items":{"type":"object","required":["area","status","summary"],"properties":{"area":{"type":"string"},"status":{"type":"string","enum":["examined","skipped","unsupported","inconclusive"]},"evidence":{"type":"array","items":{"type":"string"}},"unavailable_dependency":{"type":"string","description":"Tool or authorization missing for a deployed-state check, such as an unauthorized fork endpoint alias for chain-read or deployed-bytecode-diff"},"summary":{"type":"string"}}}}
 

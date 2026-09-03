@@ -139,6 +139,29 @@ spec:
             "gaps": {"type": "array", "items": {"type": "string"}}
           }
         }
+    - name: target-priors
+      role: threat-modeler
+      category: recon
+      timeout: 30m
+      maxTurns: 60
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-differential-review
+      objective: >-
+        Build the history priors for this target from the checkout alone; do not build, deploy, or run the
+        project. Call get_security_research_context first and reuse only evidence for this exact target and
+        revision; note prior false_positive or accepted_risk findings so hunters do not re-report them. Read
+        SECURITY.md, advisories and CVEs referenced in the repository, CHANGELOG or release-note security
+        entries, checked-in audit reports and their finding tables, and the program snapshot's known issues, and
+        select from the last 200 commits or 12 months those whose message or diff fixes a security bug (missing
+        check added, bounds or overflow guard, access-control gate, replay or nonce fix, rounding or accounting
+        correction, upgrade or initialization guard). For each source produce one compact prior: what went wrong,
+        the anchor (path plus line or symbol), the bug class it implies this codebase produces, and the hunt it
+        suggests (sibling code the fix did not reach, or a bypass of the patch). Rank most promising first,
+        return at most ten, mark classes the runtime, framework, or a past fix now forbids as stale, and report
+        nothing as a finding from this task.
+      outputSchema: |-
+        {"type":"array","maxItems":10,"items":{"type":"object","additionalProperties":false,"required":["id","kind","summary","bug_class","anchor","hunt"],"properties":{"id":{"type":"string","minLength":2,"maxLength":8},"kind":{"type":"string","enum":["advisory_or_cve","security_fix_commit","changelog","prior_audit","known_issue","prior_scan","todo_or_unsafe"]},"summary":{"type":"string","minLength":1,"maxLength":240},"bug_class":{"type":"string","minLength":1,"maxLength":80},"anchor":{"type":"string","minLength":1,"maxLength":240},"commits":{"type":"array","maxItems":4,"items":{"type":"string","minLength":7,"maxLength":64}},"hunt":{"type":"string","minLength":1,"maxLength":300},"stale":{"type":"boolean"}}}}
     - name: map-order-lifecycle-and-settlement-invariants
       role: vulnerability-hunter
       category: logic-flaw
@@ -186,8 +209,12 @@ spec:
         it breaks, and the concrete local validation target: an existing test file, a fuzz or invariant
         suite, or a new test file path in the repository's own suite. Rank the hypotheses by the impact
         clause they would reach, not by novelty. Report no findings here.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
+        - target-priors
       outputSchema: |-
         {
           "type": "object",
@@ -238,9 +265,13 @@ spec:
         {{tasks.map-order-lifecycle-and-settlement-invariants.output}}. Compare every fill entry point and report
         concrete candidates with exact attacker-controlled fields and file:line evidence. Return every candidate
         fingerprint, or an empty finding_fingerprints list when none survives review.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-order-lifecycle-and-settlement-invariants
+        - target-priors
       when:
         task: pin-target-and-toolchain
         path: hunt_lanes.hunt-signatures-domain-and-replay
@@ -261,9 +292,13 @@ spec:
         callback rollback, maker/taker receiver confusion and resolver privilege bypass. Report only a reachable
         path tied to the exact target and invariant map; leave PoC construction to validation. Return every
         candidate fingerprint, or an empty finding_fingerprints list when none survives review.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-order-lifecycle-and-settlement-invariants
+        - target-priors
       when:
         task: pin-target-and-toolchain
         path: hunt_lanes.hunt-settlement-extensions-and-callbacks
@@ -284,9 +319,13 @@ spec:
         plugins and alternate token standards. Report concrete invariant breaks and do not force order-book
         assumptions onto repositories whose scoped module is farming, delegation or token hooks. Return every
         candidate fingerprint, or an empty finding_fingerprints list when none survives review.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-order-lifecycle-and-settlement-invariants
+        - target-priors
       when:
         task: pin-target-and-toolchain
         path: hunt_lanes.hunt-amount-fee-and-plugin-accounting
@@ -307,9 +346,13 @@ spec:
         deposit accounting. Prove neither party can claim both sides or both principal and deposit. For non-escrow
         targets record the lane as not applicable rather than manufacturing a generic finding. Return every
         candidate fingerprint, or an empty finding_fingerprints list when none survives review.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-order-lifecycle-and-settlement-invariants
+        - target-priors
       when:
         task: pin-target-and-toolchain
         path: hunt_lanes.hunt-escrow-hashlock-and-timelocks
