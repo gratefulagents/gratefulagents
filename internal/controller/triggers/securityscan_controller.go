@@ -297,18 +297,36 @@ func (r *SecurityScanReconciler) reconcileManualOnly(ctx context.Context, scan *
 	if err := r.updateStatus(ctx, scan, r.summarizeFindings(ctx, scan), func(fresh *triggersv1alpha1.SecurityScan) {
 		fresh.Status.Phase = "Ready"
 		fresh.Status.NextScheduleTime = nil
-		fresh.Status.LastError = ""
 		if suppressedEvent != nil {
 			// Consume rather than defer events received while automatic runs are
 			// disabled; disabling manual-only later must not replay stale work.
 			fresh.Status.LastEventToken = suppressedEvent.Token
 			fresh.Status.LastEventRevision = suppressedEvent.Revision
 		}
+		// A manual request the Forbid gate skipped is consumed, not queued:
+		// the user has to ask again. Keep that verdict visible until a run
+		// actually starts (which clears lastError) instead of overwriting it
+		// one reconcile later with "ready", which reads as if the click was
+		// never received.
+		if securityScanManualRunSkipped(fresh) {
+			return
+		}
+		fresh.Status.LastError = ""
 		setSecurityScanCondition(fresh, metav1.ConditionTrue, "ManualOnly", "SecurityScan is ready for a manual run")
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
+}
+
+// securityScanManualRunSkipped reports whether the scan's Ready condition
+// currently records a manual request dropped by the concurrency gate.
+func securityScanManualRunSkipped(scan *triggersv1alpha1.SecurityScan) bool {
+	if strings.TrimSpace(scan.Status.LastError) == "" {
+		return false
+	}
+	cond := meta.FindStatusCondition(scan.Status.Conditions, triggersv1alpha1.ConditionSecurityScanReady)
+	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "ConcurrencyBlocked"
 }
 
 // pendingManualRunToken returns the run-now annotation token when it has not
@@ -1076,10 +1094,21 @@ func securityScanAuthorizedNetworkTargetsForSpec(spec triggersv1alpha1.SecurityS
 // the run identified by excludeExternalID (the run the caller is about to
 // create or may have already created for the current tick or manual request).
 func (r *SecurityScanReconciler) activeScanRun(ctx context.Context, scan *triggersv1alpha1.SecurityScan, excludeExternalID string) (*platformv1alpha1.AgentRun, error) {
+	runs, err := r.activeScanRuns(ctx, scan, excludeExternalID)
+	if err != nil || len(runs) == 0 {
+		return nil, err
+	}
+	return runs[0], nil
+}
+
+// activeScanRuns returns every non-terminal AgentRun owned by this scan,
+// ignoring the run identified by excludeExternalID.
+func (r *SecurityScanReconciler) activeScanRuns(ctx context.Context, scan *triggersv1alpha1.SecurityScan, excludeExternalID string) ([]*platformv1alpha1.AgentRun, error) {
 	runs := &platformv1alpha1.AgentRunList{}
 	if err := r.List(ctx, runs, client.InNamespace(scan.Namespace), client.MatchingLabels{securityScanLabel: securityScanLabelValue(scan.Name)}); err != nil {
 		return nil, fmt.Errorf("listing AgentRuns: %w", err)
 	}
+	var active []*platformv1alpha1.AgentRun
 	for i := range runs.Items {
 		run := &runs.Items[i]
 		if !TriggerRunMatches(run, securityScanKind, scan.Name) {
@@ -1089,10 +1118,27 @@ func (r *SecurityScanReconciler) activeScanRun(ctx context.Context, scan *trigge
 			continue
 		}
 		if !isCronRunTerminal(run.Status.Phase) {
-			return run, nil
+			active = append(active, run)
 		}
 	}
-	return nil, nil
+	return active, nil
+}
+
+// securityScanRunDrained reports whether a non-terminal run can no longer do
+// any work: a runtime limit paused it (rather than failing it) and the
+// AgentRun controller has already released its sandbox. Such a run only ever
+// resumes through an explicit limit change; until then it is idle, not live.
+func securityScanRunDrained(run *platformv1alpha1.AgentRun) bool {
+	return run != nil && run.Status.Phase == platformv1alpha1.AgentRunPhasePaused && run.Status.Sandbox == nil
+}
+
+// securityScanRunExecutionID returns the deterministic execution a task or
+// post-script run was dispatched for, or "" for coordinator runs.
+func securityScanRunExecutionID(run *platformv1alpha1.AgentRun) string {
+	if run == nil {
+		return ""
+	}
+	return strings.TrimSpace(run.Annotations[triggersv1alpha1.SecurityScanExecutionIDAnnotation])
 }
 
 func (r *SecurityScanReconciler) lastRunTerminal(ctx context.Context, scan *triggersv1alpha1.SecurityScan) (bool, error) {
