@@ -80,13 +80,13 @@ describe("ProjectTree hidden projects", () => {
     });
     renderTree("workspace-a", [completedRun]);
 
-    expect(screen.getByText("Show completed (1)")).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Show completed 1" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Actions for Platform (team/platform)" }));
     fireEvent.click(await screen.findByRole("menuitem", {
       name: "Hide Platform (team/platform) from sidebar",
     }));
 
-    expect(screen.queryByText("Show completed (1)")).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /Show completed/ })).toBeNull();
   });
 
   it("keeps hidden project preferences scoped to a workspace", () => {

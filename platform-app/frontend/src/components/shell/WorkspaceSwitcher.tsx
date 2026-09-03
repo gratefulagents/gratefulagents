@@ -53,27 +53,39 @@ export function WorkspaceSwitcher() {
       <DropdownMenu>
         <DropdownMenuTrigger
           className={cn(
-            "flex w-full items-center gap-2 rounded-[8px] px-2 py-1.5",
-            "ring-1 ring-inset ring-border/70 bg-muted/40",
-            "hover:bg-sidebar-accent transition-colors duration-[var(--dur-fast)]",
+            "group/ws flex w-full items-center gap-2.5 rounded-[9px] px-2 py-1.5",
+            "ring-1 ring-inset ring-border/60 bg-muted/30",
+            "shadow-[inset_0_1px_0_0_color-mix(in_oklch,var(--color-foreground)_5%,transparent)]",
+            "hover:bg-sidebar-accent hover:ring-border transition-[background-color,box-shadow] duration-[var(--dur-fast)]",
+            "data-[popup-open]:bg-sidebar-accent data-[popup-open]:ring-[color:var(--color-primary)]/40",
             "outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-primary)]/50",
+            "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:ring-0 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:shadow-none",
           )}
           title="Switch workspace"
         >
-          <div className="flex size-[24px] shrink-0 items-center justify-center rounded-[6px] bg-[color:var(--color-primary)]/15 text-[color:var(--color-primary)]">
-            <Server className="size-[14px]" />
+          <div
+            className={cn(
+              "flex size-[26px] shrink-0 items-center justify-center rounded-[7px]",
+              "bg-[color:var(--color-primary)]/14 text-[color:var(--color-primary)]",
+              "ring-1 ring-inset ring-[color:var(--color-primary)]/20",
+            )}
+          >
+            <Server className="size-[14px]" strokeWidth={1.75} />
           </div>
-          <div className="min-w-0 flex-1 text-left">
-            <div className="truncate text-[12.5px] font-medium tracking-tight">
+          <div className="min-w-0 flex-1 text-left group-data-[collapsible=icon]:hidden">
+            <div className="truncate text-[12.5px] font-medium leading-4 tracking-tight">
               {active?.name || "Add workspace"}
             </div>
             {active?.endpointUrl && (
-              <div className="truncate text-[10.5px] text-muted-foreground/80 font-mono">
-                {active.endpointUrl}
+              <div className="truncate font-mono text-[10.5px] leading-4 text-muted-foreground/70">
+                {active.endpointUrl.replace(/^https?:\/\//, "")}
               </div>
             )}
           </div>
-          <ChevronsUpDown className="size-[14px] shrink-0 text-muted-foreground" />
+          <ChevronsUpDown
+            className="size-[13px] shrink-0 text-muted-foreground/60 transition-colors group-hover/ws:text-foreground group-data-[collapsible=icon]:hidden"
+            strokeWidth={1.75}
+          />
         </DropdownMenuTrigger>
 
         <DropdownMenuContent align="start" className="w-[--anchor-width] min-w-[240px]">

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Check, ChevronRight, Eye, EyeOff, FolderKanban, MoreHorizontal, Plus } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, Eye, EyeOff, FolderKanban, MessageSquareDashed, MoreHorizontal, Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { phaseTone, toneColor, isLivePhase, isDonePhase } from "@/lib/status";
@@ -45,10 +45,11 @@ function ActiveRunsBadge({ count }: { count: number }) {
     <span
       title={`${count} active run${count === 1 ? "" : "s"}`}
       className={cn(
-        "ml-auto inline-flex h-[16px] min-w-[16px] shrink-0 items-center justify-center gap-1 rounded-full px-1 text-[10px] font-medium tabular-nums",
+        "ml-auto inline-flex h-[17px] min-w-[17px] shrink-0 items-center justify-center gap-1 rounded-full px-1.5 text-[10px] font-medium tabular-nums",
         "bg-[color-mix(in_oklch,var(--tone-running)_14%,transparent)] text-[color:var(--tone-running-fg)]",
         "ring-1 ring-inset ring-[color-mix(in_oklch,var(--tone-running)_30%,transparent)]",
-        "group-hover/proj:hidden",
+        "transition-opacity duration-[var(--dur-fast)]",
+        "group-hover/proj:opacity-0 group-focus-within/proj:opacity-0",
       )}
     >
       <span
@@ -67,7 +68,11 @@ function ActiveRunsBadge({ count }: { count: number }) {
 
 function StatusDot({ phase }: { phase: string }) {
   return (
-    <span className="relative inline-flex size-1.5 shrink-0 rounded-full" style={{ backgroundColor: toneColor[phaseTone(phase)] }}>
+    <span
+      className="relative ml-px inline-flex size-[6px] shrink-0 rounded-full"
+      style={{ backgroundColor: toneColor[phaseTone(phase)] }}
+      aria-hidden
+    >
       {isLivePhase(phase) && (
         <span className="absolute inset-0 rounded-full opacity-60 motion-safe:animate-ping" style={{ backgroundColor: toneColor[phaseTone(phase)] }} />
       )}
@@ -85,20 +90,43 @@ function RunRow({ run, active }: { run: AgentRun; active: boolean }) {
         isActive={active}
         title={`${runLabel(run)} — ${run.phase || "Unknown"}`}
         className={cn(
-          "group/run text-[11.5px]",
-          done && !active && "text-muted-foreground/70",
-          active && "bg-sidebar-accent text-sidebar-accent-foreground",
+          "group/run h-[26px] gap-2 rounded-[6px] px-1.5 text-[11.5px] tracking-tight",
+          "transition-colors duration-[var(--dur-fast)]",
+          done && !active && "text-muted-foreground/75 hover:text-foreground",
+          active && "bg-[color:var(--color-primary)]/10 font-medium text-foreground data-active:bg-[color:var(--color-primary)]/10",
         )}
       >
         <StatusDot phase={run.phase} />
         <span className="truncate">{runLabel(run)}</span>
         {run.createdAtUnix > 0n && (
-          <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground/50">
+          <span
+            className={cn(
+              "ml-auto shrink-0 pl-1 font-mono text-[10px] tabular-nums tracking-tight",
+              active ? "text-muted-foreground/80" : "text-muted-foreground/55 group-hover/run:text-muted-foreground/80",
+            )}
+          >
             {formatAge(run.createdAtUnix)}
           </span>
         )}
       </SidebarMenuSubButton>
     </SidebarMenuSubItem>
+  );
+}
+
+/** Quiet trailing row under a project's runs ("View all", "N completed hidden"). */
+const subFooterClass = cn(
+  "flex h-[24px] w-full items-center gap-1.5 rounded-[6px] px-1.5 text-left text-[10.5px] tracking-tight",
+  "text-muted-foreground/65 hover:bg-sidebar-accent hover:text-foreground",
+  "transition-colors duration-[var(--dur-fast)]",
+  "outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+);
+
+function SubEmptyRow({ children }: { children: React.ReactNode }) {
+  return (
+    <li className="flex h-[26px] items-center gap-2 px-1.5 text-[11px] text-muted-foreground/60">
+      <MessageSquareDashed className="size-3.5 shrink-0" strokeWidth={1.75} />
+      <span className="truncate">{children}</span>
+    </li>
   );
 }
 
@@ -114,31 +142,36 @@ function ShowCompletedCheckbox({
 }) {
   if (!checked && count === 0) return null;
   return (
-    <li className="list-none">
+    <li className="list-none pt-1">
       <button
         type="button"
         role="checkbox"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={cn(
-          "mt-0.5 flex w-full items-center gap-2 rounded-[6px] px-2 py-1",
-          "text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-sidebar-accent",
+          "flex h-[26px] w-full items-center gap-2 rounded-[6px] px-2",
+          "text-[11px] text-muted-foreground/65 hover:text-foreground hover:bg-sidebar-accent",
           "transition-colors duration-[var(--dur-fast)]",
+          "outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+          "group-data-[collapsible=icon]:hidden",
         )}
       >
         <span
           className={cn(
-            "grid size-[13px] shrink-0 place-items-center rounded-[3.5px] ring-1 ring-inset transition-colors",
+            "ml-px grid size-[13px] shrink-0 place-items-center rounded-[3.5px] ring-1 ring-inset transition-colors",
             checked
-              ? "bg-[color:var(--color-primary)]/80 ring-[color:var(--color-primary)]/60 text-background"
-              : "bg-transparent ring-border",
+              ? "bg-[color:var(--color-primary)] ring-[color:var(--color-primary)] text-[color:var(--color-primary-foreground)]"
+              : "bg-transparent ring-border/80",
           )}
         >
           {checked && <Check className="size-2.5" strokeWidth={3} />}
         </span>
         <span className="truncate tracking-tight">
-          Show completed{count > 0 ? ` (${count})` : ""}
+          Show completed
         </span>
+        {count > 0 && (
+          <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground/50">{count}</span>
+        )}
       </button>
     </li>
   );
@@ -243,7 +276,7 @@ export function ProjectTree({
   }, [setProjectHidden]);
 
   return (
-    <SidebarMenu>
+    <SidebarMenu className="gap-px">
       {visibleProjects.map((p) => {
         const key = `${p.namespace}/${p.name}`;
         const projRuns = runsByProject.get(key) ?? [];
@@ -270,16 +303,29 @@ export function ProjectTree({
             key={key}
             open={open}
             onOpenChange={(o) => setExpanded((prev) => ({ ...prev, [key]: o }))}
-            className="group/proj"
+            className="group/proj relative"
           >
             <SidebarMenuItem>
               <CollapsibleTrigger
                 render={
-                  <button className="absolute left-0.5 top-1/2 z-10 grid size-5 -translate-y-1/2 place-items-center rounded text-muted-foreground/60 hover:text-foreground" />
+                  <button
+                    className={cn(
+                      "absolute left-0.5 top-1/2 z-10 grid size-5 -translate-y-1/2 place-items-center rounded-[5px]",
+                      "text-muted-foreground/60 hover:bg-sidebar-accent hover:text-foreground",
+                      "transition-[opacity,color,background-color] duration-[var(--dur-fast)]",
+                      "group-data-[collapsible=icon]:hidden",
+                      "outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:opacity-100",
+                      // Collapsed chevrons sit back until the row is hovered.
+                      !open && "opacity-70 group-hover/proj:opacity-100 group-focus-within/proj:opacity-100",
+                    )}
+                  />
                 }
-                title="Expand"
+                title={open ? "Collapse" : "Expand"}
               >
-                <ChevronRight className={cn("size-3 transition-transform", open && "rotate-90")} />
+                <ChevronRight
+                  strokeWidth={2}
+                  className={cn("size-3 transition-transform duration-[var(--dur-base)]", open && "rotate-90")}
+                />
               </CollapsibleTrigger>
               <SidebarMenuButton
                 render={
@@ -294,9 +340,21 @@ export function ProjectTree({
                 }
                 isActive={active}
                 tooltip={p.displayName || p.name}
-                className="h-[30px] pl-6 pr-8 text-[12.5px] rounded-[6px] gap-2 data-[active=true]:bg-[color:var(--color-primary)]/12 data-[active=true]:text-foreground hover:bg-sidebar-accent"
+                className={cn(
+                  "h-[30px] gap-2 rounded-[7px] pl-6 pr-8 text-[12.5px]",
+                  "text-sidebar-foreground/85 transition-colors duration-[var(--dur-fast)]",
+                  "hover:bg-sidebar-accent hover:text-foreground",
+                  "data-active:bg-[color:var(--color-primary)]/10 data-active:text-foreground",
+                  "group-data-[collapsible=icon]:pl-2! group-data-[collapsible=icon]:pr-2!",
+                )}
               >
-                <FolderKanban className="size-[14px] text-muted-foreground" />
+                <FolderKanban
+                  strokeWidth={1.75}
+                  className={cn(
+                    "size-[14px] shrink-0 transition-colors duration-[var(--dur-fast)]",
+                    active || open ? "text-[color:var(--color-primary)]" : "text-muted-foreground",
+                  )}
+                />
                 <span className="truncate tracking-tight">{p.displayName || p.name}</span>
                 <ActiveRunsBadge count={projRuns.filter((r) => isLivePhase(r.phase)).length} />
               </SidebarMenuButton>
@@ -304,13 +362,16 @@ export function ProjectTree({
                 <DropdownMenuTrigger
                   aria-label={`Actions for ${p.displayName || p.name} (${key})`}
                   className={cn(
-                    "absolute right-1 top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center rounded",
+                    "absolute right-1 top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-[5px]",
                     "text-muted-foreground/70 hover:bg-muted/70 hover:text-foreground",
+                    "transition-[opacity,color,background-color] duration-[var(--dur-fast)]",
+                    // Reveal on hover/focus/open; always visible on touch devices.
+                    "md:opacity-0 group-hover/proj:opacity-100 group-focus-within/proj:opacity-100 data-[popup-open]:opacity-100",
                     "group-data-[collapsible=icon]:hidden",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:opacity-100",
                   )}
                 >
-                  <MoreHorizontal className="size-3.5" />
+                  <MoreHorizontal className="size-3.5" strokeWidth={2} />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="right" align="start" className="min-w-[190px]">
                   <DropdownMenuItem onClick={() => onNewChat(p)}>
@@ -328,13 +389,13 @@ export function ProjectTree({
               </DropdownMenu>
             </SidebarMenuItem>
             <CollapsibleContent>
-              <SidebarMenuSub>
+              <SidebarMenuSub className="mx-[13px] my-0.5 gap-px border-sidebar-border/90 px-1.5 py-0">
                 {projRuns.length === 0 ? (
-                  <li className="px-2 py-1 text-[11px] text-muted-foreground/60">No chats yet</li>
+                  <SubEmptyRow>No chats yet</SubEmptyRow>
                 ) : (
                   <>
                     {visible.length === 0 && (
-                      <li className="px-2 py-1 text-[11px] text-muted-foreground/60">No active chats</li>
+                      <SubEmptyRow>No active chats</SubEmptyRow>
                     )}
                     {visible.map((r) => (
                       <RunRow
@@ -348,10 +409,11 @@ export function ProjectTree({
                         <button
                           type="button"
                           onClick={() => toggleShowCompleted(true)}
-                          className="w-full rounded px-2 py-0.5 text-left text-[10.5px] text-muted-foreground/50 hover:text-foreground hover:bg-sidebar-accent transition-colors duration-[var(--dur-fast)]"
+                          className={subFooterClass}
                           title="Show completed runs"
                         >
-                          {hiddenDone} completed hidden
+                          <Eye className="size-3 shrink-0" strokeWidth={1.75} />
+                          <span className="truncate">{hiddenDone} completed hidden</span>
                         </button>
                       </li>
                     )}
@@ -360,9 +422,13 @@ export function ProjectTree({
                         <Link
                           to={detail}
                           onClick={() => writeLastProject(p)}
-                          className="block rounded px-2 py-0.5 text-[10.5px] text-muted-foreground/50 hover:text-foreground hover:bg-sidebar-accent transition-colors duration-[var(--dur-fast)]"
+                          className={cn(subFooterClass, "group/more")}
                         >
-                          View all {projRuns.length} →
+                          <span className="truncate">View all {projRuns.length}</span>
+                          <ArrowRight
+                            className="size-3 shrink-0 transition-transform duration-[var(--dur-fast)] group-hover/more:translate-x-0.5"
+                            strokeWidth={1.75}
+                          />
                         </Link>
                       </li>
                     )}
@@ -374,21 +440,24 @@ export function ProjectTree({
         );
       })}
       {hiddenProjects.length > 0 && (
-        <SidebarMenuItem>
+        <SidebarMenuItem className="pt-1">
           <DropdownMenu>
             <DropdownMenuTrigger
               ref={hiddenProjectsTriggerRef}
               aria-label={`${hiddenProjects.length} hidden ${hiddenProjects.length === 1 ? "project" : "projects"}`}
               className={cn(
-                "mt-1 flex h-[28px] w-full items-center gap-2 rounded-[6px] px-2",
-                "text-[11px] text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground",
+                "flex h-[26px] w-full items-center gap-2 rounded-[6px] px-2",
+                "text-[11px] text-muted-foreground/65 hover:bg-sidebar-accent hover:text-foreground",
+                "transition-colors duration-[var(--dur-fast)]",
                 "group-data-[collapsible=icon]:hidden",
                 "outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
               )}
             >
-              <EyeOff className="size-3.5" />
-              <span>{hiddenProjects.length} hidden {hiddenProjects.length === 1 ? "project" : "projects"}</span>
-              <ChevronRight className="ml-auto size-3" />
+              <EyeOff className="size-3.5 shrink-0" strokeWidth={1.75} />
+              <span className="truncate tracking-tight">
+                {hiddenProjects.length} hidden {hiddenProjects.length === 1 ? "project" : "projects"}
+              </span>
+              <ChevronRight className="ml-auto size-3 shrink-0 text-muted-foreground/50" />
             </DropdownMenuTrigger>
             <DropdownMenuContent side="right" align="end" className="min-w-[210px]">
               <DropdownMenuLabel>Hidden projects</DropdownMenuLabel>

@@ -109,6 +109,77 @@ const SettingsGitIdentityPage = React.lazy(() => import("@/components/settings/G
 const SettingsUpdatesPage = React.lazy(() => import("@/components/settings/UpdatesPage"));
 const AdminUsersPage = React.lazy(() => import("@/components/admin/AdminUsersPage"));
 
+/** Uppercase micro-label used for every sidebar section header. */
+function SidebarSectionLabel({
+  children,
+  action,
+}: {
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <SidebarGroupLabel
+      className={cn(
+        "group/label h-7 px-2 pr-1 mb-0.5",
+        "text-[10.5px] uppercase tracking-[0.1em] font-semibold text-muted-foreground/70",
+        "flex items-center justify-between select-none",
+      )}
+    >
+      <span>{children}</span>
+      {action}
+    </SidebarGroupLabel>
+  );
+}
+
+/** A single top-level navigation row: icon, label, optional trailing slot. */
+function SidebarNavItem({
+  to,
+  active,
+  label,
+  icon: Icon,
+  trailing,
+}: {
+  to: string;
+  active: boolean;
+  label: string;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        render={<Link to={to} />}
+        isActive={active}
+        tooltip={label}
+        className={cn(
+          "group/nav relative h-[30px] rounded-[7px] px-2 gap-2.5 text-[12.5px]",
+          "text-sidebar-foreground/85 transition-colors duration-[var(--dur-fast)]",
+          "hover:bg-sidebar-accent hover:text-foreground",
+          "data-active:bg-[color:var(--color-primary)]/10 data-active:text-foreground",
+          "data-active:font-medium",
+          // Active indicator: a short pill hugging the left edge.
+          "before:absolute before:left-0 before:top-1/2 before:h-3.5 before:w-[2px] before:-translate-y-1/2",
+          "before:rounded-full before:bg-[color:var(--color-primary)] before:opacity-0 before:transition-opacity",
+          "data-active:before:opacity-100",
+          "group-data-[collapsible=icon]:before:hidden",
+        )}
+      >
+        <Icon
+          strokeWidth={1.75}
+          className={cn(
+            "size-[15px] shrink-0 transition-colors duration-[var(--dur-fast)]",
+            active
+              ? "text-[color:var(--color-primary)]"
+              : "text-muted-foreground group-hover/nav:text-foreground/80",
+          )}
+        />
+        <span className="truncate tracking-tight">{label}</span>
+        {trailing}
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
 function AppSidebar({
   projects,
   runs,
@@ -119,6 +190,8 @@ function AppSidebar({
   const location = useLocation();
   const { user, activeWorkspaceId } = useAuth();
   const navigate = useNavigate();
+  const needsAttention = runs.some((run) => getRunAttention(run).kind !== "none");
+  const isSettings = location.pathname.startsWith("/settings");
 
   return (
     <Sidebar
@@ -129,95 +202,99 @@ function AppSidebar({
       )}
     >
       {/* Space for macOS traffic lights — stays clean on iPad too */}
-      <SidebarHeader className="min-h-[44px] pt-safe px-2 flex items-center gap-2 drag-region">
+      <SidebarHeader className="min-h-[44px] pt-safe px-2 pb-0 flex items-center gap-2 drag-region">
         <div className="hidden md:block pl-[66px]" aria-hidden />
       </SidebarHeader>
 
-      <SidebarContent className="px-1 no-drag">
-        <SidebarGroup>
+      <SidebarContent className="sidebar-scroll gap-0 px-1.5 no-drag">
+        <SidebarGroup className="pt-0 pb-1">
           <SidebarGroupContent>
-            {isTauri && <WorkspaceSwitcher />}
+            {isTauri ? (
+              <WorkspaceSwitcher />
+            ) : (
+              <div className="flex items-center gap-2.5 px-2 py-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+                <img src="/logo.png" alt="" className="size-[22px] shrink-0 rounded-[6px]" />
+                <span className="truncate text-[12.5px] font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+                  Grateful Agents
+                </span>
+              </div>
+            )}
             <div
               className={cn(
-                "mt-1 px-2 truncate font-mono text-[10px] text-muted-foreground/60",
+                "mt-1.5 flex items-center gap-1.5 px-2 font-mono text-[10px] tracking-tight text-muted-foreground/60",
                 "group-data-[collapsible=icon]:hidden",
               )}
               title={`App version ${APP_VERSION}`}
             >
-              build v{APP_VERSION}
+              <span className="size-1 rounded-full bg-[color:var(--tone-success)]/70" aria-hidden />
+              <span className="truncate">build v{APP_VERSION}</span>
             </div>
           </SidebarGroupContent>
         </SidebarGroup>
-        <SidebarGroup>
+
+        <SidebarGroup className="py-1">
           <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  render={<Link to="/" />}
-                  isActive={location.pathname === "/"}
-                  tooltip="Home"
-                  className="h-[30px] text-[12.5px] rounded-[6px] px-2 gap-2 data-[active=true]:bg-sidebar-accent hover:bg-sidebar-accent"
-                >
-                  <HomeIcon className="size-[15px] text-muted-foreground" />
-                  <span className="tracking-tight">Home</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  render={<Link to="/runs" />}
-                  isActive={location.pathname === "/runs"}
-                  tooltip="Agent Ops"
-                  className="h-[30px] text-[12.5px] rounded-[6px] px-2 gap-2 data-[active=true]:bg-sidebar-accent hover:bg-sidebar-accent"
-                >
-                  <Radio className="size-[15px] text-muted-foreground" />
-                  <span className="tracking-tight">Agent Ops</span>
-                  {runs.some((run) => getRunAttention(run).kind !== "none") && (
-                    <span className="ml-auto size-1.5 rounded-full bg-amber-500" aria-label="Runs need attention" />
-                  )}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  render={<Link to="/observability" />}
-                  isActive={location.pathname === "/observability"}
-                  tooltip="Observability"
-                  className="h-[30px] text-[12.5px] rounded-[6px] px-2 gap-2 data-[active=true]:bg-sidebar-accent hover:bg-sidebar-accent"
-                >
-                  <Activity className="size-[15px] text-muted-foreground" />
-                  <span className="tracking-tight">Observability</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  render={<Link to="/bug-reports" />}
-                  isActive={location.pathname === "/bug-reports"}
-                  tooltip="Bug Reports"
-                  className="h-[30px] text-[12.5px] rounded-[6px] px-2 gap-2 data-[active=true]:bg-sidebar-accent hover:bg-sidebar-accent"
-                >
-                  <Bug className="size-[15px] text-muted-foreground" />
-                  <span className="tracking-tight">Bug Reports</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+            <SidebarMenu className="gap-px">
+              <SidebarNavItem to="/" label="Home" icon={HomeIcon} active={location.pathname === "/"} />
+              <SidebarNavItem
+                to="/runs"
+                label="Agent Ops"
+                icon={Radio}
+                active={location.pathname === "/runs"}
+                trailing={
+                  needsAttention ? (
+                    <span
+                      className="relative ml-auto mr-0.5 inline-flex size-1.5 shrink-0 rounded-full bg-[color:var(--tone-warning)] group-data-[collapsible=icon]:hidden"
+                      role="img"
+                      aria-label="Runs need attention"
+                      title="Runs need attention"
+                    >
+                      <span className="absolute inset-0 rounded-full bg-[color:var(--tone-warning)] opacity-60 motion-safe:animate-ping" />
+                    </span>
+                  ) : undefined
+                }
+              />
+              <SidebarNavItem
+                to="/observability"
+                label="Observability"
+                icon={Activity}
+                active={location.pathname === "/observability"}
+              />
+              <SidebarNavItem
+                to="/bug-reports"
+                label="Bug Reports"
+                icon={Bug}
+                active={location.pathname === "/bug-reports"}
+              />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-[10.5px] tracking-[0.08em] font-medium text-muted-foreground/70 flex items-center justify-between pr-1">
-            <span>Projects</span>
-            <CreateProjectDialog
-              trigger={
-                <button
-                  type="button"
-                  title="New project"
-                  aria-label="New project"
-                  className="grid size-5 place-items-center rounded text-muted-foreground/60 hover:bg-sidebar-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-                >
-                  <Plus className="size-3.5" />
-                </button>
-              }
-            />
-          </SidebarGroupLabel>
+        <SidebarGroup className="py-1 group/section">
+          <SidebarSectionLabel
+            action={
+              <CreateProjectDialog
+                trigger={
+                  <button
+                    type="button"
+                    title="New project"
+                    aria-label="New project"
+                    className={cn(
+                      "grid size-5 place-items-center rounded-[5px] text-muted-foreground/60",
+                      "transition-[opacity,background-color,color] duration-[var(--dur-fast)]",
+                      "opacity-75 group-hover/section:opacity-100 focus-visible:opacity-100",
+                      "hover:bg-sidebar-accent hover:text-foreground",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                    )}
+                  >
+                    <Plus className="size-3.5" strokeWidth={2} />
+                  </button>
+                }
+              />
+            }
+          >
+            Projects
+          </SidebarSectionLabel>
           <SidebarGroupContent>
             <ProjectTree
               key={activeWorkspaceId}
@@ -229,97 +306,87 @@ function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-[10.5px] tracking-[0.08em] font-medium text-muted-foreground/70">
-            Workspace
-          </SidebarGroupLabel>
+        <SidebarGroup className="py-1">
+          <SidebarSectionLabel>Workspace</SidebarSectionLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton render={<Link to="/shared" />} isActive={location.pathname === "/shared"} tooltip="Shared" className="h-[30px] rounded-[6px] px-2 text-[12.5px] gap-2 hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent">
-                  <Users className="size-[15px] text-muted-foreground" />
-                  <span className="tracking-tight">Shared</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton render={<Link to="/security" />} isActive={location.pathname.startsWith("/security")} tooltip="Security" className="h-[30px] rounded-[6px] px-2 text-[12.5px] gap-2 hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent">
-                  <Shield className="size-[15px] text-muted-foreground" />
-                  <span className="tracking-tight">Security</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton render={<Link to="/resources/skills" />} isActive={location.pathname.startsWith("/resources")} tooltip="Resources" className="h-[30px] rounded-[6px] px-2 text-[12.5px] gap-2 hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent">
-                  <Blocks className="size-[15px] text-muted-foreground" />
-                  <span className="tracking-tight">Resources</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+            <SidebarMenu className="gap-px">
+              <SidebarNavItem to="/shared" label="Shared" icon={Users} active={location.pathname === "/shared"} />
+              <SidebarNavItem
+                to="/security"
+                label="Security"
+                icon={Shield}
+                active={location.pathname.startsWith("/security")}
+              />
+              <SidebarNavItem
+                to="/resources/skills"
+                label="Resources"
+                icon={Blocks}
+                active={location.pathname.startsWith("/resources")}
+              />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
         {user?.role === "admin" && (
-          <SidebarGroup>
-            <SidebarGroupLabel className="text-[10.5px] tracking-[0.08em] font-medium text-muted-foreground/70">
-              Admin
-            </SidebarGroupLabel>
+          <SidebarGroup className="py-1">
+            <SidebarSectionLabel>Admin</SidebarSectionLabel>
             <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    render={<Link to="/admin/users" />}
-                    isActive={location.pathname === "/admin/users"}
-                    tooltip="Users"
-                    className={cn(
-                      "h-[30px] text-[12.5px] rounded-[6px] px-2 gap-2",
-                      "transition-colors duration-[var(--dur-fast)]",
-                      "data-[active=true]:bg-[color:var(--color-primary)]/12",
-                      "data-[active=true]:text-foreground",
-                      "data-[active=true]:ring-1 data-[active=true]:ring-inset",
-                      "data-[active=true]:ring-[color:var(--color-primary)]/20",
-                      "hover:bg-sidebar-accent",
-                    )}
-                  >
-                    <ShieldCheck
-                      className={cn(
-                        "size-[15px]",
-                        location.pathname === "/admin/users"
-                          ? "text-[color:var(--color-primary)]"
-                          : "text-muted-foreground",
-                      )}
-                    />
-                    <span className="tracking-tight">Users</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+              <SidebarMenu className="gap-px">
+                <SidebarNavItem
+                  to="/admin/users"
+                  label="Users"
+                  icon={ShieldCheck}
+                  active={location.pathname === "/admin/users"}
+                />
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
         )}
       </SidebarContent>
 
-      <SidebarFooter className="px-2 pb-[max(env(safe-area-inset-bottom),0.75rem)] no-drag">
+      <SidebarFooter className="border-t border-sidebar-border px-1.5 pt-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] no-drag">
         <Link
           to="/settings"
           className={cn(
-            "flex items-center gap-2 px-1 py-1.5 rounded-[7px]",
+            "group/user flex items-center gap-2.5 px-1.5 py-1.5 rounded-[8px]",
             "hover:bg-sidebar-accent transition-colors duration-[var(--dur-fast)]",
-            location.pathname.startsWith("/settings") && "bg-sidebar-accent",
+            "outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+            "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0",
+            isSettings && "bg-[color:var(--color-primary)]/10",
           )}
           title="Settings"
+          aria-current={isSettings ? "page" : undefined}
         >
-          <div className="size-[22px] rounded-full bg-gradient-to-br from-[oklch(0.6_0.12_262)] to-[oklch(0.4_0.1_262)] ring-1 ring-inset ring-border/70 overflow-hidden">
-            {user?.picture && (
+          <div
+            className={cn(
+              "grid size-[26px] shrink-0 place-items-center overflow-hidden rounded-full",
+              "bg-gradient-to-br from-[oklch(0.6_0.12_262)] to-[oklch(0.4_0.1_262)]",
+              "text-[11px] font-semibold text-white/90",
+              "ring-1 ring-inset ring-white/10 shadow-[0_0_0_1px_var(--color-sidebar-border)]",
+            )}
+          >
+            {user?.picture ? (
               <img src={user.picture} alt="" className="size-full object-cover" />
+            ) : (
+              <span aria-hidden>{(user?.name || user?.username || "?").slice(0, 1).toUpperCase()}</span>
             )}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-[12px] font-medium truncate tracking-tight">
+          <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+            <div className="truncate text-[12px] font-medium leading-4 tracking-tight">
               {user?.name || user?.username || "—"}
             </div>
-            <div className="text-[10.5px] text-muted-foreground/80 truncate font-mono">
+            <div className="truncate font-mono text-[10.5px] leading-4 text-muted-foreground/70">
               {user?.email || "offline"}
             </div>
           </div>
-          <SettingsIcon className="size-[15px] text-muted-foreground shrink-0" />
+          <SettingsIcon
+            strokeWidth={1.75}
+            className={cn(
+              "size-[15px] shrink-0 transition-colors duration-[var(--dur-fast)]",
+              "group-data-[collapsible=icon]:hidden",
+              isSettings ? "text-[color:var(--color-primary)]" : "text-muted-foreground/70 group-hover/user:text-foreground",
+            )}
+          />
         </Link>
       </SidebarFooter>
       <SidebarRail />
