@@ -18,8 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { FieldError } from "@/components/ui/field";
 import {
   InputGroup,
   InputGroupAddon,
@@ -28,6 +27,14 @@ import {
 } from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
 import { Toggle } from "@/components/ui/toggle";
+import { RunOptionsPopover } from "@/components/run-launch/RunOptionsPopover";
+import {
+  activeGroups,
+  emptyRunOverrides,
+  overrideRequestFields,
+  validateOverseer,
+  type RunOverrides,
+} from "@/components/run-launch/runOverrides";
 import type { MyCredentials } from "@/rpc/platform/service_pb";
 
 interface PersonalWorkspaceDefaults {
@@ -124,6 +131,8 @@ export interface NewChatComposerProps {
   autoFocus?: boolean;
   placeholder?: string;
   className?: string;
+  /** Imperative focus handle for hosts whose "New run" button targets this composer. */
+  textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 /**
@@ -138,6 +147,7 @@ export function NewChatComposer({
   autoFocus,
   placeholder = "Describe a task, or ask anything…",
   className,
+  textareaRef,
 }: NewChatComposerProps) {
   const navigate = useNavigate();
   const { projects, loading: projectsLoading, error: projectsError } = useProjects();
@@ -146,14 +156,15 @@ export function NewChatComposer({
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [model, setModel] = useState("");
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [overrides, setOverrides] = useState<RunOverrides>(emptyRunOverrides);
   const [picked, setPicked] = useState<{ namespace: string; name: string } | null>(
     fixedNamespace && fixedProject ? { namespace: fixedNamespace, name: fixedProject } : null,
   );
   const attachments = useImageAttachments();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const taRef = useRef<HTMLTextAreaElement>(null);
+  const ownTaRef = useRef<HTMLTextAreaElement>(null);
+  const taRef = textareaRef ?? ownTaRef;
 
   const project = useMemo(() => {
     if (fixedProject) {
@@ -187,7 +198,7 @@ export function NewChatComposer({
     if (!ta) return;
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, variant === "hero" ? 280 : 180)}px`;
-  }, [text, variant]);
+  }, [text, variant, taRef]);
 
   async function submit() {
     const request = text.trim();
@@ -200,6 +211,11 @@ export function NewChatComposer({
       submitting ||
       attachments.processing
     ) return;
+    const overseerError = validateOverseer(overrides.overseer);
+    if (overseerError) {
+      setError(overseerError);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -213,13 +229,13 @@ export function NewChatComposer({
       const loadDefaults = async () => {
         if (defaults) return defaults;
         const credentials = await client.listMyCredentials({});
-        defaults = await personalWorkspaceDefaults(credentials, model.trim());
+        defaults = await personalWorkspaceDefaults(credentials, overrides.model.trim());
         return defaults;
       };
 
       if (!chatProject) {
         const credentials = await client.listMyCredentials({});
-        defaults = await personalWorkspaceDefaults(credentials, model.trim());
+        defaults = await personalWorkspaceDefaults(credentials, overrides.model.trim());
         try {
           const createdPersonalWorkspace = await client.createProject({
             name: personalWorkspaceProjectName,
@@ -261,12 +277,12 @@ export function NewChatComposer({
       }
 
       const res = await client.createAgentRun({
-        namespace: chatProject.namespace,
+        namespace: overrides.namespace.trim() || chatProject.namespace,
         userRequest: request,
-        model: model.trim(),
         source: { kind: "Project", name: chatProject.name },
         imageDataUrls: attachments.dataUrls(),
         videoDataUrls: attachments.videoDataUrls(),
+        ...overrideRequestFields(overrides, chatProject),
       });
       attachments.clear();
       writeLastProject({ namespace: chatProject.namespace, name: chatProject.name });
@@ -286,6 +302,7 @@ export function NewChatComposer({
   const canSubmit =
     (Boolean(text.trim()) || attachments.images.length > 0 || attachments.videos.length > 0) &&
     !composerDisabled;
+  const activeOverrideCount = activeGroups(overrides, project).length;
 
   return (
     <div className="flex flex-col gap-2">
@@ -369,16 +386,31 @@ export function NewChatComposer({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          <Toggle
-            size="sm"
-            pressed={showAdvanced}
-            onPressedChange={setShowAdvanced}
-            aria-label="Options"
-            title="Options"
-            className="min-w-0 px-1.5"
-          >
-            <SlidersHorizontal />
-          </Toggle>
+          <RunOptionsPopover
+            overrides={overrides}
+            onChange={setOverrides}
+            project={project ?? null}
+            open={optionsOpen}
+            onOpenChange={setOptionsOpen}
+            trigger={
+              <Toggle
+                size="sm"
+                pressed={optionsOpen || activeOverrideCount > 0}
+                aria-label={
+                  activeOverrideCount
+                    ? `Options (${activeOverrideCount} override${activeOverrideCount === 1 ? "" : "s"})`
+                    : "Options"
+                }
+                title="Run options"
+                className="min-w-0 gap-1 px-1.5"
+              >
+                <SlidersHorizontal />
+                {activeOverrideCount ? (
+                  <span className="font-mono text-[10.5px] tabular-nums">{activeOverrideCount}</span>
+                ) : null}
+              </Toggle>
+            }
+          />
           <InputGroupButton
             variant="default"
             size="sm"
@@ -395,20 +427,6 @@ export function NewChatComposer({
           </InputGroupButton>
         </InputGroupAddon>
       </InputGroup>
-
-      {showAdvanced && (
-        <Field orientation="horizontal">
-          <FieldLabel htmlFor="new-chat-model" className="shrink-0">
-            Model
-          </FieldLabel>
-          <Input
-            id="new-chat-model"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder="Model override (inherits project default)"
-          />
-        </Field>
-      )}
 
       {(error || projectsError || attachments.error) && (
         <FieldError>{error || projectsError || attachments.error}</FieldError>

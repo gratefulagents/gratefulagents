@@ -344,4 +344,96 @@ describe("NewChatComposer", () => {
     expect(client.createProject).not.toHaveBeenCalled();
     expect(client.createAgentRun).not.toHaveBeenCalled();
   });
+
+  it("keeps run options one popover away and sends overrides only when set", async () => {
+    watched.projects = [{
+      namespace: "team",
+      name: "briefs",
+      displayName: "Briefs",
+      provider: "anthropic",
+      model: "claude-sonnet",
+      repoUrl: "https://github.com/acme/repo",
+      baseBranch: "main",
+      additionalRepoUrls: [],
+    } as never];
+    vi.mocked(client.listAvailableModels).mockResolvedValue({ models: ["claude-sonnet", "claude-opus"] } as never);
+    vi.mocked(client.createAgentRun).mockResolvedValue({ namespace: "team", name: "run-2" } as never);
+
+    render(<MemoryRouter><NewChatComposer /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+
+    // Receipts read the project's defaults so the popover answers "what will this run use?".
+    expect(await screen.findByText("Run options")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Model/ }).textContent).toContain("claude-sonnet");
+    expect(screen.getByRole("button", { name: /^Repository/ }).textContent).toContain("acme/repo @ main");
+    await waitFor(() => expect(client.listAvailableModels).toHaveBeenCalledWith(
+      { namespace: "team", source: { kind: "Project", name: "briefs" }, provider: "anthropic" },
+      expect.anything(),
+    ));
+
+    fireEvent.click(screen.getByRole("button", { name: /^Model/ }));
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude-opus" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Repository/ }));
+    fireEvent.change(screen.getByLabelText("Base branch"), { target: { value: "feature" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Overseer/ }));
+    fireEvent.click(screen.getByRole("switch", { name: "Enable overseer" }));
+    fireEvent.change(screen.getByLabelText("Mode name"), { target: { value: "review" } });
+    fireEvent.change(screen.getByLabelText("Interval (minutes)"), { target: { value: "30" } });
+    fireEvent.change(screen.getByLabelText("Max interventions"), { target: { value: "0" } });
+
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(await screen.findByRole("button", { name: "Options (3 overrides)" })).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText("Describe a task, or ask anything…"), {
+      target: { value: "Ship it" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => expect(client.createAgentRun).toHaveBeenCalledTimes(1));
+    const request = vi.mocked(client.createAgentRun).mock.calls[0][0];
+    expect(request).toMatchObject({
+      namespace: "team",
+      userRequest: "Ship it",
+      model: "anthropic/claude-opus",
+      baseBranch: "feature",
+      source: { kind: "Project", name: "briefs" },
+      overseer: expect.objectContaining({ modeRefName: "review", intervalMinutes: 30, maxInterventions: 0 }),
+    });
+    // Untouched repository fields stay inherited rather than echoing cached values.
+    expect(request.repoUrl).toBeUndefined();
+    expect(request.additionalRepoUrls).toBeUndefined();
+  });
+
+  it("blocks an invalid overseer before submitting", async () => {
+    watched.projects = [{ namespace: "team", name: "briefs", displayName: "Briefs" }];
+    render(<MemoryRouter><NewChatComposer /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: "Options" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Overseer/ }));
+    fireEvent.click(screen.getByRole("switch", { name: "Enable overseer" }));
+    fireEvent.change(screen.getByLabelText("Interval (minutes)"), { target: { value: "0" } });
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+
+    fireEvent.change(screen.getByPlaceholderText("Describe a task, or ask anything…"), {
+      target: { value: "Ship it" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    expect(await screen.findByText(/Overseer interval/)).toBeTruthy();
+    expect(client.createAgentRun).not.toHaveBeenCalled();
+  });
+
+  it("pins the project and hides the picker when embedded on a project page", () => {
+    watched.projects = [
+      { namespace: "team", name: "briefs", displayName: "Briefs" },
+      { namespace: "team", name: "other", displayName: "Other" },
+    ];
+    render(
+      <MemoryRouter>
+        <NewChatComposer fixedNamespace="team" fixedProject="briefs" variant="compact" placeholder="Start a run in Briefs…" />
+      </MemoryRouter>,
+    );
+    expect(screen.getByPlaceholderText("Start a run in Briefs…")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Briefs/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Options" })).toBeTruthy();
+  });
 });

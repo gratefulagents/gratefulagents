@@ -70,4 +70,4 @@ Cluster admins can let a Project's runs execute real `docker` commands (`docker 
 
 When an Entry point starts work, the platform copies the current Project defaults into its generated source runtime and then into the new run. Updating Project settings changes what future trigger-created runs inherit; it does not modify existing runs. Each source has separate ingress fields and behavior, documented in [Cron schedules](./cron.md), [GitHub](../integrations/github.md), [Linear](../integrations/linear.md), and [Slack](../integrations/slack.md).
 
-When you start a run manually from the Project, **New Run** can override available advanced defaults for that one run. The override does not change the Project or future runs.
+When you start a run from the composer (on **Home** or at the top of the Project's **Overview**), its **Options** popover can override model, repository, runtime, overseer, and credential defaults for that one run. The override does not change the Project or future runs.

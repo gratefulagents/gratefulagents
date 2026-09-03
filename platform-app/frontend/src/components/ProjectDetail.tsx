@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ArrowRight, ArrowUpRight, ChevronRight, GitBranch, Settings, Share2 } from "lucide-react";
+import { ArrowRight, ArrowUpRight, ChevronRight, GitBranch, Play, Settings, Share2 } from "lucide-react";
 
 import { AgentRunTable } from "@/components/AgentRunTable";
-import { CreateRunDialog } from "@/components/CreateRunDialog";
 import { MaintainerCard } from "@/components/MaintainerPanel";
+import { NewChatComposer } from "@/components/NewChatComposer";
 import { ProjectCredentialBadges } from "@/components/projectCredentials";
 import { ProjectContentSection } from "@/components/project-content/ProjectContentSection";
 import {
@@ -106,6 +106,26 @@ export function ProjectDetail() {
     );
   };
 
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  // "New run" is the composer on Overview: jump there and focus it instead of
+  // opening a second launch surface. The focus is a pending request so it
+  // lands after the Overview tab (and the composer) has actually mounted.
+  const focusPending = useRef(false);
+  const [focusTick, setFocusTick] = useState(0);
+  const focusComposer = () => {
+    setTab("overview");
+    focusPending.current = true;
+    setFocusTick((n) => n + 1);
+  };
+  useEffect(() => {
+    if (!focusPending.current) return;
+    const ta = composerRef.current;
+    if (!ta) return;
+    focusPending.current = false;
+    ta.focus();
+    ta.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  }, [focusTick, tab]);
+
   return (
     <ListState
       loading={loading}
@@ -173,11 +193,10 @@ export function ProjectDetail() {
                   </Button>
                 )}
                 {canEdit && (
-                  <CreateRunDialog
-                    key={`${project.namespace}/${project.name}`}
-                    defaultSource={project.name}
-                    defaultNamespace={project.namespace}
-                  />
+                  <Button size="sm" onClick={focusComposer}>
+                    <Play data-icon="inline-start" />
+                    New run
+                  </Button>
                 )}
               </>
             }
@@ -218,6 +237,18 @@ export function ProjectDetail() {
 
             <TabsContent value="overview" className="pt-6">
               <div className="flex flex-col gap-8">
+                {canEdit && (
+                  <section aria-label="Start a run" className="flex flex-col gap-2">
+                    <NewChatComposer
+                      key={`${project.namespace}/${project.name}`}
+                      fixedNamespace={project.namespace}
+                      fixedProject={project.name}
+                      variant="compact"
+                      placeholder={`Start a run in ${project.displayName || project.name}…`}
+                      textareaRef={composerRef}
+                    />
+                  </section>
+                )}
                 <RecentActivity
                   runs={runs}
                   loading={runsLoading}

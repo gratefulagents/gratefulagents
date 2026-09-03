@@ -18,6 +18,7 @@ import { ConnectionManagerDialog } from "@/components/project-triggers/Connectio
 import { ProjectTriggerDialog } from "@/components/project-triggers/ProjectTriggerDialog";
 import {
   triggerSource,
+  type ConnectionType,
   type ProjectConnection,
   type ProjectTrigger,
   type ProjectTriggerClient,
@@ -243,6 +244,7 @@ export function ProjectEntryPoints({
   const [changing, setChanging] = useState<string | null>(null);
   const [connections, setConnections] = useState<ProjectConnection[]>([]);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [quickCreate, setQuickCreate] = useState<ConnectionType | undefined>();
   const [error, setError] = useState<string | null>(null);
 
   async function loadConnections() {
@@ -250,9 +252,10 @@ export function ProjectEntryPoints({
     setConnections(response.connections ?? []);
   }
 
-  async function openConnections() {
+  async function openConnections(createType?: ConnectionType) {
     try {
       await loadConnections();
+      setQuickCreate(createType);
       setConnectionsOpen(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to load connections");
@@ -467,7 +470,7 @@ export function ProjectEntryPoints({
           onOpenChange={setCreateOpen}
           onSave={save}
           connections={connections}
-          onManageConnections={() => void openConnections()}
+          onManageConnections={(type) => void openConnections(type)}
         />
       )}
       {editing && (
@@ -477,7 +480,7 @@ export function ProjectEntryPoints({
           onOpenChange={(open) => !open && setEditing(undefined)}
           onSave={save}
           connections={connections}
-          onManageConnections={() => void openConnections()}
+          onManageConnections={(type) => void openConnections(type)}
         />
       )}
       {duplicating && (
@@ -487,12 +490,13 @@ export function ProjectEntryPoints({
           onOpenChange={(open) => !open && setDuplicating(undefined)}
           onSave={save}
           connections={connections}
-          onManageConnections={() => void openConnections()}
+          onManageConnections={(type) => void openConnections(type)}
         />
       )}
       <ConnectionManagerDialog
         open={connectionsOpen}
         onOpenChange={setConnectionsOpen}
+        quickCreate={quickCreate}
         connections={connections}
         onCreate={(connection) => saveConnection(connection)}
         onUpdate={(connection, existing) => saveConnection(connection, existing)}

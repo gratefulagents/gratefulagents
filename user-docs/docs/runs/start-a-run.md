@@ -34,12 +34,10 @@ Implement the settings UI from issue #142, run the affected tests, and prepare a
 
 1. Go to **Projects**.
 2. Open a project.
-3. Select **New Run**.
-4. Enter the request.
-5. Review the options that the project makes available.
-6. Select **Start Run**.
+3. Type the request in the composer at the top of **Overview** (the **New run** button in the header focuses it).
+4. Press **Enter** or select **Start**.
 
-A project can supply defaults for repositories, branch, provider and model, credentials, runtime, permissions, and instructions. The available overrides depend on the project and your permissions; a run does not necessarily expose every project setting.
+The composer is the same one as on **Home**, pinned to the project. To change something for this run only, open the sliders **Options** button. It shows a receipt of what the run will use — **Model** (with the project's default named), **Repository** and branch, **Runtime**, **Overseer**, and **Advanced** (credential Secrets, namespace) — and you expand a row only to override it. The button shows how many overrides are active; **Reset all** clears them. Overrides never change the project or future runs.
 
 ## Choose an effective mode
 

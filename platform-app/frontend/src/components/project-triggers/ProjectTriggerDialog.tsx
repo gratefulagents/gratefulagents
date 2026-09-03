@@ -1,9 +1,22 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
-import { CalendarClock, ChevronRight, GitBranch, Layers, Loader2, MessageSquare, Plus, Settings } from "lucide-react";
+import { Bot, CalendarClock, ChevronRight, GitBranch, Layers, Loader2, MessageSquare, Plus, Settings } from "lucide-react";
 
-import { CRON_PRESETS, describeCron, FieldHint, ProviderCard } from "@/components/project-triggers/connection-guides";
-import type { ProjectConnection, ProjectTrigger, TriggerSource } from "@/components/project-triggers/types";
+import { Chip, OptionRow } from "@/components/create-flow/create-flow";
+import {
+  CRON_PRESETS,
+  describeCron,
+  FieldHint,
+  isDnsLabel,
+  ProviderCard,
+} from "@/components/project-triggers/connection-guides";
+import { browserTimeZone, suggestTriggerName, timeZoneOptions } from "@/components/project-triggers/trigger-defaults";
+import type {
+  ConnectionType,
+  ProjectConnection,
+  ProjectTrigger,
+  TriggerSource,
+} from "@/components/project-triggers/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -94,8 +107,10 @@ function initialForm(trigger?: ProjectTrigger): FormState {
       field(trigger?.slack, "connectionRef") ||
       field(trigger?.linear, "connectionRef"),
     repository: [field(github, "owner"), field(github, "repo")].filter(Boolean).join("/"),
-    issueEvents: Boolean(github?.issues),
-    commentEvents: Boolean(github?.comments),
+    // A brand-new GitHub trigger reacts to both event kinds; one that reacts
+    // to nothing is the most common misconfiguration.
+    issueEvents: trigger ? Boolean(github?.issues) : true,
+    commentEvents: trigger ? Boolean(github?.comments) : true,
     maintainerEnabled: booleanField(github, "maintainerEnabled"),
     maintainerMaxConcurrentDispatches: positiveNumber(github, "maintainerMaxConcurrentDispatches"),
     maintainerMaxDispatchesPerDay: positiveNumber(github, "maintainerMaxDispatchesPerDay"),
@@ -110,8 +125,8 @@ function initialForm(trigger?: ProjectTrigger): FormState {
     channelReplyMode: replyMode === "auto" ? "auto" : "require-approval",
     commanders: stringList(slack, "commanders").join(", "),
     sessionIdleMinutes: positiveNumber(slack, "sessionIdleMinutes"),
-    schedule: field(trigger?.cron, "schedule"),
-    timeZone: field(trigger?.cron, "timeZone"),
+    schedule: trigger ? field(trigger?.cron, "schedule") : "0 9 * * 1-5",
+    timeZone: trigger ? field(trigger?.cron, "timeZone") : browserTimeZone(),
     prompt: field(trigger?.cron, "prompt"),
     team: field(trigger?.linear, "teamId"),
     project: field(trigger?.linear, "projectId"),
@@ -202,7 +217,8 @@ export function ProjectTriggerDialog({
   onOpenChange: (open: boolean) => void;
   onSave: (trigger: ProjectTrigger) => Promise<void>;
   connections: ProjectConnection[];
-  onManageConnections: () => void;
+  /** Open the connection manager; with a type, straight onto that provider's form. */
+  onManageConnections: (type?: ConnectionType) => void;
 }) {
   const editing = Boolean(trigger);
   const duplicating = !editing && Boolean(duplicateFrom);
@@ -215,11 +231,33 @@ export function ProjectTriggerDialog({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The name follows the details ("gh-acme-payments", "weekdays-0900") until
+  // the user types one; editing an existing trigger never renames it.
+  const [nameTouched, setNameTouched] = useState(editing);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
+    if (key === "name") setNameTouched(true);
     setForm((prev) => ({ ...prev, [key]: value }));
     if (key === "name" || key === "connectionRef") setError(null);
   }
+
+  const suggestedName = useMemo(() => suggestTriggerName(form), [form]);
+  const effectiveName = nameTouched ? form.name : suggestedName;
+
+  // A connection created from the empty state (or added elsewhere) becomes
+  // the selection as soon as it shows up, so the user is not sent hunting.
+  const matchingConnections = useMemo(
+    () => connections.filter((c) => c.type === form.type),
+    [connections, form.type],
+  );
+  useEffect(() => {
+    if (form.type === "cron") return;
+    if (matchingConnections.length === 0) return;
+    if (matchingConnections.some((c) => c.name === form.connectionRef)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- adopt the newly available connection
+    setForm((prev) => ({ ...prev, connectionRef: matchingConnections[0].name }));
+  }, [form.type, form.connectionRef, matchingConnections]);
+  const needsConnection = form.type !== "cron" && matchingConnections.length === 0;
 
   function handleClose(next: boolean) {
     if (!next) {
@@ -237,12 +275,25 @@ export function ProjectTriggerDialog({
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!form.name.trim()) {
+    const name = effectiveName.trim();
+    if (!name) {
       setError("Give this trigger a name.");
+      return;
+    }
+    if (!isDnsLabel(name)) {
+      setError("Name must be lowercase letters, numbers, and hyphens only.");
       return;
     }
     if (form.type !== "cron" && !form.connectionRef) {
       setError("Choose a connection.");
+      return;
+    }
+    if (form.type === "github" && !form.repository.trim().includes("/")) {
+      setError("Enter the repository as owner/repository.");
+      return;
+    }
+    if (form.type === "cron" && !form.schedule.trim()) {
+      setError("Choose a schedule.");
       return;
     }
     if (form.type === "github" && form.maintainerEnabled) {
@@ -279,7 +330,7 @@ export function ProjectTriggerDialog({
     try {
       // In duplicate mode, carry through settings not represented by this
       // form while still creating a distinct resource with the new name.
-      await onSave(buildTrigger(form, source));
+      await onSave(buildTrigger({ ...form, name }, source));
       onOpenChange(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to save trigger");
@@ -335,7 +386,7 @@ export function ProjectTriggerDialog({
                   connections={connections}
                   editing={editing}
                   update={update}
-                  onManageConnections={onManageConnections}
+                  onManageConnections={() => onManageConnections("github")}
                 />
               )}
               {form.type === "slack" && (
@@ -344,11 +395,11 @@ export function ProjectTriggerDialog({
                   connections={connections}
                   editing={editing}
                   update={update}
-                  onManageConnections={onManageConnections}
+                  onManageConnections={() => onManageConnections("slack")}
                 />
               )}
               {form.type === "cron" && (
-                <CronDetails form={form} update={update} />
+                <CronDetails form={form} editing={editing} update={update} />
               )}
               {form.type === "linear" && (
                 <LinearDetails
@@ -356,29 +407,31 @@ export function ProjectTriggerDialog({
                   connections={connections}
                   editing={editing}
                   update={update}
-                  onManageConnections={onManageConnections}
+                  onManageConnections={() => onManageConnections("linear")}
                 />
               )}
 
-              {/* Name field */}
+              {/* Name field — suggested from the details until typed. */}
               <div>
                 <Label className="mb-1.5 block text-[12.5px] font-medium">Trigger name</Label>
                 <Input
-                  value={form.name}
+                  value={effectiveName}
                   onChange={(e) => update("name", e.target.value)}
                   autoFocus={editing || duplicating}
                   placeholder="my-trigger"
                   autoComplete="off"
+                  spellCheck={false}
+                  readOnly={editing}
+                  className="font-mono text-[13px]"
                   aria-label="Trigger name"
                 />
-              </div>
-
-              <div className="rounded-md border border-border/70 bg-muted/35 px-3 py-2.5 text-[11.5px] leading-relaxed text-muted-foreground">
-                <span className="font-medium text-foreground">Inherited project defaults</span>
-                <span className="mt-0.5 block">
-                  Repository, model, runtime, credentials, and policies remain managed by this
-                  project.
-                </span>
+                <FieldHint>
+                  {editing
+                    ? "Fixed at creation."
+                    : !nameTouched && suggestedName
+                      ? "Suggested from the settings above — edit if you like."
+                      : "Lowercase letters, numbers, and hyphens."}
+                </FieldHint>
               </div>
 
               {error && (
@@ -388,11 +441,14 @@ export function ProjectTriggerDialog({
               )}
             </div>
 
-            <div className="flex flex-col-reverse gap-2 border-t px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+            <div className="flex flex-col-reverse gap-2 border-t px-5 py-4 sm:flex-row sm:items-center sm:px-6">
+              <p className="min-w-0 flex-1 truncate text-[11.5px] text-muted-foreground">
+                Runs started by this trigger use the project&apos;s settings.
+              </p>
               <DialogClose render={<Button type="button" variant="ghost" size="sm" disabled={saving} />}>
                 Cancel
               </DialogClose>
-              <Button type="submit" size="sm" disabled={saving}>
+              <Button type="submit" size="sm" disabled={saving || needsConnection}>
                 {saving && <Loader2 className="size-4 animate-spin" />}
                 {saving ? "Saving…" : editing ? "Save changes" : duplicating ? "Create duplicate" : "Create trigger"}
               </Button>
@@ -552,7 +608,7 @@ function GitHubDetails({
         label="Connection"
         value={form.connectionRef}
         connections={matching}
-        emptyLabel="No GitHub connection yet — add one to continue."
+        emptyLabel="Connect GitHub first — the trigger needs a token to read the repository."
         onChange={(v) => update("connectionRef", v)}
         onManageConnections={onManageConnections}
       />
@@ -593,7 +649,12 @@ function GitHubDetails({
           </label>
         </div>
       </fieldset>
-      <fieldset className="space-y-3 rounded-lg border border-border/70 p-3.5">
+      <OptionRow
+        icon={Bot}
+        title="Repository maintainer"
+        summary={form.maintainerEnabled ? "On — standing agent triages issues" : "Off"}
+        modified={form.maintainerEnabled}
+      >
         <label className="flex items-start gap-2.5 text-[12.5px]">
           <input
             type="checkbox"
@@ -603,14 +664,14 @@ function GitHubDetails({
             aria-label="Enable repository maintainer"
           />
           <span>
-            <span className="block font-medium">Repository maintainer</span>
+            <span className="block font-medium">Keep a standing maintainer agent on this repository</span>
             <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
-              Keep a standing agent attached to this repository to triage and dispatch issue work.
+              It triages new issues and dispatches implementation runs on a schedule, within the limits below.
             </span>
           </span>
         </label>
         {form.maintainerEnabled && (
-          <div className="space-y-4 border-t border-border/60 pt-3">
+          <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label className="mb-1.5 block text-[12.5px] font-medium">Max concurrent dispatches</Label>
@@ -727,7 +788,7 @@ function GitHubDetails({
             </div>
           </div>
         )}
-      </fieldset>
+      </OptionRow>
     </div>
   );
 }
@@ -752,7 +813,7 @@ function SlackDetails({
         label="Connection"
         value={form.connectionRef}
         connections={matching}
-        emptyLabel="No Slack connection yet — add one to continue."
+        emptyLabel="Connect Slack first — the trigger needs the bot tokens."
         onChange={(v) => update("connectionRef", v)}
         onManageConnections={onManageConnections}
       />
@@ -827,50 +888,67 @@ function SlackDetails({
 
 function CronDetails({
   form,
+  editing,
   update,
 }: {
   form: FormState;
+  editing: boolean;
   update: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
 }) {
   const description = describeCron(form.schedule);
+  const zones = useMemo(() => timeZoneOptions(), []);
+  const isPreset = CRON_PRESETS.some((preset) => preset.value === form.schedule);
 
   return (
     <div className="space-y-4">
       <div>
-        <Label className="mb-2 block text-[12.5px] font-medium">Schedule presets</Label>
-        <div className="flex flex-wrap gap-1.5">
+        <Label className="mb-1.5 block text-[12.5px] font-medium">What should each run do?</Label>
+        <textarea
+          value={form.prompt}
+          onChange={(e) => update("prompt", e.target.value)}
+          placeholder="Triage new issues, update the changelog, run the nightly checks…"
+          rows={3}
+          autoFocus={!editing}
+          aria-label="Prompt"
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-[13px] leading-relaxed placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        />
+        <FieldHint>The agent follows these instructions every time the schedule fires.</FieldHint>
+      </div>
+      <div>
+        <Label className="mb-2 block text-[12.5px] font-medium">When</Label>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Schedule presets">
           {CRON_PRESETS.map((preset) => (
-            <button
+            <Chip
               key={preset.value}
-              type="button"
-              onClick={() => update("schedule", preset.value)}
-              className={cn(
-                "rounded-md border px-2.5 py-1 text-[12px] transition-colors",
-                form.schedule === preset.value
-                  ? "border-primary/40 bg-primary/5 font-medium text-primary"
-                  : "border-border/70 text-muted-foreground hover:bg-muted/40",
-              )}
-              aria-label={`Preset: ${preset.label}`}
+              selected={form.schedule === preset.value}
+              onSelect={() => update("schedule", preset.value)}
             >
               {preset.label}
-            </button>
+            </Chip>
           ))}
+          <Chip
+            selected={!isPreset}
+            onSelect={() => {
+              if (isPreset) update("schedule", "");
+            }}
+          >
+            Custom
+          </Chip>
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <Label className="mb-1.5 block text-[12.5px] font-medium">Schedule (cron)</Label>
+          <Label className="mb-1.5 block text-[12.5px] font-medium">Cron expression</Label>
           <Input
             className="font-mono"
             value={form.schedule}
             onChange={(e) => update("schedule", e.target.value)}
             placeholder="0 9 * * *"
             autoComplete="off"
+            spellCheck={false}
             aria-label="Cron schedule"
           />
-          {description && (
-            <p className="mt-1 text-[11.5px] text-muted-foreground">{description}</p>
-          )}
+          <FieldHint>min · hour · day · month · weekday</FieldHint>
         </div>
         <div>
           <Label className="mb-1.5 block text-[12.5px] font-medium">Time zone</Label>
@@ -879,23 +957,30 @@ function CronDetails({
             onChange={(e) => update("timeZone", e.target.value)}
             placeholder="UTC"
             autoComplete="off"
+            spellCheck={false}
+            list="trigger-time-zones"
             aria-label="Time zone"
           />
-          <FieldHint>IANA name, e.g. Europe/Berlin or America/New_York.</FieldHint>
+          <datalist id="trigger-time-zones">
+            {zones.map((zone) => (
+              <option key={zone} value={zone} />
+            ))}
+          </datalist>
+          <FieldHint>Defaults to your current zone.</FieldHint>
         </div>
       </div>
-      <div>
-        <Label className="mb-1.5 block text-[12.5px] font-medium">Prompt</Label>
-        <textarea
-          value={form.prompt}
-          onChange={(e) => update("prompt", e.target.value)}
-          placeholder="What should this scheduled run do?"
-          rows={3}
-          aria-label="Prompt"
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-[13px] leading-relaxed placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-        />
-        <FieldHint>Instructions the agent follows every time this trigger fires.</FieldHint>
-      </div>
+      <p className="text-[12.5px] text-muted-foreground" aria-live="polite" data-testid="schedule-preview">
+        {form.schedule.trim() ? (
+          <>
+            <span className="font-medium text-foreground">{description || "Custom schedule"}</span>
+            {" · "}
+            {form.timeZone.trim() || "UTC"}
+            {description ? "" : ` · ${form.schedule.trim()}`}
+          </>
+        ) : (
+          "Pick a preset or enter a cron expression."
+        )}
+      </p>
     </div>
   );
 }
@@ -921,7 +1006,7 @@ function LinearDetails({
         label="Connection"
         value={form.connectionRef}
         connections={matching}
-        emptyLabel="No Linear connection yet — add one to continue."
+        emptyLabel="Connect Linear first — the trigger needs an API key."
         onChange={(v) => update("connectionRef", v)}
         onManageConnections={onManageConnections}
       />

@@ -18,7 +18,10 @@ export function describeCron(expr: string): string {
   const [min, hour, dom, mon, dow] = parts;
   // Hourly shorthand: 0 * * * *
   if (min === "0" && hour === "*" && dom === "*" && mon === "*" && dow === "*") return "Every hour";
-  const hasTime = min !== "*" && hour !== "*";
+  // Only plain numbers read as a clock time; steps and lists ("*/2", "9,17")
+  // fall through to the raw expression rather than "at */2:15".
+  const hasTime = /^\d{1,2}$/.test(min) && /^\d{1,2}$/.test(hour);
+  if (!hasTime && (min !== "*" || hour !== "*")) return "";
   const timeStr = hasTime ? ` at ${hour.padStart(2, "0")}:${min.padStart(2, "0")}` : "";
   if (dom === "*" && mon === "*") {
     if (dow === "*") return `Daily${timeStr}`;
