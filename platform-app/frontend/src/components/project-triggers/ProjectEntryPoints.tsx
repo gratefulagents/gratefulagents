@@ -280,6 +280,19 @@ export function ProjectEntryPoints({
     }
   }
 
+  // The edit dialog disables "Save changes" until a connection of the
+  // trigger's type is present, so it must see the current connection list
+  // — otherwise an existing trigger shows "Connect GitHub first" and cannot
+  // be saved even though its connection exists.
+  async function openEditDialog(trigger: ProjectTrigger) {
+    try {
+      await loadConnections();
+      setEditing(trigger);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to load connections");
+    }
+  }
+
   async function saveConnection(connection: ProjectConnection, existing?: ProjectConnection) {
     setError(null);
     if (existing) {
@@ -421,7 +434,7 @@ export function ProjectEntryPoints({
                       <MoreHorizontal className="size-4" />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => setEditing(trigger)}>
+                      <DropdownMenuItem onClick={() => void openEditDialog(trigger)}>
                         <Pencil />
                         Edit
                       </DropdownMenuItem>
