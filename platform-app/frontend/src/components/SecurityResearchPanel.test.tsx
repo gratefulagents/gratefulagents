@@ -8,7 +8,9 @@ import {
   SecurityResearchCoverageSchema,
   SecurityResearchDossierSchema,
   SecurityResearchHypothesisSchema,
+  SecurityResearchSubmissionSchema,
   SecurityResearchVariantSweepSchema,
+  SecuritySubmissionOutcomeEventSchema,
 } from "@/rpc/platform/service_pb";
 
 const mocks = vi.hoisted(() => ({
@@ -23,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   recordSecurityResearchCoverage: vi.fn(),
   createSecurityResearchVariantSweep: vi.fn(),
   completeSecurityResearchVariantSweep: vi.fn(),
+  listSecurityResearchSubmissions: vi.fn(),
   listSecuritySubmissionOutcomeHistory: vi.fn(),
   recordSecuritySubmissionOutcome: vi.fn(),
   correctSecuritySubmissionOutcome: vi.fn(),
@@ -81,6 +84,42 @@ beforeEach(() => {
       rootCause: "Missing ownership check",
       status: "running",
     })],
+  });
+  mocks.listSecurityResearchSubmissions.mockResolvedValue({
+    submissions: [
+      create(SecurityResearchSubmissionSchema, {
+        id: "55555555-5555-4555-8555-555555555555",
+        findingId: "66666666-6666-4666-8666-666666666666",
+        findingFingerprint: "fp-withdraw",
+        findingTitle: "Unauthorized withdraw",
+        workflow: "bounty",
+        candidateKey: "fp-withdraw",
+        rank: 1,
+        status: "submitted",
+        latestOutcome: "accepted",
+      }),
+      create(SecurityResearchSubmissionSchema, {
+        id: "77777777-7777-4777-8777-777777777777",
+        findingFingerprint: "fp-oracle",
+        findingTitle: "Stale oracle price",
+        workflow: "bounty",
+        candidateKey: "fp-oracle",
+        rank: 2,
+        status: "candidate",
+      }),
+    ],
+    truncated: false,
+  });
+  mocks.listSecuritySubmissionOutcomeHistory.mockResolvedValue({
+    events: [create(SecuritySubmissionOutcomeEventSchema, {
+      id: 1n,
+      submissionId: "55555555-5555-4555-8555-555555555555",
+      outcome: "accepted",
+      rationale: "Triager confirmed the report",
+      actor: "alice",
+      idempotencyKey: "outcome-1",
+    })],
+    truncated: false,
   });
 });
 
@@ -170,6 +209,39 @@ describe("SecurityResearchPanel", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("must be a JSON object");
     expect(mocks.completeSecurityResearchVariantSweep).not.toHaveBeenCalled();
+  });
+
+  it("lists packaged submissions and fills the submission ID from a row", async () => {
+    renderPanel();
+    await screen.findByText("Authorization bypass");
+    expect(mocks.listSecurityResearchSubmissions).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh submissions" }));
+
+    expect(await screen.findByText("Unauthorized withdraw")).toBeTruthy();
+    expect(screen.getByText("Stale oracle price")).toBeTruthy();
+    expect(mocks.listSecurityResearchSubmissions).toHaveBeenCalledWith(expect.objectContaining({ limit: 200 }));
+    const table = screen.getByRole("table");
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(within(table).getByText("accepted")).toBeTruthy();
+    expect(within(table).getByText("pending")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use submission 55555555-5555-4555-8555-555555555555" }));
+
+    expect((screen.getByLabelText("Submission ID") as HTMLInputElement).value).toBe("55555555-5555-4555-8555-555555555555");
+    expect(await screen.findByText("Triager confirmed the report", { exact: false })).toBeTruthy();
+    expect(mocks.listSecuritySubmissionOutcomeHistory).toHaveBeenCalledWith(expect.objectContaining({ submissionId: "55555555-5555-4555-8555-555555555555", limit: 200 }));
+  });
+
+  it("shows an empty state when no submissions were packaged", async () => {
+    mocks.listSecurityResearchSubmissions.mockResolvedValue({ submissions: [], truncated: false });
+    renderPanel();
+    await screen.findByText("Authorization bypass");
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh submissions" }));
+
+    expect(await screen.findByText("No packaged submissions for this revision yet")).toBeTruthy();
+    expect(screen.queryByRole("table")).toBeNull();
   });
 
   it("validates submission IDs before loading outcome history", async () => {

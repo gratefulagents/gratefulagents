@@ -303,3 +303,46 @@ func TestAmendSecurityResearchDossierExpectedVersionIsCurrentVersion(t *testing.
 		t.Fatalf("stale expected version error = %v", err)
 	}
 }
+
+func TestListSecurityResearchSubmissionsAttachesLatestOutcomeAndSubmitsUnreservedCandidates(t *testing.T) {
+	s, namespace := setupSecurityResearchTestStore(t)
+	_, revision := createSecurityResearchFixture(t, s, namespace)
+	ctx := context.Background()
+	first, _, err := s.CreateSecurityResearchSubmission(ctx, namespace, &store.SecurityResearchSubmission{RevisionID: revision.ID, Workflow: "bounty", CandidateKey: "fp-first", Rank: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := s.CreateSecurityResearchSubmission(ctx, namespace, &store.SecurityResearchSubmission{RevisionID: revision.ID, Workflow: "bounty", CandidateKey: "fp-second", Rank: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkSecurityResearchSubmissionSubmitted(ctx, namespace, first.ID, time.Now()); err != nil {
+		t.Fatalf("never-reserved candidate could not be handed over: %v", err)
+	}
+	if _, _, err := s.RecordSecuritySubmissionOutcome(ctx, namespace, first.ID, store.SecuritySubmissionOutcomeInput{RevisionID: revision.ID, Outcome: store.SecuritySubmissionOutcomeAccepted, IdempotencyKey: "outcome-1"}); err != nil {
+		t.Fatal(err)
+	}
+	reserved, err := s.ReserveSecurityResearchSubmission(ctx, namespace, store.SecuritySubmissionReservationRequest{SubmissionID: second.ID, Workflow: "bounty", PeriodDays: 7, BudgetLimit: 3, IdempotencyKey: "reserve-second"})
+	if err != nil || !reserved.Reserved {
+		t.Fatalf("reserve: result=%#v err=%v", reserved, err)
+	}
+	if err := s.VoidSecurityResearchSubmissionReservation(ctx, namespace, second.ID, "reserve-second"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkSecurityResearchSubmissionSubmitted(ctx, namespace, second.ID, time.Now()); err == nil {
+		t.Fatal("candidate with a voided reservation bypassed the rolling budget")
+	}
+	values, err := s.ListSecurityResearchSubmissions(ctx, namespace, revision.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 2 || values[0].ID != first.ID || values[1].ID != second.ID {
+		t.Fatalf("submissions = %+v", values)
+	}
+	if values[0].Status != "submitted" || values[0].Outcome != store.SecuritySubmissionOutcomeAccepted || values[0].OutcomeRecordedAt == nil {
+		t.Fatalf("first submission = %+v", values[0])
+	}
+	if values[1].Status != "candidate" || values[1].Outcome != "" || values[1].OutcomeRecordedAt != nil {
+		t.Fatalf("second submission = %+v", values[1])
+	}
+}

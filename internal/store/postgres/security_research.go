@@ -988,6 +988,35 @@ func (s *Store) CreateSecurityResearchSubmission(ctx context.Context, namespace 
 	return stored, created, nil
 }
 
+func (s *Store) ListSecurityResearchSubmissions(ctx context.Context, namespace string, revisionID uuid.UUID) ([]store.SecurityResearchSubmission, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT `+securityResearchSubmissionColumns+`,
+			COALESCE(f.fingerprint, ''), COALESCE(f.title, ''), COALESCE(o.outcome, ''), o.recorded_at
+		FROM security_research_submissions s
+		JOIN security_research_targets t ON t.id = s.target_id
+		LEFT JOIN security_findings f ON f.id = s.finding_id
+		LEFT JOIN security_research_submission_outcomes o ON o.submission_id = s.id
+		WHERE t.namespace = $1 AND s.revision_id = $2 ORDER BY s.rank, s.created_at DESC, s.id`, namespace, revisionID)
+	if err != nil {
+		return nil, fmt.Errorf("listing security research submissions: %w", err)
+	}
+	defer rows.Close()
+	var values []store.SecurityResearchSubmission
+	for rows.Next() {
+		var value store.SecurityResearchSubmission
+		var payload []byte
+		if err := rows.Scan(&value.ID, &value.RevisionID, &value.TargetID, &value.FindingID, &value.Workflow, &value.CandidateKey, &value.Rank, &payload, &value.Status, &value.CreatedAt, &value.SubmittedAt,
+			&value.FindingFingerprint, &value.FindingTitle, &value.Outcome, &value.OutcomeRecordedAt); err != nil {
+			return nil, fmt.Errorf("scanning security research submission: %w", err)
+		}
+		value.Payload = payload
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
 func scanSecuritySubmissionReservation(row securityResearchScanner) (*store.SecuritySubmissionReservation, error) {
 	var value store.SecuritySubmissionReservation
 	if err := row.Scan(&value.ID, &value.SubmissionID, &value.TargetID, &value.Workflow, &value.PeriodDays, &value.BudgetLimit, &value.IdempotencyKey, &value.ReservedAt, &value.ExpiresAt, &value.VoidedAt); err != nil {
@@ -1175,6 +1204,25 @@ func (s *Store) MarkSecurityResearchSubmissionSubmitted(ctx context.Context, nam
 		return fmt.Errorf("locking submitted transition: %w", err)
 	}
 	if status == "submitted" || status == "resolved" {
+		return nil
+	}
+	if status == "candidate" {
+		// Programs without a rolling budget never reserve, so a candidate that
+		// has no reservation history is handed over directly. A candidate whose
+		// reservation was voided or expired must reserve again.
+		var everReserved bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM security_research_submission_reservations WHERE submission_id = $1)`, submissionID).Scan(&everReserved); err != nil {
+			return fmt.Errorf("checking submission reservation history: %w", err)
+		}
+		if everReserved {
+			return errors.New("submission must be reserved before it is submitted")
+		}
+		if _, err := tx.Exec(ctx, `UPDATE security_research_submissions SET status = 'submitted', submitted_at = $2 WHERE id = $1`, submissionID, submittedAt); err != nil {
+			return fmt.Errorf("marking security research submission submitted: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("committing submitted transition: %w", err)
+		}
 		return nil
 	}
 	if status != "reserved" {

@@ -231,6 +231,17 @@ func (s *fakeSecurityResearchStore) CreateSecurityResearchSubmission(_ context.C
 	return &copy, true, nil
 }
 
+func (s *fakeSecurityResearchStore) ListSecurityResearchSubmissions(_ context.Context, namespace string, revisionID uuid.UUID) ([]store.SecurityResearchSubmission, error) {
+	s.lastNamespace = namespace
+	var values []store.SecurityResearchSubmission
+	for _, value := range s.submissions {
+		if value.RevisionID == revisionID {
+			values = append(values, *value)
+		}
+	}
+	return values, nil
+}
+
 func (s *fakeSecurityResearchStore) ReserveSecurityResearchSubmission(_ context.Context, namespace string, request store.SecuritySubmissionReservationRequest) (*store.SecuritySubmissionReservationResult, error) {
 	s.lastNamespace = namespace
 	if existing := s.reservations[request.IdempotencyKey]; existing != nil {
@@ -446,6 +457,75 @@ func TestSecurityBountyPeriodExhaustionRetainsCandidateWithoutToolError(t *testi
 	for _, decision := range researchStore.decisions {
 		if decision.Decision != "retain" {
 			t.Fatalf("decision = %q, want retain", decision.Decision)
+		}
+	}
+}
+
+func TestSecurityBountySubmissionWithoutRollingBudgetIsDurableAndSubmitted(t *testing.T) {
+	researchStore := newFakeSecurityResearchStore()
+	scanCtx := bountyLaneContext(bountyLaneReportRun, "research-bounty-fp", bountyLaneProgram())
+	scanCtx.SubmissionBudgetPeriodDays = 0
+	finding := seedResearchBounty(t, researchStore, scanCtx)
+	blobs := &bountyLaneBlobs{}
+	registry := researchBountyRegistry(t, researchStore, blobs, scanCtx)
+	addCompletedResearchSweep(t, researchStore, registry, finding.ID)
+
+	result := execTool(t, registry, "save_security_bounty_submission", bountyLaneSubmissionInput(t, bountyLaneCriticalImp))
+	if result.IsError || !strings.Contains(result.Content, "uploaded") || !strings.Contains(result.Content, "submission_id") {
+		t.Fatalf("scan-wide packaging failed: %+v", result)
+	}
+	if len(researchStore.submissions) != 1 || len(researchStore.decisions) != 1 || len(researchStore.reservations) != 0 || len(blobs.puts) != 1 {
+		t.Fatalf("durable state: submissions=%d decisions=%d reservations=%d uploads=%d", len(researchStore.submissions), len(researchStore.decisions), len(researchStore.reservations), len(blobs.puts))
+	}
+	for _, submission := range researchStore.submissions {
+		if submission.Status != "submitted" || submission.SubmittedAt == nil || submission.FindingID == nil || *submission.FindingID != finding.ID || submission.CandidateKey != finding.Fingerprint || submission.Rank != 1 {
+			t.Fatalf("submission = %+v, want submitted rank-1 candidate for the finding", submission)
+		}
+	}
+	for key, decision := range researchStore.decisions {
+		if key != "decision:bounty-package:"+scanCtx.ExecutionID+":"+finding.Fingerprint || decision.Decision != "submit" || decision.Rank != 1 {
+			t.Fatalf("decision %q = %+v, want submit", key, decision)
+		}
+		var inputs map[string]any
+		if err := json.Unmarshal(decision.Inputs, &inputs); err != nil || inputs["precision_policy"] != "scan_wide_v1" || inputs["period_days"] != float64(0) || inputs["published_budget_limit"] != float64(scanCtx.SubmissionBudget) {
+			t.Fatalf("decision inputs = %s (err %v)", decision.Inputs, err)
+		}
+	}
+	if repeat := execTool(t, registry, "save_security_bounty_submission", bountyLaneSubmissionInput(t, bountyLaneCriticalImp)); repeat.IsError || len(researchStore.submissions) != 1 || len(researchStore.decisions) != 1 {
+		t.Fatalf("repeat packaging duplicated durable state: %+v submissions=%d decisions=%d", repeat, len(researchStore.submissions), len(researchStore.decisions))
+	}
+}
+
+func TestSecurityBountyScanWideBudgetExhaustionRetainsDurableCandidate(t *testing.T) {
+	researchStore := newFakeSecurityResearchStore()
+	scanCtx := bountyLaneContext(bountyLaneReportRun, "research-bounty-fp", bountyLaneProgram())
+	scanCtx.SubmissionBudget, scanCtx.SubmissionBudgetPeriodDays = 1, 0
+	finding := seedResearchBounty(t, researchStore, scanCtx)
+	researchStore.findings = append(researchStore.findings, &store.SecurityFindingRecord{
+		ID: uuid.New(), ScanID: finding.ScanID, Namespace: scanCtx.Namespace, ScanName: scanCtx.ScanName,
+		RunName: bountyLaneScannerRun, ExecutionID: scanCtx.ExecutionID, Repository: scanCtx.Repository,
+		Revision: scanCtx.Revision, Fingerprint: "higher-ranked-fp", Title: "Outranking issue",
+		Severity: "critical", Score: 9.9, Status: store.SecurityFindingStatusConfirmed,
+	})
+	blobs := &bountyLaneBlobs{}
+	registry := researchBountyRegistry(t, researchStore, blobs, scanCtx)
+	addCompletedResearchSweep(t, researchStore, registry, finding.ID)
+
+	result := execTool(t, registry, "save_security_bounty_submission", bountyLaneSubmissionInput(t, bountyLaneCriticalImp))
+	if result.IsError || !strings.Contains(result.Content, "retained as candidate") || !strings.Contains(result.Content, "scan-wide budget 1 is exhausted") {
+		t.Fatalf("scan-wide exhaustion was not a normal candidate result: %+v", result)
+	}
+	if len(researchStore.submissions) != 1 || len(researchStore.decisions) != 1 || len(blobs.puts) != 0 {
+		t.Fatalf("exhausted result state: submissions=%d decisions=%d uploads=%d", len(researchStore.submissions), len(researchStore.decisions), len(blobs.puts))
+	}
+	for _, submission := range researchStore.submissions {
+		if submission.Status != "candidate" || submission.Rank != 2 {
+			t.Fatalf("submission = %+v, want retained rank-2 candidate", submission)
+		}
+	}
+	for _, decision := range researchStore.decisions {
+		if decision.Decision != "retain" || decision.Rank != 2 {
+			t.Fatalf("decision = %+v, want retain at rank 2", decision)
 		}
 	}
 }

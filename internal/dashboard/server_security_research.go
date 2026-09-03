@@ -531,6 +531,26 @@ func (s *Server) CompleteSecurityResearchVariantSweep(ctx context.Context, req *
 	return securityResearchVariantSweepProto(value), nil
 }
 
+func (s *Server) ListSecurityResearchSubmissions(ctx context.Context, req *platform.ListSecurityResearchSubmissionsRequest) (*platform.ListSecurityResearchSubmissionsResponse, error) {
+	research, namespace, _, revision, err := s.securityResearchRevision(ctx, req.GetScope())
+	if err != nil {
+		return nil, err
+	}
+	values, err := research.ListSecurityResearchSubmissions(ctx, namespace, revision.ID)
+	if err != nil {
+		return nil, securityResearchError("listing security research submissions", err)
+	}
+	limit := securityResearchLimit(req.GetLimit())
+	response := &platform.ListSecurityResearchSubmissionsResponse{Truncated: len(values) > limit}
+	if len(values) > limit {
+		values = values[:limit]
+	}
+	for i := range values {
+		response.Submissions = append(response.Submissions, securityResearchSubmissionProto(&values[i]))
+	}
+	return response, nil
+}
+
 func (s *Server) ListSecuritySubmissionOutcomeHistory(ctx context.Context, req *platform.ListSecuritySubmissionOutcomeHistoryRequest) (*platform.ListSecuritySubmissionOutcomeHistoryResponse, error) {
 	research, namespace, _, revision, err := s.securityResearchRevision(ctx, req.GetScope())
 	if err != nil {
@@ -626,6 +646,20 @@ func securityResearchVariantSweepProto(in *store.SecurityResearchVariantSweep) *
 	}
 	if in.CompletedAt != nil {
 		out.CompletedAt = timestamppb.New(*in.CompletedAt)
+	}
+	return out
+}
+
+func securityResearchSubmissionProto(in *store.SecurityResearchSubmission) *platform.SecurityResearchSubmission {
+	out := &platform.SecurityResearchSubmission{Id: in.ID.String(), FindingFingerprint: in.FindingFingerprint, FindingTitle: in.FindingTitle, Workflow: in.Workflow, CandidateKey: in.CandidateKey, Rank: in.Rank, Status: in.Status, CreatedAt: timestamppb.New(in.CreatedAt), LatestOutcome: in.Outcome}
+	if in.FindingID != nil {
+		out.FindingId = in.FindingID.String()
+	}
+	if in.SubmittedAt != nil {
+		out.SubmittedAt = timestamppb.New(*in.SubmittedAt)
+	}
+	if in.OutcomeRecordedAt != nil {
+		out.LatestOutcomeAt = timestamppb.New(*in.OutcomeRecordedAt)
 	}
 	return out
 }
@@ -728,6 +762,13 @@ func (h *PlatformServiceConnectHandler) CreateSecurityResearchVariantSweep(ctx c
 }
 func (h *PlatformServiceConnectHandler) CompleteSecurityResearchVariantSweep(ctx context.Context, req *connect.Request[platform.CompleteSecurityResearchVariantSweepRequest]) (*connect.Response[platform.SecurityResearchVariantSweep], error) {
 	resp, err := h.srv.CompleteSecurityResearchVariantSweep(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+func (h *PlatformServiceConnectHandler) ListSecurityResearchSubmissions(ctx context.Context, req *connect.Request[platform.ListSecurityResearchSubmissionsRequest]) (*connect.Response[platform.ListSecurityResearchSubmissionsResponse], error) {
+	resp, err := h.srv.ListSecurityResearchSubmissions(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

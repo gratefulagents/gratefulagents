@@ -602,6 +602,9 @@ const (
 	// PlatformServiceCompleteSecurityResearchVariantSweepProcedure is the fully-qualified name of the
 	// PlatformService's CompleteSecurityResearchVariantSweep RPC.
 	PlatformServiceCompleteSecurityResearchVariantSweepProcedure = "/platform.v1.PlatformService/CompleteSecurityResearchVariantSweep"
+	// PlatformServiceListSecurityResearchSubmissionsProcedure is the fully-qualified name of the
+	// PlatformService's ListSecurityResearchSubmissions RPC.
+	PlatformServiceListSecurityResearchSubmissionsProcedure = "/platform.v1.PlatformService/ListSecurityResearchSubmissions"
 	// PlatformServiceListSecuritySubmissionOutcomeHistoryProcedure is the fully-qualified name of the
 	// PlatformService's ListSecuritySubmissionOutcomeHistory RPC.
 	PlatformServiceListSecuritySubmissionOutcomeHistoryProcedure = "/platform.v1.PlatformService/ListSecuritySubmissionOutcomeHistory"
@@ -1048,6 +1051,7 @@ type PlatformServiceClient interface {
 	ListSecurityResearchVariantSweeps(context.Context, *connect.Request[platform.ListSecurityResearchVariantSweepsRequest]) (*connect.Response[platform.ListSecurityResearchVariantSweepsResponse], error)
 	CreateSecurityResearchVariantSweep(context.Context, *connect.Request[platform.CreateSecurityResearchVariantSweepRequest]) (*connect.Response[platform.CreateSecurityResearchVariantSweepResponse], error)
 	CompleteSecurityResearchVariantSweep(context.Context, *connect.Request[platform.CompleteSecurityResearchVariantSweepRequest]) (*connect.Response[platform.SecurityResearchVariantSweep], error)
+	ListSecurityResearchSubmissions(context.Context, *connect.Request[platform.ListSecurityResearchSubmissionsRequest]) (*connect.Response[platform.ListSecurityResearchSubmissionsResponse], error)
 	ListSecuritySubmissionOutcomeHistory(context.Context, *connect.Request[platform.ListSecuritySubmissionOutcomeHistoryRequest]) (*connect.Response[platform.ListSecuritySubmissionOutcomeHistoryResponse], error)
 	RecordSecuritySubmissionOutcome(context.Context, *connect.Request[platform.RecordSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error)
 	CorrectSecuritySubmissionOutcome(context.Context, *connect.Request[platform.CorrectSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error)
@@ -2335,6 +2339,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("CompleteSecurityResearchVariantSweep")),
 			connect.WithClientOptions(opts...),
 		),
+		listSecurityResearchSubmissions: connect.NewClient[platform.ListSecurityResearchSubmissionsRequest, platform.ListSecurityResearchSubmissionsResponse](
+			httpClient,
+			baseURL+PlatformServiceListSecurityResearchSubmissionsProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListSecurityResearchSubmissions")),
+			connect.WithClientOptions(opts...),
+		),
 		listSecuritySubmissionOutcomeHistory: connect.NewClient[platform.ListSecuritySubmissionOutcomeHistoryRequest, platform.ListSecuritySubmissionOutcomeHistoryResponse](
 			httpClient,
 			baseURL+PlatformServiceListSecuritySubmissionOutcomeHistoryProcedure,
@@ -2836,6 +2846,7 @@ type platformServiceClient struct {
 	listSecurityResearchVariantSweeps      *connect.Client[platform.ListSecurityResearchVariantSweepsRequest, platform.ListSecurityResearchVariantSweepsResponse]
 	createSecurityResearchVariantSweep     *connect.Client[platform.CreateSecurityResearchVariantSweepRequest, platform.CreateSecurityResearchVariantSweepResponse]
 	completeSecurityResearchVariantSweep   *connect.Client[platform.CompleteSecurityResearchVariantSweepRequest, platform.SecurityResearchVariantSweep]
+	listSecurityResearchSubmissions        *connect.Client[platform.ListSecurityResearchSubmissionsRequest, platform.ListSecurityResearchSubmissionsResponse]
 	listSecuritySubmissionOutcomeHistory   *connect.Client[platform.ListSecuritySubmissionOutcomeHistoryRequest, platform.ListSecuritySubmissionOutcomeHistoryResponse]
 	recordSecuritySubmissionOutcome        *connect.Client[platform.RecordSecuritySubmissionOutcomeRequest, platform.RecordSecuritySubmissionOutcomeResponse]
 	correctSecuritySubmissionOutcome       *connect.Client[platform.CorrectSecuritySubmissionOutcomeRequest, platform.RecordSecuritySubmissionOutcomeResponse]
@@ -3852,6 +3863,12 @@ func (c *platformServiceClient) CompleteSecurityResearchVariantSweep(ctx context
 	return c.completeSecurityResearchVariantSweep.CallUnary(ctx, req)
 }
 
+// ListSecurityResearchSubmissions calls
+// platform.v1.PlatformService.ListSecurityResearchSubmissions.
+func (c *platformServiceClient) ListSecurityResearchSubmissions(ctx context.Context, req *connect.Request[platform.ListSecurityResearchSubmissionsRequest]) (*connect.Response[platform.ListSecurityResearchSubmissionsResponse], error) {
+	return c.listSecurityResearchSubmissions.CallUnary(ctx, req)
+}
+
 // ListSecuritySubmissionOutcomeHistory calls
 // platform.v1.PlatformService.ListSecuritySubmissionOutcomeHistory.
 func (c *platformServiceClient) ListSecuritySubmissionOutcomeHistory(ctx context.Context, req *connect.Request[platform.ListSecuritySubmissionOutcomeHistoryRequest]) (*connect.Response[platform.ListSecuritySubmissionOutcomeHistoryResponse], error) {
@@ -4401,6 +4418,7 @@ type PlatformServiceHandler interface {
 	ListSecurityResearchVariantSweeps(context.Context, *connect.Request[platform.ListSecurityResearchVariantSweepsRequest]) (*connect.Response[platform.ListSecurityResearchVariantSweepsResponse], error)
 	CreateSecurityResearchVariantSweep(context.Context, *connect.Request[platform.CreateSecurityResearchVariantSweepRequest]) (*connect.Response[platform.CreateSecurityResearchVariantSweepResponse], error)
 	CompleteSecurityResearchVariantSweep(context.Context, *connect.Request[platform.CompleteSecurityResearchVariantSweepRequest]) (*connect.Response[platform.SecurityResearchVariantSweep], error)
+	ListSecurityResearchSubmissions(context.Context, *connect.Request[platform.ListSecurityResearchSubmissionsRequest]) (*connect.Response[platform.ListSecurityResearchSubmissionsResponse], error)
 	ListSecuritySubmissionOutcomeHistory(context.Context, *connect.Request[platform.ListSecuritySubmissionOutcomeHistoryRequest]) (*connect.Response[platform.ListSecuritySubmissionOutcomeHistoryResponse], error)
 	RecordSecuritySubmissionOutcome(context.Context, *connect.Request[platform.RecordSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error)
 	CorrectSecuritySubmissionOutcome(context.Context, *connect.Request[platform.CorrectSecuritySubmissionOutcomeRequest]) (*connect.Response[platform.RecordSecuritySubmissionOutcomeResponse], error)
@@ -5684,6 +5702,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("CompleteSecurityResearchVariantSweep")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceListSecurityResearchSubmissionsHandler := connect.NewUnaryHandler(
+		PlatformServiceListSecurityResearchSubmissionsProcedure,
+		svc.ListSecurityResearchSubmissions,
+		connect.WithSchema(platformServiceMethods.ByName("ListSecurityResearchSubmissions")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceListSecuritySubmissionOutcomeHistoryHandler := connect.NewUnaryHandler(
 		PlatformServiceListSecuritySubmissionOutcomeHistoryProcedure,
 		svc.ListSecuritySubmissionOutcomeHistory,
@@ -6372,6 +6396,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceCreateSecurityResearchVariantSweepHandler.ServeHTTP(w, r)
 		case PlatformServiceCompleteSecurityResearchVariantSweepProcedure:
 			platformServiceCompleteSecurityResearchVariantSweepHandler.ServeHTTP(w, r)
+		case PlatformServiceListSecurityResearchSubmissionsProcedure:
+			platformServiceListSecurityResearchSubmissionsHandler.ServeHTTP(w, r)
 		case PlatformServiceListSecuritySubmissionOutcomeHistoryProcedure:
 			platformServiceListSecuritySubmissionOutcomeHistoryHandler.ServeHTTP(w, r)
 		case PlatformServiceRecordSecuritySubmissionOutcomeProcedure:
@@ -7241,6 +7267,10 @@ func (UnimplementedPlatformServiceHandler) CreateSecurityResearchVariantSweep(co
 
 func (UnimplementedPlatformServiceHandler) CompleteSecurityResearchVariantSweep(context.Context, *connect.Request[platform.CompleteSecurityResearchVariantSweepRequest]) (*connect.Response[platform.SecurityResearchVariantSweep], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CompleteSecurityResearchVariantSweep is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListSecurityResearchSubmissions(context.Context, *connect.Request[platform.ListSecurityResearchSubmissionsRequest]) (*connect.Response[platform.ListSecurityResearchSubmissionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSecurityResearchSubmissions is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) ListSecuritySubmissionOutcomeHistory(context.Context, *connect.Request[platform.ListSecuritySubmissionOutcomeHistoryRequest]) (*connect.Response[platform.ListSecuritySubmissionOutcomeHistoryResponse], error) {

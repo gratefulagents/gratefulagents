@@ -304,6 +304,7 @@ service PlatformService {
   rpc ListSecurityResearchVariantSweeps(ListSecurityResearchVariantSweepsRequest) returns (ListSecurityResearchVariantSweepsResponse);
   rpc CreateSecurityResearchVariantSweep(CreateSecurityResearchVariantSweepRequest) returns (CreateSecurityResearchVariantSweepResponse);
   rpc CompleteSecurityResearchVariantSweep(CompleteSecurityResearchVariantSweepRequest) returns (SecurityResearchVariantSweep);
+  rpc ListSecurityResearchSubmissions(ListSecurityResearchSubmissionsRequest) returns (ListSecurityResearchSubmissionsResponse);
   rpc ListSecuritySubmissionOutcomeHistory(ListSecuritySubmissionOutcomeHistoryRequest) returns (ListSecuritySubmissionOutcomeHistoryResponse);
   rpc RecordSecuritySubmissionOutcome(RecordSecuritySubmissionOutcomeRequest) returns (RecordSecuritySubmissionOutcomeResponse);
   rpc CorrectSecuritySubmissionOutcome(CorrectSecuritySubmissionOutcomeRequest) returns (RecordSecuritySubmissionOutcomeResponse);
@@ -6026,6 +6027,31 @@ message SecuritySubmissionOutcomeEvent {
   int64 correction_of = 7;
   string idempotency_key = 8;
   google.protobuf.Timestamp created_at = 9;
+}
+
+message SecurityResearchSubmission {
+  string id = 1;
+  string finding_id = 2;
+  string finding_fingerprint = 3;
+  string finding_title = 4;
+  string workflow = 5;
+  string candidate_key = 6;
+  int32 rank = 7;
+  string status = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp submitted_at = 10;
+  string latest_outcome = 11;
+  google.protobuf.Timestamp latest_outcome_at = 12;
+}
+
+message ListSecurityResearchSubmissionsRequest {
+  SecurityResearchScope scope = 1;
+  int32 limit = 2;
+}
+
+message ListSecurityResearchSubmissionsResponse {
+  repeated SecurityResearchSubmission submissions = 1;
+  bool truncated = 2;
 }
 
 message ListSecuritySubmissionOutcomeHistoryRequest {

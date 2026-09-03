@@ -278,6 +278,12 @@ type SecurityResearchSubmission struct {
 	Status       string
 	CreatedAt    time.Time
 	SubmittedAt  *time.Time
+	// FindingFingerprint, FindingTitle, Outcome, and OutcomeRecordedAt are
+	// populated by ListSecurityResearchSubmissions only.
+	FindingFingerprint string
+	FindingTitle       string
+	Outcome            string
+	OutcomeRecordedAt  *time.Time
 }
 
 type SecuritySubmissionReservationRequest struct {
@@ -402,6 +408,10 @@ type SecurityResearchStore interface {
 	ListSecurityResearchVariantSweepEvents(context.Context, string, uuid.UUID) ([]SecurityResearchVariantSweepEvent, error)
 
 	CreateSecurityResearchSubmission(context.Context, string, *SecurityResearchSubmission) (*SecurityResearchSubmission, bool, error)
+	// ListSecurityResearchSubmissions returns a revision's submissions ordered
+	// by rank, newest first within a rank, with the latest adjudicated outcome
+	// and the finding fingerprint/title attached.
+	ListSecurityResearchSubmissions(context.Context, string, uuid.UUID) ([]SecurityResearchSubmission, error)
 	ReserveSecurityResearchSubmission(context.Context, string, SecuritySubmissionReservationRequest) (*SecuritySubmissionReservationResult, error)
 	MarkSecurityResearchSubmissionSubmitted(context.Context, string, uuid.UUID, time.Time) error
 	RecordSecuritySubmissionOutcome(context.Context, string, uuid.UUID, SecuritySubmissionOutcomeInput) (*SecuritySubmissionOutcome, bool, error)

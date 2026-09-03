@@ -1,0 +1,2 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_security_research_hypothesis_events_actor;
+DROP INDEX CONCURRENTLY IF EXISTS idx_security_research_coverage_actor;
