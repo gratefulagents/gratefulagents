@@ -131,6 +131,7 @@ var securityWorkflowLibrary = []string{
 	"near-contract-review",
 	"rollup-stack-review",
 	"solana-defi-program-review",
+	"threat-model-guided-hunt",
 }
 
 // TestSecurityWorkflowLibraryInventory prevents new bootstrap workflows from

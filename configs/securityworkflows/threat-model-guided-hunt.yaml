@@ -1,0 +1,219 @@
+apiVersion: triggers.gratefulagents.dev/v1alpha1
+kind: SecurityWorkflow
+metadata:
+  name: threat-model-guided-hunt
+spec:
+  description: Threat-model-first repository hunt. A history pass (advisories, SECURITY.md, security-fix commits, prior scan dossier) and an attack-surface map with an explicit attacker per surface run first; hunters then fan out one thin slice at a time - one surface and one attacker each, plus one hunter per historical prior looking for unpatched siblings and patch bypasses - instead of sweeping the whole repository for a bug class. Every candidate is settled by a local proof, confirmed findings trigger a variant sweep for the same root cause, and an adversarial bounty-worthiness gate precedes the final report.
+  parameters:
+    - name: attacker_default
+      description: Attacker position hunters assume for a surface whose map record does not name one.
+      default: remote unauthenticated client of the deployed service
+    - name: max_surfaces
+      description: How many top-ranked surfaces receive their own hunter (the map is truncated to this many records).
+      default: "12"
+  tasks:
+    - name: target-priors
+      role: threat-modeler
+      category: recon
+      timeout: 45m
+      maxTurns: 80
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+        - name: trail-of-bits-differential-review
+      objective: >-
+        Build the history priors for this repository from the checkout alone; do not build or run the project.
+        Call get_security_research_context first and reuse only evidence for this exact target and revision;
+        note any prior false_positive or accepted_risk findings so hunters do not re-report them. Read
+        SECURITY.md, published advisories and CVEs referenced in the repository, CHANGELOG or release-note
+        security entries, prior audit reports checked in, and the program snapshot's known issues. Run git log
+        over the last 200 commits or 12 months and select commits whose message or diff fixes a security bug
+        (missing check added, bounds or length check, escaping, authz gate, algorithm pinning, path
+        normalization). For each source produce one prior: what went wrong, the anchor (path plus line or
+        symbol) of the fixed or affected code, the bug class it implies this codebase produces, and a
+        concrete hunt: the sibling call sites the fix did not touch, or the way the patch itself could be
+        bypassed. Rank most promising first; only the first eight priors get their own hunter. Return at most
+        twelve priors and an explicit list of stale classes (issues the runtime, framework, or a past fix now
+        forbids) plus limitations (shallow clone, no advisories found). Publish the priors as structured
+        output; report nothing as a finding from this task.
+      outputSchema: |-
+        {"type":"array","maxItems":12,"items":{"type":"object","additionalProperties":false,"required":["id","kind","summary","bug_class","anchor","hunt"],"properties":{"id":{"type":"string","minLength":2,"maxLength":8},"kind":{"type":"string","enum":["advisory_or_cve","security_fix_commit","changelog","prior_audit","known_issue","prior_scan","todo_or_unsafe"]},"summary":{"type":"string","minLength":1,"maxLength":240},"bug_class":{"type":"string","minLength":1,"maxLength":80},"anchor":{"type":"string","minLength":1,"maxLength":240,"description":"Repository-relative path plus line or symbol"},"commits":{"type":"array","maxItems":4,"items":{"type":"string","minLength":7,"maxLength":64}},"hunt":{"type":"string","minLength":1,"maxLength":300,"description":"The sibling sites or patch bypass a hunter should check"},"stale":{"type":"boolean","description":"True when this class is already forbidden by the runtime or a prior fix and must not be re-reported"}}}}
+    - name: attack-surface-mapping
+      role: threat-modeler
+      category: recon
+      timeout: 45m
+      maxTurns: 100
+      skillRefs:
+        - name: trail-of-bits-audit-context-building
+        - name: trail-of-bits-entry-point-analyzer
+      objective: >-
+        Map the attack surface as thin, independently huntable slices: for every entry point an outside party
+        can reach (HTTP/gRPC routes, webhooks, CLI, queue consumers, parsers of external data, scheduled jobs,
+        plugin or extension hooks) record the surface, the concrete entry point, the exact attacker who can
+        reach it (for example "remote unauthenticated HTTP client", "authenticated low-privilege tenant user",
+        "holder of a read-only API key", "code inside the sandbox"), the trust boundary it crosses, the
+        privileged operations and assets reachable from it, the files a hunter must read, and the one reason
+        it matters. Verify guards by reading the middleware or interceptor, not the route comment. Rank by
+        exposure times asset value; only the first {{params.max_surfaces}} records receive their own hunter,
+        so put unguarded or weakly guarded privileged paths first. Keep each record compact - it becomes a
+        hunter's entire context. Do not hunt line-level bugs here; publish the map as structured output.
+        Return an empty array only when repository evidence establishes that no production surface is in scope.
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","additionalProperties":false,"required":["surface","entrypoint","attacker","boundary","reaches","files","why","risk"],"properties":{"surface":{"type":"string","maxLength":120},"entrypoint":{"type":"string","maxLength":240},"attacker":{"type":"string","maxLength":160},"boundary":{"type":"string","maxLength":160},"reaches":{"type":"string","maxLength":240,"description":"Privileged operations, data, or assets reachable from this surface"},"files":{"type":"array","maxItems":12,"items":{"type":"string","maxLength":240}},"why":{"type":"string","maxLength":240},"risk":{"type":"string","enum":["critical","high","medium","low"]}}}}
+    - name: hunt-surface
+      role: vulnerability-hunter
+      category: other
+      timeout: 40m
+      maxTurns: 90
+      skillRefs:
+        - name: web-app-hunting
+        - name: api-authz-hunting
+      objective: >-
+        Attack exactly one slice: surface {{item.surface}} entered at {{item.entrypoint}}, crossing the
+        boundary {{item.boundary}} and reaching {{item.reaches}}. You are {{item.attacker}}; when that field
+        is empty you are {{params.attacker_default}}. You have nothing beyond what that position grants, and
+        anything that needs more is out of scope for you. Read the files listed in the record and their
+        callers. Assume the developer made at least one mistake on this path and find it: trace the request
+        from the entry point through every validator, guard, and sanitizer to each sink, ask what breaks when
+        each check, default, or initial value is wrong, and for authentication, signature, session, crypto,
+        and parsing code compare the implementation with the canonical secure version and hunt the deltas.
+        Every vulnerability class is in play for this slice; do not restrict yourself to one. After the first
+        pass, set aside what you reported and take one deliberate second pass for the subtler issue that is
+        easy to miss, then stop. Report only what you can walk end to end with file:line evidence and the
+        concrete request the attacker sends. Publish the kept reports as structured output, one entry per
+        finding carrying the fingerprint report_security_finding returned, and an empty array when the slice
+        holds.
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["title","fingerprint","severity","file"],"properties":{"fingerprint":{"type":"string","description":"Fingerprint returned by report_security_finding for this finding"},"title":{"type":"string"},"severity":{"type":"string","enum":["critical","high","medium","low","info"]},"file":{"type":"string"},"line":{"type":"integer"},"summary":{"type":"string","description":"The request the attacker sends and what it reaches"}}}}
+      dependsOn:
+        - attack-surface-mapping
+      forEach: attack-surface-mapping
+      maxInstances: 12
+    - name: hunt-prior
+      role: vulnerability-hunter
+      category: other
+      timeout: 30m
+      maxTurns: 70
+      skillRefs:
+        - name: trail-of-bits-variant-analysis
+        - name: trail-of-bits-differential-review
+      objective: >-
+        Work one historical prior: {{item.summary}} ({{item.kind}}, bug class {{item.bug_class}}), anchored at
+        {{item.anchor}}. Suggested hunt: {{item.hunt}}. If the record marks the class stale, verify that the
+        forbidding mechanism actually covers every path and submit an empty array unless it does not. Otherwise
+        treat the past bug as a hypothesis generator: read the fixed code and its commits, extract the exact
+        vulnerable pattern, and search the current revision for sibling call sites the fix did not reach,
+        widening the pattern one element at a time and stopping when more than half the matches are noise.
+        Then attempt to bypass the patch itself: alternate encodings, alternate routes to the same sink, and
+        partial or missing configuration that disables the check. Adopt the weakest attacker who reached the
+        original bug. Report only paths you can walk end to end with file:line evidence. Publish the kept
+        reports as structured output, one entry per finding carrying the fingerprint
+        report_security_finding returned, and an empty array when no sibling or bypass exists.
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["title","fingerprint","severity","file"],"properties":{"fingerprint":{"type":"string","description":"Fingerprint returned by report_security_finding for this finding"},"title":{"type":"string"},"severity":{"type":"string","enum":["critical","high","medium","low","info"]},"file":{"type":"string"},"line":{"type":"integer"},"summary":{"type":"string","description":"The sibling site or patch bypass and what it reaches"}}}}
+      dependsOn:
+        - target-priors
+      forEach: target-priors
+      maxInstances: 8
+    - name: validate-exploitability
+      role: exploit-validator
+      category: other
+      timeout: 60m
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: exploit-poc-discipline
+      objective: >-
+        Settle every candidate reported by the surface and prior hunts. Call list_security_findings, then take
+        each open finding in turn, re-read the code it cites, and reconstruct the attack path from the named
+        attacker's position to the impact without skipping a hop: confirm the entry point is reachable in a
+        production configuration, that each intermediate check is genuinely absent or bypassable, and that the
+        sink does what the report claims. Build and execute the cheapest local proof that settles the question
+        - a focused test, a direct call into the vulnerable function, or a request against a locally started
+        server - in a disposable working copy; never send traffic to a real system. Confirm only from observed
+        output and preserve exact commands, exit statuses, and artifacts. Update each finding with the outcome:
+        confirmed with the reproduction, or false_positive with the specific check that stops the attack
+        (false_positive is the canonical status for a disproved candidate). A disproved finding is as valuable
+        as a confirmed one. Publish one entry per settled candidate as structured output, each carrying the
+        finding's fingerprint, and an empty array when there was nothing to settle.
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["title","fingerprint","verdict","reproduction","summary"],"properties":{"fingerprint":{"type":"string","description":"Fingerprint returned by report_security_finding for this finding"},"title":{"type":"string"},"verdict":{"type":"string","enum":["confirmed","false_positive"]},"severity":{"type":"string","enum":["critical","high","medium","low","info"]},"file":{"type":"string"},"line":{"type":"integer"},"reproduction":{"type":"array","items":{"type":"string"},"description":"Exact local PoC setup, execution, and observed evidence"},"summary":{"type":"string","description":"The reproduction that confirms it, or the check that stops it"}}}}
+      dependsOn:
+        - hunt-surface
+        - hunt-prior
+    - name: variant-sweep
+      role: vulnerability-hunter
+      category: other
+      timeout: 30m
+      maxTurns: 60
+      skillRefs:
+        - name: trail-of-bits-variant-analysis
+      objective: >-
+        Variant analysis for one settled candidate: {{item.title}} ({{item.verdict}}) at {{item.file}}. If the
+        verdict is false_positive, submit an empty array immediately and stop. Otherwise call
+        get_security_finding for fingerprint {{item.fingerprint}}, extract the exact vulnerable pattern from
+        its evidence (the sink, the missing or bypassable check, and the shape of attacker-controlled input),
+        and search the whole in-scope codebase for siblings: start with an exact-match pattern that must hit
+        the confirmed site, then generalize one element at a time (same sink other callers, same guard other
+        routes, same parser other formats), stopping when more than half the matches are noise. For each
+        sibling, trace reachability from the same attacker position before reporting it; a pattern match
+        without a path is not a variant. Report each real variant with report_security_finding, cite the
+        original finding in references, and publish the kept reports as structured output carrying their
+        fingerprints, or an empty array when the root cause has no siblings.
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["title","fingerprint","severity","file"],"properties":{"fingerprint":{"type":"string","description":"Fingerprint returned by report_security_finding for this variant"},"title":{"type":"string"},"severity":{"type":"string","enum":["critical","high","medium","low","info"]},"file":{"type":"string"},"line":{"type":"integer"},"summary":{"type":"string","description":"How this variant shares the confirmed root cause and how it is reached"}}}}
+      dependsOn:
+        - validate-exploitability
+      forEach: validate-exploitability
+      maxInstances: 8
+    - name: red-team-bounty-worthiness
+      role: exploit-validator
+      category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+        - name: exploit-poc-discipline
+      objective: >-
+        Adversarially review every recorded finding from a skeptical bounty-triager perspective before final
+        reporting. Call list_security_findings, then call get_security_finding for every fingerprint and
+        read its complete evidence and audit trail before deciding it. Use all available tools, including the
+        full run tool surface, to attempt safe local reproduction and disproof. Challenge each
+        finding's reachability, least-privileged attacker control, claimed impact, preconditions, program
+        scope, novelty, duplicates, and exclusions. Use only disposable local fixtures and dummy assets for
+        reproduction. Read-only calls to explicitly in-scope live targets are allowed when they are minimally
+        invasive and do not access real-user data. Do not hunt for new vulnerabilities or submit the final
+        report. Never send state-changing requests to production
+        or live systems, perform destructive testing, expand scope, attack or guess credentials, or perform
+        denial-of-service or load testing. Preserve an existing false_positive, accepted_risk, or fixed
+        terminal status and add only an audit note. For every other finding, call update_security_finding with
+        an evidence-backed disposition: a proven bounty-worthy finding remains status confirmed; a technically
+        real but not bounty-eligible finding must remain status triaged (accepted_risk is a human decision
+        recorded from the dashboard, never set by a scan) with the exact evidence-backed
+        reason and the matching policy_disposition (scope_excluded, known_issue, or bot_findable when
+        applicable); a technically disproved or unreachable finding must become status false_positive with
+        policy_disposition disproved and the disproof; and a finding with missing evidence or unavailable
+        validation must remain status triaged with policy_disposition not_ready. Never use accepted_risk or
+        false_positive merely because evidence is missing or validation is unavailable. Stop after every
+        recorded finding has an evidence-backed disposition.
+      dependsOn:
+        - validate-exploitability
+        - variant-sweep
+    - name: triage-and-report
+      role: finding-triager
+      category: triage
+      skillRefs:
+        - name: trail-of-bits-fp-check
+        - name: bug-bounty-reporting
+      objective: >-
+        Assemble the final report from the settled candidates in {{tasks.validate-exploitability.output}} and
+        the variants recorded afterwards. Call list_security_findings and keep a finding only when its report
+        states a concrete exploitation path - the named attacker, what they send, the code path with file:line
+        evidence, and what they gain - and that path survived validation and the bounty-worthiness review.
+        Drop everything marked false_positive and everything stated in conditional or speculative terms. Merge
+        duplicates and variants that share a root cause into one finding with every affected site listed,
+        rank survivors by attacker prerequisites and impact using the ranking rules, and prefer an empty
+        report over a padded one. Disclose coverage honestly: name the surfaces and priors that received no
+        hunter because of the instance caps, and any prior the history pass could not resolve. Then assemble
+        and submit the final scan report.
+      dependsOn:
+        - validate-exploitability
+        - variant-sweep
+        - red-team-bounty-worthiness

@@ -3,8 +3,29 @@ kind: SecurityWorkflow
 metadata:
   name: validated-critical-hunt
 spec:
-  description: High-signal hunt restricted to remote-compromise vulnerability classes, where every task records exploitability evidence, a validation pass settles each candidate, and triage keeps only findings with a concrete end-to-end exploitation path.
+  description: High-signal hunt restricted to remote-compromise vulnerability classes. A history-priors pass seeds six hunts with the project's past bugs, every task records exploitability evidence, a validation pass settles each candidate, confirmed candidates trigger a variant sweep, and triage keeps only findings with a concrete end-to-end exploitation path.
   tasks:
+    - name: target-priors
+      role: threat-modeler
+      category: recon
+      timeout: 30m
+      maxTurns: 60
+      skillRefs:
+        - name: trail-of-bits-differential-review
+      objective: >-
+        Build the history priors for this repository from the checkout alone; do not build or run the project.
+        Call get_security_research_context first and reuse only evidence for this exact target and revision;
+        note prior false_positive or accepted_risk findings so hunters do not re-report them. Read SECURITY.md,
+        advisories and CVEs referenced in the repository, CHANGELOG or release-note security entries, checked-in
+        audit reports, and the program snapshot's known issues, and select from the last 200 commits or 12 months
+        those whose message or diff fixes a security bug. Keep only priors relevant to remote compromise
+        (unauthenticated execution, authentication bypass, mass exfiltration, SSRF, deserialization, credential
+        exposure). For each produce one compact prior: what went wrong, the anchor (path plus line or symbol),
+        the bug class, and the hunt it suggests (sibling call sites the fix did not touch, or a bypass of the
+        patch). Rank most promising first, return at most ten, mark classes the runtime or a past fix now
+        forbids as stale, and report nothing as a finding from this task.
+      outputSchema: |-
+        {"type":"array","maxItems":10,"items":{"type":"object","additionalProperties":false,"required":["id","kind","summary","bug_class","anchor","hunt"],"properties":{"id":{"type":"string","minLength":2,"maxLength":8},"kind":{"type":"string","enum":["advisory_or_cve","security_fix_commit","changelog","prior_audit","known_issue","prior_scan","todo_or_unsafe"]},"summary":{"type":"string","minLength":1,"maxLength":240},"bug_class":{"type":"string","minLength":1,"maxLength":80},"anchor":{"type":"string","minLength":1,"maxLength":240},"commits":{"type":"array","maxItems":4,"items":{"type":"string","minLength":7,"maxLength":64}},"hunt":{"type":"string","minLength":1,"maxLength":300},"stale":{"type":"boolean"}}}}
     - name: unauthenticated-remote-execution
       role: vulnerability-hunter
       category: injection
@@ -22,6 +43,12 @@ spec:
         evidence: the exact entry point and request, each hop from source to sink with file:line, the
         preconditions the attacker needs, and the payload shape that would execute. Report nothing you
         cannot walk end to end.
+        Start from the history priors in {{tasks.target-priors.output}} that fall in this class: treat each as a
+        hypothesis (the same root cause in sibling call sites, or a bypass of the patch) before widening to the
+        rest of the surface, and skip stale classes and previously disproved findings. Assume the developer made
+        a mistake on the path you are tracing and, for token, signature, and parser code, hunt the delta from
+        the canonical secure implementation.
+      dependsOn: [target-priors]
     - name: authentication-bypass
       role: vulnerability-hunter
       category: authn
@@ -39,6 +66,12 @@ spec:
         enabled. Ignore weaknesses that only matter after a valid session exists. For every candidate record
         the exploitability evidence: the request an unauthenticated attacker sends, the code at file:line
         that accepts it, the identity obtained, and any precondition (known username, leaked id) it needs.
+        Start from the history priors in {{tasks.target-priors.output}} that fall in this class: treat each as a
+        hypothesis (the same root cause in sibling call sites, or a bypass of the patch) before widening to the
+        rest of the surface, and skip stale classes and previously disproved findings. Assume the developer made
+        a mistake on the path you are tracing and, for token, signature, and parser code, hunt the delta from
+        the canonical secure implementation.
+      dependsOn: [target-priors]
     - name: remote-data-exfiltration
       role: vulnerability-hunter
       category: injection
@@ -54,6 +87,12 @@ spec:
         volume and sensitivity: one user's profile is not this task's target, every user's credentials or
         every tenant's records is. For every candidate record the exploitability evidence: the request, the
         query or file access at file:line, what returns to the attacker, and the privilege level required.
+        Start from the history priors in {{tasks.target-priors.output}} that fall in this class: treat each as a
+        hypothesis (the same root cause in sibling call sites, or a bypass of the patch) before widening to the
+        rest of the surface, and skip stale classes and previously disproved findings. Assume the developer made
+        a mistake on the path you are tracing and, for token, signature, and parser code, hunt the delta from
+        the canonical secure implementation.
+      dependsOn: [target-priors]
     - name: ssrf-to-internal-services
       role: vulnerability-hunter
       category: ssrf
@@ -70,6 +109,12 @@ spec:
         rejected, and whether the response body, status, or timing returns to the caller. For every
         candidate record the exploitability evidence: the request, the outbound call at file:line, the
         internal target reached, and what the attacker learns or obtains.
+        Start from the history priors in {{tasks.target-priors.output}} that fall in this class: treat each as a
+        hypothesis (the same root cause in sibling call sites, or a bypass of the patch) before widening to the
+        rest of the surface, and skip stale classes and previously disproved findings. Assume the developer made
+        a mistake on the path you are tracing and, for token, signature, and parser code, hunt the delta from
+        the canonical secure implementation.
+      dependsOn: [target-priors]
     - name: deserialization-to-rce
       role: vulnerability-hunter
       category: deserialization
@@ -86,6 +131,12 @@ spec:
         dependencies actually installed rather than assuming one. For every candidate record the
         exploitability evidence: the untrusted source, the decoding call at file:line, the gadget or
         constructed object, and what execution or state change follows.
+        Start from the history priors in {{tasks.target-priors.output}} that fall in this class: treat each as a
+        hypothesis (the same root cause in sibling call sites, or a bypass of the patch) before widening to the
+        rest of the surface, and skip stale classes and previously disproved findings. Assume the developer made
+        a mistake on the path you are tracing and, for token, signature, and parser code, hunt the delta from
+        the canonical secure implementation.
+      dependsOn: [target-priors]
     - name: credential-exposure-to-takeover
       role: secrets-auditor
       category: secrets
@@ -100,6 +151,12 @@ spec:
         fixtures, expired or local-only values, and anything that grants nothing. For every candidate
         record the exploitability evidence: the location at file:line, what the credential authenticates to,
         who can read it today, and the takeover it enables.
+        Start from the history priors in {{tasks.target-priors.output}} that fall in this class: treat each as a
+        hypothesis (the same root cause in sibling call sites, or a bypass of the patch) before widening to the
+        rest of the surface, and skip stale classes and previously disproved findings. Assume the developer made
+        a mistake on the path you are tracing and, for token, signature, and parser code, hunt the delta from
+        the canonical secure implementation.
+      dependsOn: [target-priors]
     - name: validate-exploitability
       role: exploit-validator
       category: other
@@ -145,6 +202,31 @@ spec:
         - ssrf-to-internal-services
         - deserialization-to-rce
         - credential-exposure-to-takeover
+    - name: variant-sweep
+      role: vulnerability-hunter
+      category: other
+      timeout: 30m
+      maxTurns: 60
+      skillRefs:
+        - name: trail-of-bits-variant-analysis
+      objective: >-
+        Variant analysis for one settled candidate: {{item.title}} ({{item.verdict}}) at {{item.file}}. If the
+        verdict is false_positive, submit an empty array immediately and stop. Otherwise call
+        get_security_finding for fingerprint {{item.fingerprint}}, extract the exact vulnerable pattern from
+        its evidence (the sink, the missing or bypassable check, and the shape of attacker-controlled input),
+        and search the whole in-scope codebase for siblings: start with an exact-match pattern that must hit
+        the confirmed site, then generalize one element at a time (same sink other callers, same guard other
+        routes, same parser other formats), stopping when more than half the matches are noise. For each
+        sibling, trace reachability from the same remote attacker position before reporting it; a pattern
+        match without a path is not a variant. Report each real variant with report_security_finding, cite the
+        original finding in references, and publish the kept reports as structured output carrying their
+        fingerprints, or an empty array when the root cause has no siblings.
+      outputSchema: |-
+        {"type":"array","items":{"type":"object","required":["title","fingerprint","severity","file"],"properties":{"fingerprint":{"type":"string"},"title":{"type":"string"},"severity":{"type":"string","enum":["critical","high","medium","low","info"]},"file":{"type":"string"},"line":{"type":"integer"},"summary":{"type":"string"}}}}
+      dependsOn:
+        - validate-exploitability
+      forEach: validate-exploitability
+      maxInstances: 6
     - name: red-team-bounty-worthiness
       role: exploit-validator
       category: triage
@@ -174,7 +256,7 @@ spec:
         validation must remain status triaged with policy_disposition not_ready. Never use accepted_risk or
         false_positive merely because evidence is missing or validation is unavailable. Stop after every
         recorded finding has an evidence-backed disposition.
-      dependsOn: [validate-exploitability]
+      dependsOn: [validate-exploitability, variant-sweep]
 
     - name: triage-and-report
       role: finding-triager
@@ -188,9 +270,10 @@ spec:
         exploitation path - who the attacker is, what they send, the code path it traverses with file:line
         evidence, and what they gain - and that path survived validation. Drop everything marked false_positive,
         everything whose path is stated in conditional or speculative terms, and everything whose impact
-        does not amount to remote compromise, no matter how tidy the analysis. Merge duplicates that share a
-        sink, rank the survivors by attacker prerequisites and impact, and prefer an empty report over a
+        does not amount to remote compromise, no matter how tidy the analysis. Merge duplicates and variants
+        that share a root cause into one finding listing every affected site, rank the survivors by attacker prerequisites and impact, and prefer an empty report over a
         padded one. Then assemble and submit the final scan report.
       dependsOn:
         - validate-exploitability
+        - variant-sweep
         - red-team-bounty-worthiness
