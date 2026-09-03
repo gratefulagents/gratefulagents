@@ -9,7 +9,9 @@ const { useAgentRuns } = vi.hoisted(() => ({ useAgentRuns: vi.fn() }));
 
 vi.mock("@/hooks/useWatchedList", () => ({ useProjects }));
 vi.mock("@/hooks/useAgentRuns", () => ({ useAgentRuns }));
-vi.mock("@/components/ProjectSettingsDialog", () => ({ ProjectSettingsDialog: () => null }));
+vi.mock("@/components/project-settings/ProjectSettingsPanel", () => ({
+  ProjectSettingsPanel: () => <form aria-label="Project settings" data-testid="project-settings-panel" />,
+}));
 vi.mock("@/components/CreateRunDialog", async () => {
   const { useState } = await import("react");
   return {
@@ -157,8 +159,44 @@ describe("ProjectDetail triggers", () => {
     expect(screen.queryByRole("heading", { name: "Entry points" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Platform" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Configuration" }));
+    // Settings are edited in place on their own tab; the header button is
+    // just a shortcut to it and disappears once there.
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("tab", { name: "Settings", selected: true })).toBeTruthy();
+    expect(screen.getByTestId("project-settings-panel")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
+  });
+
+  it("shows read-only configuration to viewers and honours legacy ?tab=configuration links", () => {
+    useProjects.mockReturnValue({
+      projects: [{
+        namespace: "team",
+        name: "platform",
+        displayName: "Platform",
+        myPermission: "viewer",
+        additionalRepoUrls: [],
+        allowedModels: [],
+        mcpPolicyAllowedServers: [],
+        metrics: {},
+        triggers: [],
+      }],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/projects/team/platform?tab=configuration"]}>
+        <Routes>
+          <Route path="/projects/:namespace/:name" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("tab", { name: "Settings", selected: true })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Configuration" })).toBeTruthy();
+    expect(screen.queryByTestId("project-settings-panel")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
   });
 
   it("remounts New Run with the current project when the project route changes", () => {
