@@ -147,7 +147,8 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # reproducible.
 ARG RUST_NIGHTLY=nightly-2026-09-03
 ARG CARGO_FUZZ_VERSION=0.13.2
-RUN rustup toolchain install "$RUST_NIGHTLY" --profile minimal --component rust-src llvm-tools \
+RUN rustup toolchain install "$RUST_NIGHTLY" --profile minimal --component rust-src --component llvm-tools \
+    && rustup default "$RUST_VERSION" \
     && cargo "+$RUST_NIGHTLY" install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked \
     && cargo "+$RUST_NIGHTLY" fuzz --version \
     && rm -rf "$CARGO_HOME/registry" "$CARGO_HOME/git" \
