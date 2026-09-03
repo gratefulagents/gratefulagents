@@ -23,6 +23,7 @@ import type {
   SecurityResearchDossier,
   SecurityResearchHypothesis,
   SecurityResearchScope,
+  SecurityResearchSubmission,
   SecurityResearchVariantSweep,
   SecuritySubmissionOutcomeEvent,
 } from "@/rpc/platform/service_pb";
@@ -239,6 +240,10 @@ export function SecurityResearchPanel({ namespace, targetKey, revision, workflow
   const [completionStatus, setCompletionStatus] = useState("completed");
   const [resultJSON, setResultJSON] = useState('{\n  "searched_scope": [],\n  "methods": [],\n  "evidence": [],\n  "summary": ""\n}');
   const [submissionId, setSubmissionId] = useState("");
+  const [submissions, setSubmissions] = useState<SecurityResearchSubmission[]>([]);
+  const [submissionsLoading, setSubmissionsLoading] = useState(false);
+  const [submissionsError, setSubmissionsError] = useState("");
+  const [outcomesOpen, setOutcomesOpen] = useState(false);
   const [outcomeEvents, setOutcomeEvents] = useState<SecuritySubmissionOutcomeEvent[]>([]);
   const [outcomeLoading, setOutcomeLoading] = useState(false);
   const [outcomeError, setOutcomeError] = useState("");
@@ -285,6 +290,9 @@ export function SecurityResearchPanel({ namespace, targetKey, revision, workflow
       setOutcomeEvents([]);
       setOutcomeLoading(false);
       setOutcomeError("");
+      setSubmissions([]);
+      setSubmissionsLoading(false);
+      setSubmissionsError("");
       setDialog(null);
       setSelectedHypothesis(null);
       setSelectedSweep(null);
@@ -292,6 +300,32 @@ export function SecurityResearchPanel({ namespace, targetKey, revision, workflow
     }
     void load();
   }, [load, scopeKey]);
+
+  const refreshSubmissions = useCallback(async () => {
+    const requestScopeKey = scopeKey;
+    setSubmissionsLoading(true);
+    setSubmissionsError("");
+    try {
+      const response = await client.listSecurityResearchSubmissions({ scope, limit: 200 });
+      if (previousScopeKey.current !== requestScopeKey) return;
+      setSubmissions(response.submissions);
+    } catch (error: unknown) {
+      if (previousScopeKey.current !== requestScopeKey) return;
+      setSubmissions([]);
+      setSubmissionsError(error instanceof Error ? error.message : "Failed to load packaged submissions");
+    } finally {
+      if (previousScopeKey.current === requestScopeKey) setSubmissionsLoading(false);
+    }
+  }, [scope, scopeKey]);
+
+  useEffect(() => {
+    if (outcomesOpen) void refreshSubmissions();
+  }, [outcomesOpen, refreshSubmissions]);
+
+  function selectSubmission(id: string) {
+    setSubmissionId(id);
+    void refreshOutcomeHistory(id);
+  }
 
   async function refreshOutcomeHistory(id = submissionId) {
     const requestScopeKey = scopeKey;
@@ -504,7 +538,7 @@ export function SecurityResearchPanel({ namespace, targetKey, revision, workflow
       }
       setRationale("");
       setDialog(null);
-      await Promise.all([refreshOutcomeHistory(), load()]);
+      await Promise.all([refreshOutcomeHistory(), refreshSubmissions(), load()]);
     } catch (error: unknown) {
       mutationError(error, "Failed to record submission outcome");
     } finally {
@@ -658,9 +692,46 @@ export function SecurityResearchPanel({ namespace, targetKey, revision, workflow
         </div>
       </details>
 
-      <details className="rounded-lg border bg-background/60">
-        <summary className="cursor-pointer list-none px-3 py-2.5 text-sm font-medium">Submission outcomes</summary>
+      <details className="rounded-lg border bg-background/60" onToggle={(event) => setOutcomesOpen(event.currentTarget.open)}>
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5">
+          <span className="text-sm font-medium">Submission outcomes{submissions.length > 0 ? ` · ${submissions.length}` : ""}</span>
+          <Button size="sm" variant="outline" disabled={submissionsLoading} onClick={(event) => { event.preventDefault(); void refreshSubmissions(); }}><RefreshCw className={submissionsLoading ? "animate-spin" : undefined} />Refresh submissions</Button>
+        </summary>
         <div className="space-y-3 border-t p-3">
+          <ErrorMessage>{submissionsError}</ErrorMessage>
+          {submissions.length === 0 ? (
+            <EmptyRow>{submissionsLoading ? "Loading packaged submissions…" : "No packaged submissions for this revision yet"}</EmptyRow>
+          ) : (
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/40 text-left text-muted-foreground">
+                  <tr>
+                    <th scope="col" className="px-3 py-2 font-medium">Rank</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Finding</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Status</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Latest outcome</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Submitted</th>
+                    <th scope="col" className="px-3 py-2"><span className="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {submissions.map((submission) => (
+                    <tr key={submission.id} className={submission.id === submissionId.trim() ? "border-t bg-muted/30" : "border-t"}>
+                      <td className="px-3 py-2 font-mono">{submission.rank}</td>
+                      <td className="max-w-md px-3 py-2">
+                        <span className="block truncate font-medium">{submission.findingTitle || submission.findingFingerprint || submission.candidateKey}</span>
+                        <span className="block truncate font-mono text-[11px] text-muted-foreground">{submission.id}</span>
+                      </td>
+                      <td className="px-3 py-2"><Badge variant="outline" className="capitalize">{readable(submission.status)}</Badge></td>
+                      <td className="px-3 py-2">{submission.latestOutcome ? <Badge variant="secondary" className="capitalize">{readable(submission.latestOutcome)}</Badge> : <span className="text-muted-foreground">pending</span>}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{when(submission.submittedAt)}</td>
+                      <td className="px-3 py-2 text-right"><Button size="sm" variant="ghost" aria-label={`Use submission ${submission.id}`} onClick={() => selectSubmission(submission.id)}>Use</Button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <div className="flex flex-wrap items-end gap-2">
             <Field label="Submission ID">
               <Input aria-label="Submission ID" className="w-80 font-mono" placeholder="UUID" value={submissionId} onChange={(event) => setSubmissionId(event.target.value)} />

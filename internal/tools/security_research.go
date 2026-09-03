@@ -1,12 +1,14 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -348,10 +350,14 @@ type transitionSecurityHypothesisTool struct{ state *securityScanState }
 
 func (t *transitionSecurityHypothesisTool) Name() string { return "transition_security_hypothesis" }
 func (t *transitionSecurityHypothesisTool) Description() string {
-	return "Transition or explicitly reopen a hypothesis on this run's trusted exact revision."
+	return "Transition or explicitly reopen a hypothesis on this run's trusted exact revision. " +
+		"falsified is reserved for experimentally refuted hypotheses: it requires either detail.guard_citation " +
+		"(a file:line reference to the guard that defeats the attack) or a record_security_coverage entry for the " +
+		"hypothesis with a dynamic experiment_kind (new_test, mutant, fixture, differential, fuzz, property). " +
+		"Use weakened for reading-only refutations and blocked when the experiment could not run."
 }
 func (t *transitionSecurityHypothesisTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"hypothesis_id":{"type":"string"},"expected_version":{"type":"integer","minimum":1},"to_status":{"type":"string","enum":["investigating","supported","weakened","falsified","blocked","superseded","promoted"]},"result":{"type":"string","enum":["pending","positive","negative","failed","timed_out","inconclusive","abandoned"]},"rationale":{"type":"string"},"detail":{"type":"object"},"idempotency_key":{"type":"string"},"reopen":{"type":"boolean"}},"required":["hypothesis_id","expected_version","to_status","result","rationale","detail","idempotency_key"],"additionalProperties":false}`)
+	return json.RawMessage(`{"type":"object","properties":{"hypothesis_id":{"type":"string"},"expected_version":{"type":"integer","minimum":1},"to_status":{"type":"string","enum":["investigating","supported","weakened","falsified","blocked","superseded","promoted"],"description":"falsified requires experimental evidence: either detail.guard_citation (file:line of the guard that defeats the attack) or a record_security_coverage entry for this hypothesis whose experiment_kind is dynamic (new_test, mutant, fixture, differential, fuzz, property). Reading-only refutations must use weakened; experiments that could not run must use blocked."},"result":{"type":"string","enum":["pending","positive","negative","failed","timed_out","inconclusive","abandoned"]},"rationale":{"type":"string"},"detail":{"type":"object","properties":{"guard_citation":{"type":"string","description":"file:line reference to the guard that refutes the hypothesis, e.g. contracts/Vault.sol:142"}}},"idempotency_key":{"type":"string"},"reopen":{"type":"boolean"}},"required":["hypothesis_id","expected_version","to_status","result","rationale","detail","idempotency_key"],"additionalProperties":false}`)
 }
 func (t *transitionSecurityHypothesisTool) IsReadOnly() bool                      { return true }
 func (t *transitionSecurityHypothesisTool) IsEnabled(_ *agentsdk.RunContext) bool { return true }
@@ -377,9 +383,15 @@ func (t *transitionSecurityHypothesisTool) Execute(ctx context.Context, input js
 	if err != nil {
 		return securityResearchFailure(err)
 	}
+	toStatus := strings.TrimSpace(in.ToStatus)
+	if toStatus == store.SecurityHypothesisFalsified && !in.Reopen {
+		if err := t.state.requireSecurityFalsificationEvidence(ctx, bound.revision.ID, *hypothesisID, in.Detail); err != nil {
+			return securityResearchFailure(err)
+		}
+	}
 	transition := store.SecurityHypothesisTransition{
 		ExpectedVersion: in.ExpectedVersion,
-		ToStatus:        strings.TrimSpace(in.ToStatus),
+		ToStatus:        toStatus,
 		Result:          strings.TrimSpace(in.Result),
 		Actor:           actor,
 		Rationale:       strings.TrimSpace(in.Rationale),
@@ -398,24 +410,120 @@ func (t *transitionSecurityHypothesisTool) Execute(ctx context.Context, input js
 	return securityResearchResult(map[string]any{"hypothesis": value})
 }
 
+var securityGuardCitationPattern = regexp.MustCompile(`\S+:\d+`)
+
+// requireSecurityFalsificationEvidence enforces that a falsified hypothesis is
+// backed by a guard citation or a dynamic experiment recorded against it, so
+// reading-only refutations cannot masquerade as experimental results.
+func (s *securityScanState) requireSecurityFalsificationEvidence(ctx context.Context, revisionID, hypothesisID uuid.UUID, detail json.RawMessage) error {
+	var parsed struct {
+		GuardCitation string `json:"guard_citation"`
+	}
+	if len(bytes.TrimSpace(detail)) > 0 {
+		_ = json.Unmarshal(detail, &parsed)
+	}
+	if securityGuardCitationPattern.MatchString(strings.TrimSpace(parsed.GuardCitation)) {
+		return nil
+	}
+	coverage, err := s.researchStore.ListSecurityResearchCoverage(ctx, s.scanCtx.Namespace, revisionID)
+	if err != nil {
+		return fmt.Errorf("listing coverage for falsification evidence: %w", err)
+	}
+	for _, record := range coverage {
+		if record.HypothesisID == nil || *record.HypothesisID != hypothesisID {
+			continue
+		}
+		if securityCoverageDynamicExperimentKinds[securityCoverageExperimentKind(record.Bounds)] {
+			return nil
+		}
+	}
+	return fmt.Errorf("falsified requires experimental evidence: provide detail.guard_citation as a file:line reference to the guard that defeats the attack, or first record_security_coverage for hypothesis %s with a dynamic experiment_kind (new_test, mutant, fixture, differential, fuzz, property) and its command; use weakened for reading-only refutations or blocked when the experiment could not run", hypothesisID)
+}
+
+func securityCoverageExperimentKind(bounds json.RawMessage) string {
+	var parsed struct {
+		Experiment struct {
+			Kind string `json:"kind"`
+		} `json:"experiment"`
+	}
+	if len(bytes.TrimSpace(bounds)) == 0 || json.Unmarshal(bounds, &parsed) != nil {
+		return ""
+	}
+	return parsed.Experiment.Kind
+}
+
 type recordSecurityCoverageInput struct {
 	HypothesisID   string          `json:"hypothesis_id"`
 	Dimension      string          `json:"dimension"`
 	SubjectKey     string          `json:"subject_key"`
 	Verdict        string          `json:"verdict"`
+	ExperimentKind string          `json:"experiment_kind"`
+	Command        string          `json:"command"`
+	ExitCode       *int            `json:"exit_code"`
+	Observed       string          `json:"observed"`
 	Bounds         json.RawMessage `json:"bounds"`
 	Evidence       json.RawMessage `json:"evidence"`
 	IdempotencyKey string          `json:"idempotency_key"`
+}
+
+const maxSecurityCoverageObservedChars = 2000
+
+var securityCoverageDynamicExperimentKinds = map[string]bool{
+	"new_test": true, "mutant": true, "fixture": true, "differential": true, "fuzz": true, "property": true,
+}
+
+var securityCoverageExperimentKinds = map[string]bool{
+	"new_test": true, "mutant": true, "fixture": true, "differential": true, "fuzz": true, "property": true,
+	"static_trace": true, "existing_suite": true,
+}
+
+func validateSecurityCoverageExperiment(verdict, kind, command string) error {
+	if !securityCoverageExperimentKinds[kind] {
+		return fmt.Errorf("experiment_kind %q is invalid (valid: new_test, mutant, fixture, differential, fuzz, property, static_trace, existing_suite)", kind)
+	}
+	switch verdict {
+	case store.SecurityCoverageDisproved, store.SecurityCoverageAdequatelyTested:
+		if !securityCoverageDynamicExperimentKinds[kind] {
+			return fmt.Errorf("verdict %q requires a dynamic experiment_kind (new_test, mutant, fixture, differential, fuzz, property) that you ran on this revision; existing_suite and static_trace may only support inadequately_tested or not_tested", verdict)
+		}
+		if command == "" {
+			return fmt.Errorf("verdict %q requires command: the exact reproducible command (including cwd) that ran the %s experiment", verdict, kind)
+		}
+	}
+	return nil
+}
+
+// mergeSecurityCoverageExperiment records the experiment inside the stored
+// bounds object so the provenance persists without a schema migration.
+func mergeSecurityCoverageExperiment(bounds json.RawMessage, experiment map[string]any) (json.RawMessage, error) {
+	merged := map[string]any{}
+	trimmed := bytes.TrimSpace(bounds)
+	if len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null")) {
+		if err := json.Unmarshal(trimmed, &merged); err != nil {
+			var declared any
+			if err := json.Unmarshal(trimmed, &declared); err != nil {
+				return nil, fmt.Errorf("bounds must be valid JSON: %w", err)
+			}
+			merged = map[string]any{"declared_bounds": declared}
+		}
+	}
+	merged["experiment"] = experiment
+	return json.Marshal(merged)
 }
 
 type recordSecurityCoverageTool struct{ state *securityScanState }
 
 func (t *recordSecurityCoverageTool) Name() string { return "record_security_coverage" }
 func (t *recordSecurityCoverageTool) Description() string {
-	return "Record invariant, actor, state, or transition coverage for this run's trusted exact revision."
+	return "Record invariant, actor, state, or transition coverage for this run's trusted exact revision. " +
+		"Every record names the experiment_kind that produced it. disproved and adequately_tested are only " +
+		"accepted for dynamic experiments you ran yourself (new_test, mutant, fixture, differential, fuzz, property) " +
+		"and require command, the exact reproducible command (with cwd); re-running the project's existing_suite " +
+		"or a static_trace can only justify inadequately_tested or not_tested. The experiment is persisted under " +
+		"bounds.experiment."
 }
 func (t *recordSecurityCoverageTool) InputSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"hypothesis_id":{"type":"string"},"dimension":{"type":"string","enum":["invariant","actor","state","transition"]},"subject_key":{"type":"string"},"verdict":{"type":"string","enum":["disproved","adequately_tested","inadequately_tested","not_tested"]},"bounds":{"type":"object"},"evidence":{"type":"array"},"idempotency_key":{"type":"string"}},"required":["dimension","subject_key","verdict","bounds","evidence","idempotency_key"],"additionalProperties":false}`)
+	return json.RawMessage(`{"type":"object","properties":{"hypothesis_id":{"type":"string"},"dimension":{"type":"string","enum":["invariant","actor","state","transition"]},"subject_key":{"type":"string"},"verdict":{"type":"string","enum":["disproved","adequately_tested","inadequately_tested","not_tested"],"description":"disproved and adequately_tested require a dynamic experiment_kind plus command; existing_suite and static_trace may only support inadequately_tested or not_tested"},"experiment_kind":{"type":"string","enum":["new_test","mutant","fixture","differential","fuzz","property","static_trace","existing_suite"],"description":"What produced this verdict: new_test (a test you wrote), mutant (a mutation that the tests caught or missed), fixture (a crafted input/state), differential (compared implementations), fuzz, property (property-based run), static_trace (code reading only), existing_suite (re-ran the project's own tests)"},"command":{"type":"string","description":"Exact reproducible command that ran the experiment, including cwd, e.g. cd contracts && forge test --match-test testNonOwnerWithdraw. Required for disproved and adequately_tested; optional for static_trace"},"exit_code":{"type":"integer","description":"Exit code of command"},"observed":{"type":"string","maxLength":2000,"description":"Salient observed output of command (at most 2000 characters)"},"bounds":{"type":"object"},"evidence":{"type":"array"},"idempotency_key":{"type":"string"}},"required":["dimension","subject_key","verdict","experiment_kind","bounds","evidence","idempotency_key"],"additionalProperties":false}`)
 }
 func (t *recordSecurityCoverageTool) IsReadOnly() bool                      { return true }
 func (t *recordSecurityCoverageTool) IsEnabled(_ *agentsdk.RunContext) bool { return true }
@@ -425,6 +533,30 @@ func (t *recordSecurityCoverageTool) Execute(ctx context.Context, input json.Raw
 	var in recordSecurityCoverageInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return securityResearchFailure(fmt.Errorf("invalid input: %w", err))
+	}
+	verdict := strings.TrimSpace(in.Verdict)
+	kind := strings.TrimSpace(in.ExperimentKind)
+	command := strings.TrimSpace(in.Command)
+	observed := strings.TrimSpace(in.Observed)
+	if err := validateSecurityCoverageExperiment(verdict, kind, command); err != nil {
+		return securityResearchFailure(err)
+	}
+	if len([]rune(observed)) > maxSecurityCoverageObservedChars {
+		return securityResearchFailure(fmt.Errorf("observed exceeds %d characters; keep only the salient output", maxSecurityCoverageObservedChars))
+	}
+	experiment := map[string]any{"kind": kind}
+	if command != "" {
+		experiment["command"] = command
+	}
+	if in.ExitCode != nil {
+		experiment["exit_code"] = *in.ExitCode
+	}
+	if observed != "" {
+		experiment["observed"] = observed
+	}
+	bounds, err := mergeSecurityCoverageExperiment(in.Bounds, experiment)
+	if err != nil {
+		return securityResearchFailure(err)
 	}
 	hypothesisID, err := parseSecurityResearchUUID(in.HypothesisID, "hypothesis_id", true)
 	if err != nil {
@@ -448,8 +580,8 @@ func (t *recordSecurityCoverageTool) Execute(ctx context.Context, input json.Raw
 		HypothesisID:   hypothesisID,
 		Dimension:      strings.TrimSpace(in.Dimension),
 		SubjectKey:     strings.TrimSpace(in.SubjectKey),
-		Verdict:        strings.TrimSpace(in.Verdict),
-		Bounds:         in.Bounds,
+		Verdict:        verdict,
+		Bounds:         bounds,
 		Evidence:       in.Evidence,
 		Actor:          actor,
 		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),

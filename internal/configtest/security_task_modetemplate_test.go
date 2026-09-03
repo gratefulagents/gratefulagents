@@ -117,6 +117,7 @@ func TestBlockchainProtocolLocalResearchDisablesDockerInDocker(t *testing.T) {
 		"network-and-state-investigator",
 		"cross-chain-and-custody-investigator",
 		"crypto-economics-and-release-investigator",
+		"hypothesis-driven-fuzz-research",
 		"challenge-and-variant-sweep",
 		"red-team-bounty-worthiness",
 	} {
@@ -129,7 +130,7 @@ func TestBlockchainProtocolLocalResearchDisablesDockerInDocker(t *testing.T) {
 			t.Errorf("task %q dockerInDocker = %v, want explicit false", name, value)
 		}
 	}
-	if value := byName["run-bounded-native-fuzz"]; value != nil {
-		t.Errorf("pinned native fuzz task dockerInDocker = %v, want no task override", *value)
+	if _, ok := byName["run-bounded-native-fuzz"]; ok {
+		t.Error("blockchain protocol workflow must not carry the fixed native fuzz baseline task")
 	}
 }

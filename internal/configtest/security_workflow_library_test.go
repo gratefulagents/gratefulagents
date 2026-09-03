@@ -774,8 +774,10 @@ func TestSmartContractReviewLifecycle(t *testing.T) {
 }
 
 // TestBlockchainProtocolAuditComposition keeps the generic protocol workflow
-// compact and evidence-driven: a readiness gate feeds four persistent
-// investigators, and only selected leads fan out for independent challenge.
+// compact and evidence-driven: a build-free target-priors pass and a runtime
+// preflight feed four persistent investigators and one fuzz researcher, a
+// toolchain gap degrades investigation to static mode instead of skipping it,
+// and selected leads fan out for independent challenge or extension.
 func TestBlockchainProtocolAuditComposition(t *testing.T) {
 	t.Parallel()
 
@@ -786,32 +788,76 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 	for _, task := range workflow.Spec.Tasks {
 		byName[task.Name] = task
 	}
-	if len(workflow.Spec.Tasks) != 11 {
-		t.Fatalf("protocol workflow has %d static tasks, want the compact 11-task graph", len(workflow.Spec.Tasks))
+	if len(workflow.Spec.Tasks) != 12 {
+		t.Fatalf("protocol workflow has %d static tasks, want the compact 12-task graph", len(workflow.Spec.Tasks))
 	}
+	if workflow.Spec.Tasks[0].Name != "target-priors" {
+		t.Fatalf("first task = %q, want the build-free target-priors pass", workflow.Spec.Tasks[0].Name)
+	}
+	priors := byName["target-priors"]
+	if len(priors.DependsOn) != 0 || priors.Role != "threat-modeler" || priors.When != nil {
+		t.Errorf("target-priors must be an ungated build-free threat-modeler task: dependsOn=%v role=%q when=%#v", priors.DependsOn, priors.Role, priors.When)
+	}
+	for _, marker := range []string{
+		"get_security_research_context", "git log", "git diff", "release tag", "last audit date", "90 days", "300 commits",
+		"changelog", "security.md", "advisories", "prior audit reports", "known issues", "todo", "unsafe", "fork or feature flags",
+		"spec clauses", "upstream divergence", "stale-bug-class", "inline", "not as artifact ids", "32 kib",
+	} {
+		if !strings.Contains(strings.ToLower(priors.Objective), marker) {
+			t.Errorf("target-priors must require %q", marker)
+		}
+	}
+	for _, marker := range []string{
+		`"profile"`, `"consensus_or_execution_client"`, `"networked_node"`, `"cross_chain_or_custody"`, `"smart_contract_platform"`,
+		`"release_pipeline"`, `"evm_compatible"`, `"languages"`, `"priors"`, `"maxItems":24`, `"recent_change"`, `"changelog"`,
+		`"advisory_or_audit"`, `"known_issue"`, `"spec_clause"`, `"fork_divergence"`, `"todo_or_unsafe"`, `"input_surface"`,
+		`"anchor"`, `"summary"`, `"why_it_matters"`, `"suggested_experiment"`, `"commits"`, `"stale_classes"`, `"limitations"`,
+	} {
+		if !strings.Contains(priors.OutputSchema, marker) {
+			t.Errorf("target-priors schema must declare %q", marker)
+		}
+	}
+	validPriors := `{"revision":"abc123","profile":{"consensus_or_execution_client":true,"networked_node":true,"cross_chain_or_custody":false,"smart_contract_platform":false,"release_pipeline":true,"evm_compatible":true,"languages":["go"]},"priors":[{"id":"p1","kind":"recent_change","anchor":{"path":"core/types/tx.go","line":42,"symbol":"DecodeRLP"},"summary":"new blob tx decoder","why_it_matters":"pre-auth wire surface","suggested_experiment":"decoder strictness probe","commits":["0123456789ab"]}],"stale_classes":["Go map iteration in non-consensus paths"],"limitations":[]}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(priors.OutputSchema, validPriors); err != nil {
+		t.Fatalf("target-priors schema rejected a well-formed priors list: %v", err)
+	}
+	invalidPriorKind := strings.Replace(validPriors, `"kind":"recent_change"`, `"kind":"vibes"`, 1)
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(priors.OutputSchema, invalidPriorKind); err == nil {
+		t.Error("target-priors schema accepted an unknown prior kind")
+	}
+
 	preflight, ok := byName["runtime-preflight-and-dossier"]
 	if !ok {
-		t.Fatal("protocol workflow must begin with a runtime readiness gate")
+		t.Fatal("protocol workflow must carry a runtime readiness gate")
 	}
 	for _, marker := range []string{
 		"initialize declared submodules", "repository-declared dependencies", "principal build", "focused test",
 		"conditions.ready false", "revision_ready", "build_ready", "test_ready", "local_experiment_ready", "negative control", "blocker artifact",
+		"static gate", "dynamic gate", "conditions.dynamic_ready", "no longer blocks static investigation",
 	} {
 		if !strings.Contains(strings.ToLower(preflight.Objective), marker) {
 			t.Errorf("runtime preflight must require %q", marker)
 		}
 	}
-	for _, marker := range []string{`"revision_ready"`, `"local_experiment_ready"`, `"allOf"`, `"const":true`} {
+	for _, marker := range []string{`"revision_ready"`, `"local_experiment_ready"`, `"dynamic_ready"`, `"allOf"`, `"const":true`} {
 		if !strings.Contains(preflight.OutputSchema, marker) {
 			t.Errorf("runtime preflight schema must enforce %q", marker)
 		}
 	}
 
-	readyWithoutExperiment := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"revision_ready":true,"build_ready":true,"test_ready":true,"local_experiment_ready":false}}`
-	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(preflight.OutputSchema, readyWithoutExperiment); err == nil {
-		t.Error("preflight schema accepted ready=true without an operational local experiment")
+	dynamicWithoutExperiment := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"revision_ready":true,"build_ready":true,"test_ready":true,"local_experiment_ready":false,"dynamic_ready":true}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(preflight.OutputSchema, dynamicWithoutExperiment); err == nil {
+		t.Error("preflight schema accepted dynamic_ready=true without an operational local experiment")
 	}
-	blockedPreflight := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"revision_ready":true,"build_ready":false,"test_ready":false,"local_experiment_ready":false}}`
+	readyWithoutRevision := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"revision_ready":false,"build_ready":false,"test_ready":false,"local_experiment_ready":false,"dynamic_ready":false}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(preflight.OutputSchema, readyWithoutRevision); err == nil {
+		t.Error("preflight schema accepted ready=true without a verified revision")
+	}
+	staticOnlyPreflight := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"],"conditions":{"ready":true,"revision_ready":true,"build_ready":false,"test_ready":false,"local_experiment_ready":false,"dynamic_ready":false}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(preflight.OutputSchema, staticOnlyPreflight); err != nil {
+		t.Fatalf("preflight schema rejected a truthful static-only readiness (toolchain gap): %v", err)
+	}
+	blockedPreflight := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"revision_ready":false,"build_ready":false,"test_ready":false,"local_experiment_ready":false,"dynamic_ready":false}}`
 	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(preflight.OutputSchema, blockedPreflight); err != nil {
 		t.Fatalf("preflight schema rejected truthful blocked output: %v", err)
 	}
@@ -822,23 +868,51 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 		"cross-chain-and-custody-investigator",
 		"crypto-economics-and-release-investigator",
 	}
+	profileGates := map[string]string{
+		"network-and-state-investigator":       "profile.networked_node",
+		"cross-chain-and-custody-investigator": "profile.cross_chain_or_custody",
+	}
 	for _, name := range investigators {
 		task, ok := byName[name]
 		if !ok {
 			t.Errorf("persistent investigator %q is missing", name)
 			continue
 		}
-		if !slices.Contains(task.DependsOn, "runtime-preflight-and-dossier") || task.When == nil || task.When.Path != "conditions.ready" {
-			t.Errorf("investigator %q is not gated by runtime readiness", name)
+		if !slices.Contains(task.DependsOn, "runtime-preflight-and-dossier") || !slices.Contains(task.DependsOn, "target-priors") {
+			t.Errorf("investigator %q must depend on the preflight and the target priors: %v", name, task.DependsOn)
 		}
-		if task.Timeout.Duration < 60*time.Minute || task.MaxTurns < 100 {
+		if task.When == nil {
+			t.Errorf("investigator %q is not gated", name)
+			continue
+		}
+		if profile, gated := profileGates[name]; gated {
+			if task.When.Task != "target-priors" || task.When.Path != profile || task.When.Equals != "true" {
+				t.Errorf("investigator %q gate = %#v, want target-priors %s", name, task.When, profile)
+			}
+			if !strings.Contains(task.When.OtherwiseOutput, `"reason":"profile_not_applicable"`) {
+				t.Errorf("investigator %q skipped output must state profile_not_applicable", name)
+			}
+			if !strings.Contains(strings.ToLower(task.Objective), "conditions.ready false, return the ready:false handoff") {
+				t.Errorf("profile-gated investigator %q must fall back to the static-blocked handoff when preflight is not ready", name)
+			}
+		} else if task.When.Task != "runtime-preflight-and-dossier" || task.When.Path != "conditions.ready" {
+			t.Errorf("investigator %q is not gated by the static readiness gate: %#v", name, task.When)
+		}
+		if task.Timeout.Duration < 120*time.Minute || task.MaxTurns < 250 {
 			t.Errorf("investigator %q is not persistent enough: timeout=%s maxTurns=%d", name, task.Timeout.Duration, task.MaxTurns)
+		}
+		if !strings.Contains(task.Objective, "{{tasks.target-priors.output}}") {
+			t.Errorf("investigator %q must consume the inline target priors", name)
 		}
 		objective := strings.ToLower(task.Objective)
 		for _, marker := range []string{
 			"create_security_hypothesis", "local", "create_security_research_artifact", "record_security_coverage",
-			"at least six distinct", "at least three calibrated dynamic experiments", "at least two methods",
-			"exhausted-surface artifact", "conditions.hypotheses_examined", "conditions.dynamic_experiments",
+			"delta first", "at least half of your hypotheses", "not_tested coverage",
+			"model-authored or model-modified", "never an experiment", "blocked, never falsified", "cited total guard",
+			"conditions.dynamic_ready false", "static mode", "conditions.static_mode",
+			"at least six distinct", "at least three calibrated dynamic experiments", "at least two methods", "not a stopping point",
+			"budget-based", "next_experiment manifest", "conditions.next_experiment_artifact_id", "40% of the turn budget",
+			"exhausted-surface artifact", "top_candidates", "conditions.hypotheses_examined", "conditions.dynamic_experiments",
 			"conditions.experiment_methods", "conditions.surface_exhausted",
 		} {
 			if !strings.Contains(objective, marker) {
@@ -846,12 +920,23 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 			}
 		}
 		for _, marker := range []string{
-			`"hypotheses_examined"`, `"dynamic_experiments"`, `"experiment_methods"`,
-			`"surface_exhausted"`, `"minimum":6`, `"minimum":3`, `"minimum":2`,
+			`"hypotheses_examined"`, `"dynamic_experiments"`, `"experiment_methods"`, `"surface_exhausted"`,
+			`"static_mode"`, `"next_experiment_artifact_id"`, `"top_candidates"`, `"maxItems":5`,
+			`"minimum":6`, `"minimum":3`, `"minimum":2`, `"maxItems":64`, `"maxItems":32`,
 		} {
 			if !strings.Contains(task.OutputSchema, marker) {
 				t.Errorf("investigator %q handoff schema must enforce %q", name, marker)
 			}
+		}
+	}
+	for _, marker := range []string{"spec-versus-implementation", "differential execution", "decoder strictness"} {
+		if !strings.Contains(strings.ToLower(byName["consensus-and-execution-investigator"].Objective), marker) {
+			t.Errorf("consensus investigator must carry the %q recipe", marker)
+		}
+	}
+	for _, marker := range []string{"decoder-strictness campaign", "every wire surface", "pre-authentication resource bounds"} {
+		if !strings.Contains(strings.ToLower(byName["network-and-state-investigator"].Objective), marker) {
+			t.Errorf("network investigator must carry the %q recipe", marker)
 		}
 	}
 
@@ -859,6 +944,18 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 	validQuota := `{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"hypotheses_examined":6,"dynamic_experiments":3,"experiment_methods":2,"surface_exhausted":false}}`
 	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(investigatorSchema, validQuota); err != nil {
 		t.Fatalf("investigator schema rejected completed evidence quota: %v", err)
+	}
+	invalidQuota := `{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"hypotheses_examined":6,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false,"static_mode":false}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(investigatorSchema, invalidQuota); err == nil {
+		t.Error("investigator schema accepted a dynamic-mode handoff without experiments")
+	}
+	validStaticMode := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"],"top_candidates":[{"handle":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","impact":"pre-auth allocation before length check","confidence":"medium","next_experiment":"go test -run TestOversizedFrame ./p2p"}],"conditions":{"ready":true,"hypotheses_examined":6,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false,"static_mode":true,"next_experiment_artifact_id":"cccccccc-cccc-cccc-cccc-cccccccccccc"}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(investigatorSchema, validStaticMode); err != nil {
+		t.Fatalf("investigator schema rejected a static-mode handoff: %v", err)
+	}
+	invalidStaticMode := `{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"hypotheses_examined":2,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false,"static_mode":true}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(investigatorSchema, invalidStaticMode); err == nil {
+		t.Error("investigator schema accepted static mode with fewer than six hypotheses")
 	}
 	validExhaustion := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"hypotheses_examined":2,"dynamic_experiments":1,"experiment_methods":1,"surface_exhausted":true}}`
 	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(investigatorSchema, validExhaustion); err != nil {
@@ -868,36 +965,178 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(investigatorSchema, invalidExhaustion); err == nil {
 		t.Error("investigator schema accepted surface_exhausted without an artifact")
 	}
-	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(investigatorSchema, byName[investigators[0]].When.OtherwiseOutput); err != nil {
-		t.Fatalf("investigator schema rejected readiness-gate skipped output: %v", err)
+	unexplainedBlock := `{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"hypotheses_examined":0,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(investigatorSchema, unexplainedBlock); err == nil {
+		t.Error("investigator schema accepted ready=false without a blocker or reason")
+	}
+	for _, name := range investigators {
+		if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(byName[name].OutputSchema, byName[name].When.OtherwiseOutput); err != nil {
+			t.Fatalf("investigator %q schema rejected its gate-skipped output: %v", name, err)
+		}
+	}
+
+	fuzz, ok := byName["hypothesis-driven-fuzz-research"]
+	if !ok {
+		t.Fatal("protocol workflow is missing hypothesis-driven-fuzz-research")
+	}
+	if fuzz.Role != "fuzz-researcher" || fuzz.Timeout.Duration < 120*time.Minute || fuzz.MaxTurns < 250 {
+		t.Errorf("fuzz research must be a persistent fuzz-researcher task: role=%q timeout=%s maxTurns=%d", fuzz.Role, fuzz.Timeout.Duration, fuzz.MaxTurns)
+	}
+	if fuzz.DockerInDocker == nil || *fuzz.DockerInDocker {
+		t.Error("fuzz research must run in the local sandbox with dockerInDocker false")
+	}
+	if fuzz.When == nil || fuzz.When.Task != "runtime-preflight-and-dossier" || fuzz.When.Path != "conditions.dynamic_ready" || fuzz.When.Equals != "true" {
+		t.Errorf("fuzz research must gate on the dynamic readiness gate: %#v", fuzz.When)
+	}
+	if !slices.Contains(fuzz.DependsOn, "target-priors") || !strings.Contains(fuzz.Objective, "{{tasks.target-priors.output}}") {
+		t.Error("fuzz research must consume the inline target priors")
+	}
+	for _, skill := range []string{
+		"trail-of-bits-harness-writing", "trail-of-bits-cargo-fuzz", "trail-of-bits-fuzzing-dictionary",
+		"trail-of-bits-fuzzing-obstacles", "trail-of-bits-coverage-analysis", "trail-of-bits-address-sanitizer",
+	} {
+		if !slices.ContainsFunc(fuzz.SkillRefs, func(ref platformv1alpha1.NamedRef) bool { return ref.Name == skill }) {
+			t.Errorf("fuzz research is missing skill %q", skill)
+		}
+	}
+	fuzzObjective := strings.ToLower(fuzz.Objective)
+	for _, marker := range []string{
+		"input_surface", "recent_change", "create_security_hypothesis", "repository harnesses", "testing.f", "cargo-fuzz", "proptest",
+		"differential", "harness_origin", "model_authored", "model_modified", "harness_digest", "fixtures and test vectors",
+		"run_security_tool", "go-fuzz-tests", "fuzztime up to 15m", "directly in the sandbox", "exact command",
+		"harness_bug", "sanitizer_or_panic", "invariant_or_differential_violation", "minimize", "standalone deterministic regression test",
+		"root-cause", "negative control", "reachability", "plateau", "at least three rounds", "at least two distinct surfaces",
+		"harness_summary", "blocker artifact", "next_experiment manifest", "record_security_coverage", "experiment_kind fuzz",
+		"crashes are candidates, not findings", "report_security_finding", "never fuzz live",
+		"conditions.rounds_completed", "conditions.crashes_triaged", "conditions.surfaces_covered",
+	} {
+		if !strings.Contains(fuzzObjective, marker) {
+			t.Errorf("fuzz research must require %q", marker)
+		}
+	}
+	for _, marker := range []string{`"rounds_completed"`, `"crashes_triaged"`, `"surfaces_covered"`, `"top_candidates"`, `"static_mode"`} {
+		if !strings.Contains(fuzz.OutputSchema, marker) {
+			t.Errorf("fuzz handoff schema must declare %q", marker)
+		}
+	}
+	validFuzz := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":["fp-1"],"coverage_ids":{"not_tested":["dddddddd-dddd-dddd-dddd-dddddddddddd"]},"blocker_ids":[],"top_candidates":[{"handle":"fp-1","impact":"panic in pre-auth RLP decoder","confidence":"high","next_experiment":"replay minimized input through the sync handler"}],"conditions":{"ready":true,"rounds_completed":3,"crashes_triaged":2,"surfaces_covered":2,"hypotheses_examined":3,"dynamic_experiments":3,"experiment_methods":2,"surface_exhausted":false,"next_experiment_artifact_id":"cccccccc-cccc-cccc-cccc-cccccccccccc"}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(fuzz.OutputSchema, validFuzz); err != nil {
+		t.Fatalf("fuzz schema rejected a completed research handoff: %v", err)
+	}
+	shallowFuzz := `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"rounds_completed":1,"crashes_triaged":0,"surfaces_covered":1,"hypotheses_examined":1,"dynamic_experiments":1,"experiment_methods":1,"surface_exhausted":false}}`
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(fuzz.OutputSchema, shallowFuzz); err == nil {
+		t.Error("fuzz schema accepted a single smoke-test round as completed research")
+	}
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(fuzz.OutputSchema, fuzz.When.OtherwiseOutput); err != nil {
+		t.Fatalf("fuzz schema rejected its dynamic-gate skipped output: %v", err)
+	}
+	if !strings.Contains(fuzz.When.OtherwiseOutput, `"reason":"runtime_dynamic_blocked"`) {
+		t.Error("fuzz skipped output must state runtime_dynamic_blocked")
 	}
 
 	var role platformv1alpha1.RoleInstruction
 	readBootstrapAsset(t, "roleinstructions", "protocol-investigator", &role)
 	for _, marker := range []string{
+		"hypothesis anchoring", "target priors list", "at least half of your hypotheses", "not_tested coverage",
+		"definition of a dynamic experiment", "model-authored or model-modified",
+		"unmodified repository test suite is preflight or reading, never an experiment",
+		"blocked versus falsified", "blocked, never falsified", "stale-class ban", "static mode",
+		"conditions.dynamic_ready false", "conditions.static_mode true", "budget- and coverage-based, never quota-based",
+		"next_experiment manifest artifact", "more than about 40% of the turn budget unused", "delta first",
 		"at least six distinct high-impact hypotheses", "at least three calibrated dynamic experiments",
 		"at least two methods", "explicit exhausted-surface artifact", "hypotheses_examined",
-		"dynamic_experiments", "experiment_methods", "surface_exhausted",
+		"dynamic_experiments", "experiment_methods", "surface_exhausted", "static_mode", "next_experiment_artifact_id",
 	} {
 		if !strings.Contains(strings.ToLower(role.Spec.Instructions), marker) {
 			t.Errorf("protocol investigator role must require %q", marker)
 		}
 	}
 
+	collector := byName["collect-investigator-handoffs"]
+	for _, dependency := range append(append([]string{"runtime-preflight-and-dossier"}, investigators...), "hypothesis-driven-fuzz-research") {
+		if !slices.Contains(collector.DependsOn, dependency) {
+			t.Errorf("handoff collector must concatenate %q", dependency)
+		}
+	}
+	if collector.Reduce != "concat" || !strings.Contains(collector.OutputSchema, `"minItems":6,"maxItems":6`) {
+		t.Errorf("handoff collector must concatenate exactly six handoffs: reduce=%q", collector.Reduce)
+	}
+	if strings.Contains(collector.Objective, "include_payload") {
+		t.Error("handoff collector must not recursively load durable artifact bodies")
+	}
+
+	selector := byName["select-adaptive-challenges"]
+	for _, marker := range []string{"{{tasks.collect-investigator-handoffs.output}}", "{{tasks.target-priors.output}}"} {
+		if !strings.Contains(selector.Objective, marker) {
+			t.Errorf("adaptive selection must consume %s", marker)
+		}
+	}
+	for _, marker := range []string{
+		"between three and eight", "mode challenge", "mode extend", "fewer than three candidates", "blocked or inadequately_tested",
+		"unexamined priors", "conditions.experiment", "instead of doing nothing", "conditions.mode", "conditions.static_mode",
+	} {
+		if !strings.Contains(strings.ToLower(selector.Objective), marker) {
+			t.Errorf("adaptive selection must require %q", marker)
+		}
+	}
+	if selector.When == nil || selector.When.Task != "runtime-preflight-and-dossier" || selector.When.Path != "conditions.ready" {
+		t.Errorf("adaptive selection must gate on static readiness: %#v", selector.When)
+	}
+	selectedItem := func(mode, extra string) string {
+		return `{"version":1,"artifact_ids":["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":true,"mode":"` + mode + `","static_mode":false,"rationale":"highest expected information gain"` + extra + `}}`
+	}
+	threeSelections := "[" + strings.Join([]string{
+		selectedItem("challenge", ""),
+		selectedItem("extend", `,"hypothesis_id":"hyp-1","experiment":"author a mutant that widens the frame limit and rerun the decoder test"`),
+		selectedItem("extend", `,"prior_id":"p3","experiment":"differential decode of blob transactions against the upstream revision"`),
+	}, ",") + "]"
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(selector.OutputSchema, threeSelections); err != nil {
+		t.Fatalf("selection schema rejected a three-item challenge/extend plan: %v", err)
+	}
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(selector.OutputSchema, "["+selectedItem("challenge", "")+"]"); err == nil {
+		t.Error("selection schema accepted a single item; the challenge phase must always have at least three work items")
+	}
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(selector.OutputSchema, "["+strings.Repeat(selectedItem("extend", "")+",", 2)+selectedItem("extend", "")+"]"); err == nil {
+		t.Error("selection schema accepted an extend item without the named missing experiment")
+	}
+	if err := triggersv1alpha1.ValidateSecurityWorkflowOutput(selector.OutputSchema, selector.When.OtherwiseOutput); err != nil {
+		t.Fatalf("selection schema rejected the gate-skipped empty plan: %v", err)
+	}
+
 	challenge := byName["challenge-and-variant-sweep"]
 	if challenge.ForEach != "select-adaptive-challenges" || challenge.MaxInstances != 8 {
 		t.Errorf("adaptive challenge fan-out = forEach %q maxInstances %d, want selected leads capped at 8", challenge.ForEach, challenge.MaxInstances)
 	}
-	for _, name := range append([]string{"runtime-preflight-and-dossier"}, investigators...) {
+	if challenge.Timeout.Duration < 60*time.Minute {
+		t.Errorf("challenge timeout = %s, want at least 60m to run extend experiments", challenge.Timeout.Duration)
+	}
+	for _, marker := range []string{"{{item}}", "mode challenge", "mode extend", "conditions.experiment", "conditions.static_mode", "cited total guard"} {
+		if !strings.Contains(strings.ToLower(challenge.Objective), strings.ToLower(marker)) {
+			t.Errorf("challenge objective must handle %q", marker)
+		}
+	}
+	if !strings.Contains(challenge.OutputSchema, `"mode":{"type":"string","enum":["challenge","extend"]}`) {
+		t.Error("challenge handoff must report its mode")
+	}
+
+	for _, name := range []string{"red-team-bounty-worthiness", "triage-and-report"} {
+		if !slices.Contains(byName[name].DependsOn, "target-priors") {
+			t.Errorf("%s must wait for target-priors", name)
+		}
+	}
+	report := strings.ToLower(byName["triage-and-report"].Objective)
+	for _, marker := range []string{"{{tasks.target-priors.output}}", "every prior", "not_tested", "next_experiment manifests", "fuzz"} {
+		if !strings.Contains(report, marker) {
+			t.Errorf("final report must reconcile %q", marker)
+		}
+	}
+	for _, name := range append(append([]string{"runtime-preflight-and-dossier"}, investigators...), "hypothesis-driven-fuzz-research") {
 		schema := byName[name].OutputSchema
 		for _, field := range []string{"artifact_ids", "candidate_fingerprints", "coverage_ids", "blocker_ids"} {
 			if !strings.Contains(schema, `"`+field+`"`) {
 				t.Errorf("task %q handoff schema lacks %q", name, field)
 			}
 		}
-	}
-	if strings.Contains(byName["collect-investigator-handoffs"].Objective, "include_payload") {
-		t.Error("handoff collector must not recursively load durable artifact bodies")
 	}
 }
 
@@ -1013,22 +1252,36 @@ func TestNativeFuzzBaselineWorkflows(t *testing.T) {
 		for _, workflowTask := range workflow.Spec.Tasks {
 			byName[workflowTask.Name] = workflowTask
 		}
-		task, ok := byName["run-bounded-native-fuzz"]
-		if !ok {
-			t.Fatal("blockchain protocol audit is missing run-bounded-native-fuzz")
+		// The protocol audit replaced the two-harness smoke baseline with
+		// hypothesis-driven fuzz research; the fixed-bound baseline must not
+		// creep back in beside it.
+		if _, ok := byName["run-bounded-native-fuzz"]; ok {
+			t.Fatal("blockchain protocol audit must not carry the fixed two-minute native fuzz baseline")
 		}
-		if !slices.Equal(task.DependsOn, []string{"runtime-preflight-and-dossier"}) || task.When == nil || task.When.Path != "conditions.ready" {
-			t.Errorf("native fuzz task is not readiness-gated: dependencies=%v when=%#v", task.DependsOn, task.When)
+		task, ok := byName["hypothesis-driven-fuzz-research"]
+		if !ok {
+			t.Fatal("blockchain protocol audit is missing hypothesis-driven-fuzz-research")
+		}
+		if task.Role != "fuzz-researcher" {
+			t.Errorf("fuzz research role = %q, want fuzz-researcher", task.Role)
+		}
+		if !slices.Equal(task.DependsOn, []string{"runtime-preflight-and-dossier", "target-priors"}) || task.When == nil || task.When.Path != "conditions.dynamic_ready" {
+			t.Errorf("fuzz research is not dynamic-readiness-gated: dependencies=%v when=%#v", task.DependsOn, task.When)
 		}
 		objective := strings.ToLower(task.Objective)
-		for _, marker := range []string{"at most two", "two minutes", "corpus provenance", "not_found_under", "null seed"} {
+		for _, marker := range []string{"run_security_tool", "go-fuzz-tests", "cargo-fuzz", "fuzztime up to 15m", "not_found_under", "harness_summary", "at least three rounds"} {
 			if !strings.Contains(objective, marker) {
-				t.Errorf("native fuzz objective must require %q", marker)
+				t.Errorf("fuzz research objective must require %q", marker)
+			}
+		}
+		for _, stale := range []string{"at most two", "two minutes"} {
+			if strings.Contains(objective, stale) {
+				t.Errorf("fuzz research objective must not keep the smoke-test bound %q", stale)
 			}
 		}
 		collector := byName["collect-investigator-handoffs"]
 		if !slices.Contains(collector.DependsOn, task.Name) {
-			t.Error("compact handoff collector must include native fuzz evidence IDs")
+			t.Error("compact handoff collector must include fuzz research evidence IDs")
 		}
 	})
 

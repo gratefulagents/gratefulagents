@@ -21,6 +21,7 @@ var securityScanRoles = []string{
 	"dependency-auditor",
 	"exploit-validator",
 	"finding-triager",
+	"fuzz-researcher",
 	"native-fuzz-runner",
 	"secrets-auditor",
 	"threat-modeler",

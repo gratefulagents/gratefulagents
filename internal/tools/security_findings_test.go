@@ -209,6 +209,31 @@ func (s *fakeSecurityFindingStore) SetSecurityFindingStatus(_ context.Context, n
 	return store.ErrSecurityFindingNotFound
 }
 
+func (s *fakeSecurityFindingStore) MarkSecurityFindingDuplicate(_ context.Context, namespace string, id, canonicalID uuid.UUID, actor, note string) error {
+	if namespace == "" {
+		return fmt.Errorf("namespace is required")
+	}
+	var canonical *store.SecurityFindingRecord
+	for _, rec := range s.findings {
+		if rec.Namespace == namespace && rec.ID == canonicalID {
+			canonical = rec
+		}
+	}
+	if canonical == nil {
+		return store.ErrSecurityFindingNotFound
+	}
+	for _, rec := range s.findings {
+		if rec.Namespace == namespace && rec.ID == id {
+			dup := canonicalID
+			rec.DuplicateOf = &dup
+			detail, _ := json.Marshal(map[string]string{"canonical_id": canonicalID.String(), "canonical_fingerprint": canonical.Fingerprint})
+			s.events = append(s.events, store.SecurityFindingEvent{FindingID: id, EventType: "marked_duplicate", Actor: actor, Note: note, Detail: detail})
+			return nil
+		}
+	}
+	return store.ErrSecurityFindingNotFound
+}
+
 func (s *fakeSecurityFindingStore) RecordSecurityFindingPolicyDisposition(_ context.Context, namespace string, id uuid.UUID, actor, executionID, check, disposition, note string) (*store.SecurityFindingEvent, error) {
 	for _, rec := range s.findings {
 		if rec.Namespace == namespace && rec.ID == id {
@@ -2239,5 +2264,71 @@ func TestMemFindingMatchesSuppressedSemantics(t *testing.T) {
 	}
 	if strings.Contains(result.Content, "Weak hash for passwords") {
 		t.Errorf("list_security_findings must hide suppressed findings by default: %s", result.Content)
+	}
+}
+
+func TestUpdateSecurityFindingMarksDuplicates(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	registry := newSecurityTestRegistry(t, findingStore, nil)
+	scanCtx := testScanContext()
+	canonical := &store.SecurityFindingRecord{
+		ID: uuid.New(), Namespace: scanCtx.Namespace, ScanName: scanCtx.ScanName, RunName: scanCtx.RunName,
+		Fingerprint: "canonical-fp-000001", Severity: "high", Status: store.SecurityFindingStatusOpen,
+	}
+	duplicate := &store.SecurityFindingRecord{
+		ID: uuid.New(), Namespace: scanCtx.Namespace, ScanName: scanCtx.ScanName, RunName: scanCtx.RunName,
+		Fingerprint: "duplicate-fp-00001", Severity: "high", Status: store.SecurityFindingStatusOpen,
+	}
+	findingStore.findings = append(findingStore.findings, canonical, duplicate)
+
+	result := execTool(t, registry, "update_security_finding", `{"fingerprint":"duplicate-fp-00001","note":"same root cause"}`)
+	if !result.IsError || !strings.Contains(result.Content, "either status or duplicate_of is required") {
+		t.Fatalf("neither status nor duplicate_of must be rejected: %+v", result)
+	}
+	result = execTool(t, registry, "update_security_finding", `{"fingerprint":"duplicate-fp-00001","duplicate_of":"duplicate-fp-00001","note":"same root cause"}`)
+	if !result.IsError || !strings.Contains(result.Content, "cannot be a duplicate of itself") {
+		t.Fatalf("self-duplicate must be rejected: %+v", result)
+	}
+	result = execTool(t, registry, "update_security_finding", `{"fingerprint":"duplicate-fp-00001","duplicate_of":"no-such-fingerprint","note":"same root cause"}`)
+	if !result.IsError || !strings.Contains(result.Content, "duplicate_of: no finding with fingerprint") {
+		t.Fatalf("unknown canonical must be rejected: %+v", result)
+	}
+	result = execTool(t, registry, "update_security_finding", `{"fingerprint":"duplicate-fp-00001","duplicate_of":"`+uuid.New().String()+`","note":"same root cause"}`)
+	if !result.IsError || !strings.Contains(result.Content, "duplicate_of: no finding with id") {
+		t.Fatalf("unknown canonical id must be rejected: %+v", result)
+	}
+	if duplicate.DuplicateOf != nil || len(findingStore.events) != 0 {
+		t.Fatalf("rejected calls must not mutate the finding: %+v events=%d", duplicate, len(findingStore.events))
+	}
+
+	result = execTool(t, registry, "update_security_finding", `{"fingerprint":"duplicate-fp-00001","duplicate_of":"canonical-fp-000001","note":"same root cause as canonical"}`)
+	if result.IsError || !strings.Contains(result.Content, "marked duplicate of canonical-fp-000001") {
+		t.Fatalf("duplicate mark failed: %+v", result)
+	}
+	if duplicate.DuplicateOf == nil || *duplicate.DuplicateOf != canonical.ID {
+		t.Fatalf("DuplicateOf = %v, want %s", duplicate.DuplicateOf, canonical.ID)
+	}
+	if duplicate.Status != store.SecurityFindingStatusOpen {
+		t.Fatalf("status must be untouched without status input: %q", duplicate.Status)
+	}
+	if len(findingStore.events) != 1 || findingStore.events[0].EventType != "marked_duplicate" || findingStore.events[0].Actor != scanCtx.RunName {
+		t.Fatalf("expected one marked_duplicate event by this run: %+v", findingStore.events)
+	}
+	var detail map[string]string
+	if err := json.Unmarshal(findingStore.events[0].Detail, &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail["canonical_id"] != canonical.ID.String() || detail["canonical_fingerprint"] != canonical.Fingerprint {
+		t.Fatalf("event detail = %v", detail)
+	}
+
+	result = execTool(t, registry, "update_security_finding", `{"fingerprint":"canonical-fp-000001","duplicate_of":"duplicate-fp-00001","note":"chain"}`)
+	if !result.IsError || !strings.Contains(result.Content, "is itself a duplicate") {
+		t.Fatalf("duplicate chains must be rejected: %+v", result)
+	}
+
+	listed := execTool(t, registry, "list_security_findings", `{}`)
+	if listed.IsError || strings.Contains(listed.Content, "duplicate-fp-00001") || !strings.Contains(listed.Content, "canonical-fp-000001") {
+		t.Fatalf("list must hide duplicates by default: %+v", listed)
 	}
 }

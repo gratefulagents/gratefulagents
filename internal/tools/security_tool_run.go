@@ -148,7 +148,9 @@ func (t *runSecurityToolTool) Description() string {
 		"Kubernetes Job on a digest-pinned image with normal outbound network access; you cannot "+
 		"choose the image, the command line, or any scanner flag — only the registered tool name, "+
 		"its typed arguments, and the target. Workspace paths are staged as a content-addressed "+
-		"archive (max %d MiB) so the execution is replayable. Findings are normalized, "+
+		"archive (max %d MiB) so the execution is replayable; .git directories and build or "+
+		"dependency caches are excluded from the archive and the revision is captured separately. "+
+		"Findings are normalized, "+
 		"secret-redacted, deduplicated by fingerprint and correlated exactly like "+
 		"ingest_scanner_results. The call blocks until the run finishes or timeout_seconds "+
 		"expires (default %d, max %d); a failed or timed-out run is never reported as a pass. "+
@@ -355,6 +357,7 @@ type stagedTarget struct {
 	Bytes              int    `json:"bytes,omitempty"`
 	Entries            int    `json:"entries,omitempty"`
 	Skipped            int    `json:"skipped_entries,omitempty"`
+	ExcludedDirs       int    `json:"excluded_dirs,omitempty"`
 	RestoredFuzzInputs int    `json:"-"`
 }
 
@@ -428,7 +431,7 @@ func (t *runSecurityToolTool) buildSpec(ctx context.Context, in runSecurityToolI
 			return spec, stagedTarget{}, &result
 		}
 	}
-	archive, entries, skipped, err := archiveWorkspaceTargetWithInjected(local, injected)
+	archive, stats, err := stageWorkspaceArchive(local, injected)
 	if err != nil {
 		result := errorResultf("staging %s: %v", relative, err)
 		return spec, stagedTarget{}, &result
@@ -450,8 +453,9 @@ func (t *runSecurityToolTool) buildSpec(ctx context.Context, in runSecurityToolI
 		Path:               relative,
 		Revision:           spec.Target.Revision,
 		Bytes:              len(archive),
-		Entries:            entries,
-		Skipped:            skipped,
+		Entries:            stats.Entries,
+		Skipped:            stats.Skipped,
+		ExcludedDirs:       stats.ExcludedDirs,
 		RestoredFuzzInputs: restoredFuzzInputs,
 	}, nil
 }
@@ -651,6 +655,42 @@ func looksLikeFilesystemLocator(locator string) bool {
 		locator == "." || locator == ".."
 }
 
+// excludedStagedDirNames lists directory names never staged for a tool run.
+// The isolated executors only need sources: git metadata is dead weight that
+// alone pushed real checkouts (Erigon: 707 MiB of .git) past the staging cap,
+// and the revision is recorded on the spec as provenance instead. Build and
+// dependency caches are reproducible from the sources and inflate archives the
+// same way. `target` is only excluded next to a Cargo.toml so a source
+// directory that happens to carry that name is kept; testdata is always kept
+// because fuzz corpora live there.
+var excludedStagedDirNames = map[string]bool{
+	".git":         true,
+	"node_modules": true,
+	"target":       true,
+	".gradle":      true,
+	".cache":       true,
+	"__pycache__":  true,
+}
+
+func excludeStagedDir(path string) bool {
+	name := filepath.Base(path)
+	if !excludedStagedDirNames[name] {
+		return false
+	}
+	if name != "target" {
+		return true
+	}
+	_, err := os.Lstat(filepath.Join(filepath.Dir(path), "Cargo.toml"))
+	return err == nil
+}
+
+// archiveStats summarizes what staging kept and dropped.
+type archiveStats struct {
+	Entries      int
+	Skipped      int
+	ExcludedDirs int
+}
+
 // archiveWorkspaceTarget streams a deterministic tar.gz of a workspace path:
 // stable ordering, zeroed timestamps and ownership, sockets/devices and
 // escaping symlinks skipped, and a hard total-size cap.
@@ -664,146 +704,200 @@ func archiveWorkspaceTarget(root string) (archive []byte, entries, skipped int, 
 // later agent work to trip over; injecting it here keeps the workspace exactly
 // as the user left it, and makes cleanup a thing that cannot be forgotten.
 func archiveWorkspaceTargetWithInjected(root string, injected map[string][]byte) (archive []byte, entries, skipped int, err error) {
+	archive, stats, err := stageWorkspaceArchive(root, injected)
+	return archive, stats.Entries, stats.Skipped, err
+}
+
+// workspaceStager writes one deterministic staging archive: fixed ownership and
+// timestamps, symlinks kept only when they stay inside the target, a running
+// total against maxStagedTargetBytes, and a record of written names so an
+// injected entry never duplicates a repository path.
+type workspaceStager struct {
+	root    string
+	writer  *tar.Writer
+	total   int64
+	written map[string]bool
+	stats   archiveStats
+}
+
+func stageWorkspaceArchive(root string, injected map[string][]byte) (archive []byte, stats archiveStats, err error) {
 	var buf bytes.Buffer
 	gz, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, stats, err
 	}
-	writer := tar.NewWriter(gz)
-	var total int64
-	written := map[string]bool{}
+	stager := &workspaceStager{root: root, writer: tar.NewWriter(gz), written: map[string]bool{}}
+	if err := stager.stageTarget(); err != nil {
+		return nil, stager.stats, err
+	}
+	if err := stager.stageInjected(injected); err != nil {
+		return nil, stager.stats, err
+	}
+	if err := stager.writer.Close(); err != nil {
+		return nil, stager.stats, err
+	}
+	if err := gz.Close(); err != nil {
+		return nil, stager.stats, err
+	}
+	return buf.Bytes(), stager.stats, nil
+}
 
-	add := func(path string, info fs.FileInfo, name string) error {
-		link := ""
-		if info.Mode()&fs.ModeSymlink != 0 {
-			target, readErr := os.Readlink(path)
-			if readErr != nil {
-				skipped++
-				return nil
-			}
-			if filepath.IsAbs(target) || escapesArchiveRoot(name, target) {
-				skipped++
-				return nil
-			}
-			link = target
-		}
-		var file *os.File
-		if info.Mode().IsRegular() {
-			var openErr error
-			file, openErr = openStagedRegularFile(root, path)
-			if openErr != nil {
-				return openErr
-			}
-			defer func() { _ = file.Close() }()
-			// WalkDir metadata may already be stale for an active build. Stat the
-			// opened descriptor so the tar header and copy use one size snapshot.
-			var statErr error
-			info, statErr = file.Stat()
-			if statErr != nil {
-				return statErr
-			}
-		}
-		header, headerErr := tar.FileInfoHeader(info, link)
-		if headerErr != nil {
-			return headerErr
-		}
-		header.Name = name
-		written[name] = true
-		header.Uid, header.Gid = 0, 0
-		header.Uname, header.Gname = "", ""
-		header.ModTime = time.Unix(0, 0).UTC()
-		header.AccessTime = time.Time{}
-		header.ChangeTime = time.Time{}
-		if info.Mode().IsRegular() {
-			total += info.Size()
-			if total > maxStagedTargetBytes {
-				return fmt.Errorf("target content exceeds the %d MiB staging limit; scan a smaller subdirectory", maxStagedTargetBytes>>20)
-			}
-		}
-		if err := writer.WriteHeader(header); err != nil {
-			return err
-		}
-		entries++
-		if !info.Mode().IsRegular() {
-			return nil
-		}
-		if _, copyErr := io.CopyN(writer, file, info.Size()); copyErr != nil {
-			return fmt.Errorf("target changed while staging %q; retry after builds stop: %w", name, copyErr)
-		}
-		var extra [1]byte
-		if count, readErr := file.Read(extra[:]); count != 0 || (readErr != nil && !errors.Is(readErr, io.EOF)) {
-			return fmt.Errorf("target changed while staging %q; retry after builds stop", name)
-		}
+// stageTarget walks the target (or archives a single file), skipping excluded
+// directories and non-regular, non-symlink entries.
+func (s *workspaceStager) stageTarget() error {
+	info, err := os.Lstat(s.root)
+	if err != nil {
+		return err
+	}
+	switch {
+	case info.IsDir():
+		return filepath.WalkDir(s.root, s.walkEntry)
+	case info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0:
+		return s.add(s.root, info, filepath.Base(s.root))
+	default:
+		return errors.New("target is neither a regular file nor a directory")
+	}
+}
+
+func (s *workspaceStager) walkEntry(path string, entry fs.DirEntry, walkErr error) error {
+	if walkErr != nil {
+		return walkErr
+	}
+	relative, relErr := filepath.Rel(s.root, path)
+	if relErr != nil {
+		return relErr
+	}
+	if relative == "." {
 		return nil
 	}
+	if entry.IsDir() && excludeStagedDir(path) {
+		s.stats.ExcludedDirs++
+		return fs.SkipDir
+	}
+	entryInfo, infoErr := entry.Info()
+	if infoErr != nil {
+		return infoErr
+	}
+	if !entryInfo.IsDir() && !entryInfo.Mode().IsRegular() && entryInfo.Mode()&fs.ModeSymlink == 0 {
+		s.stats.Skipped++
+		return nil
+	}
+	return s.add(path, entryInfo, filepath.ToSlash(relative))
+}
 
-	info, err := os.Lstat(root)
-	if err != nil {
-		return nil, 0, 0, err
+// symlinkTarget returns the link target to record, or false when the symlink
+// is unreadable or escapes the archive root and must be skipped.
+func (s *workspaceStager) symlinkTarget(path, name string) (string, bool) {
+	target, readErr := os.Readlink(path)
+	if readErr != nil || filepath.IsAbs(target) || escapesArchiveRoot(name, target) {
+		s.stats.Skipped++
+		return "", false
 	}
-	if info.IsDir() {
-		err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			relative, relErr := filepath.Rel(root, path)
-			if relErr != nil {
-				return relErr
-			}
-			if relative == "." {
-				return nil
-			}
-			entryInfo, infoErr := entry.Info()
-			if infoErr != nil {
-				return infoErr
-			}
-			if !entryInfo.IsDir() && !entryInfo.Mode().IsRegular() && entryInfo.Mode()&fs.ModeSymlink == 0 {
-				skipped++
-				return nil
-			}
-			return add(path, entryInfo, filepath.ToSlash(relative))
-		})
-	} else if info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
-		err = add(root, info, filepath.Base(root))
-	} else {
-		err = errors.New("target is neither a regular file nor a directory")
+	return target, true
+}
+
+func (s *workspaceStager) add(path string, info fs.FileInfo, name string) error {
+	link := ""
+	if info.Mode()&fs.ModeSymlink != 0 {
+		target, ok := s.symlinkTarget(path, name)
+		if !ok {
+			return nil
+		}
+		link = target
 	}
-	if err != nil {
-		return nil, 0, 0, err
+	var file *os.File
+	if info.Mode().IsRegular() {
+		var openErr error
+		file, openErr = openStagedRegularFile(s.root, path)
+		if openErr != nil {
+			return openErr
+		}
+		defer func() { _ = file.Close() }()
+		// WalkDir metadata may already be stale for an active build. Stat the
+		// opened descriptor so the tar header and copy use one size snapshot.
+		var statErr error
+		info, statErr = file.Stat()
+		if statErr != nil {
+			return statErr
+		}
 	}
+	header, headerErr := tar.FileInfoHeader(info, link)
+	if headerErr != nil {
+		return headerErr
+	}
+	header.Name = name
+	s.written[name] = true
+	header.Uid, header.Gid = 0, 0
+	header.Uname, header.Gname = "", ""
+	header.ModTime = time.Unix(0, 0).UTC()
+	header.AccessTime = time.Time{}
+	header.ChangeTime = time.Time{}
+	if info.Mode().IsRegular() {
+		if err := s.account(info.Size()); err != nil {
+			return err
+		}
+	}
+	if err := s.writer.WriteHeader(header); err != nil {
+		return err
+	}
+	s.stats.Entries++
+	if !info.Mode().IsRegular() {
+		return nil
+	}
+	return copyStagedFile(s.writer, file, info.Size(), name)
+}
+
+// account adds size to the running total and enforces the staging cap.
+func (s *workspaceStager) account(size int64) error {
+	s.total += size
+	if s.total > maxStagedTargetBytes {
+		return fmt.Errorf("target content exceeds the %d MiB staging limit; scan a smaller subdirectory", maxStagedTargetBytes>>20)
+	}
+	return nil
+}
+
+// copyStagedFile copies exactly size bytes and fails if the file grew or
+// shrank since it was stat'ed, so a concurrent build cannot corrupt the tar.
+func copyStagedFile(writer *tar.Writer, file *os.File, size int64, name string) error {
+	if _, copyErr := io.CopyN(writer, file, size); copyErr != nil {
+		return fmt.Errorf("target changed while staging %q; retry after builds stop: %w", name, copyErr)
+	}
+	var extra [1]byte
+	if count, readErr := file.Read(extra[:]); count != 0 || (readErr != nil && !errors.Is(readErr, io.EOF)) {
+		return fmt.Errorf("target changed while staging %q; retry after builds stop", name)
+	}
+	return nil
+}
+
+// stageInjected appends archive-only content (for example a restored fuzz
+// corpus) in sorted order so the archive stays deterministic.
+func (s *workspaceStager) stageInjected(injected map[string][]byte) error {
 	for _, name := range slices.Sorted(maps.Keys(injected)) {
 		// A corpus input persisted by an earlier campaign can later be
 		// committed to the repository at the same content-derived path. The
 		// extractor creates files with O_EXCL, so a duplicate header would
 		// abort extraction and break every later campaign; the workspace copy
 		// wins, since it is what the repository actually contains.
-		if written[name] {
+		if s.written[name] {
 			continue
 		}
 		content := injected[name]
-		total += int64(len(content))
-		if total > maxStagedTargetBytes {
-			return nil, 0, 0, fmt.Errorf("target content exceeds the %d MiB staging limit; scan a smaller subdirectory", maxStagedTargetBytes>>20)
+		if err := s.account(int64(len(content))); err != nil {
+			return err
 		}
 		header := &tar.Header{
 			Typeflag: tar.TypeReg, Name: name, Mode: 0o600, Size: int64(len(content)),
 			ModTime: time.Unix(0, 0).UTC(),
 		}
-		if err := writer.WriteHeader(header); err != nil {
-			return nil, 0, 0, err
+		if err := s.writer.WriteHeader(header); err != nil {
+			return err
 		}
-		if _, err := writer.Write(content); err != nil {
-			return nil, 0, 0, err
+		if _, err := s.writer.Write(content); err != nil {
+			return err
 		}
-		entries++
+		s.stats.Entries++
 	}
-	if err := writer.Close(); err != nil {
-		return nil, 0, 0, err
-	}
-	if err := gz.Close(); err != nil {
-		return nil, 0, 0, err
-	}
-	return buf.Bytes(), entries, skipped, nil
+	return nil
 }
 
 func escapesArchiveRoot(name, link string) bool {

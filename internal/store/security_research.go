@@ -278,6 +278,12 @@ type SecurityResearchSubmission struct {
 	Status       string
 	CreatedAt    time.Time
 	SubmittedAt  *time.Time
+	// FindingFingerprint, FindingTitle, Outcome, and OutcomeRecordedAt are
+	// populated by ListSecurityResearchSubmissions only.
+	FindingFingerprint string
+	FindingTitle       string
+	Outcome            string
+	OutcomeRecordedAt  *time.Time
 }
 
 type SecuritySubmissionReservationRequest struct {
@@ -402,10 +408,24 @@ type SecurityResearchStore interface {
 	ListSecurityResearchVariantSweepEvents(context.Context, string, uuid.UUID) ([]SecurityResearchVariantSweepEvent, error)
 
 	CreateSecurityResearchSubmission(context.Context, string, *SecurityResearchSubmission) (*SecurityResearchSubmission, bool, error)
+	// ListSecurityResearchSubmissions returns a revision's submissions ordered
+	// by rank, newest first within a rank, with the latest adjudicated outcome
+	// and the finding fingerprint/title attached.
+	ListSecurityResearchSubmissions(context.Context, string, uuid.UUID) ([]SecurityResearchSubmission, error)
 	ReserveSecurityResearchSubmission(context.Context, string, SecuritySubmissionReservationRequest) (*SecuritySubmissionReservationResult, error)
 	MarkSecurityResearchSubmissionSubmitted(context.Context, string, uuid.UUID, time.Time) error
 	RecordSecuritySubmissionOutcome(context.Context, string, uuid.UUID, SecuritySubmissionOutcomeInput) (*SecuritySubmissionOutcome, bool, error)
 	ListSecuritySubmissionOutcomeEvents(context.Context, string, uuid.UUID, uuid.UUID) ([]SecuritySubmissionOutcomeEvent, error)
 	GetSecuritySubmissionPrecision(context.Context, string, uuid.UUID, string, *time.Time) (*SecuritySubmissionPrecision, error)
 	CreateSecurityResearchDecisionSnapshot(context.Context, string, *SecurityResearchDecisionSnapshot) (*SecurityResearchDecisionSnapshot, bool, error)
+}
+
+// SecurityResearchActorEvidenceStore exposes the durable research records a
+// single actor (an AgentRun) produced so controllers can reconcile the
+// counters a task self-reports in its handoff against evidence.
+type SecurityResearchActorEvidenceStore interface {
+	// CountSecurityResearchHypothesesByActor counts the distinct hypotheses the
+	// actor created or transitioned.
+	CountSecurityResearchHypothesesByActor(context.Context, string, string) (int, error)
+	ListSecurityResearchCoverageByActor(context.Context, string, string) ([]SecurityResearchCoverage, error)
 }

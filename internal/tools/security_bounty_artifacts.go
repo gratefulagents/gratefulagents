@@ -754,12 +754,19 @@ func (t *saveSecurityBountySubmissionTool) prepareSecurityResearchSubmission(ctx
 			return "", false, nil, fmt.Errorf("a completed variant sweep for this triaged or confirmed finding is required before bounty packaging")
 		}
 	}
-	if periodDays <= 0 || budget <= 0 {
-		state, retained, err := t.submissionBudgetState(ctx, finding)
-		return state, retained, nil, err
+	attemptKey := strings.TrimSpace(t.state.scanCtx.ExecutionID)
+	if attemptKey == "" {
+		attemptKey = strings.TrimSpace(t.state.scanCtx.RunName)
 	}
-	workflow := securityResearchWorkflow(t.state.scanCtx)
-	precision, err := t.state.researchStore.GetSecuritySubmissionPrecision(ctx, t.state.scanCtx.Namespace, bound.target.ID, workflow, nil)
+	durable := durableSubmissionAttempt{
+		tool: t, bound: bound, finding: finding, payload: payload,
+		workflow:       securityResearchWorkflow(t.state.scanCtx),
+		reservationKey: "bounty-package:" + attemptKey + ":" + finding.Fingerprint,
+	}
+	if periodDays <= 0 || budget <= 0 {
+		return durable.prepareScanWide(ctx, budget)
+	}
+	precision, err := t.state.researchStore.GetSecuritySubmissionPrecision(ctx, t.state.scanCtx.Namespace, bound.target.ID, durable.workflow, nil)
 	if err != nil {
 		return "", false, nil, fmt.Errorf("reading submission precision: %w", err)
 	}
@@ -771,35 +778,18 @@ func (t *saveSecurityBountySubmissionTool) prepareSecurityResearchSubmission(ctx
 	if err != nil {
 		return "", false, nil, err
 	}
-	rawPayload, err := json.Marshal(payload)
+	candidate, err := durable.createCandidate(ctx, rank)
 	if err != nil {
-		return "", false, nil, fmt.Errorf("encoding durable submission candidate: %w", err)
+		return "", false, nil, err
 	}
-	candidate, _, err := t.state.researchStore.CreateSecurityResearchSubmission(ctx, t.state.scanCtx.Namespace, &store.SecurityResearchSubmission{
-		RevisionID:   bound.revision.ID,
-		FindingID:    &finding.ID,
-		Workflow:     workflow,
-		CandidateKey: finding.Fingerprint,
-		Rank:         int32(rank),
-		Payload:      rawPayload,
-		Status:       "candidate",
-	})
-	if err != nil {
-		return "", false, nil, fmt.Errorf("creating durable submission candidate: %w", err)
-	}
-	attemptKey := strings.TrimSpace(t.state.scanCtx.ExecutionID)
-	if attemptKey == "" {
-		attemptKey = strings.TrimSpace(t.state.scanCtx.RunName)
-	}
-	reservationKey := "bounty-package:" + attemptKey + ":" + finding.Fingerprint
 	reservation := &store.SecuritySubmissionReservationResult{Reserved: false, Limit: effectiveBudget}
 	if int32(rank) <= effectiveBudget {
 		reservation, err = t.state.researchStore.ReserveSecurityResearchSubmission(ctx, t.state.scanCtx.Namespace, store.SecuritySubmissionReservationRequest{
 			SubmissionID:   candidate.ID,
-			Workflow:       workflow,
+			Workflow:       durable.workflow,
 			PeriodDays:     periodDays,
 			BudgetLimit:    effectiveBudget,
-			IdempotencyKey: reservationKey,
+			IdempotencyKey: durable.reservationKey,
 		})
 		if err != nil {
 			return "", false, nil, fmt.Errorf("reserving rolling submission budget: %w", err)
@@ -813,7 +803,7 @@ func (t *saveSecurityBountySubmissionTool) prepareSecurityResearchSubmission(ctx
 		decision = "retain"
 		reason = fmt.Sprintf("rolling %d-day submission budget exhausted (%d/%d used)", periodDays, reservation.Used, reservation.Limit)
 	}
-	inputs, _ := json.Marshal(map[string]any{
+	err = durable.recordDecision(ctx, candidate, decision, reason, rank, map[string]any{
 		"published_budget_limit": budget,
 		"effective_budget_limit": effectiveBudget,
 		"period_days":            periodDays,
@@ -822,38 +812,123 @@ func (t *saveSecurityBountySubmissionTool) prepareSecurityResearchSubmission(ctx
 		"precision_policy":       "accepted_over_adjudicated_v1",
 		"evidence_gate":          evidenceGate,
 	})
-	_, _, err = t.state.researchStore.CreateSecurityResearchDecisionSnapshot(ctx, t.state.scanCtx.Namespace, &store.SecurityResearchDecisionSnapshot{
-		RevisionID:     bound.revision.ID,
-		SubmissionID:   &candidate.ID,
-		Workflow:       workflow,
-		CandidateKey:   finding.Fingerprint,
-		Decision:       decision,
-		Reason:         reason,
-		Rank:           int32(rank),
-		Inputs:         inputs,
-		IdempotencyKey: "decision:" + reservationKey,
-	})
 	if err != nil {
 		if reservation.Reserved {
 			if cleaner, ok := t.state.researchStore.(store.SecuritySubmissionReservationCleanupStore); ok {
-				_ = cleaner.VoidSecurityResearchSubmissionReservation(context.Background(), t.state.scanCtx.Namespace, candidate.ID, reservationKey)
+				_ = cleaner.VoidSecurityResearchSubmissionReservation(context.Background(), t.state.scanCtx.Namespace, candidate.ID, durable.reservationKey)
 			}
 		}
-		return "", false, nil, fmt.Errorf("recording submission decision: %w", err)
+		return "", false, nil, err
 	}
 	if !reservation.Reserved {
 		return fmt.Sprintf("Submission %s retained as candidate: %s; candidate rank %d.", candidate.ID, reason, rank), true, nil, nil
 	}
-	finish := func(success bool) error {
+	return fmt.Sprintf("submission_id %s; rank %d; rolling %d-day budget reserved (%d/%d used); evidence gate %s", candidate.ID, rank, periodDays, reservation.Used, reservation.Limit, evidenceGate), false, durable.finish(candidate, true), nil
+}
+
+// durableSubmissionAttempt carries the per-attempt identity shared by the
+// scan-wide and rolling-budget packaging paths so both leave the same durable
+// submission row and decision snapshot behind for outcome calibration.
+type durableSubmissionAttempt struct {
+	tool           *saveSecurityBountySubmissionTool
+	bound          *securityResearchContext
+	finding        *store.SecurityFindingRecord
+	payload        securityBountySubmission
+	workflow       string
+	reservationKey string
+}
+
+// prepareScanWide records the candidate and decision for programs without a
+// rolling budget. Without a reservation to consume, "submit" only means the
+// candidate ranks inside the scan-wide budget (or no budget is published).
+func (d durableSubmissionAttempt) prepareScanWide(ctx context.Context, budget int32) (string, bool, func(bool) error, error) {
+	rank, err := d.tool.submissionRank(ctx, d.finding, "")
+	if err != nil {
+		return "", false, nil, err
+	}
+	candidate, err := d.createCandidate(ctx, rank)
+	if err != nil {
+		return "", false, nil, err
+	}
+	decision, reason := "submit", "packaged within scan-wide submission budget"
+	if budget <= 0 {
+		reason = "packaged without a published submission budget"
+	} else if int32(rank) > budget {
+		decision = "retain"
+		reason = fmt.Sprintf("scan-wide budget %d is exhausted", budget)
+	}
+	err = d.recordDecision(ctx, candidate, decision, reason, rank, map[string]any{
+		"published_budget_limit": budget,
+		"period_days":            0,
+		"precision_policy":       "scan_wide_v1",
+	})
+	if err != nil {
+		return "", false, nil, err
+	}
+	if decision == "retain" {
+		return fmt.Sprintf("Submission %s retained as candidate: %s; candidate rank %d.", candidate.ID, reason, rank), true, nil, nil
+	}
+	state := fmt.Sprintf("submission_id %s; rank %d; no published budget (scan-wide)", candidate.ID, rank)
+	if budget > 0 {
+		state = fmt.Sprintf("submission_id %s; rank %d of budget %d (scan-wide)", candidate.ID, rank, budget)
+	}
+	return state, false, d.finish(candidate, false), nil
+}
+
+func (d durableSubmissionAttempt) createCandidate(ctx context.Context, rank int) (*store.SecurityResearchSubmission, error) {
+	rawPayload, err := json.Marshal(d.payload)
+	if err != nil {
+		return nil, fmt.Errorf("encoding durable submission candidate: %w", err)
+	}
+	candidate, _, err := d.tool.state.researchStore.CreateSecurityResearchSubmission(ctx, d.tool.state.scanCtx.Namespace, &store.SecurityResearchSubmission{
+		RevisionID:   d.bound.revision.ID,
+		FindingID:    &d.finding.ID,
+		Workflow:     d.workflow,
+		CandidateKey: d.finding.Fingerprint,
+		Rank:         int32(rank),
+		Payload:      rawPayload,
+		Status:       "candidate",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating durable submission candidate: %w", err)
+	}
+	return candidate, nil
+}
+
+func (d durableSubmissionAttempt) recordDecision(ctx context.Context, candidate *store.SecurityResearchSubmission, decision, reason string, rank int, inputs map[string]any) error {
+	rawInputs, _ := json.Marshal(inputs)
+	_, _, err := d.tool.state.researchStore.CreateSecurityResearchDecisionSnapshot(ctx, d.tool.state.scanCtx.Namespace, &store.SecurityResearchDecisionSnapshot{
+		RevisionID:     d.bound.revision.ID,
+		SubmissionID:   &candidate.ID,
+		Workflow:       d.workflow,
+		CandidateKey:   d.finding.Fingerprint,
+		Decision:       decision,
+		Reason:         reason,
+		Rank:           int32(rank),
+		Inputs:         rawInputs,
+		IdempotencyKey: "decision:" + d.reservationKey,
+	})
+	if err != nil {
+		return fmt.Errorf("recording submission decision: %w", err)
+	}
+	return nil
+}
+
+// finish marks the candidate submitted once the bundle is stored; on failure
+// it releases the rolling-budget reservation when one was taken.
+func (d durableSubmissionAttempt) finish(candidate *store.SecurityResearchSubmission, reserved bool) func(bool) error {
+	return func(success bool) error {
 		if success {
-			return t.state.researchStore.MarkSecurityResearchSubmissionSubmitted(context.Background(), t.state.scanCtx.Namespace, candidate.ID, time.Now().UTC())
+			return d.tool.state.researchStore.MarkSecurityResearchSubmissionSubmitted(context.Background(), d.tool.state.scanCtx.Namespace, candidate.ID, time.Now().UTC())
 		}
-		if cleaner, ok := t.state.researchStore.(store.SecuritySubmissionReservationCleanupStore); ok {
-			return cleaner.VoidSecurityResearchSubmissionReservation(context.Background(), t.state.scanCtx.Namespace, candidate.ID, reservationKey)
+		if !reserved {
+			return nil
+		}
+		if cleaner, ok := d.tool.state.researchStore.(store.SecuritySubmissionReservationCleanupStore); ok {
+			return cleaner.VoidSecurityResearchSubmissionReservation(context.Background(), d.tool.state.scanCtx.Namespace, candidate.ID, d.reservationKey)
 		}
 		return nil
 	}
-	return fmt.Sprintf("submission_id %s; rank %d; rolling %d-day budget reserved (%d/%d used); evidence gate %s", candidate.ID, rank, periodDays, reservation.Used, reservation.Limit, evidenceGate), false, finish, nil
 }
 
 // securitySubmissionPrecisionPolicy applies a versioned, conservative feedback

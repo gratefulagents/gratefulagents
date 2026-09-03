@@ -136,6 +136,69 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && cargo --version \
     && chown -R worker:worker "$RUSTUP_HOME" "$CARGO_HOME"
 
+# ── Rust nightly + cargo-fuzz (in-sandbox fuzz iteration) ───────────────────
+# The fuzz-researcher role iterates on harnesses inside the sandbox: author a
+# target, run a bounded campaign, read the crash, fix the harness, repeat. The
+# registered cargo-fuzz adapter (Dockerfile.security-tools) stays the
+# provenance-bearing path for recorded campaigns, but it stages the whole
+# workspace per run, which is too slow for that loop. cargo-fuzz needs a
+# nightly toolchain for -Zsanitizer; pin the nightly by date and the crate by
+# version (same version as the security-tools image) so the image is
+# reproducible.
+ARG RUST_NIGHTLY=nightly-2026-09-03
+ARG CARGO_FUZZ_VERSION=0.13.2
+RUN rustup toolchain install "$RUST_NIGHTLY" --profile minimal --component rust-src --component llvm-tools \
+    && rustup default "$RUST_VERSION" \
+    && cargo "+$RUST_NIGHTLY" install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked \
+    && cargo "+$RUST_NIGHTLY" fuzz --version \
+    && rm -rf "$CARGO_HOME/registry" "$CARGO_HOME/git" \
+    && chown -R worker:worker "$RUSTUP_HOME" "$CARGO_HOME"
+ENV GA_RUST_NIGHTLY=${RUST_NIGHTLY}
+
+# ── LLVM 22 (llvm-sys consumers such as paradigmxyz/reth) ───────────────────
+# reth's default build pulls llvm-sys 221, which needs a system LLVM 22 found
+# through LLVM_SYS_221_PREFIX. The Debian clang/llvm-dev above stays for
+# bindgen; this adds only the llvm-sys inputs from apt.llvm.org side by side
+# (libpolly is a hard link-time dependency of llvm-sys). apt.llvm.org name
+# resolution is intermittently unavailable, so the fetch retries at both the
+# apt and shell level instead of failing the whole image on one DNS miss.
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl --retry 5 --retry-all-errors -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /etc/apt/keyrings/apt.llvm.org.asc \
+    && chmod a+r /etc/apt/keyrings/apt.llvm.org.asc \
+    && CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")" \
+    && echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-22 main" > /etc/apt/sources.list.d/apt-llvm-org-22.list \
+    && for attempt in 1 2 3 4 5; do \
+        apt-get -o Acquire::Retries=5 update \
+        && apt-get -o Acquire::Retries=5 install -y --no-install-recommends llvm-22-dev libpolly-22-dev libzstd-dev zlib1g-dev libffi-dev \
+        && break; \
+        if [ "$attempt" = 5 ]; then echo "apt.llvm.org install failed after $attempt attempts" >&2; exit 1; fi; \
+        echo "apt.llvm.org attempt $attempt failed; retrying" >&2; sleep 20; \
+    done \
+    && rm -rf /var/lib/apt/lists/* \
+    && /usr/lib/llvm-22/bin/llvm-config --version
+ENV LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
+
+# ── Flow CLI (onflow emulator / localnet PoCs) ──────────────────────────────
+# Flow bounty programs require execution-layer PoCs to run against the Flow
+# CLI emulator or a localnet, and the sandbox cannot install it. Pin the
+# release and verify against the published checksums.txt, mirroring the
+# rustup and Temurin installs. The archive ships a single `flow-cli` binary.
+ARG FLOW_CLI_VERSION=2.18.0
+RUN ARCH="$(dpkg --print-architecture)" \
+    && case "$ARCH" in \
+        amd64) FLOW_SHA256="a3747785007c09f163fe5facdc2ecab2312e267902399e9f5ee4c5b90d310e9e" ;; \
+        arm64) FLOW_SHA256="18c1a408b56b264fbe739684679ee813e21d963a0c9b311ddc3f670c0076c6aa" ;; \
+        *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;; \
+    esac \
+    && curl --proto '=https' --tlsv1.2 -fsSL \
+        "https://github.com/onflow/flow-cli/releases/download/v${FLOW_CLI_VERSION}/flow-cli-v${FLOW_CLI_VERSION}-linux-${ARCH}.tar.gz" \
+        -o /tmp/flow-cli.tar.gz \
+    && echo "${FLOW_SHA256}  /tmp/flow-cli.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/flow-cli.tar.gz -C /tmp flow-cli \
+    && install -m 0755 /tmp/flow-cli /usr/local/bin/flow \
+    && rm -f /tmp/flow-cli /tmp/flow-cli.tar.gz \
+    && flow version
+
 # ── Java (Eclipse Temurin JDK) ───────────────────────────────────────────────
 # Gradle-based JVM targets (Consensys/teku, hyperledger/besu) require a JDK at
 # or above their toolchain floor (currently 25) and cannot install one inside

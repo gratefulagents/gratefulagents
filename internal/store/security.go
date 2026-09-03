@@ -607,6 +607,16 @@ type SecurityFindingPolicyStore interface {
 	RecordSecurityFindingPolicyDisposition(ctx context.Context, namespace string, findingID uuid.UUID, actor, executionID, check, disposition, note string) (*SecurityFindingEvent, error)
 }
 
+// SecurityFindingDuplicateStore is the optional capability for marking a
+// finding as a duplicate of a canonical finding in the same scan without
+// changing either finding's triage status. It sets duplicate_of and appends a
+// "marked_duplicate" event carrying the canonical id and fingerprint. It
+// returns ErrSecurityFindingNotFound when either finding is missing from the
+// namespace; an empty namespace is rejected with an error.
+type SecurityFindingDuplicateStore interface {
+	MarkSecurityFindingDuplicate(ctx context.Context, namespace string, findingID, canonicalID uuid.UUID, actor, note string) error
+}
+
 // SecurityFindingArtifactStore is optional so existing in-memory and test
 // SecurityFindingStore implementations do not need to persist sensitive
 // artifacts. Every operation is namespace-scoped to prevent object-level

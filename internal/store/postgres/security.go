@@ -786,6 +786,54 @@ func securityFindingStatusEventType(previous, next string) string {
 	return "status_changed"
 }
 
+func (s *Store) MarkSecurityFindingDuplicate(ctx context.Context, namespace string, findingID, canonicalID uuid.UUID, actor, note string) error {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return err
+	}
+	if findingID == canonicalID {
+		return fmt.Errorf("a finding cannot be a duplicate of itself")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning duplicate update: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var canonicalFingerprint string
+	err = tx.QueryRow(ctx, `
+		SELECT c.fingerprint
+		FROM security_findings c
+		JOIN security_findings f ON f.namespace = c.namespace AND f.scan_name = c.scan_name AND f.repository = c.repository
+		WHERE c.namespace = $1 AND c.id = $2 AND f.id = $3 AND c.duplicate_of IS NULL`,
+		namespace, canonicalID, findingID).Scan(&canonicalFingerprint)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.ErrSecurityFindingNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("resolving canonical finding: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `UPDATE security_findings SET duplicate_of = $3 WHERE namespace = $1 AND id = $2`, namespace, findingID, canonicalID)
+	if err != nil {
+		return fmt.Errorf("marking security finding duplicate: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return store.ErrSecurityFindingNotFound
+	}
+	detail, err := json.Marshal(map[string]string{"canonical_id": canonicalID.String(), "canonical_fingerprint": canonicalFingerprint})
+	if err != nil {
+		return fmt.Errorf("encoding duplicate detail: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO security_finding_events (finding_id, event_type, actor, note, detail)
+		VALUES ($1, 'marked_duplicate', $2, $3, $4)`, findingID, actor, note, detail); err != nil {
+		return fmt.Errorf("recording duplicate event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing duplicate update: %w", err)
+	}
+	return nil
+}
+
 const listSecurityFindingEventsSQL = `
 	SELECT e.id, e.finding_id, e.event_type, e.actor, e.note, e.detail, e.created_at
 	FROM security_finding_events e

@@ -20,6 +20,7 @@ type mockSecurityResearchStore struct {
 	hypotheses    []store.SecurityResearchHypothesis
 	coverage      []store.SecurityResearchCoverage
 	sweeps        []store.SecurityResearchVariantSweep
+	submissions   []store.SecurityResearchSubmission
 	outcomes      map[uuid.UUID][]store.SecuritySubmissionOutcomeEvent
 	precision     store.SecuritySubmissionPrecision
 	revisionCalls int
@@ -110,6 +111,9 @@ func (m *mockSecurityResearchStore) ListSecurityResearchVariantSweepEvents(conte
 }
 func (m *mockSecurityResearchStore) CreateSecurityResearchSubmission(_ context.Context, _ string, value *store.SecurityResearchSubmission) (*store.SecurityResearchSubmission, bool, error) {
 	return value, true, nil
+}
+func (m *mockSecurityResearchStore) ListSecurityResearchSubmissions(context.Context, string, uuid.UUID) ([]store.SecurityResearchSubmission, error) {
+	return m.submissions, nil
 }
 func (m *mockSecurityResearchStore) ReserveSecurityResearchSubmission(context.Context, string, store.SecuritySubmissionReservationRequest) (*store.SecuritySubmissionReservationResult, error) {
 	return nil, nil
@@ -205,6 +209,36 @@ func TestSecurityResearchListsAreBounded(t *testing.T) {
 	}
 	if len(got.GetHypotheses()) != 2 || !got.GetTruncated() {
 		t.Fatalf("response = %d hypotheses, truncated=%v", len(got.GetHypotheses()), got.GetTruncated())
+	}
+}
+
+func TestListSecurityResearchSubmissionsUsesScanVisibilityAndAttachesOutcome(t *testing.T) {
+	m := seedResearchStore(t)
+	findingID, outcomeAt, submittedAt := uuid.New(), time.Now().Add(-time.Minute), time.Now().Add(-time.Hour)
+	m.submissions = []store.SecurityResearchSubmission{
+		{ID: uuid.New(), RevisionID: m.revision.ID, FindingID: &findingID, FindingFingerprint: "fp-1", FindingTitle: "Reentrancy in withdraw", Workflow: "bounty", CandidateKey: "fp-1", Rank: 1, Status: "submitted", CreatedAt: time.Now(), SubmittedAt: &submittedAt, Outcome: store.SecuritySubmissionOutcomeAccepted, OutcomeRecordedAt: &outcomeAt},
+		{ID: uuid.New(), RevisionID: m.revision.ID, Workflow: "bounty", CandidateKey: "fp-2", Rank: 2, Status: "candidate", CreatedAt: time.Now()},
+		{ID: uuid.New(), RevisionID: m.revision.ID, Workflow: "bounty", CandidateKey: "fp-3", Rank: 3, Status: "candidate", CreatedAt: time.Now()},
+	}
+	srv := newSecurityTestServer(t, m)
+	req := &platform.ListSecurityResearchSubmissionsRequest{Scope: researchTestScope(), Limit: 2}
+	if _, err := srv.ListSecurityResearchSubmissions(actorContext("bob", "member", "", ""), req); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden target error = %v, want NotFound", err)
+	}
+	got, err := srv.ListSecurityResearchSubmissions(actorContext("alice", "member", "", ""), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.GetSubmissions()) != 2 || !got.GetTruncated() {
+		t.Fatalf("response = %d submissions, truncated=%v", len(got.GetSubmissions()), got.GetTruncated())
+	}
+	first := got.GetSubmissions()[0]
+	if first.GetId() != m.submissions[0].ID.String() || first.GetFindingId() != findingID.String() || first.GetFindingTitle() != "Reentrancy in withdraw" || first.GetStatus() != "submitted" || first.GetLatestOutcome() != store.SecuritySubmissionOutcomeAccepted || first.GetLatestOutcomeAt() == nil || first.GetSubmittedAt() == nil || first.GetRank() != 1 {
+		t.Fatalf("first submission = %+v", first)
+	}
+	second := got.GetSubmissions()[1]
+	if second.GetFindingId() != "" || second.GetLatestOutcome() != "" || second.GetLatestOutcomeAt() != nil || second.GetSubmittedAt() != nil {
+		t.Fatalf("second submission = %+v", second)
 	}
 }
 
