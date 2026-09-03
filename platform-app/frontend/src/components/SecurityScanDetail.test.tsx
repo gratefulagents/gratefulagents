@@ -654,9 +654,59 @@ describe("SecurityScanDetail", () => {
 
     renderDetail();
 
-    expect(
-      await screen.findByText(/This scan run has not finished/),
-    ).toBeTruthy();
+    const banner = await screen.findByTestId("scan-in-progress");
+    expect(banner.textContent).toContain("Scan in progress");
+    expect(banner.textContent).toMatch(/This scan run has not finished/);
+    expect(banner.textContent).toMatch(/report, SARIF artifact, and audit export unlock/);
+    // Counts that are still changing say so instead of reading as a clean result.
+    expect(screen.getByText("Findings so far")).toBeTruthy();
+    expect(screen.getByText(/Live · updates every 5s/)).toBeTruthy();
+    expect(screen.getByTestId("run-tab-live")).toBeTruthy();
+  });
+
+  it("does not describe an in-flight scan as having reported nothing", async () => {
+    const running = scanFixture();
+    running.status = "running";
+    getSecurityScan.mockResolvedValue(running);
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+
+    renderDetail();
+
+    expect(await screen.findByText("No findings yet")).toBeTruthy();
+    expect(screen.queryByText("This scan reported no findings.")).toBeNull();
+    expect(screen.getByText(/Findings appear here as soon as the run submits them/)).toBeTruthy();
+  });
+
+  it("jumps from the in-progress banner to the Run tab", async () => {
+    const running = scanFixture();
+    running.status = "running";
+    getSecurityScan.mockResolvedValue(running);
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+
+    renderDetail();
+
+    const banner = await screen.findByTestId("scan-in-progress");
+    fireEvent.click(within(banner).getByRole("button", { name: /View run progress/ }));
+
+    await waitFor(() => expect(search()).toBe("?tab=run"));
+    expect(await screen.findByTestId("scan-run-panel")).toBeTruthy();
+    // The Run tab is in view, so the banner stops offering to go there.
+    expect(within(banner).queryByRole("button", { name: /View run progress/ })).toBeNull();
+  });
+
+  it("keeps a finished scan quiet: no banner, no live caption", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+
+    renderDetail();
+
+    await screen.findByText("nightly-1");
+    expect(screen.queryByTestId("scan-in-progress")).toBeNull();
+    expect(screen.queryByText("Findings so far")).toBeNull();
+    expect(screen.queryByTestId("run-tab-live")).toBeNull();
   });
 
   it("disables the artifact downloads with a reason while the run is unfinished", async () => {
@@ -703,6 +753,48 @@ describe("SecurityScanDetail", () => {
   });
 });
 
+describe("SecurityScanDetail section tabs", () => {
+  it("shows findings by default and moves the dossier and run panels behind tabs", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: { total: 4, actionable: 2 } });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({ namespace: "user-alice", name: "nightly" });
+
+    renderDetail();
+
+    const tabs = await screen.findByRole("tablist", { name: "Scan sections" });
+    const findings = within(tabs).getByRole("tab", { name: /Findings/ });
+    expect(findings.getAttribute("aria-selected")).toBe("true");
+    expect(findings.textContent).toContain("4");
+    expect(screen.queryByTestId("security-research-panel")).toBeNull();
+    expect(screen.queryByTestId("scan-run-panel")).toBeNull();
+    // Nothing to show under Integration for this config, so the tab is absent.
+    expect(within(tabs).queryByRole("tab", { name: /Integration/ })).toBeNull();
+
+    fireEvent.click(within(tabs).getByRole("tab", { name: /Research/ }));
+    expect(await screen.findByTestId("security-research-panel")).toBeTruthy();
+    await waitFor(() => expect(search()).toBe("?tab=research"));
+
+    fireEvent.click(within(tabs).getByRole("tab", { name: /^Run/ }));
+    expect(await screen.findByTestId("scan-run-panel")).toBeTruthy();
+    expect(screen.queryByTestId("security-research-panel")).toBeNull();
+  });
+
+  it("falls back to findings for an unknown or unavailable tab in the URL", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [] });
+    getSecurityScanConfig.mockResolvedValue({ namespace: "user-alice", name: "nightly" });
+
+    renderDetail("/security/user-alice/nightly-1?tab=settings");
+
+    const tabs = await screen.findByRole("tablist", { name: "Scan sections" });
+    expect(within(tabs).getByRole("tab", { name: /Findings/ }).getAttribute("aria-selected"))
+      .toBe("true");
+    expect(await screen.findByText("This scan reported no findings.")).toBeTruthy();
+  });
+});
+
 describe("SecurityScanDetail repository integration state", () => {
   it("surfaces the last check publish state and notification state with errors", async () => {
     getSecurityScan.mockResolvedValue(scanFixture());
@@ -728,7 +820,7 @@ describe("SecurityScanDetail repository integration state", () => {
       },
     });
 
-    renderDetail();
+    renderDetail("/security/user-alice/nightly-1?tab=settings");
 
     expect(await screen.findByText("Repository integration")).toBeTruthy();
     expect(screen.getByText(/publish failed — publishing check: 502/)).toBeTruthy();
@@ -782,7 +874,7 @@ describe("SecurityScanDetail repository integration state", () => {
       },
     });
 
-    renderDetail();
+    renderDetail("/security/user-alice/nightly-1?tab=run");
 
     expect(await screen.findByTestId("execution-progress")).toBeTruthy();
     expect(screen.getByTestId("execution-task-recon#0")).toBeTruthy();
@@ -826,7 +918,7 @@ describe("SecurityScanDetail repository integration state", () => {
       },
     });
 
-    renderDetail();
+    renderDetail("/security/user-alice/nightly-1?tab=run");
 
     expect(await screen.findByTestId("execution-dag")).toBeTruthy();
     expect(screen.getByTestId("execution-node-recon").textContent).toContain("Running");
@@ -867,7 +959,7 @@ describe("SecurityScanDetail repository integration state", () => {
     });
     resumeSecurityScan.mockResolvedValue({});
 
-    renderDetail();
+    renderDetail("/security/user-alice/nightly-1?tab=run");
 
     fireEvent.click(await screen.findByTestId("execution-resume"));
     await waitFor(() =>
@@ -925,7 +1017,7 @@ describe("SecurityScanDetail budgets, retention, and suppression", () => {
       },
     });
 
-    renderDetail();
+    renderDetail("/security/user-alice/nightly-1?tab=settings");
 
     const warning = await screen.findByTestId("budget-warning");
     expect(warning.textContent).toContain("Budget exceeded");
@@ -950,7 +1042,7 @@ describe("SecurityScanDetail budgets, retention, and suppression", () => {
       budgetMessage: "",
     });
 
-    renderDetail();
+    renderDetail("/security/user-alice/nightly-1?tab=settings");
 
     await screen.findByTestId("effective-budgets");
     expect(screen.queryByTestId("budget-warning")).toBeNull();
