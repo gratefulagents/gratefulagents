@@ -1390,8 +1390,11 @@ func TestBountyHuntEVMBuildsItsOracleFirst(t *testing.T) {
 		}
 	}
 
-	if len(workflow.Spec.Tasks) != 5 {
-		t.Fatalf("workflow has %d tasks, want the five-task fork-harness DAG", len(workflow.Spec.Tasks))
+	if len(workflow.Spec.Tasks) != 6 {
+		t.Fatalf("workflow has %d tasks, want the fork-harness DAG plus the target-priors pass", len(workflow.Spec.Tasks))
+	}
+	if _, ok := byName["target-priors"]; !ok {
+		t.Fatal("workflow is missing the target-priors history pass")
 	}
 	dependsOn := func(task, dependency string) bool {
 		return slices.Contains(byName[task].DependsOn, dependency)
@@ -1746,5 +1749,62 @@ func TestBlockchainProtocolAuditTaskTimeoutsHonorTheBountyRuntimeBudget(t *testi
 		if task.Timeout.Duration > 0 && task.Timeout.Duration < budget {
 			t.Errorf("task %q timeout %s undercuts the bug-bounty maxRuntime %s; drop the task timeout or raise it to the budget", task.Name, task.Timeout.Duration, budget)
 		}
+	}
+}
+
+// TestProgramLinkedWorkflowsSeedHuntsFromHistory keeps every bounty-facing
+// workflow anchored to the target's own advisory, audit, and security-fix
+// history: a build-free target-priors pass runs up front and at least one
+// discovery task consumes its output before widening its search.
+func TestProgramLinkedWorkflowsSeedHuntsFromHistory(t *testing.T) {
+	t.Parallel()
+
+	workflows := append(slices.Clone(programLinkedSecurityWorkflows), "smart-contract-review", "default-deep-scan", "validated-critical-hunt", "threat-model-guided-hunt")
+	for _, name := range workflows {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var workflow triggersv1alpha1.SecurityWorkflow
+			readBootstrapAsset(t, "securityworkflows", name, &workflow)
+
+			var priors *triggersv1alpha1.SecurityScanTask
+			for i := range workflow.Spec.Tasks {
+				if workflow.Spec.Tasks[i].Name == "target-priors" {
+					priors = &workflow.Spec.Tasks[i]
+				}
+			}
+			if priors == nil {
+				t.Fatal("workflow is missing the target-priors history pass")
+			}
+			if priors.EffectiveRole() != "threat-modeler" {
+				t.Errorf("target-priors role = %q, want threat-modeler", priors.EffectiveRole())
+			}
+			if len(priors.DependsOn) != 0 {
+				t.Errorf("target-priors must be build-free and ungated, got dependsOn=%v", priors.DependsOn)
+			}
+			if strings.TrimSpace(priors.OutputSchema) == "" {
+				t.Error("target-priors must publish a typed priors list")
+			}
+			objective := strings.ToLower(priors.Objective)
+			for _, marker := range []string{"get_security_research_context", "security.md", "advisor", "audit", "known issues", "commits"} {
+				if !strings.Contains(objective, marker) {
+					t.Errorf("target-priors objective is missing %q", marker)
+				}
+			}
+
+			consumers := 0
+			for _, task := range workflow.Spec.Tasks {
+				if task.Name == priors.Name || (task.ForEach != priors.Name && !strings.Contains(task.Objective, "{{tasks.target-priors.output}}")) {
+					continue
+				}
+				if !slices.Contains(task.DependsOn, priors.Name) {
+					t.Errorf("task %q reads target-priors output without depending on it", task.Name)
+				}
+				consumers++
+			}
+			if consumers == 0 {
+				t.Error("no discovery task consumes target-priors output (inline or forEach)")
+			}
+		})
 	}
 }

@@ -113,6 +113,29 @@ spec:
             "gaps": {"type": "array", "items": {"type": "string"}}
           }
         }
+    - name: target-priors
+      role: threat-modeler
+      category: recon
+      timeout: 30m
+      maxTurns: 60
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-differential-review
+      objective: >-
+        Build the history priors for this target from the checkout alone; do not build, deploy, or run the
+        project. Call get_security_research_context first and reuse only evidence for this exact target and
+        revision; note prior false_positive or accepted_risk findings so hunters do not re-report them. Read
+        SECURITY.md, advisories and CVEs referenced in the repository, CHANGELOG or release-note security
+        entries, checked-in audit reports and their finding tables, and the program snapshot's known issues, and
+        select from the last 200 commits or 12 months those whose message or diff fixes a security bug (missing
+        check added, bounds or overflow guard, access-control gate, replay or nonce fix, rounding or accounting
+        correction, upgrade or initialization guard). For each source produce one compact prior: what went wrong,
+        the anchor (path plus line or symbol), the bug class it implies this codebase produces, and the hunt it
+        suggests (sibling code the fix did not reach, or a bypass of the patch). Rank most promising first,
+        return at most ten, mark classes the runtime, framework, or a past fix now forbids as stale, and report
+        nothing as a finding from this task.
+      outputSchema: |-
+        {"type":"array","maxItems":10,"items":{"type":"object","additionalProperties":false,"required":["id","kind","summary","bug_class","anchor","hunt"],"properties":{"id":{"type":"string","minLength":2,"maxLength":8},"kind":{"type":"string","enum":["advisory_or_cve","security_fix_commit","changelog","prior_audit","known_issue","prior_scan","todo_or_unsafe"]},"summary":{"type":"string","minLength":1,"maxLength":240},"bug_class":{"type":"string","minLength":1,"maxLength":80},"anchor":{"type":"string","minLength":1,"maxLength":240},"commits":{"type":"array","maxItems":4,"items":{"type":"string","minLength":7,"maxLength":64}},"hunt":{"type":"string","minLength":1,"maxLength":300},"stale":{"type":"boolean"}}}}
     - name: map-rollup-invariants
       role: vulnerability-hunter
       category: logic-flaw
@@ -161,8 +184,12 @@ spec:
         validated at all without fetching era-contracts and keep them in the set as blocked rather than
         dropping them. Rank the hypotheses by the impact clause they would reach, not by novelty. Report no
         findings here.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
+        - target-priors
       outputSchema: |-
         {
           "type": "object",
@@ -213,9 +240,13 @@ spec:
         Hunt L1 origin selection, batch/channel/frame decoding, reorg recovery, safe/finalized head transitions,
         forced inclusion, priority queues and data-availability fallback using {{tasks.map-rollup-invariants.output}}.
         Compare live derivation, sync, replay and recovery paths and report concrete divergent-state or halt paths.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-rollup-invariants
+        - target-priors
 
     - name: hunt-bridge-message-and-withdrawal-lifecycle
       role: vulnerability-hunter
@@ -227,9 +258,13 @@ spec:
         Hunt deposit/withdrawal hash binding, replay, finalization delay, proof/output-root selection, token and fee
         accounting, failed relay/retry and L1/L2 caller aliasing. Trace every bridge and messenger variant end to end
         and report a concrete path to theft, lock, duplicate execution or unauthorized cross-domain call.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-rollup-invariants
+        - target-priors
 
     - name: hunt-proof-games-batches-and-state-roots
       role: vulnerability-hunter
@@ -241,9 +276,13 @@ spec:
         Select the stack variant. For Optimism, audit fault-game claims, clocks, bonds, prestate and VM step binding;
         for ZKsync, audit batch commitments, bootloader/system-contract inputs, proof/public-input and verifier-key
         binding. Compare propose, prove, challenge, execute and recovery paths and report concrete acceptance gaps.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-rollup-invariants
+        - target-priors
 
     - name: hunt-upgrades-operators-and-cross-layer-config
       role: vulnerability-hunter
@@ -255,9 +294,13 @@ spec:
         Hunt initialization, proxy/admin ownership, upgrade activation, pause/emergency controls, sequencer/proposer/
         prover authority, predeploy/system-contract configuration and mismatches between L1 and L2 constants. Report
         target-specific privilege or configuration paths; label deployed-state claims blocked when no verified pin exists.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-rollup-invariants
+        - target-priors
 
     - name: validate-candidates-in-harness
       role: exploit-validator

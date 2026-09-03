@@ -123,6 +123,29 @@ spec:
             "gaps": {"type": "array", "items": {"type": "string"}}
           }
         }
+    - name: target-priors
+      role: threat-modeler
+      category: recon
+      timeout: 30m
+      maxTurns: 60
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-differential-review
+      objective: >-
+        Build the history priors for this target from the checkout alone; do not build, deploy, or run the
+        project. Call get_security_research_context first and reuse only evidence for this exact target and
+        revision; note prior false_positive or accepted_risk findings so hunters do not re-report them. Read
+        SECURITY.md, advisories and CVEs referenced in the repository, CHANGELOG or release-note security
+        entries, checked-in audit reports and their finding tables, and the program snapshot's known issues, and
+        select from the last 200 commits or 12 months those whose message or diff fixes a security bug (missing
+        check added, bounds or overflow guard, access-control gate, replay or nonce fix, rounding or accounting
+        correction, upgrade or initialization guard). For each source produce one compact prior: what went wrong,
+        the anchor (path plus line or symbol), the bug class it implies this codebase produces, and the hunt it
+        suggests (sibling code the fix did not reach, or a bypass of the patch). Rank most promising first,
+        return at most ten, mark classes the runtime, framework, or a past fix now forbids as stale, and report
+        nothing as a finding from this task.
+      outputSchema: |-
+        {"type":"array","maxItems":10,"items":{"type":"object","additionalProperties":false,"required":["id","kind","summary","bug_class","anchor","hunt"],"properties":{"id":{"type":"string","minLength":2,"maxLength":8},"kind":{"type":"string","enum":["advisory_or_cve","security_fix_commit","changelog","prior_audit","known_issue","prior_scan","todo_or_unsafe"]},"summary":{"type":"string","minLength":1,"maxLength":240},"bug_class":{"type":"string","minLength":1,"maxLength":80},"anchor":{"type":"string","minLength":1,"maxLength":240},"commits":{"type":"array","maxItems":4,"items":{"type":"string","minLength":7,"maxLength":64}},"hunt":{"type":"string","minLength":1,"maxLength":300},"stale":{"type":"boolean"}}}}
     - name: map-program-invariants
       role: vulnerability-hunter
       category: logic-flaw
@@ -173,8 +196,12 @@ spec:
         impact when it breaks, and the concrete local validation target: an existing harness test module, a
         property or fuzz target, or the new test file path in the repository's own harness. Rank the
         hypotheses by the impact clause they would reach, not by novelty. Report no findings here.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-program-target-and-toolchain
+        - target-priors
       outputSchema: |-
         {
           "type": "object",
@@ -224,9 +251,13 @@ spec:
         Hunt missing owner, executable, discriminator, mint, authority and relationship checks plus PDA seed/bump
         confusion and account substitution using {{tasks.map-program-invariants.output}}. Compare every instruction
         variant and remaining-account path. Report concrete candidates with exact account metas and file:line evidence.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-program-target-and-toolchain
         - map-program-invariants
+        - target-priors
 
     - name: hunt-cpi-signers-and-privilege
       role: vulnerability-hunter
@@ -238,9 +269,13 @@ spec:
         Trace every CPI target, program-id check, signer seed, writable privilege and authority transition. Hunt
         arbitrary CPI, signer propagation, confused deputy, duplicate mutable accounts, account-close and token
         program substitution paths. Report provider-specific reachable issues, not generic Anchor lint output.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-program-target-and-toolchain
         - map-program-invariants
+        - target-priors
 
     - name: hunt-math-oracles-and-liquidation
       role: vulnerability-hunter
@@ -253,9 +288,13 @@ spec:
         repay rounding, liquidation eligibility/bonus, bad debt, reserve caps and fee accounting. Exercise the exact
         fixed-point and slot/Clock assumptions documented by {{tasks.map-program-invariants.output}} and report each
         concrete invariant break.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-program-target-and-toolchain
         - map-program-invariants
+        - target-priors
 
     - name: hunt-escrow-timelocks-and-state-machines
       role: vulnerability-hunter
@@ -268,9 +307,13 @@ spec:
         timelock and cancellation ordering, partial fills and replay. For Kamino, focus this lane on obligation and
         reserve state-machine transitions, flash-loan completion and emergency modes. Explicitly select the target
         variant and report concrete paths only.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-program-target-and-toolchain
         - map-program-invariants
+        - target-priors
 
     - name: validate-candidates-in-harness
       role: exploit-validator

@@ -120,6 +120,29 @@ spec:
             "gaps": {"type": "array", "items": {"type": "string"}}
           }
         }
+    - name: target-priors
+      role: threat-modeler
+      category: recon
+      timeout: 30m
+      maxTurns: 60
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-differential-review
+      objective: >-
+        Build the history priors for this target from the checkout alone; do not build, deploy, or run the
+        project. Call get_security_research_context first and reuse only evidence for this exact target and
+        revision; note prior false_positive or accepted_risk findings so hunters do not re-report them. Read
+        SECURITY.md, advisories and CVEs referenced in the repository, CHANGELOG or release-note security
+        entries, checked-in audit reports and their finding tables, and the program snapshot's known issues, and
+        select from the last 200 commits or 12 months those whose message or diff fixes a security bug (missing
+        check added, bounds or overflow guard, access-control gate, replay or nonce fix, rounding or accounting
+        correction, upgrade or initialization guard). For each source produce one compact prior: what went wrong,
+        the anchor (path plus line or symbol), the bug class it implies this codebase produces, and the hunt it
+        suggests (sibling code the fix did not reach, or a bypass of the patch). Rank most promising first,
+        return at most ten, mark classes the runtime, framework, or a past fix now forbids as stale, and report
+        nothing as a finding from this task.
+      outputSchema: |-
+        {"type":"array","maxItems":10,"items":{"type":"object","additionalProperties":false,"required":["id","kind","summary","bug_class","anchor","hunt"],"properties":{"id":{"type":"string","minLength":2,"maxLength":8},"kind":{"type":"string","enum":["advisory_or_cve","security_fix_commit","changelog","prior_audit","known_issue","prior_scan","todo_or_unsafe"]},"summary":{"type":"string","minLength":1,"maxLength":240},"bug_class":{"type":"string","minLength":1,"maxLength":80},"anchor":{"type":"string","minLength":1,"maxLength":240},"commits":{"type":"array","maxItems":4,"items":{"type":"string","minLength":7,"maxLength":64}},"hunt":{"type":"string","minLength":1,"maxLength":300},"stale":{"type":"boolean"}}}}
     - name: map-cross-domain-invariants
       role: vulnerability-hunter
       category: logic-flaw
@@ -164,8 +187,12 @@ spec:
         over any new construction. Rank the hypotheses by the impact clause they would reach, not by novelty.
         Templated reentrancy stays available but sits off the default path, because bot-findable means
         unpayable under duplicate rules. Report no findings here.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
+        - target-priors
       outputSchema: |-
         {
           "type": "object",
@@ -217,9 +244,13 @@ spec:
         encode/decode and admission path in {{tasks.map-cross-domain-invariants.output}}. Compare canonical and
         adapter paths, relayed caller identity and alternate proof formats. Report concrete paths where a message can
         be forged, misattributed or delivered to the wrong domain.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-cross-domain-invariants
+        - target-priors
 
     - name: hunt-replay-retry-refund-and-ordering
       role: vulnerability-hunter
@@ -231,9 +262,13 @@ spec:
         Hunt nonce/message-id collisions, replay across routes or versions, retry and failed-delivery state,
         refund/recovery races, out-of-order delivery and exactly-once violations. Trace state writes before and after
         external calls and report a concrete sequence that duplicates execution, loses a message or strands funds.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-cross-domain-invariants
+        - target-priors
 
     - name: hunt-validator-quorum-and-upgrades
       role: vulnerability-hunter
@@ -245,9 +280,13 @@ spec:
         Hunt validator/guardian/DVN/ISM quorum math, signer uniqueness, set rotation and epoch boundaries, verifier
         upgrades, initialization, pause/admin and emergency recovery. Compare old and new verifier acceptance windows
         and report provider-specific threshold or privilege bypasses with file:line evidence.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-cross-domain-invariants
+        - target-priors
 
     - name: hunt-token-accounting-decimals-and-adapters
       role: vulnerability-hunter
@@ -259,9 +298,13 @@ spec:
         Hunt lock/mint/burn/release conservation, native versus wrapped assets, decimal normalization and dust,
         fee/refund accounting, rate limits, adapter registry/type confusion and callback token behavior. Check each
         supported provider variant rather than assuming 18 decimals or a single EVM token path.
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
       dependsOn:
         - pin-target-and-toolchain
         - map-cross-domain-invariants
+        - target-priors
 
     - name: validate-candidates-in-harness
       role: exploit-validator

@@ -21,6 +21,29 @@ spec:
       outputSchema: |-
         {"type":"object","required":["revision","in_scope","out_of_scope","components","entrypoints","trust_boundaries","assets","roles","artifacts","invariants","test_targets","limitations"],"properties":{"revision":{"type":"string"},"in_scope":{"type":"array","items":{"type":"string"}},"out_of_scope":{"type":"array","items":{"type":"string"}},"components":{"type":"array","items":{"type":"string"}},"entrypoints":{"type":"array","items":{"type":"string"}},"trust_boundaries":{"type":"array","items":{"type":"string"}},"assets":{"type":"array","items":{"type":"string"}},"roles":{"type":"array","items":{"type":"string"}},"artifacts":{"type":"array","items":{"type":"string"}},"invariants":{"type":"array","items":{"type":"object"}},"test_targets":{"type":"array","items":{"type":"string"}},"limitations":{"type":"array","items":{"type":"string"}}}}
 
+    - name: target-priors
+      role: threat-modeler
+      category: recon
+      timeout: 30m
+      maxTurns: 60
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-differential-review
+      objective: >-
+        Build the history priors for this target from the checkout alone; do not build, deploy, or run the
+        project. Call get_security_research_context first and reuse only evidence for this exact target and
+        revision; note prior false_positive or accepted_risk findings so hunters do not re-report them. Read
+        SECURITY.md, advisories and CVEs referenced in the repository, CHANGELOG or release-note security
+        entries, checked-in audit reports and their finding tables, and the program snapshot's known issues, and
+        select from the last 200 commits or 12 months those whose message or diff fixes a security bug (missing
+        check added, bounds or overflow guard, access-control gate, replay or nonce fix, rounding or accounting
+        correction, upgrade or initialization guard). For each source produce one compact prior: what went wrong,
+        the anchor (path plus line or symbol), the bug class it implies this codebase produces, and the hunt it
+        suggests (sibling code the fix did not reach, or a bypass of the patch). Rank most promising first,
+        return at most ten, mark classes the runtime, framework, or a past fix now forbids as stale, and report
+        nothing as a finding from this task.
+      outputSchema: |-
+        {"type":"array","maxItems":10,"items":{"type":"object","additionalProperties":false,"required":["id","kind","summary","bug_class","anchor","hunt"],"properties":{"id":{"type":"string","minLength":2,"maxLength":8},"kind":{"type":"string","enum":["advisory_or_cve","security_fix_commit","changelog","prior_audit","known_issue","prior_scan","todo_or_unsafe"]},"summary":{"type":"string","minLength":1,"maxLength":240},"bug_class":{"type":"string","minLength":1,"maxLength":80},"anchor":{"type":"string","minLength":1,"maxLength":240},"commits":{"type":"array","maxItems":4,"items":{"type":"string","minLength":7,"maxLength":64}},"hunt":{"type":"string","minLength":1,"maxLength":300},"stale":{"type":"boolean"}}}}
     - name: specialist-review
       role: vulnerability-hunter
       category: logic-flaw
@@ -36,7 +59,10 @@ spec:
         create_security_hypothesis and emit one schema-valid canonical candidate preserving the returned identity;
         never emit a fingerprint-only candidate. Return examined, skipped, unsupported, and inconclusive targets,
         and claim executable evidence only when its output was preserved.
-      dependsOn: [scope-architecture-and-invariants]
+        Before widening, work the history priors in {{tasks.target-priors.output}} that fall in this lane: treat
+        each as a hypothesis (the same root cause in sibling code the fix did not reach, or a bypass of the
+        patch), skip classes marked stale, and do not re-report findings previously disproved for this revision.
+      dependsOn: [scope-architecture-and-invariants, target-priors]
       outputSchema: |-
         {
           "type": "object",
