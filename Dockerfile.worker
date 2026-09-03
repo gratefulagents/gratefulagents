@@ -41,7 +41,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     m4 \
     libncurses-dev \
     inotify-tools \
+    clang \
+    libclang-dev \
+    llvm-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# clang/libclang above are for Rust crates that generate bindings at build
+# time (bindgen, used by e.g. xdelta3 in sigp/lighthouse and by fastcrypto
+# consumers such as MystenLabs/seal). Without libclang the principal build of
+# those targets fails inside the sandbox, where apt-get is unavailable.
 
 # ── CLI tool symlinks (Debian renames some binaries) ─────────────────────────
 RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd 2>/dev/null || true \
@@ -127,6 +135,31 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && rustc --version \
     && cargo --version \
     && chown -R worker:worker "$RUSTUP_HOME" "$CARGO_HOME"
+
+# ── Java (Eclipse Temurin JDK) ───────────────────────────────────────────────
+# Gradle-based JVM targets (Consensys/teku, hyperledger/besu) require a JDK at
+# or above their toolchain floor (currently 25) and cannot install one inside
+# the read-only sandbox. Pin the release and verify its checksum, mirroring
+# the rustup install above.
+ARG TEMURIN_RELEASE=jdk-25.0.4.1+1
+ENV JAVA_HOME=/usr/local/java
+ENV PATH=${JAVA_HOME}/bin:${PATH}
+RUN ARCH="$(dpkg --print-architecture)" \
+    && case "$ARCH" in \
+        amd64) TEMURIN_ARCH="x64"; TEMURIN_SHA256="dbb698396d478e7fa2b1e50f4103324b2a99b90569ee27c33f2261f9215cf41e" ;; \
+        arm64) TEMURIN_ARCH="aarch64"; TEMURIN_SHA256="69df11a02cfa3ef7d7ca645e03edce6778ec090e100f6ae2b42097865730ac52" ;; \
+        *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;; \
+    esac \
+    && TEMURIN_TAG="$(printf '%s' "$TEMURIN_RELEASE" | sed 's/+/%2B/')" \
+    && TEMURIN_FILE="OpenJDK25U-jdk_${TEMURIN_ARCH}_linux_hotspot_$(printf '%s' "$TEMURIN_RELEASE" | sed -e 's/^jdk-//' -e 's/+/_/').tar.gz" \
+    && curl --proto '=https' --tlsv1.2 -fsSL \
+        "https://github.com/adoptium/temurin25-binaries/releases/download/${TEMURIN_TAG}/${TEMURIN_FILE}" \
+        -o /tmp/temurin.tar.gz \
+    && echo "${TEMURIN_SHA256}  /tmp/temurin.tar.gz" | sha256sum -c - \
+    && mkdir -p "$JAVA_HOME" \
+    && tar -xzf /tmp/temurin.tar.gz -C "$JAVA_HOME" --strip-components=1 \
+    && rm /tmp/temurin.tar.gz \
+    && java -version
 
 # ── Tauri Linux build dependencies (platform-app/tauri) ─────────────────────
 # Lets worker runs compile the Tauri desktop shell on Linux (cargo check /

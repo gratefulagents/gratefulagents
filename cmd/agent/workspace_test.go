@@ -248,3 +248,50 @@ func TestCheckoutPinnedRevision(t *testing.T) {
 		t.Fatalf("checkoutPinnedRevision(missing revision) error = %v, want revision-not-found message", err)
 	}
 }
+
+func TestInitializeSubmodulesPopulatesDeclaredSubmodules(t *testing.T) {
+	requireGit(t)
+	// Local-path submodules use the file transport, which git refuses for
+	// submodules by default (CVE-2022-39253); allow it for this process only.
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+	t.Setenv("GIT_CONFIG_VALUE_0", "always")
+
+	libOrigin := newBareOrigin(t, "lib")
+	superOrigin := newBareOrigin(t, "super")
+	seed := filepath.Join(t.TempDir(), "super-seed")
+	mustGit(t, "", "clone", "--quiet", superOrigin, seed)
+	mustGit(t, seed, "submodule", "add", "--quiet", libOrigin, "vendor/lib")
+	mustGit(t, seed, "commit", "--quiet", "-m", "add submodule")
+	mustGit(t, seed, "push", "--quiet", "origin", "main")
+
+	repoDir := filepath.Join(t.TempDir(), "repo")
+	mustGit(t, "", "clone", "--quiet", "--branch", "main", superOrigin, repoDir)
+	if _, err := os.Stat(filepath.Join(repoDir, "vendor", "lib", "README.md")); err == nil {
+		t.Fatal("submodule worktree populated before initialization; test precondition broken")
+	}
+
+	initializeSubmodules(repoDir)
+
+	if _, err := os.Stat(filepath.Join(repoDir, "vendor", "lib", "README.md")); err != nil {
+		t.Fatalf("submodule worktree not populated: %v", err)
+	}
+	if status := mustGit(t, repoDir, "submodule", "status"); strings.HasPrefix(strings.TrimSpace(status), "-") {
+		t.Fatalf("submodule still uninitialized: %q", status)
+	}
+
+	// Repositories without .gitmodules and unreachable submodules are no-ops
+	// rather than setup failures.
+	plain := filepath.Join(t.TempDir(), "plain")
+	mustGit(t, "", "clone", "--quiet", libOrigin, plain)
+	initializeSubmodules(plain)
+	if err := os.RemoveAll(libOrigin); err != nil {
+		t.Fatal(err)
+	}
+	broken := filepath.Join(t.TempDir(), "broken")
+	mustGit(t, "", "clone", "--quiet", "--branch", "main", superOrigin, broken)
+	initializeSubmodules(broken)
+	if _, err := os.Stat(filepath.Join(broken, "README.md")); err != nil {
+		t.Fatalf("primary checkout disturbed by failed submodule init: %v", err)
+	}
+}

@@ -2027,6 +2027,12 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 	}
 	sinks := securityScanSinkTasks(e.order)
 	postScriptsGate := e.postScriptsGateSink()
+	// Tasks the controller completes inside this pass (a failed `when`
+	// condition or a deterministic reduction) finish after expandFanOuts
+	// already ran, so a forEach task whose source settled here still holds
+	// its un-expanded placeholder. Launching that placeholder would render
+	// record 0 of a source that may yield no records at all.
+	settledThisPass := make(map[string]bool)
 
 	for i := range e.exec.Tasks {
 		entry := &e.exec.Tasks[i]
@@ -2063,6 +2069,7 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 				entry.State = triggersv1alpha1.SecurityScanTaskStateSucceeded
 				entry.StructuredOutput = output
 				entry.FinishedAt = &e.now
+				settledThisPass[entry.Name] = true
 				// A failed explicit readiness gate is a delivered workflow, not a
 				// complete security assessment. Preserve the controller-side skip
 				// as a coverage gap so terminal EvidenceOutcome cannot become a
@@ -2085,13 +2092,20 @@ func (e *securityScanExecutionEngine) schedule(ctx context.Context) {
 			entry.State = triggersv1alpha1.SecurityScanTaskStateSucceeded
 			entry.StructuredOutput = output
 			entry.FinishedAt = &e.now
+			settledThisPass[entry.Name] = true
 			continue
 		}
 		// A forEach task whose entries still form the un-started placeholder
 		// is expanded (not launched) once its source completes; expansion
-		// runs before scheduling, so reaching here with a completed source
-		// means the expansion produced exactly this instance.
+		// runs before scheduling, so reaching here with a source that
+		// completed in an earlier pass means the expansion produced exactly
+		// this instance. A source settled by this pass has not been expanded
+		// yet: leave the placeholder Pending and let the next reconcile's
+		// expandFanOuts size it (possibly to zero instances).
 		entry.State = triggersv1alpha1.SecurityScanTaskStatePending
+		if source := e.plannedForEach(task.Name); source != "" && settledThisPass[source] {
+			continue
+		}
 		if postScriptsGate && sinks[entry.Name] {
 			// The sink submits the scan-wide report; launching it while
 			// post-script jobs are unmaterialized or unfinished would report

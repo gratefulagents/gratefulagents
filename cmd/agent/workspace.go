@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gratefulagents/gratefulagents/internal/agentinfra"
 	agentpolicy "github.com/gratefulagents/sdk/pkg/agentsdk/policy"
@@ -71,6 +72,7 @@ func setupWorkspace(cfg *runConfig) error {
 	} else if err := restorePrimaryWorkspaceCheckpoint(*cfg, remoteExists); err != nil {
 		return fmt.Errorf("restoring workspace checkpoint: %w", err)
 	}
+	initializeSubmodules(cfg.RepoDir)
 
 	sessionModeNotes := "Session mode: interactive chat"
 	if cfg.AutoMode {
@@ -163,6 +165,41 @@ func checkoutPinnedRevision(repoDir, repoURL, revision string) error {
 		return fmt.Errorf("checking out pinned revision %q: %w", revision, err)
 	}
 	return nil
+}
+
+// submoduleInitTimeout bounds the best-effort submodule initialization so a
+// huge or unreachable nested repository cannot stall workspace setup.
+const submoduleInitTimeout = 15 * time.Minute
+
+// initializeSubmodules populates the submodules a checkout declares in
+// .gitmodules while the process still owns the repository metadata. The
+// subprocess sandbox later pins .git/config read-only (it is a hook and
+// fsmonitor injection vector), and `git submodule update --init` must register
+// each submodule URL in that file, so an agent cannot initialize submodules
+// itself: research tasks against Besu, sei-chain, and similar targets reported
+// "Failed to register url; .git/config write failed" and stayed unbuildable.
+//
+// Initialization is best effort: a repository whose submodules cannot be
+// fetched (private, removed, or not reachable without credentials) still
+// yields a usable primary checkout, and the failure is logged for the run.
+func initializeSubmodules(repoDir string) {
+	if _, err := os.Stat(filepath.Join(repoDir, ".gitmodules")); err != nil {
+		return
+	}
+	log.Printf("Initializing submodules declared in %s...", filepath.Join(repoDir, ".gitmodules"))
+	ctx, cancel := context.WithTimeout(context.Background(), submoduleInitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "submodule", "update", "--init", "--recursive")
+	cmd.Dir = repoDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			log.Printf("Warning: submodule initialization in %s timed out after %s; continuing with the primary checkout only", repoDir, submoduleInitTimeout)
+			return
+		}
+		log.Printf("Warning: submodule initialization in %s failed: %v; continuing with the primary checkout only", repoDir, err)
+	}
 }
 
 func remoteBranchExists(repoDir, branchName string) bool {
@@ -321,6 +358,7 @@ func cloneAdditionalRepos(cfg *runConfig) error {
 		if err := checkoutWorkBranch(dest, cfg.TaskName); err != nil {
 			return fmt.Errorf("additional repo %s: %w", name, err)
 		}
+		initializeSubmodules(dest)
 	}
 	if !cfg.Repoless {
 		// Keep the store out of the primary repository's status output,
