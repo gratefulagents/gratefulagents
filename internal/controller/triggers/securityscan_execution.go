@@ -1317,6 +1317,7 @@ func (e *securityScanExecutionEngine) observe(ctx context.Context) {
 			entry.NextRetryTime = nil
 			entry.FinishedAt = &e.now
 			e.recordCompactHandoffCoverage(entry, run.Status.StructuredOutput)
+			e.recordHandoffConditionGaps(ctx, entry, run)
 		case platformv1alpha1.AgentRunPhaseFailed, platformv1alpha1.AgentRunPhaseCancelled,
 			platformv1alpha1.AgentRunPhasePaused:
 			reason := securityScanAgentRunFailureReason(run, "task")
@@ -1374,6 +1375,187 @@ func compactHandoffGapCounts(output []byte) (int, map[string]int) {
 		counts[verdict] = len(handoff.CoverageIDs[verdict])
 	}
 	return len(handoff.BlockerIDs), counts
+}
+
+// securityScanEarlyStopTurnFraction is the share of the effective turn budget
+// below which a Succeeded task that did not exhaust its surface is treated as
+// having stopped early.
+const securityScanEarlyStopTurnFraction = 0.4
+
+// securityScanEarlyStopMinTurns is the smallest turn budget the early-stop
+// rule applies to; tighter budgets are expected to end well short of exhaustion.
+const securityScanEarlyStopMinTurns = 50
+
+// securityScanDynamicExperimentKinds are the bounds.experiment.kind values
+// that count as a durable dynamic experiment.
+var securityScanDynamicExperimentKinds = map[string]bool{
+	"new_test": true, "mutant": true, "fixture": true, "differential": true, "fuzz": true, "property": true,
+}
+
+// recordHandoffConditionGaps reconciles the self-reported version-1 handoff
+// conditions against what the run actually did: turn usage from the AgentRun
+// metrics and durable research records attributed to the run as actor.
+func (e *securityScanExecutionEngine) recordHandoffConditionGaps(ctx context.Context, entry *triggersv1alpha1.SecurityScanTaskExecutionStatus, run *platformv1alpha1.AgentRun) {
+	if entry == nil || run == nil {
+		return
+	}
+	conditions, ok := securityScanHandoffConditions(run.Status.StructuredOutput)
+	if !ok {
+		return
+	}
+	var toolCalls int32
+	if run.Status.Metrics != nil {
+		toolCalls = run.Status.Metrics.ToolCallCount
+	}
+	if gap, ok := earlyStopCoverageGap(entry.Name, conditions, toolCalls, securityScanEffectiveMaxTurns(run)); ok {
+		appendSecurityScanCoverageGap(e.exec, gap)
+	}
+	evidence := e.r.securityResearchEvidenceStore()
+	if evidence == nil || e.scan == nil {
+		return
+	}
+	_, hasHypotheses := handoffConditionCount(conditions, "hypotheses_examined")
+	_, hasExperiments := handoffConditionCount(conditions, "dynamic_experiments")
+	if !hasHypotheses && !hasExperiments {
+		return
+	}
+	hypotheses, experiments := -1, -1
+	if hasHypotheses {
+		count, err := evidence.CountSecurityResearchHypothesesByActor(ctx, e.scan.Namespace, run.Name)
+		if err != nil {
+			logf.FromContext(ctx).Error(err, "counting durable hypotheses for handoff reconciliation", "task", entry.Name, "run", run.Name)
+		} else {
+			hypotheses = count
+		}
+	}
+	if hasExperiments {
+		coverage, err := evidence.ListSecurityResearchCoverageByActor(ctx, e.scan.Namespace, run.Name)
+		if err != nil {
+			logf.FromContext(ctx).Error(err, "listing durable coverage for handoff reconciliation", "task", entry.Name, "run", run.Name)
+		} else {
+			experiments = securityScanDynamicExperimentCount(coverage)
+		}
+	}
+	for _, gap := range reconcileHandoffCounters(entry.Name, conditions, hypotheses, experiments) {
+		appendSecurityScanCoverageGap(e.exec, gap)
+	}
+}
+
+// securityResearchEvidenceStore returns the configured store that can
+// attribute durable research records to an actor, or nil when none can.
+func (r *SecurityScanReconciler) securityResearchEvidenceStore() store.SecurityResearchActorEvidenceStore {
+	if r == nil {
+		return nil
+	}
+	if s, ok := r.Findings.(store.SecurityResearchActorEvidenceStore); ok {
+		return s
+	}
+	if s, ok := r.StateStore.(store.SecurityResearchActorEvidenceStore); ok {
+		return s
+	}
+	return nil
+}
+
+// securityScanHandoffConditions extracts the conditions object from a single
+// version-1 handoff. Chunk envelopes and other shapes yield false.
+func securityScanHandoffConditions(output string) (map[string]any, bool) {
+	var handoff struct {
+		Version    int            `json:"version"`
+		Conditions map[string]any `json:"conditions"`
+	}
+	if json.Unmarshal([]byte(output), &handoff) != nil || handoff.Version != 1 || handoff.Conditions == nil {
+		return nil, false
+	}
+	return handoff.Conditions, true
+}
+
+// securityScanEffectiveMaxTurns is the turn cap the run actually executed
+// under: an explicit spec limit, else the mode snapshot's constraint.
+func securityScanEffectiveMaxTurns(run *platformv1alpha1.AgentRun) int32 {
+	if run == nil {
+		return 0
+	}
+	if run.Spec.Limits != nil && run.Spec.Limits.MaxTurns > 0 {
+		return run.Spec.Limits.MaxTurns
+	}
+	if snap := run.Status.ModeSnapshot; snap != nil && snap.Constraints != nil && snap.Constraints.MaxTurns > 0 {
+		return snap.Constraints.MaxTurns
+	}
+	return 0
+}
+
+func handoffConditionBool(conditions map[string]any, key string) bool {
+	value, ok := conditions[key].(bool)
+	return ok && value
+}
+
+func handoffConditionCount(conditions map[string]any, key string) (int, bool) {
+	switch value := conditions[key].(type) {
+	case float64:
+		return int(value), true
+	case int:
+		return value, true
+	}
+	return 0, false
+}
+
+// earlyStopCoverageGap flags a Succeeded long-investigation task that neither
+// exhausted its surface nor ran in static mode yet used well under its turn
+// budget. Only handoffs that report breadth counters (hypotheses_examined) are
+// long investigations; preflight, selection, and red-team handoffs are short by
+// design, and a ready:false handoff already carries its blocker.
+func earlyStopCoverageGap(taskName string, conditions map[string]any, toolCalls, maxTurns int32) (string, bool) {
+	if maxTurns < securityScanEarlyStopMinTurns {
+		return "", false
+	}
+	if _, investigation := handoffConditionCount(conditions, "hypotheses_examined"); !investigation {
+		return "", false
+	}
+	if ready, ok := conditions["ready"].(bool); ok && !ready {
+		return "", false
+	}
+	if handoffConditionBool(conditions, "surface_exhausted") || handoffConditionBool(conditions, "static_mode") {
+		return "", false
+	}
+	if float64(toolCalls) >= float64(maxTurns)*securityScanEarlyStopTurnFraction {
+		return "", false
+	}
+	return fmt.Sprintf("task %q stopped early: %d of %d turns used without surface_exhausted", taskName, toolCalls, maxTurns), true
+}
+
+// reconcileHandoffCounters compares self-reported handoff counters with the
+// durable record counts attributed to the task's run. A negative durable
+// count means the evidence could not be read and skips that counter.
+func reconcileHandoffCounters(taskName string, conditions map[string]any, durableHypotheses, durableExperiments int) []string {
+	var gaps []string
+	if reported, ok := handoffConditionCount(conditions, "hypotheses_examined"); ok && durableHypotheses >= 0 && reported > durableHypotheses {
+		gaps = append(gaps, fmt.Sprintf("task %q reported %d hypotheses_examined but %d durable hypothesis record(s) exist", taskName, reported, durableHypotheses))
+	}
+	if reported, ok := handoffConditionCount(conditions, "dynamic_experiments"); ok && durableExperiments >= 0 && reported > durableExperiments {
+		gaps = append(gaps, fmt.Sprintf("task %q reported %d dynamic_experiments but %d durable dynamic experiment record(s) exist", taskName, reported, durableExperiments))
+	}
+	return gaps
+}
+
+// securityScanDynamicExperimentCount counts coverage records whose bounds
+// declare a dynamic experiment kind. Records without bounds.experiment are
+// static observations and never count.
+func securityScanDynamicExperimentCount(coverage []store.SecurityResearchCoverage) int {
+	count := 0
+	for _, record := range coverage {
+		var bounds struct {
+			Experiment *struct {
+				Kind string `json:"kind"`
+			} `json:"experiment"`
+		}
+		if len(record.Bounds) == 0 || json.Unmarshal(record.Bounds, &bounds) != nil || bounds.Experiment == nil {
+			continue
+		}
+		if securityScanDynamicExperimentKinds[strings.TrimSpace(bounds.Experiment.Kind)] {
+			count++
+		}
+	}
+	return count
 }
 
 // taskRunOutputUnmet returns a non-empty failure reason when a Succeeded task

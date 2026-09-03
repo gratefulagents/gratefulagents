@@ -6,7 +6,7 @@ metadata:
     platform.gratefulagents.dev/security-skill: "true"
     platform.gratefulagents.dev/bootstrap-required-skill: "true"
 spec:
-  version: "1.1.0"
+  version: "1.2.0"
   description: >-
     Evidence-driven blockchain security research method benchmarked against Immunefi,
     the Ethereum Foundation bounty, official protocol specifications, primary papers,
@@ -163,9 +163,142 @@ spec:
         Set a stopping rule before expensive fuzzing, symbolic execution, devnet work,
         or schedule-sensitive testing: time/turn budget, seeds or corpus, sequence depth,
         state/actor combinations, success threshold, and what observation will extend or
-        stop the run. Track semantic coverage by invariant, transition, actor, lifecycle
-        phase, and failure mode. Empty candidate output is acceptable only with this
-        coverage and the blocked/uncovered ledger; it is never a clean bill of health.
+        stop the run. The rule is budget- and coverage-based: continue while budget
+        remains and an anchored prior or high-impact surface is untested. Minimum
+        counters are floors, never a reason to stop. Track semantic coverage by
+        invariant, transition, actor, lifecycle phase, and failure mode. Empty candidate
+        output is acceptable only with this coverage and the blocked/uncovered ledger;
+        it is never a clean bill of health.
+
+        ## Target priors: delta-first hypothesis generation
+
+        Most paid client bugs live in code changed recently or in decoders and
+        pre-authentication paths. Build the priors list before writing hypotheses:
+
+        - `git log --since` / `git diff` from the last release tag or last audit
+          revision; rank hunks by hot spot: decoders and wire formats, gas and
+          precompiles, state transition and fork activation, p2p and RPC limits,
+          authentication and signature checks.
+        - CHANGELOG and release notes: every "fix", "hardening", "limit", "consensus",
+          or "spec" entry is a prior with a file to anchor to.
+        - Advisories, CVEs, and prior audit reports for this target and its upstream;
+          program known-issues and exclusions.
+        - Open issues and PRs mentioning consensus, DoS, fork, panic, OOM, or mismatch.
+        - TODO/FIXME/XXX near invariants, bounds, or `unwrap`/`panic`/`must` sites.
+        - For forks, `git diff upstream/<base>`; name the invariant upstream relied on
+          that the fork's change may have removed or displaced.
+
+        Every hypothesis cites an anchor (file:line or symbol) and its prior when one
+        exists; anchor at least half of the ledger to the priors list and record
+        unexamined priors as not_tested coverage. A hypothesis that reads the same on
+        every target is a template; rewrite it around its anchor.
+
+        ## Spec-vs-implementation for new fork features
+
+        For each new or changed spec function (EIP, fork activation, hard-fork flag):
+        enumerate every conditional, bound, ordering rule, and error path in the
+        normative text, then prove the presence and position of each one in code by
+        file:line. A missing conditional is a hypothesis; a conditional applied to a
+        different path, before a different check, or with a different comparison
+        operator (`<` vs `<=`, signed vs unsigned, pre- vs post-fork gate) is a stronger
+        one. Check mixed-version behavior: pre-fork peers, replayed pre-fork payloads,
+        and activation-height boundaries.
+
+        ## Differential execution as primary oracle
+
+        Prefer an oracle that another implementation supplies over one you invent:
+
+        - EVM: generate state or transaction tests and run them through geth, evmone,
+          revm, and the EELS reference; any disagreement in gas, status, logs, or
+          post-state is a candidate.
+        - SVM: agave versus firedancer conformance fixtures; compare instruction
+          results, compute units, and account deltas.
+        - Encode/decode round trips: `decode(encode(x)) == x` and
+          `encode(decode(b)) == b` for canonical inputs; asymmetry marks a strictness
+          gap.
+        - Two-client message parsing: feed the same wire bytes to two clients or to
+          the client and the spec test vectors; accept/reject disagreement is a
+          consensus-split or DoS candidate.
+
+        Persist the driver, both commands, and the differing outputs; minimize the
+        input to the smallest disagreeing case.
+
+        ## Decoder-strictness campaign
+
+        Run one bug class across all input surfaces (RLP, SSZ, protobuf, borsh, ABI,
+        JSON-RPC, libp2p/devp2p frames, snapshot and trie encodings). Probe list:
+
+        - trailing bytes after a complete value;
+        - non-minimal integer encodings (leading zeros, oversized length prefixes);
+        - length-prefix versus actual length (short, long, overflowing);
+        - nesting depth and list-count limits;
+        - zero-length and maximum-length fields, empty lists where one item is required;
+        - duplicate keys or fields; unknown or invalid enum and type tags;
+        - signature V/parity and recovery-id encodings; malleable s values;
+        - unknown transaction type envelopes and typed-envelope-in-legacy-list.
+
+        For each probe record accept/reject, whether the spec mandates rejection, and
+        whether acceptance changes a hash, a signature digest, or a consensus decision.
+
+        ## Pre-authentication resource bounds
+
+        Every allocation, queue, goroutine or task spawn, loop, decompression, and
+        cache insert reachable before the handshake completes or before auth or
+        signature verification must have a cited bound (file:line) and a cited
+        enforcement point earlier on the same path. Trace: which bytes, from which
+        peer or RPC caller, reach which allocation, before which check. Unbounded
+        pre-auth work reachable over p2p or public RPC is a DoS candidate; prove it
+        with a local peer or request driver, never against live nodes.
+
+        ## What counts as an experiment and as evidence
+
+        A dynamic experiment is a model-authored or model-modified input or oracle
+        bound to a hypothesis and executed against production code: a new focused
+        test, a mutant or negative control, a fixture or private devnet run, a property
+        or fuzz harness, a differential driver, or a decoder-strictness probe. Running
+        the repository's unmodified test suite is preflight or reading, never an
+        experiment, and yields at most inadequately_tested or not_tested coverage.
+
+        Every experiment record carries the exact reproducible command, working
+        directory, exit code, and observed output summary, and its coverage entry
+        carries experiment_kind (new_test, mutant, fixture, differential, fuzz,
+        property, static_trace, existing_suite) and command. Prove the oracle can fail
+        with a negative control before trusting a pass.
+
+        Blocked versus falsified: an experiment that could not run (build, toolchain,
+        docker, network) leaves the hypothesis blocked, never falsified. Reading alone
+        yields weakened with a guard citation; falsified from reading requires a total
+        guard on every reachable path, cited as detail.guard_citation.
+
+        ## Fuzzing as research, not smoke testing
+
+        Fuzz in a loop: surface and hypothesis, harness, seeded bounded campaign, read
+        and triage the output, next hypothesis from what was learned. Authoring or
+        modifying harnesses is expected; record harness_origin (repository,
+        model_authored, model_modified) and the harness source digest. Seed from real
+        fixtures and test vectors; add dictionaries for magic values. On coverage
+        plateau change strategy (structure-aware generation, dictionary, split harness,
+        differential oracle, new seeds) rather than extending the same run.
+
+        Triage every crash as harness bug, environment (OOM, timeout, toolchain),
+        sanitizer or panic, or invariant/differential violation; minimize, reproduce as
+        a standalone deterministic regression test, root-cause to a production
+        file:line, run a negative control, and assess attacker reachability from the
+        dossier entry points. Crashes are candidates, not findings. Clean campaigns are
+        not_found_under exact bounds: revision, harness digest, seed, duration,
+        executions, corpus lineage, dictionary, workers. End with a next_experiment
+        manifest naming the best unrun campaign.
+
+        ## Stale bug classes
+
+        Do not report these without first citing the current runtime code that makes
+        them real: Solana/SVM reentrancy or CPI re-entry; Anchor closed-account or
+        discriminator confusion on current Anchor; float or HashMap non-determinism in
+        Solana programs; Solidity 0.8+ arithmetic overflow outside `unchecked`; EVM
+        reentrancy behind a cited nonReentrant guard; CosmWasm generic reentrancy; Go
+        map-iteration non-determinism outside consensus iteration; Bitcoin signature
+        malleability fixed by BIP-66/SegWit; and centralization-only or best-practice
+        claims the program excludes. Cite file:line of the guard-free path or drop it.
 
         ## 5. Validate safely and test the tests
 

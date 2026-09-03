@@ -1151,6 +1151,7 @@ type updateSecurityFindingInput struct {
 	ID                string `json:"id"`
 	Fingerprint       string `json:"fingerprint"`
 	Status            string `json:"status"`
+	DuplicateOf       string `json:"duplicate_of"`
 	PolicyCheck       string `json:"policy_check"`
 	PolicyDisposition string `json:"policy_disposition"`
 	Note              string `json:"note"`
@@ -1174,7 +1175,11 @@ func (t *updateSecurityFindingTool) Description() string {
 		"it), triaged, fixed, accepted_risk, or open. Identify the finding by the fingerprint " +
 		"returned from report_security_finding / list_security_findings (or its id). Only " +
 		"findings belonging to this scan can be updated; the audit trail records this run as " +
-		"the actor. Only updates platform scan state; safe on read-only scan runs."
+		"the actor. When the finding describes the same root cause as another finding in this " +
+		"scan (e.g. found by a parallel task), pass duplicate_of with the canonical finding's " +
+		"fingerprint or id instead of marking it false_positive: false_positive means the issue " +
+		"was disproved, and misusing it corrupts false-positive statistics. Only updates " +
+		"platform scan state; safe on read-only scan runs."
 }
 
 func (t *updateSecurityFindingTool) InputSchema() json.RawMessage {
@@ -1184,11 +1189,13 @@ func (t *updateSecurityFindingTool) InputSchema() json.RawMessage {
 			"fingerprint": {"type": "string", "description": "Fingerprint of the finding to update"},
 			"id": {"type": "string", "description": "Finding UUID, as an alternative to fingerprint"},
 			"status": {"type": "string", "enum": ["open", "triaged", "confirmed", "false_positive", "fixed", "accepted_risk"], "description": "New status"},
+			"duplicate_of": {"type": "string", "description": "Fingerprint or UUID of the canonical finding in this scan that this finding duplicates (same root cause). Use this instead of status false_positive for duplicates; the canonical finding must not itself be a duplicate"},
 			"policy_check": {"type": "string", "enum": ["scope", "prior_art", "bounty"], "description": "Policy check that produced policy_disposition; required with a disposition so independent decisions can be resolved safely"},
 			"policy_disposition": {"type": "string", "enum": ["accepted", "disproved", "scope_excluded", "scope_eligible", "known_issue", "bot_findable", "fixed_release", "novel", "not_ready"], "description": "Optional machine-readable program-policy outcome, independent of technical status"},
 			"note": {"type": "string", "description": "Why the status changed, e.g. the PoC that confirmed it or the reasoning that disproved it"}
 		},
-		"required": ["status", "note"]
+		"required": ["note"],
+		"anyOf": [{"required": ["status"]}, {"required": ["duplicate_of"]}]
 	}`)
 }
 
@@ -1203,7 +1210,11 @@ func (t *updateSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 		return Result{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}, nil
 	}
 	status := strings.ToLower(strings.TrimSpace(in.Status))
-	if !store.ValidSecurityFindingStatus(status) {
+	duplicateOf := strings.TrimSpace(in.DuplicateOf)
+	if status == "" && duplicateOf == "" {
+		return Result{Content: "either status or duplicate_of is required", IsError: true}, nil
+	}
+	if status != "" && !store.ValidSecurityFindingStatus(status) {
 		return Result{Content: fmt.Sprintf("invalid status %q (valid: %s, %s, %s, %s, %s, %s)",
 			in.Status,
 			store.SecurityFindingStatusOpen, store.SecurityFindingStatusTriaged,
@@ -1218,9 +1229,16 @@ func (t *updateSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	if t.state.scanCtx.PostScriptFingerprint != "" &&
+	if status != "" && t.state.scanCtx.PostScriptFingerprint != "" &&
 		(rec.Status == store.SecurityFindingStatusFalsePositive || rec.Status == store.SecurityFindingStatusAcceptedRisk || rec.Status == store.SecurityFindingStatusFixed) && status != rec.Status {
 		return Result{Content: fmt.Sprintf("terminal finding status %s is preserved during finding post-processing", rec.Status), IsError: true}, nil
+	}
+	var canonical *store.SecurityFindingRecord
+	if duplicateOf != "" {
+		canonical, err = t.state.resolveDuplicateCanonical(ctx, rec, duplicateOf)
+		if err != nil {
+			return Result{Content: err.Error(), IsError: true}, nil
+		}
 	}
 	disposition := strings.ToLower(strings.TrimSpace(in.PolicyDisposition))
 	if disposition != "" {
@@ -1242,17 +1260,95 @@ func (t *updateSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 			return Result{Content: fmt.Sprintf("failed to record policy disposition: %v", err), IsError: true}, nil
 		}
 	}
-	if err := t.state.setFindingStatus(ctx, rec.ID, status, note); err != nil {
-		if errors.Is(err, store.ErrSecurityFindingNotFound) {
-			return Result{Content: fmt.Sprintf("no finding with id %s in this scan (use list_security_findings to see recorded findings)", rec.ID), IsError: true}, nil
+	result := fmt.Sprintf("Finding %s", rec.ID)
+	if status != "" {
+		if err := t.state.setFindingStatus(ctx, rec.ID, status, note); err != nil {
+			if errors.Is(err, store.ErrSecurityFindingNotFound) {
+				return Result{Content: fmt.Sprintf("no finding with id %s in this scan (use list_security_findings to see recorded findings)", rec.ID), IsError: true}, nil
+			}
+			return Result{Content: fmt.Sprintf("failed to update finding: %v", err), IsError: true}, nil
 		}
-		return Result{Content: fmt.Sprintf("failed to update finding: %v", err), IsError: true}, nil
+		result += fmt.Sprintf(" status set to %s.", status)
 	}
-	result := fmt.Sprintf("Finding %s status set to %s.", rec.ID, status)
+	if canonical != nil {
+		if err := t.state.markFindingDuplicate(ctx, rec.ID, canonical.ID, note); err != nil {
+			return Result{Content: fmt.Sprintf("failed to mark finding duplicate: %v", err), IsError: true}, nil
+		}
+		if status == "" {
+			result += fmt.Sprintf(" marked duplicate of %s (%s).", canonical.Fingerprint, canonical.ID)
+		} else {
+			result += fmt.Sprintf(" Marked duplicate of %s (%s).", canonical.Fingerprint, canonical.ID)
+		}
+	}
 	if disposition != "" {
 		result += " Policy disposition recorded as " + disposition + "."
 	}
 	return Result{Content: result}, nil
+}
+
+// resolveDuplicateCanonical resolves the canonical finding for a duplicate
+// mark: it must be a different finding of this scan that is not itself a
+// duplicate, so duplicate chains cannot form.
+func (s *securityScanState) resolveDuplicateCanonical(ctx context.Context, rec *store.SecurityFindingRecord, ref string) (*store.SecurityFindingRecord, error) {
+	var canonical *store.SecurityFindingRecord
+	var err error
+	if _, parseErr := uuid.Parse(ref); parseErr == nil {
+		canonical, err = s.resolveFinding(ctx, ref, "")
+	} else {
+		canonical, err = s.resolveFinding(ctx, "", ref)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("duplicate_of: %v", err)
+	}
+	if canonical.ID == rec.ID {
+		return nil, fmt.Errorf("duplicate_of: finding %s cannot be a duplicate of itself", rec.ID)
+	}
+	if canonical.DuplicateOf != nil {
+		return nil, fmt.Errorf("duplicate_of: canonical finding %s is itself a duplicate of %s; point at that finding instead", canonical.Fingerprint, *canonical.DuplicateOf)
+	}
+	if rec.DuplicateOf != nil && *rec.DuplicateOf != canonical.ID {
+		return nil, fmt.Errorf("finding %s is already a duplicate of %s", rec.ID, *rec.DuplicateOf)
+	}
+	return canonical, nil
+}
+
+// markFindingDuplicate links a finding to its canonical sibling and records a
+// marked_duplicate event; the audit actor is always this run's name.
+func (s *securityScanState) markFindingDuplicate(ctx context.Context, id, canonicalID uuid.UUID, note string) error {
+	actor := s.scanCtx.RunName
+	if s.findingStore != nil {
+		dupStore, ok := s.findingStore.(store.SecurityFindingDuplicateStore)
+		if !ok {
+			return fmt.Errorf("finding store does not support duplicate marks")
+		}
+		return dupStore.MarkSecurityFindingDuplicate(ctx, s.scanCtx.Namespace, id, canonicalID, actor, note)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var canonicalFingerprint string
+	for _, rec := range s.mem {
+		if rec.ID == canonicalID {
+			canonicalFingerprint = rec.Fingerprint
+		}
+	}
+	for _, rec := range s.mem {
+		if rec.ID != id {
+			continue
+		}
+		canonical := canonicalID
+		rec.DuplicateOf = &canonical
+		detail, _ := json.Marshal(map[string]string{"canonical_id": canonicalID.String(), "canonical_fingerprint": canonicalFingerprint})
+		s.memEvents = append(s.memEvents, store.SecurityFindingEvent{
+			FindingID: id,
+			EventType: "marked_duplicate",
+			Actor:     actor,
+			Note:      note,
+			Detail:    detail,
+			CreatedAt: time.Now().UTC(),
+		})
+		return nil
+	}
+	return store.ErrSecurityFindingNotFound
 }
 
 // --- ingest_scanner_results ---

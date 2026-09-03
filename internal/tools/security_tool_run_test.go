@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -939,6 +940,95 @@ func TestArchiveWorkspaceTargetIsDeterministicAndSkipsSpecialFiles(t *testing.T)
 		if !contains(names, want) {
 			t.Fatalf("archive %v is missing %q", names, want)
 		}
+	}
+}
+
+func TestArchiveWorkspaceTargetExcludesGitAndBuildCaches(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{
+		".git/objects", "node_modules", "target/debug", "vendor/nested/.git", "vendor/nested/target",
+		"lib/target", "testdata/fuzz/FuzzX", ".cache", "__pycache__", "src",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, file := range []string{
+		".git/objects/blob", ".git/HEAD", "node_modules/x.js", "Cargo.toml", "target/debug/bin",
+		"vendor/nested/.git/HEAD", "vendor/nested/Cargo.toml", "vendor/nested/target/out",
+		"lib/target/keep.go", "testdata/fuzz/FuzzX/seed", ".cache/entry", "__pycache__/m.pyc",
+		"src/main.rs", "README.md",
+	} {
+		if err := os.WriteFile(filepath.Join(root, file), []byte(file+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	injected := map[string][]byte{".gratefulagents/fuzz-corpus/FuzzX/abc": []byte("seed")}
+
+	archive, stats, err := stageWorkspaceArchive(root, injected)
+	if err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	names := archiveEntryNames(t, archive)
+	if stats.Entries != len(names) {
+		t.Fatalf("entry count %d does not match archive contents %v", stats.Entries, names)
+	}
+	// .git, node_modules, target, vendor/nested/.git, vendor/nested/target, .cache, __pycache__
+	if stats.ExcludedDirs != 7 {
+		t.Fatalf("excluded_dirs = %d, want 7 (archive %v)", stats.ExcludedDirs, names)
+	}
+	if stats.Skipped != 0 {
+		t.Fatalf("skipped = %d, excluded directories must not count as skipped entries", stats.Skipped)
+	}
+	for _, want := range []string{
+		"Cargo.toml", "src/main.rs", "README.md", "lib/target/keep.go", "testdata/fuzz/FuzzX/seed",
+		"vendor/nested/Cargo.toml", ".gratefulagents/fuzz-corpus/FuzzX/abc",
+	} {
+		if !contains(names, want) {
+			t.Fatalf("archive %v is missing %q", names, want)
+		}
+	}
+	for _, forbidden := range []string{
+		".git", ".git/HEAD", ".git/objects/blob", "node_modules", "node_modules/x.js", "target", "target/debug/bin",
+		"vendor/nested/.git", "vendor/nested/.git/HEAD", "vendor/nested/target", "vendor/nested/target/out",
+		".cache", ".cache/entry", "__pycache__", "__pycache__/m.pyc",
+	} {
+		if slices.Contains(names, forbidden) {
+			t.Fatalf("archive must not stage %q: %v", forbidden, names)
+		}
+	}
+}
+
+func TestArchiveWorkspaceTargetIgnoresOversizeGitMetadata(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git", "objects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := os.Create(filepath.Join(root, ".git", "objects", "pack"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A sparse file costs no disk yet reports a size past the staging cap.
+	if err := blob.Truncate(maxStagedTargetBytes + 1<<20); err != nil {
+		t.Fatal(err)
+	}
+	if err := blob.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	archive, stats, err := stageWorkspaceArchive(root, nil)
+	if err != nil {
+		t.Fatalf("a checkout whose only oversize content is .git must stage: %v", err)
+	}
+	if stats.ExcludedDirs != 1 {
+		t.Fatalf("excluded_dirs = %d, want 1", stats.ExcludedDirs)
+	}
+	names := archiveEntryNames(t, archive)
+	if len(names) != 1 || names[0] != "main.go" {
+		t.Fatalf("archive = %v, want only main.go", names)
 	}
 }
 

@@ -475,3 +475,124 @@ func TestSecurityBountyLegacyFallbackAndPeriodFailClosed(t *testing.T) {
 		t.Fatalf("configured rolling period did not fail closed without durable storage: %+v", closed)
 	}
 }
+
+func createResearchHypothesis(t *testing.T, researchStore *fakeSecurityResearchStore, registry *Registry, key string) *store.SecurityResearchHypothesis {
+	t.Helper()
+	input := `{"hypothesis_key":"` + key + `","title":"` + key + `","invariant":"inv","detail":{},"idempotency_key":"hyp-` + key + `"}`
+	if result := execTool(t, registry, "create_security_hypothesis", input); result.IsError {
+		t.Fatalf("create hypothesis: %s", result.Content)
+	}
+	for _, value := range researchStore.hypotheses {
+		if value.HypothesisKey == key {
+			return value
+		}
+	}
+	t.Fatalf("hypothesis %q not stored", key)
+	return nil
+}
+
+func TestRecordSecurityCoverageRequiresDynamicExperimentForStrongVerdicts(t *testing.T) {
+	researchStore := newFakeSecurityResearchStore()
+	registry := researchToolRegistry(t, researchStore, bountyLaneContext("trusted-actor", "", bountyLaneProgram()))
+
+	rejected := execTool(t, registry, "record_security_coverage", `{"dimension":"invariant","subject_key":"supply","verdict":"adequately_tested","experiment_kind":"existing_suite","command":"forge test","bounds":{},"evidence":[],"idempotency_key":"c-existing"}`)
+	if !rejected.IsError || !strings.Contains(rejected.Content, "existing_suite and static_trace may only support inadequately_tested or not_tested") {
+		t.Fatalf("adequately_tested+existing_suite must be rejected: %+v", rejected)
+	}
+	rejected = execTool(t, registry, "record_security_coverage", `{"dimension":"invariant","subject_key":"supply","verdict":"disproved","experiment_kind":"new_test","bounds":{},"evidence":[],"idempotency_key":"c-nocmd"}`)
+	if !rejected.IsError || !strings.Contains(rejected.Content, "requires command") {
+		t.Fatalf("disproved without command must be rejected: %+v", rejected)
+	}
+	rejected = execTool(t, registry, "record_security_coverage", `{"dimension":"invariant","subject_key":"supply","verdict":"not_tested","bounds":{},"evidence":[],"idempotency_key":"c-nokind"}`)
+	if !rejected.IsError || !strings.Contains(rejected.Content, "experiment_kind") {
+		t.Fatalf("missing experiment_kind must be rejected: %+v", rejected)
+	}
+	if len(researchStore.coverage) != 0 {
+		t.Fatalf("rejected coverage must not be stored: %d", len(researchStore.coverage))
+	}
+
+	static := execTool(t, registry, "record_security_coverage", `{"dimension":"invariant","subject_key":"supply","verdict":"inadequately_tested","experiment_kind":"static_trace","bounds":{"scope":"mint"},"evidence":[],"idempotency_key":"c-static"}`)
+	if static.IsError {
+		t.Fatalf("static_trace + inadequately_tested must be accepted: %s", static.Content)
+	}
+	dynamic := execTool(t, registry, "record_security_coverage", `{"dimension":"invariant","subject_key":"supply","verdict":"adequately_tested","experiment_kind":"mutant","command":"cd contracts && forge test --match-test testMint","exit_code":1,"observed":"FAIL testMint","bounds":{"scope":"mint"},"evidence":[],"idempotency_key":"c-dynamic"}`)
+	if dynamic.IsError {
+		t.Fatalf("dynamic kind with command must be accepted: %s", dynamic.Content)
+	}
+	stored := researchStore.coverage["c-dynamic"]
+	if stored == nil {
+		t.Fatal("dynamic coverage not stored")
+	}
+	var bounds struct {
+		Scope      string `json:"scope"`
+		Experiment struct {
+			Kind     string `json:"kind"`
+			Command  string `json:"command"`
+			ExitCode int    `json:"exit_code"`
+			Observed string `json:"observed"`
+		} `json:"experiment"`
+	}
+	if err := json.Unmarshal(stored.Bounds, &bounds); err != nil {
+		t.Fatal(err)
+	}
+	if bounds.Scope != "mint" || bounds.Experiment.Kind != "mutant" || bounds.Experiment.Command != "cd contracts && forge test --match-test testMint" || bounds.Experiment.ExitCode != 1 || bounds.Experiment.Observed != "FAIL testMint" {
+		t.Fatalf("experiment not merged into bounds: %s", stored.Bounds)
+	}
+	if kind := securityCoverageExperimentKind(researchStore.coverage["c-static"].Bounds); kind != "static_trace" {
+		t.Fatalf("static coverage kind = %q", kind)
+	}
+
+	merged, err := mergeSecurityCoverageExperiment(json.RawMessage(`["a","b"]`), map[string]any{"kind": "fuzz"})
+	if err != nil || !strings.Contains(string(merged), `"declared_bounds":["a","b"]`) || !strings.Contains(string(merged), `"experiment":{"kind":"fuzz"}`) {
+		t.Fatalf("non-object bounds must be preserved under declared_bounds: %s %v", merged, err)
+	}
+}
+
+func TestTransitionSecurityHypothesisFalsifiedRequiresExperimentalEvidence(t *testing.T) {
+	researchStore := newFakeSecurityResearchStore()
+	registry := researchToolRegistry(t, researchStore, bountyLaneContext("trusted-actor", "", bountyLaneProgram()))
+	hypothesis := createResearchHypothesis(t, researchStore, registry, "reading-only")
+
+	falsify := func(id, version, detail, key string) Result {
+		return execTool(t, registry, "transition_security_hypothesis", `{"hypothesis_id":"`+id+`","expected_version":`+version+`,"to_status":"falsified","result":"negative","rationale":"guard exists","detail":`+detail+`,"idempotency_key":"`+key+`"}`)
+	}
+	rejected := falsify(hypothesis.ID.String(), "1", `{}`, "f-1")
+	if !rejected.IsError || !strings.Contains(rejected.Content, "weakened") || !strings.Contains(rejected.Content, "blocked") {
+		t.Fatalf("falsified without evidence must be rejected with guidance: %+v", rejected)
+	}
+	rejected = falsify(hypothesis.ID.String(), "1", `{"guard_citation":"the onlyOwner modifier"}`, "f-2")
+	if !rejected.IsError {
+		t.Fatalf("guard_citation without file:line must be rejected: %+v", rejected)
+	}
+	if hypothesis.Status == store.SecurityHypothesisFalsified {
+		t.Fatal("hypothesis was falsified without evidence")
+	}
+	weakened := execTool(t, registry, "transition_security_hypothesis", `{"hypothesis_id":"`+hypothesis.ID.String()+`","expected_version":1,"to_status":"weakened","result":"negative","rationale":"reading only","detail":{},"idempotency_key":"w-1"}`)
+	if weakened.IsError {
+		t.Fatalf("weakened must remain available for reading-only refutations: %s", weakened.Content)
+	}
+
+	cited := createResearchHypothesis(t, researchStore, registry, "cited")
+	if result := falsify(cited.ID.String(), "1", `{"guard_citation":"contracts/Vault.sol:142"}`, "f-3"); result.IsError {
+		t.Fatalf("guard_citation with file:line must be accepted: %s", result.Content)
+	}
+
+	experimented := createResearchHypothesis(t, researchStore, registry, "experimented")
+	coverage := execTool(t, registry, "record_security_coverage", `{"hypothesis_id":"`+experimented.ID.String()+`","dimension":"invariant","subject_key":"supply","verdict":"inadequately_tested","experiment_kind":"static_trace","bounds":{},"evidence":[],"idempotency_key":"c-trace"}`)
+	if coverage.IsError {
+		t.Fatalf("coverage: %s", coverage.Content)
+	}
+	if result := falsify(experimented.ID.String(), "1", `{}`, "f-4"); !result.IsError {
+		t.Fatalf("static_trace coverage must not satisfy falsification: %+v", result)
+	}
+	coverage = execTool(t, registry, "record_security_coverage", `{"hypothesis_id":"`+experimented.ID.String()+`","dimension":"invariant","subject_key":"supply","verdict":"disproved","experiment_kind":"new_test","command":"go test ./... -run TestNonOwnerWithdraw","exit_code":0,"bounds":{},"evidence":[],"idempotency_key":"c-new-test"}`)
+	if coverage.IsError {
+		t.Fatalf("coverage: %s", coverage.Content)
+	}
+	if result := falsify(experimented.ID.String(), "1", `{}`, "f-5"); result.IsError {
+		t.Fatalf("dynamic coverage for the hypothesis must satisfy falsification: %s", result.Content)
+	}
+	if experimented.Status != store.SecurityHypothesisFalsified {
+		t.Fatalf("hypothesis status = %q, want falsified", experimented.Status)
+	}
+}

@@ -80,7 +80,7 @@ func TestSecurityResearchArtifactToolsUseTrustedScopeAndCompactHandoff(t *testin
 		}
 	}
 
-	coverageResult := execTool(t, registry, "record_security_coverage", `{"dimension":"invariant","subject_key":"supply","verdict":"adequately_tested","bounds":{},"evidence":[],"idempotency_key":"coverage-1"}`)
+	coverageResult := execTool(t, registry, "record_security_coverage", `{"dimension":"invariant","subject_key":"supply","verdict":"adequately_tested","experiment_kind":"new_test","command":"cd contracts && forge test --match-test testSupply","exit_code":0,"bounds":{},"evidence":[],"idempotency_key":"coverage-1"}`)
 	if coverageResult.IsError {
 		t.Fatalf("coverage: %s", coverageResult.Content)
 	}

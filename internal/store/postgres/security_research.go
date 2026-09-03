@@ -1444,3 +1444,40 @@ func (s *Store) CreateSecurityResearchDecisionSnapshot(ctx context.Context, name
 	}
 	return stored, created, nil
 }
+
+func (s *Store) CountSecurityResearchHypothesesByActor(ctx context.Context, namespace, actor string) (int, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return 0, err
+	}
+	var count int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(DISTINCT e.hypothesis_id)
+		FROM security_research_hypothesis_events e JOIN security_research_hypotheses h ON h.id = e.hypothesis_id
+		JOIN security_research_revisions r ON r.id = h.revision_id JOIN security_research_targets t ON t.id = r.target_id
+		WHERE t.namespace = $1 AND e.actor = $2`, namespace, strings.TrimSpace(actor)).Scan(&count); err != nil {
+		return 0, fmt.Errorf("counting security research hypotheses by actor: %w", err)
+	}
+	return count, nil
+}
+
+func (s *Store) ListSecurityResearchCoverageByActor(ctx context.Context, namespace, actor string) ([]store.SecurityResearchCoverage, error) {
+	if err := requireSecurityNamespace(namespace); err != nil {
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT c.id, c.revision_id, c.hypothesis_id, c.dimension, c.subject_key, c.verdict, c.bounds, c.evidence, c.actor, c.idempotency_key, c.created_at
+		FROM security_research_coverage c JOIN security_research_revisions r ON r.id = c.revision_id
+		JOIN security_research_targets t ON t.id = r.target_id
+		WHERE t.namespace = $1 AND c.actor = $2 ORDER BY c.created_at, c.id`, namespace, strings.TrimSpace(actor))
+	if err != nil {
+		return nil, fmt.Errorf("listing security research coverage by actor: %w", err)
+	}
+	defer rows.Close()
+	var values []store.SecurityResearchCoverage
+	for rows.Next() {
+		value, err := scanSecurityResearchCoverage(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scanning security research coverage: %w", err)
+		}
+		values = append(values, *value)
+	}
+	return values, rows.Err()
+}

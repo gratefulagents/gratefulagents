@@ -409,3 +409,13 @@ type SecurityResearchStore interface {
 	GetSecuritySubmissionPrecision(context.Context, string, uuid.UUID, string, *time.Time) (*SecuritySubmissionPrecision, error)
 	CreateSecurityResearchDecisionSnapshot(context.Context, string, *SecurityResearchDecisionSnapshot) (*SecurityResearchDecisionSnapshot, bool, error)
 }
+
+// SecurityResearchActorEvidenceStore exposes the durable research records a
+// single actor (an AgentRun) produced so controllers can reconcile the
+// counters a task self-reports in its handoff against evidence.
+type SecurityResearchActorEvidenceStore interface {
+	// CountSecurityResearchHypothesesByActor counts the distinct hypotheses the
+	// actor created or transitioned.
+	CountSecurityResearchHypothesesByActor(context.Context, string, string) (int, error)
+	ListSecurityResearchCoverageByActor(context.Context, string, string) ([]SecurityResearchCoverage, error)
+}

@@ -3,9 +3,39 @@ kind: SecurityWorkflow
 metadata:
   name: blockchain-protocol-audit
 spec:
-  description: Evidence-driven review of blockchain clients, rollups, bridges, peer-to-peer nodes, signing services, and protocol release paths. A runtime dossier gates four long investigations and bounded native fuzzing; detailed evidence is persisted behind compact handoffs before adaptive challenge, independent validation, campaign reconciliation, and one final report.
+  description: Delta-first, evidence-driven review of blockchain clients, rollups, bridges, peer-to-peer nodes, signing services, and protocol release paths. A build-free target-priors pass (recent changes, changelog, advisories, prior audits, known issues, spec clauses, fork divergence, input surfaces) and a runtime preflight feed four long investigators and one hypothesis-driven fuzz researcher; a toolchain gap degrades investigators to static mode instead of skipping them. Compact handoffs carry top candidates into an adaptive challenge-or-extend phase, independent validation, campaign reconciliation, and one final report that accounts for every prior.
   parallelism: 6
   tasks:
+    - name: target-priors
+      role: threat-modeler
+      category: recon
+      timeout: 25m
+      maxTurns: 250
+      skillRefs:
+        - name: blockchain-security-research-method
+        - name: trail-of-bits-differential-review
+        - name: trail-of-bits-audit-context-building
+      objective: >-
+        Build delta-first target priors from the checkout alone; do not build, install, or run the project. Call
+        get_security_research_context first and accept reusable evidence only for the exact immutable target, revision,
+        and scope; prior-revision evidence is stale context. Determine the review delta: run git log and git diff since
+        the previous release tag or since the program snapshot's last audit date, falling back to the last 90 days or
+        300 commits, and rank hunks that touch decoders and serialization, gas or precompiles or the VM, state
+        transition, p2p and RPC limits, authentication and signing, and fee or reward accounting. Read CHANGELOG and
+        release notes; SECURITY.md, advisories, and prior audit reports in the repository; the program snapshot's
+        known issues and impacts; open TODO, FIXME, and unsafe blocks near invariants; new fork or feature flags and
+        the spec clauses they implement; and, for forks, the upstream divergence and the invariant the upstream code
+        relied on. Produce an explicit stale-bug-class list for this ecosystem so investigators do not re-report
+        classes the runtime already forbids. Profile the target truthfully: consensus_or_execution_client,
+        networked_node, cross_chain_or_custody, smart_contract_platform, release_pipeline, evm_compatible, and
+        languages; a false profile flag skips a whole investigator, so set it false only when that surface is
+        absent from the in-scope code. Return the priors inline as the structured output, not as artifact IDs: at
+        most 24 priors with ids p1..p24, each with kind, an anchor (path plus line or symbol), a summary, why it
+        matters, the suggested experiment, and the commits behind it; at most 8 stale classes; and limitations
+        (missing tags, shallow clone, unavailable upstream or snapshot). Keep the whole output well under 32 KiB.
+      outputSchema: |-
+        {"type":"object","additionalProperties":false,"required":["revision","profile","priors","stale_classes","limitations"],"properties":{"revision":{"type":"string","minLength":1,"maxLength":128},"profile":{"type":"object","additionalProperties":false,"required":["consensus_or_execution_client","networked_node","cross_chain_or_custody","smart_contract_platform","release_pipeline","evm_compatible","languages"],"properties":{"consensus_or_execution_client":{"type":"boolean"},"networked_node":{"type":"boolean"},"cross_chain_or_custody":{"type":"boolean"},"smart_contract_platform":{"type":"boolean"},"release_pipeline":{"type":"boolean"},"evm_compatible":{"type":"boolean"},"languages":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":32}}}},"priors":{"type":"array","maxItems":24,"items":{"type":"object","additionalProperties":false,"required":["id","kind","anchor","summary","why_it_matters","suggested_experiment"],"properties":{"id":{"type":"string","minLength":2,"maxLength":8},"kind":{"type":"string","enum":["recent_change","changelog","advisory_or_audit","known_issue","spec_clause","fork_divergence","todo_or_unsafe","input_surface"]},"anchor":{"type":"object","additionalProperties":false,"required":["path"],"properties":{"path":{"type":"string","minLength":1,"maxLength":240},"line":{"type":"integer","minimum":1},"symbol":{"type":"string","maxLength":120}}},"summary":{"type":"string","minLength":1,"maxLength":240},"why_it_matters":{"type":"string","minLength":1,"maxLength":240},"suggested_experiment":{"type":"string","minLength":1,"maxLength":200},"commits":{"type":"array","maxItems":6,"items":{"type":"string","minLength":7,"maxLength":64}}}}},"stale_classes":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":160}},"limitations":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1,"maxLength":240}}}}
+
     - name: runtime-preflight-and-dossier
       role: protocol-investigator
       category: recon
@@ -22,28 +52,31 @@ spec:
         revision, and scope; prior-revision negative evidence is stale context. Perform a bounded runtime preflight:
         verify the checked-out revision and in-scope roots, then initialize declared submodules and repository-declared
         dependencies using safe standard local commands that require no credentials, public writes, or scope expansion;
-        persist a blocker when a prerequisite cannot be initialized safely. Execute the repository's principal build
-        and at least one focused test against in-scope code rather than merely discovering their commands. Execute one
+        persist a blocker when a prerequisite cannot be initialized safely. Attempt the repository's principal build
+        and at least one focused test against in-scope code rather than merely discovering their commands. Attempt one
         cheap local experiment path (for example a focused fixture, mutant, property check, or differential command)
-        and calibrate it with a negative control so readiness proves experiments can run, not only tests. Verify required
-        toolchains, companion repositories, generated or deployed artifacts, and operator-authorized fork or deployment
-        inputs. Build the protocol dossier from production wiring: components, trust boundaries, actors, assets,
-        state machines, entry points, invariants, reference implementations, native fuzz targets, and explicit
+        and calibrate it with a negative control so readiness proves experiments can run, not only tests. Verify
+        required toolchains, companion repositories, generated or deployed artifacts, and operator-authorized fork or
+        deployment inputs. Build the protocol dossier from production wiring: components, trust boundaries, actors,
+        assets, state machines, entry points, invariants, reference implementations, native fuzz targets, and explicit
         exclusions. Persist the dossier and preflight as manifest artifacts and each blocker as a blocker artifact
         with create_security_research_artifact, always supplying kind, an object payload, and a stable idempotency_key;
-        persist material dossier changes with amend_security_dossier. Set conditions.ready false unless the exact
-        revision, principal build, focused test, and calibrated local experiment path are operational; keep
-        conditions.revision_ready, conditions.build_ready, conditions.test_ready, and
-        conditions.local_experiment_ready truthful. Return the actual
-        version-1 handoff shape: version, artifact_ids, candidate_fingerprints,
+        persist material dossier changes with amend_security_dossier. Two gates: conditions.ready is the static gate
+        and is true when the exact revision is verified and the in-scope roots are present, so set conditions.ready
+        false only when the checkout itself is wrong; conditions.dynamic_ready is the dynamic gate and is true only
+        when principal build, focused test, and calibrated local experiment path are all operational. A missing
+        toolchain, compiler, docker, or system library sets conditions.dynamic_ready false with the exact failing
+        command persisted as a blocker artifact; it no longer blocks static investigation. Keep
+        conditions.revision_ready, conditions.build_ready, conditions.test_ready, and conditions.local_experiment_ready
+        truthful. Return the actual version-1 handoff shape: version, artifact_ids, candidate_fingerprints,
         coverage_ids, blocker_ids, and scalar conditions only. Never embed artifact bodies in task output.
       outputSchema: |-
-        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","revision_ready","build_ready","test_ready","local_experiment_ready"],"properties":{"ready":{"type":"boolean"},"revision_ready":{"type":"boolean"},"build_ready":{"type":"boolean"},"test_ready":{"type":"boolean"},"local_experiment_ready":{"type":"boolean"}},"allOf":[{"if":{"properties":{"ready":{"const":true}},"required":["ready"]},"then":{"properties":{"revision_ready":{"const":true},"build_ready":{"const":true},"test_ready":{"const":true},"local_experiment_ready":{"const":true}}}}]}}}
+        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","minItems":1,"maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","revision_ready","build_ready","test_ready","local_experiment_ready","dynamic_ready"],"properties":{"ready":{"type":"boolean"},"revision_ready":{"type":"boolean"},"build_ready":{"type":"boolean"},"test_ready":{"type":"boolean"},"local_experiment_ready":{"type":"boolean"},"dynamic_ready":{"type":"boolean"}},"allOf":[{"if":{"properties":{"ready":{"const":true}},"required":["ready"]},"then":{"properties":{"revision_ready":{"const":true}}}},{"if":{"properties":{"dynamic_ready":{"const":true}},"required":["dynamic_ready"]},"then":{"properties":{"ready":{"const":true},"revision_ready":{"const":true},"build_ready":{"const":true},"test_ready":{"const":true},"local_experiment_ready":{"const":true}}}}]}}}
 
     - name: consensus-and-execution-investigator
       role: protocol-investigator
       category: logic-flaw
-      timeout: 90m
+      timeout: 120m
       maxTurns: 250
       dockerInDocker: false
       tools:
@@ -52,37 +85,56 @@ spec:
         - name: blockchain-security-research-method
         - name: trail-of-bits-secure-workflow-guide
         - name: trail-of-bits-property-based-testing
+        - name: trail-of-bits-differential-review
       objective: >-
-        Consume {{tasks.runtime-preflight-and-dossier.output}} and retrieve its dossier artifacts with
-        get_security_research_artifacts using include_payload true. Own consensus safety and liveness, finality and
-        reorgs, transaction/block/batch/proof admission, deterministic state transitions, runtime/VM and host
-        boundaries, rollup derivation, data availability, and dispute paths. Payout-ordered priority 3 is owned here:
-        Priority 3, fork-versus-upstream divergence. Name upstream-fork-diff and the invariant the upstream code used
-        to satisfy; record an unavailable upstream revision as a limitation. Create falsifiable branches with
-        create_security_hypothesis, trace production reachability, and settle them with local fixtures, focused tests,
-        mutants, reference vectors, private devnets, or differential execution. After every experiment call
+        Consume the preflight handoff {{tasks.runtime-preflight-and-dossier.output}} and the inline target priors
+        {{tasks.target-priors.output}}, then retrieve the dossier artifacts with get_security_research_artifacts using
+        include_payload true. Own consensus safety and liveness, finality and reorgs, transaction/block/batch/proof
+        admission, deterministic state transitions, runtime/VM and host boundaries, rollup derivation, data
+        availability, and dispute paths. Payout-ordered priority 3 is owned here: Priority 3, fork-versus-upstream
+        divergence. Name upstream-fork-diff and the invariant the upstream code used to satisfy; record an unavailable
+        upstream revision as a limitation. Delta first: anchor at least half of your hypotheses to priors from the
+        target-priors list (recent changes, spec clauses, fork divergence, known issues) and record every prior in
+        your domain you did not examine as not_tested coverage. Domain recipes: spec-versus-implementation review of
+        every new fork feature or feature flag, clause by clause, with a model-authored test per clause;
+        cross-implementation differential execution of the same blocks, transactions, state roots, or proofs against
+        a reference implementation, spec tests, or the upstream revision, treating any disagreement as a candidate;
+        decoder strictness for block, transaction, batch, and proof admission (accept-what-spec-rejects and
+        reject-what-spec-accepts). Create falsifiable branches with create_security_hypothesis citing file:line and
+        the prior, trace production reachability, and settle them with local fixtures, focused tests, mutants,
+        reference vectors, private devnets, or differential execution. An experiment is a model-authored or
+        model-modified input or oracle bound to one hypothesis with an exact reproducible command; running the
+        unmodified repository suite is preflight, never an experiment. A hypothesis whose experiment could not run is
+        blocked, never falsified; falsified from reading requires a cited total guard. After every experiment call
         transition_security_hypothesis and record_security_coverage. Persist manifests, traces, harness summaries,
-        commands, outputs, and blockers with create_security_research_artifact using stable idempotency keys. Report
-        only proven production-impacting defects with report_security_finding. Examine at least six distinct
-        high-impact hypotheses and run at least three calibrated dynamic experiments spanning at least two methods.
-        Fewer is allowed only with an explicit exhausted-surface artifact that enumerates the reachable surface and
-        explains why no additional meaningful hypothesis or experiment exists. Apply the evidence stopping rule and
-        return only the actual version-1 handoff fields, using artifact IDs and finding fingerprints as challenge
-        handles rather than embedding evidence; set scalar conditions.hypotheses_examined,
-        conditions.dynamic_experiments, conditions.experiment_methods, and conditions.surface_exhausted.
-      dependsOn: [runtime-preflight-and-dossier]
+        commands, outputs, and blockers with create_security_research_artifact using stable idempotency keys. If the
+        preflight handoff reports conditions.dynamic_ready false, work in static mode: cite the guard file:line for
+        every hypothesis, persist each unrun experiment as a blocker with its command, and set conditions.static_mode
+        true. Report only proven production-impacting defects with report_security_finding. The floor is at least six
+        distinct high-impact hypotheses and at least three calibrated dynamic experiments spanning at least two
+        methods; the floor is not a stopping point. Stopping is budget-based: continue while turn budget remains and
+        any anchored prior or high-impact surface is untested; before finishing persist a next_experiment manifest
+        artifact naming the best unrun experiment and set conditions.next_experiment_artifact_id; stopping with more
+        than 40% of the turn budget unused is allowed only with conditions.surface_exhausted true and an explicit
+        exhausted-surface artifact that enumerates the reachable surface and explains why no additional meaningful
+        hypothesis or experiment exists. Return only the actual version-1 handoff fields, using artifact IDs and
+        finding fingerprints as challenge handles rather than embedding evidence; list up to five top_candidates with
+        handle, impact, confidence, and next_experiment; set scalar conditions.hypotheses_examined,
+        conditions.dynamic_experiments, conditions.experiment_methods, conditions.surface_exhausted, and
+        conditions.static_mode.
+      dependsOn: [runtime-preflight-and-dossier, target-priors]
       when:
         task: runtime-preflight-and-dossier
         path: conditions.ready
         equals: "true"
         otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked","hypotheses_examined":0,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false}}'
       outputSchema: &investigatorHandoffSchema |-
-        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","hypotheses_examined","dynamic_experiments","experiment_methods","surface_exhausted"],"properties":{"ready":{"type":"boolean"},"reason":{"type":"string"},"hypotheses_examined":{"type":"integer","minimum":0,"maximum":64},"dynamic_experiments":{"type":"integer","minimum":0,"maximum":64},"experiment_methods":{"type":"integer","minimum":0,"maximum":16},"surface_exhausted":{"type":"boolean"}},"allOf":[{"if":{"properties":{"ready":{"const":true}},"required":["ready"]},"then":{"anyOf":[{"properties":{"hypotheses_examined":{"minimum":6},"dynamic_experiments":{"minimum":3},"experiment_methods":{"minimum":2}}},{"properties":{"surface_exhausted":{"const":true}},"required":["surface_exhausted"]}]}}]}},"allOf":[{"if":{"properties":{"conditions":{"properties":{"surface_exhausted":{"const":true}},"required":["surface_exhausted"]}},"required":["conditions"]},"then":{"properties":{"artifact_ids":{"minItems":1}},"required":["artifact_ids"]}}]}
+        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"top_candidates":{"type":"array","maxItems":5,"items":{"type":"object","additionalProperties":false,"required":["handle","impact","confidence","next_experiment"],"properties":{"handle":{"type":"string","minLength":1,"maxLength":160},"impact":{"type":"string","minLength":1,"maxLength":160},"confidence":{"type":"string","enum":["low","medium","high"]},"next_experiment":{"type":"string","minLength":1,"maxLength":200}}}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","hypotheses_examined","dynamic_experiments","experiment_methods","surface_exhausted"],"properties":{"ready":{"type":"boolean"},"reason":{"type":"string","minLength":1},"hypotheses_examined":{"type":"integer","minimum":0,"maximum":64},"dynamic_experiments":{"type":"integer","minimum":0,"maximum":64},"experiment_methods":{"type":"integer","minimum":0,"maximum":16},"surface_exhausted":{"type":"boolean"},"static_mode":{"type":"boolean"},"next_experiment_artifact_id":{"type":"string","minLength":36,"maxLength":36}},"allOf":[{"if":{"properties":{"ready":{"const":true}},"required":["ready"],"not":{"properties":{"static_mode":{"const":true}},"required":["static_mode"]}},"then":{"anyOf":[{"properties":{"hypotheses_examined":{"minimum":6},"dynamic_experiments":{"minimum":3},"experiment_methods":{"minimum":2}}},{"properties":{"surface_exhausted":{"const":true}},"required":["surface_exhausted"]}]}},{"if":{"properties":{"ready":{"const":true},"static_mode":{"const":true}},"required":["ready","static_mode"]},"then":{"properties":{"hypotheses_examined":{"minimum":6}}}}]}},"allOf":[{"if":{"properties":{"conditions":{"properties":{"surface_exhausted":{"const":true}},"required":["surface_exhausted"]}},"required":["conditions"]},"then":{"properties":{"artifact_ids":{"minItems":1}},"required":["artifact_ids"]}},{"if":{"properties":{"conditions":{"properties":{"ready":{"const":false}},"required":["ready"]}},"required":["conditions"]},"then":{"anyOf":[{"properties":{"blocker_ids":{"minItems":1}},"required":["blocker_ids"]},{"properties":{"conditions":{"required":["reason"]}}}]}}]}
 
     - name: network-and-state-investigator
       role: protocol-investigator
       category: denial-of-service
-      timeout: 90m
+      timeout: 120m
       maxTurns: 250
       dockerInDocker: false
       tools:
@@ -91,34 +143,58 @@ spec:
         - name: blockchain-security-research-method
         - name: offchain-blockchain-services-review
         - name: trail-of-bits-rust-review
+        - name: trail-of-bits-fuzzing-dictionary
       objective: >-
-        Consume {{tasks.runtime-preflight-and-dossier.output}} and retrieve its durable dossier with
-        get_security_research_artifacts using include_payload true. Own peer discovery and identity, gossip, wire
-        decoders, sync, mempool admission and replacement, RPC and admin boundaries, resource exhaustion, persistent
-        state, snapshots, pruning, crash recovery, reorg handling, concurrency, native memory safety, FFI, and
-        off-chain service reconciliation. Create high-impact branches with create_security_hypothesis, trace the
-        production path, and run bounded local fixtures, parser harnesses, focused tests, mutants, sanitizers, fuzzing,
-        or differential checks. Never direct availability testing at a live peer or public endpoint. After every
-        experiment call transition_security_hypothesis and record_security_coverage, and persist exact trace, harness,
-        run, and blocker evidence with create_security_research_artifact using stable idempotency keys. Report only
-        evidence-backed production findings. Examine at least six distinct high-impact hypotheses and run at least
-        three calibrated dynamic experiments spanning at least two methods. Fewer is allowed only with an explicit
-        exhausted-surface artifact that enumerates the reachable surface and explains why no additional meaningful
-        hypothesis or experiment exists. Apply the evidence stopping rule and return only the actual version-1 handoff
-        fields with compact artifact and fingerprint handles and scalar conditions.hypotheses_examined,
-        conditions.dynamic_experiments, conditions.experiment_methods, and conditions.surface_exhausted.
-      dependsOn: [runtime-preflight-and-dossier]
+        Consume the preflight handoff {{tasks.runtime-preflight-and-dossier.output}} and the inline target priors
+        {{tasks.target-priors.output}}, then retrieve the durable dossier with get_security_research_artifacts using
+        include_payload true. If the preflight handoff reports conditions.ready false, return the ready:false handoff
+        with conditions.reason runtime_preflight_blocked and do nothing else. Own peer discovery and identity, gossip,
+        wire decoders, sync, mempool admission and replacement, RPC and admin boundaries, resource exhaustion,
+        persistent state, snapshots, pruning, crash recovery, reorg handling, concurrency, native memory safety, FFI,
+        and off-chain service reconciliation. Delta first: anchor at least half of your hypotheses to priors from the
+        target-priors list (input surfaces, recent decoder or limit changes, advisories) and record every prior in
+        your domain you did not examine as not_tested coverage. Domain recipes: a decoder-strictness campaign across
+        every wire surface (RLP, SSZ, protobuf, borsh, ABI, JSON-RPC, compression framing, discovery packets, sync
+        ranges) asking for each decoder what the spec rejects that the implementation accepts and vice versa, probing
+        oversized lengths, nesting depth, truncated payloads, duplicate or out-of-order fields, and integer edges with
+        model-authored inputs; pre-authentication resource bounds on every surface reachable before a peer, request,
+        or transaction is authenticated or paid for (allocation before length checks, unbounded queues, quadratic
+        work, missing per-peer or per-connection caps, disk or memory amplification), with a bounded local
+        measurement rather than a live test; differential decoding of the same bytes through a second implementation
+        or the upstream revision. Create high-impact branches with create_security_hypothesis citing file:line and
+        the prior, trace the production path, and run bounded local fixtures, parser harnesses, focused tests,
+        mutants, sanitizers, fuzzing, or differential checks. Never direct availability testing at a live peer or
+        public endpoint. An experiment is a model-authored or model-modified input or oracle bound to one hypothesis
+        with an exact reproducible command; running the unmodified repository suite is preflight, never an
+        experiment. A hypothesis whose experiment could not run is blocked, never falsified; falsified from reading
+        requires a cited total guard. After every experiment call transition_security_hypothesis and
+        record_security_coverage, and persist exact trace, harness, run, and blocker evidence with
+        create_security_research_artifact using stable idempotency keys. If the preflight handoff reports
+        conditions.dynamic_ready false, work in static mode: cite the guard file:line for every hypothesis, persist
+        each unrun experiment as a blocker with its command, and set conditions.static_mode true. Report only
+        evidence-backed production findings. The floor is at least six distinct high-impact hypotheses and at least
+        three calibrated dynamic experiments spanning at least two methods; the floor is not a stopping point.
+        Stopping is budget-based: continue while turn budget remains and any anchored prior or high-impact surface is
+        untested; before finishing persist a next_experiment manifest artifact naming the best unrun experiment and
+        set conditions.next_experiment_artifact_id; stopping with more than 40% of the turn budget unused is allowed
+        only with conditions.surface_exhausted true and an explicit exhausted-surface artifact that enumerates the
+        reachable surface and explains why no additional meaningful hypothesis or experiment exists. Return only the
+        actual version-1 handoff fields with compact artifact and fingerprint handles, up to five top_candidates with
+        handle, impact, confidence, and next_experiment, and scalar conditions.hypotheses_examined,
+        conditions.dynamic_experiments, conditions.experiment_methods, conditions.surface_exhausted, and
+        conditions.static_mode.
+      dependsOn: [runtime-preflight-and-dossier, target-priors]
       when:
-        task: runtime-preflight-and-dossier
-        path: conditions.ready
+        task: target-priors
+        path: profile.networked_node
         equals: "true"
-        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked","hypotheses_examined":0,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false}}'
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"profile_not_applicable","hypotheses_examined":0,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false}}'
       outputSchema: *investigatorHandoffSchema
 
     - name: cross-chain-and-custody-investigator
       role: protocol-investigator
       category: authz
-      timeout: 90m
+      timeout: 120m
       maxTurns: 250
       dockerInDocker: false
       tools:
@@ -129,34 +205,52 @@ spec:
         - name: wallet-security-review
         - name: mpc-cryptographic-security-review
       objective: >-
-        Consume {{tasks.runtime-preflight-and-dossier.output}} and retrieve exact-bound evidence with
-        get_security_research_artifacts using include_payload true. Own cross-domain message and value lifecycles,
-        relayers and oracles, withdrawals, bridge accounting, signer and wallet policy, key custody, HSM/MPC/threshold
-        quorum, nonce safety, recovery, and privileged interfaces. Payout-ordered priority 2 is owned here: Priority 2,
-        cross-chain proof and identity binding. For every proof ask who is allowed to have produced this proof and what
-        msg.sender becomes on the far side after relaying. Create falsifiable branches with create_security_hypothesis,
+        Consume the preflight handoff {{tasks.runtime-preflight-and-dossier.output}} and the inline target priors
+        {{tasks.target-priors.output}}, then retrieve exact-bound evidence with get_security_research_artifacts using
+        include_payload true. If the preflight handoff reports conditions.ready false, return the ready:false handoff
+        with conditions.reason runtime_preflight_blocked and do nothing else. Own cross-domain message and value
+        lifecycles, relayers and oracles, withdrawals, bridge accounting, signer and wallet policy, key custody,
+        HSM/MPC/threshold quorum, nonce safety, recovery, and privileged interfaces. Payout-ordered priority 2 is
+        owned here: Priority 2, cross-chain proof and identity binding. For every proof ask who is allowed to have
+        produced this proof and what msg.sender becomes on the far side after relaying. Delta first: anchor at least
+        half of your hypotheses to priors from the target-priors list (recent message-format or verifier changes,
+        advisories, known issues, spec clauses) and record every prior in your domain you did not examine as
+        not_tested coverage. Domain recipes: decoder strictness for cross-domain messages, proofs, and signatures
+        (malleable encodings, ambiguous domain separators, accepted-but-unspecified fields); pre-authentication
+        bounds on relayer, oracle, and withdrawal intake before proof verification; differential verification of the
+        same message or proof through both sides of the boundary or a reference verifier, treating any disagreement as
+        a candidate. Create falsifiable branches with create_security_hypothesis citing file:line and the prior,
         trace both sides of each boundary, and settle them with safe local fixtures, dummy keys and assets, focused
-        tests, mutants, simulators, private devnets, or differential checks. Never sign for or write to a public chain.
-        After every experiment call transition_security_hypothesis and record_security_coverage, persist evidence and
-        blockers with create_security_research_artifact using stable idempotency keys, and report only proven defects.
-        Examine at least six distinct high-impact hypotheses and run at least three calibrated dynamic experiments
-        spanning at least two methods. Fewer is allowed only with an explicit exhausted-surface artifact that enumerates
-        the reachable surface and explains why no additional meaningful hypothesis or experiment exists. Apply the
-        evidence stopping rule and return only the actual version-1 handoff fields with scalar
-        conditions.hypotheses_examined, conditions.dynamic_experiments, conditions.experiment_methods, and
-        conditions.surface_exhausted.
-      dependsOn: [runtime-preflight-and-dossier]
+        tests, mutants, simulators, private devnets, or differential checks. Never sign for or write to a public
+        chain. An experiment is a model-authored or model-modified input or oracle bound to one hypothesis with an
+        exact reproducible command; running the unmodified repository suite is preflight, never an experiment. A
+        hypothesis whose experiment could not run is blocked, never falsified; falsified from reading requires a cited
+        total guard. After every experiment call transition_security_hypothesis and record_security_coverage, persist
+        evidence and blockers with create_security_research_artifact using stable idempotency keys, and report only
+        proven defects. If the preflight handoff reports conditions.dynamic_ready false, work in static mode: cite the
+        guard file:line for every hypothesis, persist each unrun experiment as a blocker with its command, and set
+        conditions.static_mode true. The floor is at least six distinct high-impact hypotheses and at least three
+        calibrated dynamic experiments spanning at least two methods; the floor is not a stopping point. Stopping is
+        budget-based: continue while turn budget remains and any anchored prior or high-impact surface is untested;
+        before finishing persist a next_experiment manifest artifact naming the best unrun experiment and set
+        conditions.next_experiment_artifact_id; stopping with more than 40% of the turn budget unused is allowed only
+        with conditions.surface_exhausted true and an explicit exhausted-surface artifact that enumerates the reachable
+        surface and explains why no additional meaningful hypothesis or experiment exists. Return only the actual
+        version-1 handoff fields with up to five top_candidates (handle, impact, confidence, next_experiment) and
+        scalar conditions.hypotheses_examined, conditions.dynamic_experiments, conditions.experiment_methods,
+        conditions.surface_exhausted, and conditions.static_mode.
+      dependsOn: [runtime-preflight-and-dossier, target-priors]
       when:
-        task: runtime-preflight-and-dossier
-        path: conditions.ready
+        task: target-priors
+        path: profile.cross_chain_or_custody
         equals: "true"
-        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked","hypotheses_examined":0,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false}}'
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"profile_not_applicable","hypotheses_examined":0,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false}}'
       outputSchema: *investigatorHandoffSchema
 
     - name: crypto-economics-and-release-investigator
       role: protocol-investigator
       category: supply-chain
-      timeout: 90m
+      timeout: 120m
       maxTurns: 250
       dockerInDocker: false
       tools:
@@ -167,28 +261,46 @@ spec:
         - name: trail-of-bits-constant-time-analysis
         - name: trail-of-bits-supply-chain-risk-auditor
       objective: >-
-        Consume {{tasks.runtime-preflight-and-dossier.output}} and retrieve dossier artifacts with
-        get_security_research_artifacts using include_payload true. Own cryptographic verification and domain
-        separation, encodings and replay, accounting and precision, incentives and solvency, governance, auctions,
-        liquidations, MEV, genesis and upgrades, dependency/compiler provenance, reproducible builds, deployed drift,
-        release signing, and rollback. Payout-ordered priorities 1, 4, 5, 6, and 7 are owned here: Priority 1,
-        initialization and upgrade state on the DEPLOYED implementation; Priority 4, encoding and decoding round trips
-        and replay; Priority 5, missing balance and state validation; Priority 6, accounting, rounding, precision and
-        decimals, including non-18-decimal representations; and Priority 7, access control and role or permission
-        inventories. Where applicable, the chain-read pack reads the EIP-1967 implementation, admin and beacon slots;
-        chain-read and deployed-bytecode-diff require an operator-authorized fork endpoint alias, so record a blocker
-        rather than assuming the deployed value. Templated flash-loan oracle manipulation stays AVAILABLE but is off
-        the default bounty path; bot-findable means unpayable. Create each branch with create_security_hypothesis,
-        trace production reachability, and run bounded local vectors, fixtures, focused tests, mutants, artifact
-        comparisons, or economic simulations. After every experiment call transition_security_hypothesis and
-        record_security_coverage; persist evidence and blockers with create_security_research_artifact using stable
-        idempotency keys. Report only proven defects. Examine at least six distinct high-impact hypotheses and run at
-        least three calibrated dynamic experiments spanning at least two methods. Fewer is allowed only with an
-        explicit exhausted-surface artifact that enumerates the reachable surface and explains why no additional
-        meaningful hypothesis or experiment exists. Apply the evidence stopping rule and return only the actual
-        version-1 handoff fields with scalar conditions.hypotheses_examined, conditions.dynamic_experiments,
-        conditions.experiment_methods, and conditions.surface_exhausted.
-      dependsOn: [runtime-preflight-and-dossier]
+        Consume the preflight handoff {{tasks.runtime-preflight-and-dossier.output}} and the inline target priors
+        {{tasks.target-priors.output}}, then retrieve dossier artifacts with get_security_research_artifacts using
+        include_payload true. Own cryptographic verification and domain separation, encodings and replay, accounting
+        and precision, incentives and solvency, governance, auctions, liquidations, MEV, genesis and upgrades,
+        dependency/compiler provenance, reproducible builds, deployed drift, release signing, and rollback.
+        Payout-ordered priorities 1, 4, 5, 6, and 7 are owned here: Priority 1, initialization and upgrade state on
+        the DEPLOYED implementation; Priority 4, encoding and decoding round trips and replay; Priority 5, missing
+        balance and state validation; Priority 6, accounting, rounding, precision and decimals, including
+        non-18-decimal representations; and Priority 7, access control and role or permission inventories. Where
+        applicable, the chain-read pack reads the EIP-1967 implementation, admin and beacon slots; chain-read and
+        deployed-bytecode-diff require an operator-authorized fork endpoint alias, so record a blocker rather than
+        assuming the deployed value. Templated flash-loan oracle manipulation stays AVAILABLE but is off the default
+        bounty path; bot-findable means unpayable. Delta first: anchor at least half of your hypotheses to priors from
+        the target-priors list (recent gas, fee, reward, precompile, or signature changes; changelog entries;
+        advisories; dependency bumps) and record every prior in your domain you did not examine as not_tested
+        coverage. Domain recipes: encode-decode round-trip and canonical-form strictness for every signed or hashed
+        structure (a second encoding that verifies is a replay or malleability candidate); differential gas, fee, and
+        reward accounting against the spec formula or a reference implementation over model-authored vectors;
+        pre-authentication cost bounds on signature and proof verification paths; supply-chain and release-provenance
+        drift between lockfiles, build scripts, and released artifacts. Create each branch with
+        create_security_hypothesis citing file:line and the prior, trace production reachability, and run bounded
+        local vectors, fixtures, focused tests, mutants, artifact comparisons, or economic simulations. An experiment
+        is a model-authored or model-modified input or oracle bound to one hypothesis with an exact reproducible
+        command; running the unmodified repository suite is preflight, never an experiment. A hypothesis whose
+        experiment could not run is blocked, never falsified; falsified from reading requires a cited total guard.
+        After every experiment call transition_security_hypothesis and record_security_coverage; persist evidence and
+        blockers with create_security_research_artifact using stable idempotency keys. If the preflight handoff
+        reports conditions.dynamic_ready false, work in static mode: cite the guard file:line for every hypothesis,
+        persist each unrun experiment as a blocker with its command, and set conditions.static_mode true. Report only
+        proven defects. The floor is at least six distinct high-impact hypotheses and at least three calibrated
+        dynamic experiments spanning at least two methods; the floor is not a stopping point. Stopping is
+        budget-based: continue while turn budget remains and any anchored prior or high-impact surface is untested;
+        before finishing persist a next_experiment manifest artifact naming the best unrun experiment and set
+        conditions.next_experiment_artifact_id; stopping with more than 40% of the turn budget unused is allowed only
+        with conditions.surface_exhausted true and an explicit exhausted-surface artifact that enumerates the reachable
+        surface and explains why no additional meaningful hypothesis or experiment exists. Return only the actual
+        version-1 handoff fields with up to five top_candidates (handle, impact, confidence, next_experiment) and
+        scalar conditions.hypotheses_examined, conditions.dynamic_experiments, conditions.experiment_methods,
+        conditions.surface_exhausted, and conditions.static_mode.
+      dependsOn: [runtime-preflight-and-dossier, target-priors]
       when:
         task: runtime-preflight-and-dossier
         path: conditions.ready
@@ -196,38 +308,66 @@ spec:
         otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked","hypotheses_examined":0,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false}}'
       outputSchema: *investigatorHandoffSchema
 
-    - name: run-bounded-native-fuzz
-      role: native-fuzz-runner
+    - name: hypothesis-driven-fuzz-research
+      role: fuzz-researcher
       category: other
-      timeout: 12m
+      timeout: 120m
       maxTurns: 250
+      dockerInDocker: false
+      tools:
+        denied: [git_commit, git_push, create_pull_request]
       skillRefs:
         - name: blockchain-security-research-method
-        - name: trail-of-bits-cargo-fuzz
         - name: trail-of-bits-harness-writing
+        - name: trail-of-bits-cargo-fuzz
+        - name: trail-of-bits-fuzzing-dictionary
+        - name: trail-of-bits-fuzzing-obstacles
         - name: trail-of-bits-coverage-analysis
+        - name: trail-of-bits-address-sanitizer
       objective: >-
-        Own the compact graph's bounded native fuzz baseline. Consume
-        {{tasks.runtime-preflight-and-dossier.output}} and retrieve its dossier with
-        get_security_research_artifacts using include_payload true. Inventory repository-maintained Rust
-        fuzz/Cargo.toml targets and Go FuzzXxx functions, then match each harness to an in-scope attacker-controlled
-        protocol surface. Use run_security_tool with the registered cargo-fuzz or go-fuzz-tests adapter for at most two
-        targets and two minutes each; do not substitute a model-authored acceptance harness. Use an explicit seed for
-        Rust and a null seed for Go, and record workers, tool version, immutable revision, duration, corpus provenance,
-        artifacts, errors, timeouts, skipped and unsupported targets. Treat clean execution only as not_found_under
-        those exact bounds and recommend the dedicated native-fuzz-campaign for justified warm rounds. Persist the
-        inventory and run as manifest or harness_summary artifacts and crashes and blockers in their supported artifact
-        kinds with create_security_research_artifact using stable idempotency keys; call record_security_coverage for
-        bounded verdicts. Return only the actual version-1 handoff fields, using artifact IDs or finding fingerprints
-        for crashes and plateaus rather than embedding run bodies.
-      dependsOn: [runtime-preflight-and-dossier]
+        Run the fuzzing researcher loop against attacker-controlled input surfaces. Consume the preflight handoff
+        {{tasks.runtime-preflight-and-dossier.output}} and the inline target priors {{tasks.target-priors.output}},
+        then retrieve the dossier with get_security_research_artifacts using include_payload true. Pick surfaces from
+        priors of kind input_surface and recent_change and from the dossier entry points: wire and p2p decoders,
+        RLP/SSZ/protobuf/borsh/ABI deserializers, transaction and block admission, VM dispatch, state and trie
+        serialization, RPC parameter parsing. For each round state one falsifiable hypothesis with
+        create_security_hypothesis anchored to file:line and a prior, and name the oracle. Prefer repository
+        harnesses (Rust fuzz/Cargo.toml targets, Go FuzzXxx functions) when one reaches the surface with
+        attacker-shaped bytes; otherwise author one: Go testing.F, cargo-fuzz with arbitrary, proptest, or a
+        differential, round-trip, or invariant oracle driver, recording harness_origin repository, model_authored, or
+        model_modified and the harness_digest. Seed the corpus from fixtures and test vectors and add a dictionary of
+        magic values. Run bounded campaigns with run_security_tool go-fuzz-tests or cargo-fuzz (fuzztime up to 15m)
+        when the registered adapter applies, otherwise directly in the sandbox, recording the exact command, working
+        directory, duration, executions, corpus in and out, and exit code. Read every crash and classify it as
+        harness_bug, environment (OOM, timeout, missing toolchain), sanitizer_or_panic, or
+        invariant_or_differential_violation; for anything not a harness bug minimize the input, reproduce it as a
+        standalone deterministic regression test against production code, root-cause it to a production file:line,
+        run a negative control, and assess attacker reachability from the dossier entry points. Let the result choose
+        the next hypothesis (fixed harness bug, sibling decoder, unexamined prior, plateau) and iterate; on a coverage
+        plateau change strategy (structure-aware inputs, dictionary, split harness, differential oracle, new seeds)
+        rather than extending the same run, and never re-run the same harness with the same seeds and dictionary as a
+        new round. Complete at least three rounds across at least two distinct surfaces unless blocked. Persist each
+        round as a harness_summary artifact with create_security_research_artifact using a stable idempotency_key and
+        payload fields round, surface, hypothesis_id, harness_origin, harness_digest, command, duration, executions,
+        corpus_in, corpus_out, crashes, classification, reproducer, root_cause, and reachability; persist every
+        blocker as a blocker artifact with the failing command; persist a final next_experiment manifest describing
+        the best unrun campaign and set conditions.next_experiment_artifact_id. Call record_security_coverage with
+        experiment_kind fuzz, differential, or property and the exact command; clean campaigns are not_found_under
+        exact bounds only. Call transition_security_hypothesis after every round. Never fuzz live peers, public
+        endpoints, or third-party hosts. Crashes are candidates, not findings: call report_security_finding only for a
+        production-reachable deterministic reproducer with concrete impact. Return only the actual version-1 handoff
+        fields with up to five top_candidates (handle, impact, confidence, next_experiment) and scalar
+        conditions.rounds_completed, conditions.crashes_triaged, conditions.surfaces_covered,
+        conditions.hypotheses_examined, conditions.dynamic_experiments, conditions.experiment_methods,
+        conditions.surface_exhausted, and conditions.static_mode.
+      dependsOn: [runtime-preflight-and-dossier, target-priors]
       when:
         task: runtime-preflight-and-dossier
-        path: conditions.ready
+        path: conditions.dynamic_ready
         equals: "true"
-        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_preflight_blocked"}}'
+        otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"reason":"runtime_dynamic_blocked","rounds_completed":0,"crashes_triaged":0,"surfaces_covered":0,"hypotheses_examined":0,"dynamic_experiments":0,"experiment_methods":0,"surface_exhausted":false}}'
       outputSchema: |-
-        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready"],"properties":{"ready":{"type":"boolean"},"reason":{"type":"string"}}}}}
+        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"top_candidates":{"type":"array","maxItems":5,"items":{"type":"object","additionalProperties":false,"required":["handle","impact","confidence","next_experiment"],"properties":{"handle":{"type":"string","minLength":1,"maxLength":160},"impact":{"type":"string","minLength":1,"maxLength":160},"confidence":{"type":"string","enum":["low","medium","high"]},"next_experiment":{"type":"string","minLength":1,"maxLength":200}}}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","rounds_completed","crashes_triaged","surfaces_covered","hypotheses_examined","dynamic_experiments","experiment_methods","surface_exhausted"],"properties":{"ready":{"type":"boolean"},"reason":{"type":"string","minLength":1},"rounds_completed":{"type":"integer","minimum":0,"maximum":64},"crashes_triaged":{"type":"integer","minimum":0,"maximum":1024},"surfaces_covered":{"type":"integer","minimum":0,"maximum":64},"hypotheses_examined":{"type":"integer","minimum":0,"maximum":64},"dynamic_experiments":{"type":"integer","minimum":0,"maximum":64},"experiment_methods":{"type":"integer","minimum":0,"maximum":16},"surface_exhausted":{"type":"boolean"},"static_mode":{"type":"boolean"},"next_experiment_artifact_id":{"type":"string","minLength":36,"maxLength":36}},"allOf":[{"if":{"properties":{"ready":{"const":true}},"required":["ready"],"not":{"properties":{"static_mode":{"const":true}},"required":["static_mode"]}},"then":{"anyOf":[{"properties":{"rounds_completed":{"minimum":3},"surfaces_covered":{"minimum":2}}},{"properties":{"surface_exhausted":{"const":true}},"required":["surface_exhausted"]}]}}]}},"allOf":[{"if":{"properties":{"conditions":{"properties":{"surface_exhausted":{"const":true}},"required":["surface_exhausted"]}},"required":["conditions"]},"then":{"properties":{"artifact_ids":{"minItems":1}},"required":["artifact_ids"]}},{"if":{"properties":{"conditions":{"properties":{"ready":{"const":false}},"required":["ready"]}},"required":["conditions"]},"then":{"anyOf":[{"properties":{"blocker_ids":{"minItems":1}},"required":["blocker_ids"]},{"properties":{"conditions":{"required":["reason"]}}}]}}]}
 
     - name: collect-investigator-handoffs
       role: protocol-investigator
@@ -235,48 +375,55 @@ spec:
       maxTurns: 250
       skillRefs:
         - name: blockchain-security-research-method
-      objective: Deterministically concatenate the preflight and five compact version-1 handoffs without loading or copying durable artifact bodies.
+      objective: Deterministically concatenate the preflight, four investigator, and fuzz-research compact version-1 handoffs without loading or copying durable artifact bodies.
       dependsOn:
         - runtime-preflight-and-dossier
         - consensus-and-execution-investigator
         - network-and-state-investigator
         - cross-chain-and-custody-investigator
         - crypto-economics-and-release-investigator
-        - run-bounded-native-fuzz
+        - hypothesis-driven-fuzz-research
       reduce: concat
       outputSchema: |-
-        {"type":"array","minItems":6,"maxItems":6,"items":{"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object"}}}}
+        {"type":"array","minItems":6,"maxItems":6,"items":{"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":64,"items":{"type":"string","minLength":36,"maxLength":36}},"top_candidates":{"type":"array","maxItems":5,"items":{"type":"object","additionalProperties":false,"required":["handle","impact","confidence","next_experiment"],"properties":{"handle":{"type":"string","minLength":1,"maxLength":160},"impact":{"type":"string","minLength":1,"maxLength":160},"confidence":{"type":"string","enum":["low","medium","high"]},"next_experiment":{"type":"string","minLength":1,"maxLength":200}}}},"conditions":{"type":"object"}}}}
 
     - name: select-adaptive-challenges
       role: threat-modeler
       category: recon
-      timeout: 20m
+      timeout: 25m
       maxTurns: 250
       skillRefs:
         - name: blockchain-security-research-method
         - name: trail-of-bits-fp-check
       objective: >-
-        Review the six compact handoffs in {{tasks.collect-investigator-handoffs.output}}. Retrieve only the artifact
-        IDs needed to rank candidates with get_security_research_artifacts using include_payload true. Select no more
-        than eight artifact or finding handles where an independent challenge, mutant, differential test, crash replay,
-        or same-root-cause variant search has the highest expected information gain. Prefer high-impact reachable
-        candidates, conflicting evidence, uncalibrated controls, native crashes, and likely sibling root causes; do not
-        select decisively falsified work. Return an array ordered by priority, one actual version-1 handoff per selected
-        handle, copying only relevant IDs and setting scalar conditions.ready true. Return an empty array when no
-        challenge is justified; never embed artifact content.
-      dependsOn: [runtime-preflight-and-dossier, collect-investigator-handoffs]
+        Review the six compact handoffs in {{tasks.collect-investigator-handoffs.output}} and the inline target priors
+        {{tasks.target-priors.output}}. Retrieve only the artifact IDs needed to rank candidates (top_candidates,
+        next_experiment manifests, crash harness summaries, blockers) with get_security_research_artifacts using
+        include_payload true. Select between three and eight work items ordered by expected information gain. Mode
+        challenge: an independent challenge, mutant, differential test, crash replay, or same-root-cause variant search
+        of a candidate fingerprint, top candidate, or fuzz crash; prefer high-impact reachable candidates, conflicting
+        evidence, uncalibrated controls, native crashes, and likely sibling root causes; do not select decisively
+        falsified work. Mode extend: when fewer than three candidates or crashes exist, fill the remaining slots with
+        the highest-value blocked or inadequately_tested hypotheses and unexamined priors, naming in
+        conditions.experiment the exact missing experiment (test, mutant, harness, or differential driver) so the
+        challenge phase runs it instead of doing nothing. Every item is one actual version-1 handoff carrying only the
+        relevant artifact IDs and fingerprints, with scalar conditions.ready true, conditions.mode challenge or
+        extend, conditions.static_mode copied from the preflight handoff as dynamic_ready false, conditions.rationale,
+        and, for extend, conditions.hypothesis_id or conditions.prior_id and conditions.experiment. Return an empty
+        array only when the preflight handoff itself reports conditions.ready false; never embed artifact content.
+      dependsOn: [runtime-preflight-and-dossier, target-priors, collect-investigator-handoffs]
       when:
         task: runtime-preflight-and-dossier
         path: conditions.ready
         equals: "true"
         otherwiseOutput: '[]'
       outputSchema: |-
-        {"type":"array","maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready"],"properties":{"ready":{"const":true}}}}}}
+        {"type":"array","maxItems":8,"anyOf":[{"maxItems":0},{"minItems":3}],"items":{"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","mode","static_mode","rationale"],"properties":{"ready":{"const":true},"mode":{"type":"string","enum":["challenge","extend"]},"static_mode":{"type":"boolean"},"rationale":{"type":"string","minLength":1,"maxLength":240},"source_task":{"type":"string","minLength":1,"maxLength":64},"hypothesis_id":{"type":"string","minLength":1,"maxLength":64},"prior_id":{"type":"string","minLength":2,"maxLength":8},"experiment":{"type":"string","minLength":1,"maxLength":240}},"allOf":[{"if":{"properties":{"mode":{"const":"extend"}},"required":["mode"]},"then":{"required":["experiment"]}}]}}}}
 
     - name: challenge-and-variant-sweep
       role: protocol-investigator
       category: other
-      timeout: 40m
+      timeout: 60m
       maxTurns: 250
       dockerInDocker: false
       tools:
@@ -287,22 +434,29 @@ spec:
         - name: trail-of-bits-fp-check
         - name: exploit-poc-discipline
       objective: >-
-        Independently challenge the selected artifact IDs {{item.artifact_ids}} and finding fingerprints
-        {{item.candidate_fingerprints}}. Retrieve evidence with get_security_research_artifacts using include_payload
-        true, re-trace production reachability, and run the cheapest materially different safe local focused test,
-        fixture, mutant, crash replay, fuzz check, or differential experiment. A confirmed result requires a failing
-        invariant, observed impact, conditions.negative_control_passed true, and conditions.oracle_can_fail true;
-        otherwise falsify it or preserve a concrete blocker. Update durable hypotheses with
-        transition_security_hypothesis and bounds with record_security_coverage. Persist commands, outputs, controls,
-        and blockers with create_security_research_artifact using stable idempotency keys. For every confirmed root
-        cause call create_security_variant_sweep and complete_security_variant_sweep with actual searched scope,
-        methods, sibling results, and evidence; an incomplete sweep remains blocked. Update existing findings rather
-        than duplicating them. Return only the actual version-1 handoff fields with the verdict in scalar conditions.
+        Work one selected item {{item}}. Retrieve its artifact IDs {{item.artifact_ids}} and finding fingerprints
+        {{item.candidate_fingerprints}} with get_security_research_artifacts using include_payload true. In mode
+        challenge, independently re-validate: re-trace production reachability and run the cheapest materially
+        different safe local focused test, fixture, mutant, crash replay, fuzz check, or differential experiment. In
+        mode extend, run the named missing experiment from conditions.experiment for the named hypothesis or prior:
+        author the test, mutant, harness, or differential driver, execute it with an exact reproducible command, and
+        record the result against the hypothesis; a new candidate found this way is reported with
+        report_security_finding only when it is production-reachable with calibrated local proof. A confirmed result
+        requires a failing invariant, observed impact, conditions.negative_control_passed true, and
+        conditions.oracle_can_fail true; otherwise falsify it or preserve a concrete blocker. When conditions.static_mode
+        is true the build is unavailable: cite the guard file:line, persist the experiment that would have run as a
+        blocker with its command, and keep the verdict at triaged; never mark false_positive without a cited total
+        guard. Update durable hypotheses with transition_security_hypothesis and bounds with record_security_coverage.
+        Persist commands, outputs, controls, and blockers with create_security_research_artifact using stable
+        idempotency keys. For every confirmed root cause call create_security_variant_sweep and
+        complete_security_variant_sweep with actual searched scope, methods, sibling results, and evidence; an
+        incomplete sweep remains blocked. Update existing findings rather than duplicating them. Return only the
+        actual version-1 handoff fields with the verdict and mode in scalar conditions.
       dependsOn: [select-adaptive-challenges]
       forEach: select-adaptive-challenges
       maxInstances: 8
       outputSchema: |-
-        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","verdict"],"properties":{"ready":{"type":"boolean"},"verdict":{"type":"string","enum":["confirmed","false_positive","triaged"]},"negative_control_passed":{"type":"boolean"},"oracle_can_fail":{"type":"boolean"}},"allOf":[{"if":{"properties":{"verdict":{"const":"confirmed"}},"required":["verdict"]},"then":{"required":["negative_control_passed","oracle_can_fail"],"properties":{"negative_control_passed":{"const":true},"oracle_can_fail":{"const":true}}}}]}}}
+        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":16,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","verdict","mode"],"properties":{"ready":{"type":"boolean"},"verdict":{"type":"string","enum":["confirmed","false_positive","triaged"]},"mode":{"type":"string","enum":["challenge","extend"]},"static_mode":{"type":"boolean"},"negative_control_passed":{"type":"boolean"},"oracle_can_fail":{"type":"boolean"}},"allOf":[{"if":{"properties":{"verdict":{"const":"confirmed"}},"required":["verdict"]},"then":{"required":["negative_control_passed","oracle_can_fail"],"properties":{"negative_control_passed":{"const":true},"oracle_can_fail":{"const":true}}}}]}}}
 
     - name: red-team-bounty-worthiness
       role: exploit-validator
@@ -317,22 +471,25 @@ spec:
         - name: exploit-poc-discipline
       objective: >-
         Act as the independent validator and skeptical bounty-triager for the compact original handoffs
-        {{tasks.collect-investigator-handoffs.output}}, selected work {{tasks.select-adaptive-challenges.output}}, and
-        challenge results {{tasks.challenge-and-variant-sweep.output}}. Call list_security_findings, then
-        get_security_finding for every fingerprint and read its complete evidence and audit trail. Retrieve referenced
-        evidence with get_security_research_artifacts using include_payload true. Use all available tools to
-        independently reproduce or disprove every candidate intended for the report; confirmed requires observed local
-        behavior with calibrated controls, while missing evidence remains triaged and a concrete disproof becomes
-        false_positive. Call update_security_finding for every decision and preserve confirmed, accepted_risk,
-        false_positive, triaged, and fixed states. Set policy_disposition explicitly to scope_excluded, known_issue,
-        bot_findable, not_ready, or eligible without confusing a technically real defect with a payable submission. Do
-        not hunt for new vulnerabilities. Live verification is limited to operator-authorized read-only calls to
-        in-scope live targets and must be minimally invasive; never access real-user data, make a state-changing call,
-        perform destructive testing, expand scope, use credentials, or attempt denial-of-service. Persist one compact
-        validation manifest and any blocker with create_security_research_artifact using stable idempotency keys.
-        Return only the actual version-1 handoff fields with conditions.ready and conditions.report_ready.
+        {{tasks.collect-investigator-handoffs.output}} (four investigators plus the hypothesis-driven fuzz research),
+        selected work {{tasks.select-adaptive-challenges.output}}, and challenge results
+        {{tasks.challenge-and-variant-sweep.output}}. Call list_security_findings, then get_security_finding for every
+        fingerprint and read its complete evidence and audit trail. Retrieve referenced evidence with
+        get_security_research_artifacts using include_payload true, including fuzz harness summaries and reproducers.
+        Use all available tools to independently reproduce or disprove every candidate intended for the report;
+        confirmed requires observed local behavior with calibrated controls, while missing evidence remains triaged and
+        a concrete disproof becomes false_positive. Call update_security_finding for every decision and preserve
+        confirmed, accepted_risk, false_positive, triaged, and fixed states. Set policy_disposition explicitly to
+        scope_excluded, known_issue, bot_findable, not_ready, or eligible without confusing a technically real defect
+        with a payable submission. Do not hunt for new vulnerabilities. Live verification is limited to
+        operator-authorized read-only calls to in-scope live targets and must be minimally invasive; never access
+        real-user data, make a state-changing call, perform destructive testing, expand scope, use credentials, or
+        attempt denial-of-service. Persist one compact validation manifest and any blocker with
+        create_security_research_artifact using stable idempotency keys. Return only the actual version-1 handoff
+        fields with conditions.ready and conditions.report_ready.
       dependsOn:
         - runtime-preflight-and-dossier
+        - target-priors
         - collect-investigator-handoffs
         - select-adaptive-challenges
         - challenge-and-variant-sweep
@@ -342,7 +499,7 @@ spec:
         equals: "true"
         otherwiseOutput: '{"version":1,"artifact_ids":[],"candidate_fingerprints":[],"coverage_ids":{},"blocker_ids":[],"conditions":{"ready":false,"report_ready":false}}'
       outputSchema: |-
-        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":16,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","report_ready"],"properties":{"ready":{"type":"boolean"},"report_ready":{"type":"boolean"}}}}}
+        {"type":"object","additionalProperties":false,"required":["version","artifact_ids","candidate_fingerprints","coverage_ids","blocker_ids","conditions"],"properties":{"version":{"const":1},"artifact_ids":{"type":"array","maxItems":16,"items":{"type":"string","minLength":36,"maxLength":36}},"candidate_fingerprints":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1}},"coverage_ids":{"type":"object","additionalProperties":false,"properties":{"disproved":{"type":"array","maxItems":16,"items":{"type":"string","minLength":36,"maxLength":36}},"adequately_tested":{"type":"array","maxItems":16,"items":{"type":"string","minLength":36,"maxLength":36}},"inadequately_tested":{"type":"array","maxItems":16,"items":{"type":"string","minLength":36,"maxLength":36}},"not_tested":{"type":"array","maxItems":16,"items":{"type":"string","minLength":36,"maxLength":36}}}},"blocker_ids":{"type":"array","maxItems":16,"items":{"type":"string","minLength":36,"maxLength":36}},"conditions":{"type":"object","additionalProperties":false,"required":["ready","report_ready"],"properties":{"ready":{"type":"boolean"},"report_ready":{"type":"boolean"}}}}}
 
     - name: triage-and-report
       role: finding-triager
@@ -355,21 +512,26 @@ spec:
       objective: >-
         Produce exactly one final report. Start from {{tasks.red-team-bounty-worthiness.output}} and reconcile it
         against original handoffs {{tasks.collect-investigator-handoffs.output}}, adaptive selection
-        {{tasks.select-adaptive-challenges.output}}, and challenge outcomes
-        {{tasks.challenge-and-variant-sweep.output}}. Retrieve referenced dossier, manifests, traces, harness summaries,
-        native-fuzz runs, variant evidence, and blockers with get_security_research_artifacts using include_payload
-        true; never infer evidence from an ID alone. Call list_security_findings and deduplicate by root cause. Keep
-        errors, timeouts, skipped, unsupported, inadequately tested, not tested, inconclusive, blocked, and uncovered
-        work as explicit limitations; bounded not_found_under evidence is not proof of safety. Ensure every retained
-        finding has exact revision and file:line evidence, attacker path, violated invariant, impact, calibrated local
-        proof or honest blocker, remediation, and immutable-revision retest plan. Require completed durable variant
-        sweeps for confirmed root causes: create_security_variant_sweep and complete_security_variant_sweep may only
-        reflect actual recorded work. Call get_security_campaign_status and reconcile every open hypothesis, coverage
-        gap, blocker, variant sweep, native fuzz recommendation, and budget decision. Hand retained findings to the
-        configured post-script pipeline and describe bundle state separately from technical validity; only a
-        successfully persisted post-script artifact is bundle-ready. Apply ranker rules and minimum severity, then call
-        submit_security_scan_report exactly once. Do not create another sink or claim a remediation retest occurred.
+        {{tasks.select-adaptive-challenges.output}}, challenge and extend outcomes
+        {{tasks.challenge-and-variant-sweep.output}}, and the inline target priors {{tasks.target-priors.output}}.
+        Retrieve referenced dossier, manifests, traces, harness summaries, fuzz rounds and reproducers,
+        next_experiment manifests, variant evidence, and blockers with get_security_research_artifacts using
+        include_payload true; never infer evidence from an ID alone. Call list_security_findings and deduplicate by
+        root cause. Account for every prior from target-priors in the report limitations as examined (with the
+        hypothesis and its verdict) or not_tested, and list the persisted next_experiment manifests as the recommended
+        follow-up. Keep errors, timeouts, skipped, unsupported, inadequately tested, not tested, inconclusive, blocked,
+        static-mode, and uncovered work as explicit limitations; bounded not_found_under evidence is not proof of
+        safety. Ensure every retained finding has exact revision and file:line evidence, attacker path, violated
+        invariant, impact, calibrated local proof or honest blocker, remediation, and immutable-revision retest plan.
+        Require completed durable variant sweeps for confirmed root causes: create_security_variant_sweep and
+        complete_security_variant_sweep may only reflect actual recorded work. Call get_security_campaign_status and
+        reconcile every open hypothesis, coverage gap, blocker, variant sweep, fuzz campaign, and budget decision.
+        Hand retained findings to the configured post-script pipeline and describe bundle state separately from
+        technical validity; only a successfully persisted post-script artifact is bundle-ready. Apply ranker rules and
+        minimum severity, then call submit_security_scan_report exactly once. Do not create another sink or claim a
+        remediation retest occurred.
       dependsOn:
+        - target-priors
         - collect-investigator-handoffs
         - select-adaptive-challenges
         - challenge-and-variant-sweep
