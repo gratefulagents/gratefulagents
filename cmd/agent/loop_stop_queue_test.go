@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -202,6 +203,48 @@ func TestRecordUserStopCompletesClaimsAndPersistsFloor(t *testing.T) {
 	}
 	if state.LastStoppedUserMessageID != 42 {
 		t.Fatalf("LastStoppedUserMessageID = %d, want 42", state.LastStoppedUserMessageID)
+	}
+}
+
+// A steer sent while the sandbox was still provisioning lands in the queue
+// behind the seeded kickoff request before the worker's first poll. The
+// kickoff must open the turn (it is the request that started the run, and the
+// UI already renders it as delivered), and the steer must reach the same turn
+// through the immediate-input poll — not overtake the kickoff and leave it
+// pending until the agent finishes, which re-ran it as a second turn.
+func TestStartupSteerDoesNotOvertakeSeededKickoff(t *testing.T) {
+	t.Parallel()
+	fake := newStopQueueTestStore([]store.Message{
+		{ID: 1, Content: "seeded kickoff request"},
+		{ID: 2, Content: "steer typed during startup", Metadata: immediateMetadata(t)},
+	})
+	sc := newStopQueueTestClient(t, fake)
+	handled := map[int64]struct{}{}
+	ctx := context.Background()
+
+	prompt, err := waitForNextUserReply(ctx, sc, 0, time.Second, handled)
+	if err != nil {
+		t.Fatalf("waitForNextUserReply: %v", err)
+	}
+	if prompt.ID != 1 {
+		t.Fatalf("turn prompt ID = %d, want the kickoff message 1", prompt.ID)
+	}
+	if _, marked := handled[2]; marked {
+		t.Fatal("the unclaimed steer must not be marked handled")
+	}
+
+	items, err := pollImmediateInputs(ctx, sc, t.TempDir(), nil, 0, handled)
+	if err != nil {
+		t.Fatalf("pollImmediateInputs: %v", err)
+	}
+	if len(items) != 1 || items[0].Message == nil || items[0].Message.Text != "steer typed during startup" {
+		t.Fatalf("immediate items = %#v, want the startup steer folded into the turn", items)
+	}
+	if got := fake.claimedIDs; len(got) != 2 || got[0] != 1 || got[1] != 2 {
+		t.Fatalf("claimed IDs = %v, want [1 2]", got)
+	}
+	if len(fake.pending) != 0 {
+		t.Fatalf("pending after the turn opened = %v, want nothing left for a post-finish turn", fake.pending)
 	}
 }
 

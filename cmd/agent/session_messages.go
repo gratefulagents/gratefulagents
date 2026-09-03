@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
 )
@@ -16,6 +18,37 @@ func nextPendingUserMessage(messages []sessionclient.UserMessage, consumedImmedi
 		}
 	}
 	return sessionclient.UserMessage{}, false, skipCursor, immediate
+}
+
+// nextTurnStartingUserMessage selects the message that opens a new turn when
+// no turn is running: the oldest pending message with content, in creation
+// order. Unlike nextPendingUserMessage it gives immediate (steering) messages
+// no priority — steering only means "interrupt the work in progress", and at a
+// turn boundary there is nothing to interrupt. Letting an immediate message
+// jump ahead here inverts the conversation at startup: a steer typed while the
+// sandbox was still provisioning would become the turn prompt, leaving the
+// seeded kickoff request pending until the agent finished and then re-running
+// it as a second turn. Any immediate message queued behind the selected prompt
+// is left untouched; the runner's ImmediateInputPoller folds it into the same
+// turn before the first model call.
+//
+// Immediate messages already folded into a previous turn (handledImmediate)
+// are skipped. The returned bool reports whether the selection is immediate so
+// callers can record it in handledImmediate once the claim succeeds.
+func nextTurnStartingUserMessage(messages []sessionclient.UserMessage, handledImmediate map[int64]struct{}) (sessionclient.UserMessage, bool, bool) {
+	for _, msg := range messages {
+		if strings.TrimSpace(msg.Content) == "" && len(msg.Images) == 0 {
+			continue
+		}
+		immediate := msg.Mode == sessionclient.UserMessageModeImmediate
+		if immediate {
+			if _, seen := handledImmediate[msg.ID]; seen {
+				continue
+			}
+		}
+		return msg, true, immediate
+	}
+	return sessionclient.UserMessage{}, false, false
 }
 
 // withoutStoppedMessage drops the prompt the user explicitly stopped

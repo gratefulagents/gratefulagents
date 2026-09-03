@@ -1945,7 +1945,7 @@ func queuedUserMessageWaiting(ctx context.Context, sc *sessionclient.Client, sto
 	if err != nil || len(peeked) == 0 {
 		return false
 	}
-	msg, ok, _, _ := nextPendingUserMessage(withoutStoppedMessage(peeked, stoppedMessageID), handledImmediate)
+	msg, ok, _ := nextTurnStartingUserMessage(withoutStoppedMessage(peeked, stoppedMessageID), handledImmediate)
 	if !ok {
 		return false
 	}
@@ -2032,9 +2032,12 @@ func waitForNextUserReply(
 const unclaimableSnapshotBackoff = 250 * time.Millisecond
 
 // claimNextUserMessage selects the next turn-starting message from a queue
-// snapshot and claims it. ok is false when nothing was claimable: no
-// candidate, a lost claim (cancelled or taken by another claimant after the
-// snapshot), or a claimed message with no content.
+// snapshot and claims it. Selection is oldest-first regardless of mode (see
+// nextTurnStartingUserMessage): no turn is running here, so an immediate
+// message has nothing to interrupt and must not overtake an older queued
+// prompt such as the seeded kickoff request. ok is false when nothing was
+// claimable: no candidate, a lost claim (cancelled or taken by another
+// claimant after the snapshot), or a claimed message with no content.
 func claimNextUserMessage(
 	ctx context.Context,
 	sc *sessionclient.Client,
@@ -2043,7 +2046,7 @@ func claimNextUserMessage(
 	handledImmediate map[int64]struct{},
 ) (sessionclient.UserMessage, bool, error) {
 	messages = consumeStoppedMessage(ctx, sc, messages, stoppedMessageID)
-	msg, ok, _, immediate := nextPendingUserMessage(messages, handledImmediate)
+	msg, ok, immediate := nextTurnStartingUserMessage(messages, handledImmediate)
 	if !ok {
 		return sessionclient.UserMessage{}, false, nil
 	}
