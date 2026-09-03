@@ -748,6 +748,137 @@ func TestSecurityScanPausedTaskDoesNotRemainRunning(t *testing.T) {
 	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
 		t.Fatalf("execution phase = %q, want Failed", exec.Phase)
 	}
+	// The attempt is over: the drained run is released so it cannot linger
+	// non-terminal and count as live for later dispatches.
+	released := taskRunByName(t, securityScanRuns(t, k8sClient, scan.Namespace), run.Name)
+	if strings.TrimSpace(released.Annotations[cancelRequestedAnnotation]) == "" {
+		t.Fatalf("drained paused run %s annotations = %v, want a cancel request", run.Name, released.Annotations)
+	}
+}
+
+// Regression: a task run that a runtime limit paused stays non-terminal after
+// the engine has folded it into a failed attempt and the execution has
+// finished. Before the fix, the Forbid gate counted that orphan as "still
+// active" forever, so every later manual request was consumed and silently
+// skipped — the dashboard Run button appeared to do nothing.
+func TestSecurityScanRunNowIgnoresDrainedPausedRunOfFinishedExecution(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	noRetries := int32(0)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect"}}, 1)
+	scan.Spec.Execution.TaskMaxRetries = &noRetries
+	scan.Spec.ManualOnly = true
+	scan.Annotations = map[string]string{triggersv1alpha1.SecurityScanRunNowAnnotation: "run-1"}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	first := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if first == nil || first.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning {
+		t.Fatalf("first execution = %#v, want Running", first)
+	}
+	run := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhasePaused, "", "")
+	paused := taskRunByName(t, securityScanRuns(t, k8sClient, scan.Namespace), run.Name)
+	paused.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{
+		State:         "Paused",
+		BlockedReason: "paused after 25m0s timeout — extend maxRuntime to resume",
+	}
+	paused.Status.Sandbox = nil
+	if err := k8sClient.Status().Update(context.Background(), &paused); err != nil {
+		t.Fatalf("record drained paused run: %v", err)
+	}
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution; exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+		t.Fatalf("execution phase = %q, want Failed", exec.Phase)
+	}
+	// Simulate the pre-fix orphan exactly: the run is still Paused (the fake
+	// client has no AgentRun controller to honour the cancel), and it carries
+	// no pending cancel request.
+	orphan := taskRunByName(t, securityScanRuns(t, k8sClient, scan.Namespace), run.Name)
+	delete(orphan.Annotations, cancelRequestedAnnotation)
+	if err := k8sClient.Update(context.Background(), &orphan); err != nil {
+		t.Fatalf("strip cancel request: %v", err)
+	}
+
+	annotateSecurityScan(t, k8sClient, scan, triggersv1alpha1.SecurityScanRunNowAnnotation, "run-2")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	updated := getSecurityScan(t, k8sClient, scan)
+	if updated.Status.LastManualRunToken != "run-2" {
+		t.Fatalf("LastManualRunToken = %q, want run-2 consumed", updated.Status.LastManualRunToken)
+	}
+	second := updated.Status.LastExecution
+	if second == nil || second.ID == first.ID || second.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning {
+		t.Fatalf("execution after run-now = %#v, want a NEW Running execution (first was %q)", second, first.ID)
+	}
+	if updated.Status.LastError != "" {
+		t.Fatalf("LastError = %q, want empty (the request must not be skipped)", updated.Status.LastError)
+	}
+	if got := len(taskRunsByTask(securityScanRuns(t, k8sClient, scan.Namespace), "a")); got != 2 {
+		t.Fatalf("task runs = %d, want 2 (a fresh run for the new execution)", got)
+	}
+	released := taskRunByName(t, securityScanRuns(t, k8sClient, scan.Namespace), run.Name)
+	if strings.TrimSpace(released.Annotations[cancelRequestedAnnotation]) == "" {
+		t.Fatalf("orphaned paused run %s annotations = %v, want a cancel request", run.Name, released.Annotations)
+	}
+}
+
+// A run that is genuinely live (its sandbox is still draining) keeps Forbid
+// semantics: the manual request is skipped, and — so the user can see why the
+// click did nothing — the manual-only pass must not paper over the skip with
+// a fresh "ready for a manual run" one reconcile later.
+func TestSecurityScanManualOnlyKeepsConcurrencyBlockedVerdictVisible(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	noRetries := int32(0)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{{Name: "a", Objective: "inspect"}}, 1)
+	scan.Spec.Execution.TaskMaxRetries = &noRetries
+	scan.Spec.ManualOnly = true
+	scan.Annotations = map[string]string{triggersv1alpha1.SecurityScanRunNowAnnotation: "run-1"}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	first := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	run := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "a")
+	// Fail the execution through a Cancelled run, then leave a second,
+	// still-draining Paused run of that execution behind: its worker may still
+	// be alive, so it must keep blocking.
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, run.Name, platformv1alpha1.AgentRunPhaseCancelled, "", "stopped")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	if exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution; exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseFailed {
+		t.Fatalf("execution phase = %q, want Failed", exec.Phase)
+	}
+	draining := run.DeepCopy()
+	draining.ObjectMeta = metav1.ObjectMeta{
+		Name: run.Name + "-draining", Namespace: run.Namespace,
+		Labels: run.Labels, Annotations: run.Annotations,
+	}
+	draining.Status = platformv1alpha1.AgentRunStatus{}
+	if err := k8sClient.Create(context.Background(), draining); err != nil {
+		t.Fatalf("create draining run: %v", err)
+	}
+	draining.Status.Phase = platformv1alpha1.AgentRunPhasePaused
+	draining.Status.Sandbox = &platformv1alpha1.AgentRunSandboxStatus{Provider: "agent-sandbox", ClaimRef: &platformv1alpha1.NamedRef{Name: "claim"}}
+	if err := k8sClient.Status().Update(context.Background(), draining); err != nil {
+		t.Fatalf("mark draining run paused: %v", err)
+	}
+
+	annotateSecurityScan(t, k8sClient, scan, triggersv1alpha1.SecurityScanRunNowAnnotation, "run-2")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	blocked := getSecurityScan(t, k8sClient, scan)
+	assertSecurityScanCondition(t, blocked, metav1.ConditionFalse, "ConcurrencyBlocked")
+	if blocked.Status.LastExecution.ID != first.ID {
+		t.Fatalf("execution = %q, want the draining run to keep blocking (first %q)", blocked.Status.LastExecution.ID, first.ID)
+	}
+	if strings.TrimSpace(draining.Annotations[cancelRequestedAnnotation]) != "" {
+		t.Fatalf("draining run must not be cancelled by the gate")
+	}
+
+	// The follow-up manual-only pass keeps the verdict instead of resetting it.
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	after := getSecurityScan(t, k8sClient, scan)
+	assertSecurityScanCondition(t, after, metav1.ConditionFalse, "ConcurrencyBlocked")
+	if !strings.Contains(after.Status.LastError, "skipped") {
+		t.Fatalf("LastError = %q, want the skip verdict preserved", after.Status.LastError)
+	}
 }
 
 func TestSecurityScanRetryBackoffDoublesAndCaps(t *testing.T) {

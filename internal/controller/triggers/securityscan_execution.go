@@ -475,10 +475,11 @@ func (r *SecurityScanReconciler) deterministicConcurrencyBlocked(ctx context.Con
 		// live execution still serializes (handled by the advance path).
 		return false, ctrl.Result{}, nil
 	}
-	activeRun, err := r.activeScanRun(ctx, scan, externalID)
+	activeRuns, err := r.activeScanRuns(ctx, scan, externalID)
 	if err != nil {
 		return true, ctrl.Result{}, err
 	}
+	activeRun := r.releaseStaleExecutionRuns(ctx, scan, activeRuns)
 	if activeRun == nil {
 		return false, ctrl.Result{}, nil
 	}
@@ -491,6 +492,49 @@ func (r *SecurityScanReconciler) deterministicConcurrencyBlocked(ctx context.Con
 		return true, ctrl.Result{}, err
 	}
 	return true, ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// releaseStaleExecutionRuns separates genuinely live scan runs from drained
+// leftovers and returns the first run that still blocks a new dispatch, or
+// nil. A task or post-script run that a runtime limit paused belongs to an
+// execution the engine has already folded into a failed attempt; nothing
+// resumes it, yet its non-terminal phase would otherwise count as "active"
+// forever — every later manual request would be consumed and silently
+// skipped. Such runs are cancelled (best effort; the AgentRun controller
+// turns them terminal) and ignored. Only runs of a deterministic execution
+// that is not the live one qualify: coordinator runs and runs of the live
+// execution keep their Forbid semantics.
+func (r *SecurityScanReconciler) releaseStaleExecutionRuns(ctx context.Context, scan *triggersv1alpha1.SecurityScan, runs []*platformv1alpha1.AgentRun) *platformv1alpha1.AgentRun {
+	log := logf.FromContext(ctx)
+	var blocking *platformv1alpha1.AgentRun
+	for _, run := range runs {
+		if !securityScanRunDrained(run) || !securityScanRunBelongsToStaleExecution(scan, run) {
+			if blocking == nil {
+				blocking = run
+			}
+			continue
+		}
+		if _, err := r.cancelScanRun(ctx, run); err != nil {
+			log.Error(err, "failed to cancel drained scan run left behind by a finished execution", "run", run.Name)
+			continue
+		}
+		log.Info("released drained scan run left behind by a finished execution", "run", run.Name, "execution", securityScanRunExecutionID(run))
+	}
+	return blocking
+}
+
+// securityScanRunBelongsToStaleExecution reports whether run was dispatched
+// for a deterministic execution that is no longer the scan's live one.
+func securityScanRunBelongsToStaleExecution(scan *triggersv1alpha1.SecurityScan, run *platformv1alpha1.AgentRun) bool {
+	execID := securityScanRunExecutionID(run)
+	if execID == "" {
+		return false
+	}
+	exec := scan.Status.LastExecution
+	if exec != nil && exec.ID == execID && securityScanExecutionActive(exec) {
+		return false
+	}
+	return true
 }
 
 // startDeterministicExecution validates the workflow and parameters, plans
@@ -1361,7 +1405,22 @@ func (e *securityScanExecutionEngine) observe(ctx context.Context) {
 			platformv1alpha1.AgentRunPhasePaused:
 			reason := securityScanAgentRunFailureReason(run, "task")
 			e.recordAttemptFailure(entry, run, reason, classifySecurityScanTaskFailure(reason))
+			e.releasePausedRun(ctx, run)
 		}
+	}
+}
+
+// releasePausedRun cancels a drained Paused run the engine has just folded
+// into a failed attempt. The attempt is over — a retry (if any) dispatches a
+// fresh run — so leaving the old one non-terminal only makes the Forbid
+// concurrency gate count it as live and skip every later dispatch. Best
+// effort: on error the gate's own stale-run release picks it up.
+func (e *securityScanExecutionEngine) releasePausedRun(ctx context.Context, run *platformv1alpha1.AgentRun) {
+	if !securityScanRunDrained(run) {
+		return
+	}
+	if _, err := e.r.cancelScanRun(ctx, run); err != nil {
+		logf.FromContext(ctx).Error(err, "failed to cancel paused scan run after recording its attempt failure", "run", run.Name)
 	}
 }
 

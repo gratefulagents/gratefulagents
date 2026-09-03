@@ -405,6 +405,7 @@ func (e *securityScanExecutionEngine) observePostScripts(ctx context.Context) {
 			// because Paused has no completion timestamp, bypass retry backoff.
 			e.recordPostScriptFailure(job, securityScanAgentRunFailureReason(run, "post-script"),
 				triggersv1alpha1.SecurityScanTaskFailureNonRetryable)
+			e.releasePausedRun(ctx, run)
 		}
 	}
 }
