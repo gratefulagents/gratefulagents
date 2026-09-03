@@ -176,6 +176,9 @@ export function OptionRow({
   summary,
   modified,
   defaultOpen = false,
+  open: controlledOpen,
+  onOpenChange,
+  tone,
   children,
 }: {
   icon?: React.ComponentType<{ className?: string }>;
@@ -183,10 +186,20 @@ export function OptionRow({
   summary?: React.ReactNode;
   modified?: boolean;
   defaultOpen?: boolean;
+  /** Controlled open state; pair with `onOpenChange`. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** `warning` colors the collapsed summary so a blocking gap is visible without expanding. */
+  tone?: "warning";
   children: React.ReactNode;
 }) {
   const inStack = useContext(OptionRowsContext);
-  const [open, setOpen] = useState(defaultOpen);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    setUncontrolledOpen(next);
+    onOpenChange?.(next);
+  };
   const panelId = useId();
 
   return (
@@ -210,13 +223,20 @@ export function OptionRow({
           <span className="shrink-0 text-[13px] font-medium">{title}</span>
           {modified ? (
             <span
-              aria-hidden
+              role="img"
+              aria-label="Changed"
+              title="Changed from the default"
               className="size-1.5 shrink-0 self-center rounded-full bg-[color:var(--color-primary)]/70"
             />
           ) : null}
         </span>
         {!open && summary ? (
-          <span className="min-w-0 max-w-[55%] truncate text-right text-[12px] text-muted-foreground">
+          <span
+            className={cn(
+              "min-w-0 max-w-[55%] truncate text-right text-[12px]",
+              tone === "warning" ? "text-[color:var(--tone-warning-fg)]" : "text-muted-foreground",
+            )}
+          >
             {summary}
           </span>
         ) : null}

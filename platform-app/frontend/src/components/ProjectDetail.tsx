@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ArrowRight, ArrowUpRight, ChevronRight, GitBranch, Share2 } from "lucide-react";
+import { ArrowRight, ArrowUpRight, ChevronRight, GitBranch, Settings, Share2 } from "lucide-react";
 
 import { AgentRunTable } from "@/components/AgentRunTable";
 import { CreateRunDialog } from "@/components/CreateRunDialog";
@@ -15,7 +15,7 @@ import type {
   ProjectTrigger as ProjectTriggerModel,
   ProjectWithTriggers,
 } from "@/components/project-triggers/types";
-import { ProjectSettingsDialog } from "@/components/ProjectSettingsDialog";
+import { ProjectSettingsPanel } from "@/components/project-settings/ProjectSettingsPanel";
 import { OwnerAvatar } from "@/components/OwnerAvatar";
 import { ShareDialog } from "@/components/ShareDialog";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -58,11 +58,16 @@ import type { AgentRun, Project, ProjectMetrics } from "@/rpc/platform/service_p
  *     outrank the timestamps underneath them.
  */
 
-const TAB_VALUES = ["overview", "runs", "entry-points", "maintainer", "files", "configuration"] as const;
+const TAB_VALUES = ["overview", "runs", "entry-points", "maintainer", "files", "settings"] as const;
 type ProjectTab = (typeof TAB_VALUES)[number];
 
 function isProjectTab(value: string | null): value is ProjectTab {
   return TAB_VALUES.includes(value as ProjectTab);
+}
+
+/** Old links used `?tab=configuration`; keep them landing on Settings. */
+function normalizeTab(value: string | null): string | null {
+  return value === "configuration" ? "settings" : value;
 }
 
 function triggersOf(project: Project): ProjectTriggerModel[] {
@@ -85,7 +90,7 @@ export function ProjectDetail() {
   const triggers = project ? triggersOf(project) : [];
   const maintainerTriggers = maintainerTriggersOf(triggers);
 
-  const rawTab = searchParams.get("tab");
+  const rawTab = normalizeTab(searchParams.get("tab"));
   const requestedTab: ProjectTab = isProjectTab(rawTab) ? rawTab : "overview";
   const tab = requestedTab === "maintainer" && maintainerTriggers.length === 0
     ? "overview"
@@ -161,8 +166,11 @@ export function ProjectDetail() {
                     />
                   </>
                 )}
-                {canEdit && (
-                  <ProjectSettingsDialog project={project} onUpdated={() => void refetch()} />
+                {canEdit && tab !== "settings" && (
+                  <Button variant="outline" size="sm" onClick={() => setTab("settings")}>
+                    <Settings data-icon="inline-start" />
+                    Settings
+                  </Button>
                 )}
                 {canEdit && (
                   <CreateRunDialog
@@ -203,8 +211,8 @@ export function ProjectDetail() {
               <TabsTrigger value="files" className="flex-none px-0.5">
                 Files
               </TabsTrigger>
-              <TabsTrigger value="configuration" className="flex-none px-0.5">
-                Configuration
+              <TabsTrigger value="settings" className="flex-none px-0.5">
+                Settings
               </TabsTrigger>
             </TabsList>
 
@@ -269,8 +277,12 @@ export function ProjectDetail() {
               />
             </TabsContent>
 
-            <TabsContent value="configuration" className="pt-6">
-              <ProjectConfiguration project={project} />
+            <TabsContent value="settings" className="pt-6">
+              {canEdit ? (
+                <ProjectSettingsPanel project={project} onUpdated={() => void refetch()} />
+              ) : (
+                <ProjectConfiguration project={project} />
+              )}
             </TabsContent>
           </Tabs>
         </div>

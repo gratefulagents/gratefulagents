@@ -14,17 +14,18 @@ Related pages: [Run defaults](./run-defaults.md), [Cron schedules](./cron.md), [
 
 ## Create a Project
 
-Open **Projects** or **Home**, select **Create project**, complete the form, then select **Create project**. The new Project opens when creation succeeds.
+Open **Projects** or **Home**, select **New project**, paste a **Repository URL**, and select **Create project**. The new Project opens when creation succeeds.
 
-| Area | Fields and behavior |
+Only two fields are shown by default:
+
+| Field | Behavior |
 | --- | --- |
-| Basic details | **Name** is required. **Display name** defaults to the name when left blank. Add an optional primary **Repository URL** and **Additional repositories**. |
-| Model & credentials | Select the provider, model, authentication mode when available, and optional reasoning level. Use **Use my saved credentials** to use applicable credentials from **Settings → Credentials**. When it is off, creation accepts inline GitHub and provider API-key values; OAuth uses an existing Secret reference. |
-| Repository details | Set an optional base branch. The primary and additional repository URLs become the repositories for future Project runs. |
-| PR review loop | The switch is disabled by default. Enable it to start autonomous reviewer runs for pull requests created by future runs from this Project, including pull requests in additional repositories. |
-| Runtime | Select a runtime image and optional timeout. You can also reference or create a RuntimeProfile with permission mode and network-egress settings. |
-| Tools & skills | Attach MCP server configurations and **Skills**. An MCP policy can restrict the selected servers. |
-| Advanced | Restrict in-run model switching with **Allowed models** and add **Custom instructions**. Workspace admins can also configure cluster access. |
+| **Repository URL** | Optional primary repository. Leave it empty to start without a repository. |
+| **Name** | Required. Suggested automatically from the repository URL (`https://github.com/acme/Payments-API.git` becomes `payments-api`) until you type your own. The display name defaults to the name. |
+
+The **Model** row shows what the Project will use as a receipt (`Anthropic · claude-sonnet-4-6 · saved credentials`). It starts from your **Settings → Model defaults** and **Settings → Credentials**; expand it only to change the provider, model, reasoning level, authentication mode, or to enter inline credentials instead of saved ones. If no saved credential covers the provider, the row opens on its own and explains what to add.
+
+**More options** reveals the remaining groups — **Repository** (base branch, additional repositories), **Agent** (default mode, PR review loop, custom instructions), **Runtime** (image, timeout, RuntimeProfile), and **Tools** (MCP servers and policy). Every one of them can be changed later on the Project's **Settings** tab, so you never need to open them to create a working Project.
 
 The form validates that the chosen credential path is usable. Saved credentials are used only when they are present and applicable to the selected provider. A saved GitHub token is also wired when configured; repository operations that need GitHub authentication can fail without one.
 
@@ -97,6 +98,8 @@ Connections are reusable only within their namespace. Connection name and type c
 
 ## Edit a Project
 
-Open the Project, select **Settings**, change the required fields or an expanded settings group, then select **Save changes**. The grouped settings mirror creation: **Model & credentials**, **Repository details**, **PR review loop**, **Runtime**, **Tools & skills**, **MCP policy**, **Cluster access** for admins, and **Advanced**.
+Open the Project's **Settings** tab (the **Settings** button in the header jumps there). Every setting is edited in place — no dialog — in sections you can jump to from the side navigation: **General** (display name, repositories, base branch), **Model & credentials**, **Agent behavior** (default mode, PR review loop, custom instructions, default bug squasher), **Runtime**, **Tools**, and, for workspace admins, **Privileged access**.
+
+Nothing is written until you save. As soon as a value differs from the saved Project, a bar appears naming the changed sections with **Discard** and **Save changes** (⌘S / Ctrl+S also saves); each changed section also gains a **Reset** control to revert just that section. People with view-only access see the same values read-only.
 
 Project owners and admins can use **Share** to invite viewers or collaborators. See [Sharing and permissions](../collaboration/sharing-and-permissions.md).
