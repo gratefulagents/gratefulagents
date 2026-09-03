@@ -241,6 +241,63 @@ func TestSecurityScanGenericReadyConditionDoesNotBlockEvidence(t *testing.T) {
 	}
 }
 
+// A blocked readiness gate settles the fan-out source (`otherwiseOutput: '[]'`)
+// inside schedule(), after expandFanOuts already ran for the pass. The forEach
+// placeholder must wait for the next pass to be sized to zero instances rather
+// than being launched as record 0 of an empty source, which used to fail the
+// whole execution and skip the report sink.
+func TestSecurityScanForEachOverGateSettledSourceWaitsForExpansion(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: securityScanRuntimePreflightTaskName, Objective: "check runtime", OutputSchema: `{"type":"object"}`},
+		{
+			Name: "select", Objective: "select challenges", DependsOn: []string{securityScanRuntimePreflightTaskName},
+			OutputSchema: `{"type":"array"}`,
+			When: &triggersv1alpha1.SecurityScanTaskCondition{
+				Task: securityScanRuntimePreflightTaskName, Path: "conditions.ready", Equals: "true",
+				OtherwiseOutput: `[]`,
+			},
+		},
+		{Name: "sweep", Objective: "challenge {{item.id}}", DependsOn: []string{"select"}, ForEach: "select", OutputSchema: `{"type":"object"}`},
+		{Name: "report", Objective: "report", DependsOn: []string{"sweep"}},
+	}, 4)
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	preflight := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), securityScanRuntimePreflightTaskName)
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, preflight.Name, platformv1alpha1.AgentRunPhaseSucceeded,
+		`{"conditions":{"ready":false}}`, "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec := getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseRunning {
+		t.Fatalf("execution phase after gate pass = %q, want Running", exec.Phase)
+	}
+	assertExecutionTaskState(t, exec, "select", 0, triggersv1alpha1.SecurityScanTaskStateSucceeded)
+	sweep := executionTask(t, exec, "sweep", 0)
+	if sweep.State != triggersv1alpha1.SecurityScanTaskStatePending || sweep.Attempts != 0 || sweep.LastError != "" {
+		t.Fatalf("sweep placeholder = %#v, want un-launched Pending placeholder awaiting expansion", sweep)
+	}
+	if got := len(taskRunsByTask(securityScanRuns(t, k8sClient, scan.Namespace), "sweep")); got != 0 {
+		t.Fatalf("sweep runs = %d, want none for an empty source", got)
+	}
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	assertExecutionTaskState(t, exec, "sweep", 0, triggersv1alpha1.SecurityScanTaskStateSucceeded)
+	if got := len(taskRunsByTask(securityScanRuns(t, k8sClient, scan.Namespace), "sweep")); got != 0 {
+		t.Fatalf("sweep runs = %d, want none for an empty source", got)
+	}
+	report := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "report")
+	markSecurityScanTaskRun(t, k8sClient, scan.Namespace, report.Name, platformv1alpha1.AgentRunPhaseSucceeded, "", "")
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+
+	exec = getSecurityScan(t, k8sClient, scan).Status.LastExecution
+	if exec.Phase != triggersv1alpha1.SecurityScanExecutionPhaseSucceeded || exec.EvidenceOutcome != triggersv1alpha1.SecurityScanEvidenceOutcomeBlocked {
+		t.Fatalf("execution phase=%q evidenceOutcome=%q, want Succeeded/blocked", exec.Phase, exec.EvidenceOutcome)
+	}
+}
+
 func TestSecurityScanSucceededWithCoverageGapsIsReadyButDegraded(t *testing.T) {
 	scan := deterministicSecurityScan(nil, 1)
 	scan.Generation = 7
