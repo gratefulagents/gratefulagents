@@ -413,6 +413,14 @@ func (s *workspaceSnapshotter) Cleanup(ctx context.Context) error {
 	return nil
 }
 
+// repoHasCommit reports whether HEAD in dir resolves to a commit. It is false
+// for repositories left behind by an interrupted clone, where .git exists but
+// no refs were ever written.
+func repoHasCommit(ctx context.Context, dir string) bool {
+	_, err := gitOutput(ctx, dir, nil, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+	return err == nil
+}
+
 func repoSafeForSnapshotCleanup(ctx context.Context, dir string) (bool, error) {
 	status, err := gitOutput(ctx, dir, nil, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
@@ -468,6 +476,14 @@ func (s *workspaceSnapshotter) snapshotLocked(ctx context.Context, reason string
 		return fmt.Errorf("discovering attached repositories: %w", err)
 	}
 	for _, extra := range extras {
+		// An attach_repository clone that was killed or timed out leaves a
+		// .git directory with no commits behind. There is nothing to
+		// checkpoint in it, and failing the whole hook would strand the run
+		// on a directory the agent never got to use.
+		if !repoHasCommit(ctx, extra.dir) {
+			log.Printf("WARN: skipping attached repository %q at %s in workspace checkpoint: HEAD does not resolve to a commit (incomplete clone?)", extra.alias, extra.dir)
+			continue
+		}
 		entry, err := s.snapshotRepo(ctx, extra, false, reason)
 		if err != nil {
 			return fmt.Errorf("checkpointing attached repository %q: %w", extra.alias, err)
