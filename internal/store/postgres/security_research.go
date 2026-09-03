@@ -459,8 +459,13 @@ func (s *Store) changeSecurityResearchHypothesis(ctx context.Context, namespace 
 	} else if !validHypothesisTransition(current.Status, transition.ToStatus) {
 		return nil, store.ErrSecurityResearchInvalidTransition
 	}
+	// Merge rather than replace: the creation detail carries the anchor,
+	// prior, attacker, and controlled_input fields that anchoring metrics and
+	// later challenges read, while each transition only adds its verdict
+	// evidence (guard_citation, command, controls). The event row still
+	// records exactly what this transition supplied.
 	stored, err := scanSecurityResearchHypothesis(tx.QueryRow(ctx, `UPDATE security_research_hypotheses
-		SET status = $3, result = $4, detail = $5, version = version + 1
+		SET status = $3, result = $4, detail = CASE WHEN jsonb_typeof(detail) = 'object' THEN detail || $5::jsonb ELSE $5::jsonb END, version = version + 1
 		WHERE id = $1 AND version = $2
 		RETURNING id, revision_id, hypothesis_key, title, invariant, status, result, detail, version, idempotency_key, created_at, updated_at`,
 		id, transition.ExpectedVersion, transition.ToStatus, transition.Result, detail))

@@ -173,6 +173,16 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		log.Printf("Interactive terminal tool enabled (disable with ENABLE_TERMINAL_TOOL=false)")
 	}
 
+	// Background shell jobs (BashStart/BashPoll/BashKill) for commands that
+	// outlive the Bash tool's per-call cap, such as principal builds of large
+	// Rust or Gradle workspaces during security-scan preflight. The SDK only
+	// registers them in write-capable permission modes. On by default; opt
+	// out with ENABLE_ASYNC_BASH=false.
+	if envFlagEnabled("ENABLE_ASYNC_BASH", true) {
+		registryOpts = append(registryOpts, tools.WithAsyncShellTools())
+		log.Printf("Async bash tools enabled (disable with ENABLE_ASYNC_BASH=false)")
+	}
+
 	// Optional: durable project state (SDK backbone, Postgres persistence).
 	// Provides task_*, memory_* and prime_context tools plus startup priming.
 	psStore, psPool, psStatus := setupProjectState(ctx, cfg)

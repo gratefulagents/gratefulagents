@@ -41,6 +41,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     m4 \
     libncurses-dev \
     inotify-tools \
+    cmake \
+    libudev-dev \
     clang \
     libclang-dev \
     llvm-dev \
@@ -50,6 +52,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # time (bindgen, used by e.g. xdelta3 in sigp/lighthouse and by fastcrypto
 # consumers such as MystenLabs/seal). Without libclang the principal build of
 # those targets fails inside the sandbox, where apt-get is unavailable.
+# cmake and libudev-dev (with pkg-config from the Tauri block below) are the
+# Linux prerequisites anza-xyz/agave lists for its workspace build; hidapi's
+# build.rs needs libudev.pc.
 
 # ── CLI tool symlinks (Debian renames some binaries) ─────────────────────────
 RUN ln -sf /usr/bin/fdfind /usr/local/bin/fd 2>/dev/null || true \
@@ -177,6 +182,11 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/* \
     && /usr/lib/llvm-22/bin/llvm-config --version
 ENV LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
+# Build scripts such as revmc-llvm (a reth dependency) shell out to plain
+# `llvm-config` before trying `llvm-config-22`, so Debian's LLVM 19 on PATH
+# wins and the C++ shim compiles against the wrong headers. Put the LLVM 22
+# tools first; the llvm-22 package ships no clang, so bindgen keeps Debian's.
+ENV PATH=/usr/lib/llvm-22/bin:${PATH}
 
 # ── Flow CLI (onflow emulator / localnet PoCs) ──────────────────────────────
 # Flow bounty programs require execution-layer PoCs to run against the Flow

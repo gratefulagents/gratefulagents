@@ -353,3 +353,19 @@ func TestRegistry_GetToolDefinitions(t *testing.T) {
 		}
 	}
 }
+
+func TestNewRegistry_WithAsyncShellToolsRegistersBackgroundJobs(t *testing.T) {
+	r := NewRegistry("/tmp/test", WithAsyncShellTools())
+	for _, name := range []string{"BashStart", "BashPoll", "BashKill"} {
+		if r.Get(name) == nil {
+			t.Fatalf("async-shell registry missing %s; names=%v", name, r.Names())
+		}
+	}
+	if NewRegistry("/tmp/test").Get("BashStart") != nil {
+		t.Fatal("BashStart must stay opt-in")
+	}
+	readOnly := NewRegistry("/tmp/test", WithAsyncShellTools(), WithPermissionMode(policy.PermissionModeReadOnly))
+	if readOnly.Get("BashStart") != nil {
+		t.Fatal("read-only registries must not register BashStart")
+	}
+}

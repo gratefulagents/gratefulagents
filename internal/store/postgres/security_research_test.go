@@ -61,6 +61,7 @@ func createResearchHypothesis(t *testing.T, s *Store, namespace string, revision
 	value, created, err := s.CreateSecurityResearchHypothesis(context.Background(), namespace, &store.SecurityResearchHypothesis{
 		RevisionID: revisionID, HypothesisKey: key, Title: "Hypothesis " + key,
 		Invariant: "accounting remains balanced", Actor: "test-agent", IdempotencyKey: "create-" + key,
+		Detail: json.RawMessage(`{"anchor":"src/ledger.rs:42","prior":"p3"}`),
 	})
 	if err != nil || !created {
 		t.Fatalf("hypothesis %s: created=%v err=%v", key, created, err)
@@ -137,9 +138,16 @@ func TestSecurityResearchHypothesisIsolationTransitionsAndLineage(t *testing.T) 
 	if !errors.Is(err, store.ErrSecurityResearchInvalidTransition) {
 		t.Fatalf("invalid transition error = %v", err)
 	}
-	supported, err := s.TransitionSecurityResearchHypothesis(ctx, namespace, h1.ID, store.SecurityHypothesisTransition{ExpectedVersion: 2, ToStatus: store.SecurityHypothesisSupported, Result: store.SecurityHypothesisResultPositive, Rationale: "evidence", IdempotencyKey: "support"})
+	supported, err := s.TransitionSecurityResearchHypothesis(ctx, namespace, h1.ID, store.SecurityHypothesisTransition{ExpectedVersion: 2, ToStatus: store.SecurityHypothesisSupported, Result: store.SecurityHypothesisResultPositive, Rationale: "evidence", IdempotencyKey: "support", Detail: json.RawMessage(`{"guard_citation":"src/ledger.rs:50"}`)})
 	if err != nil {
 		t.Fatal(err)
+	}
+	var merged map[string]any
+	if err := json.Unmarshal(supported.Detail, &merged); err != nil {
+		t.Fatalf("decode merged detail: %v", err)
+	}
+	if merged["anchor"] != "src/ledger.rs:42" || merged["prior"] != "p3" || merged["guard_citation"] != "src/ledger.rs:50" {
+		t.Fatalf("transition must merge detail, keeping the creation anchor and prior: %v", merged)
 	}
 	reopened, err := s.ReopenSecurityResearchHypothesis(ctx, namespace, h1.ID, store.SecurityHypothesisTransition{ExpectedVersion: supported.Version, Rationale: "new evidence", IdempotencyKey: "reopen"})
 	if err != nil || reopened.Status != store.SecurityHypothesisInvestigating || reopened.Result != store.SecurityHypothesisResultPending {

@@ -1005,7 +1005,7 @@ func TestBlockchainProtocolAuditComposition(t *testing.T) {
 		"differential", "harness_origin", "model_authored", "model_modified", "harness_digest", "fixtures and test vectors",
 		"run_security_tool", "go-fuzz-tests", "fuzztime up to 15m", "directly in the sandbox", "exact command",
 		"harness_bug", "sanitizer_or_panic", "invariant_or_differential_violation", "minimize", "standalone deterministic regression test",
-		"root-cause", "negative control", "reachability", "plateau", "at least three rounds", "at least two distinct surfaces",
+		"root-cause", "negative control", "reachability", "plateau", "three rounds across two distinct surfaces is the floor, not the target", "at least 5 minutes",
 		"harness_summary", "blocker artifact", "next_experiment manifest", "record_security_coverage", "experiment_kind fuzz",
 		"crashes are candidates, not findings", "report_security_finding", "never fuzz live",
 		"conditions.rounds_completed", "conditions.crashes_triaged", "conditions.surfaces_covered",
@@ -1269,12 +1269,12 @@ func TestNativeFuzzBaselineWorkflows(t *testing.T) {
 			t.Errorf("fuzz research is not dynamic-readiness-gated: dependencies=%v when=%#v", task.DependsOn, task.When)
 		}
 		objective := strings.ToLower(task.Objective)
-		for _, marker := range []string{"run_security_tool", "go-fuzz-tests", "cargo-fuzz", "fuzztime up to 15m", "not_found_under", "harness_summary", "at least three rounds"} {
+		for _, marker := range []string{"run_security_tool", "go-fuzz-tests", "cargo-fuzz", "fuzztime up to 15m", "not_found_under", "harness_summary", "three rounds across two distinct surfaces is the floor", "at least 5 minutes", "bashstart"} {
 			if !strings.Contains(objective, marker) {
 				t.Errorf("fuzz research objective must require %q", marker)
 			}
 		}
-		for _, stale := range []string{"at most two", "two minutes"} {
+		for _, stale := range []string{"at most two", "two minutes", "at least three rounds across at least two distinct surfaces unless blocked"} {
 			if strings.Contains(objective, stale) {
 				t.Errorf("fuzz research objective must not keep the smoke-test bound %q", stale)
 			}

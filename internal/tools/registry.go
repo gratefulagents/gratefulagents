@@ -40,6 +40,7 @@ type Registry struct {
 	browser              bool
 	browserScreenshotDir string
 	interactiveTerminal  bool
+	asyncShell           bool
 	vision               bool
 	visionAnalyze        sdkvision.AnalyzeFn
 	closers              []io.Closer
@@ -85,6 +86,14 @@ func WithBrowserScreenshotDir(dir string) RegistryOption {
 // interactive programs (Unix only; requires a write permission mode).
 func WithInteractiveTerminal() RegistryOption {
 	return func(r *Registry) { r.interactiveTerminal = true }
+}
+
+// WithAsyncShellTools registers the SDK's background shell jobs
+// (BashStart/BashPoll/BashKill) so long builds and campaigns can outlive the
+// Bash tool's per-call timeout. The SDK only registers them in write-capable
+// permission modes.
+func WithAsyncShellTools() RegistryOption {
+	return func(r *Registry) { r.asyncShell = true }
 }
 
 // WithVisionTools enables the image analysis tool in the registry. A nil
@@ -216,6 +225,9 @@ func NewRegistry(workDir string, opts ...RegistryOption) *Registry {
 	}
 	if r.interactiveTerminal {
 		sdkOpts = append(sdkOpts, sdktools.WithInteractiveTerminal())
+	}
+	if r.asyncShell {
+		sdkOpts = append(sdkOpts, sdktools.WithAsyncShellTools())
 	}
 	if r.vision {
 		sdkOpts = append(sdkOpts, sdktools.WithVisionTools(r.visionAnalyze))
