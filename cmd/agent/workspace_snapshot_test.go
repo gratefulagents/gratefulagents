@@ -573,3 +573,28 @@ func TestDiscoverWorkspaceRootReposExcludesScratchGitCheckout(t *testing.T) {
 		t.Fatalf("repositories = %#v, want only widgets (scratch must never be checkpointed)", repos)
 	}
 }
+
+// A killed or timed-out attach_repository clone leaves repos/<alias>/.git
+// behind with no commits. The checkpoint hook must skip it instead of failing
+// the turn with "resolving HEAD: ... ambiguous argument 'HEAD'".
+func TestWorkspaceCheckpointSkipsIncompleteAttachedClone(t *testing.T) {
+	requireGit(t)
+	origin := newOriginWithSeed(t)
+	store := newMemoryWorkspaceObjectStore()
+	work := cloneAndCheckout(t, origin, false)
+	partial := filepath.Join(work, extraRepoStoreDirName, "openclaw")
+	mustGit(t, "", "init", "--quiet", partial)
+	mustGit(t, partial, "remote", "add", "origin", "https://github.com/openclaw/openclaw")
+	ensureExtraRepoExclude(work)
+
+	if err := newSnapshotter(work, store).snapshotLocked(testCtx(t), "test"); err != nil {
+		t.Fatalf("snapshotLocked() with incomplete attached clone: %v", err)
+	}
+	manifest := loadTestCheckpoint(t, store)
+	if len(manifest.Repositories) != 1 {
+		t.Fatalf("repositories = %d, want only the primary repository", len(manifest.Repositories))
+	}
+	if manifest.Repositories[0].Alias == "openclaw" {
+		t.Fatalf("incomplete clone was checkpointed: %+v", manifest.Repositories[0])
+	}
+}
