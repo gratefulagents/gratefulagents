@@ -308,6 +308,15 @@ service PlatformService {
   rpc ListSecuritySubmissionOutcomeHistory(ListSecuritySubmissionOutcomeHistoryRequest) returns (ListSecuritySubmissionOutcomeHistoryResponse);
   rpc RecordSecuritySubmissionOutcome(RecordSecuritySubmissionOutcomeRequest) returns (RecordSecuritySubmissionOutcomeResponse);
   rpc CorrectSecuritySubmissionOutcome(CorrectSecuritySubmissionOutcomeRequest) returns (RecordSecuritySubmissionOutcomeResponse);
+  // ListSecuritySubmissionQueue returns the cross-scan bug-bounty handoff
+  // queue: confirmed or triaged findings with a ready submission bundle, each
+  // with its durable submission status, program, and adjudicated outcome.
+  rpc ListSecuritySubmissionQueue(ListSecuritySubmissionQueueRequest) returns (ListSecuritySubmissionQueueResponse);
+  // MarkSecuritySubmissionSubmitted records that the caller filed a packaged
+  // bundle with an external program. Agents only ever package; this is the
+  // sole path to the submitted status that precision feedback counts.
+  rpc MarkSecuritySubmissionSubmitted(MarkSecuritySubmissionSubmittedRequest) returns (MarkSecuritySubmissionSubmittedResponse);
+  rpc GetSecuritySubmissionPrecisionRollup(GetSecuritySubmissionPrecisionRollupRequest) returns (SecuritySubmissionPrecisionRollup);
 
   // Security scanning: SecurityScan trigger configuration (the CRs that
   // create scan runs). ListSecurityScanConfigs returns configured SecurityScan
@@ -4720,6 +4729,11 @@ message SecurityScanExecutionConfig {
   // retry_backoff is the base delay before a failed task attempt is
   // rescheduled, as a Go duration string, e.g. "30s"; empty = default 30s.
   string retry_backoff = 3;
+  // max_env_retries bounds how many times a post-script job whose run
+  // recorded an inconclusive environment disposition (unreproducible_env or
+  // not_ready: the PoC could not run because of the environment) is re-run
+  // before its result stands (0-10); absent = 2.
+  optional int32 max_env_retries = 4;
 }
 
 // SecurityScanTaskAttemptState is one finished failed attempt of a task
@@ -6042,6 +6056,12 @@ message SecurityResearchSubmission {
   google.protobuf.Timestamp submitted_at = 10;
   string latest_outcome = 11;
   google.protobuf.Timestamp latest_outcome_at = 12;
+  // program and external_reference are set when a human marks the row
+  // submitted; packaged_at is when the agent stored the bounty bundle.
+  string program = 13;
+  string external_reference = 14;
+  string submitted_by = 15;
+  google.protobuf.Timestamp packaged_at = 16;
 }
 
 message ListSecurityResearchSubmissionsRequest {
@@ -6095,4 +6115,72 @@ message CorrectSecuritySubmissionOutcomeRequest {
 message RecordSecuritySubmissionOutcomeResponse {
   SecuritySubmissionOutcome outcome = 1;
   bool created = 2;
+}
+
+message SecuritySubmissionQueueItem {
+  string finding_id = 1;
+  string namespace = 2;
+  string scan_name = 3;
+  string run_name = 4;
+  string title = 5;
+  string severity = 6;
+  string finding_status = 7;
+  string fingerprint = 8;
+  string repository = 9;
+  google.protobuf.Timestamp bundle_ready_at = 10;
+  string bundle_filename = 11;
+  // submission_id is empty when the bundle has no durable submission row.
+  string submission_id = 12;
+  // submission_status is candidate, reserved, packaged, submitted, or resolved.
+  string submission_status = 13;
+  // target_key and revision form the SecurityResearchScope for outcome RPCs.
+  string target_key = 14;
+  string revision = 15;
+  string workflow = 16;
+  string program = 17;
+  string external_reference = 18;
+  google.protobuf.Timestamp submitted_at = 19;
+  string submitted_by = 20;
+  string latest_outcome = 21;
+  google.protobuf.Timestamp latest_outcome_at = 22;
+}
+
+message ListSecuritySubmissionQueueRequest {
+  string namespace = 1;
+  int32 limit = 2;
+}
+
+message ListSecuritySubmissionQueueResponse {
+  repeated SecuritySubmissionQueueItem items = 1;
+  bool truncated = 2;
+}
+
+message MarkSecuritySubmissionSubmittedRequest {
+  string namespace = 1;
+  string submission_id = 2;
+  string program = 3;
+  string external_reference = 4;
+  // submitted_at defaults to now.
+  google.protobuf.Timestamp submitted_at = 5;
+  string idempotency_key = 6;
+}
+
+message MarkSecuritySubmissionSubmittedResponse {
+  SecurityResearchSubmission submission = 1;
+}
+
+message SecuritySubmissionPrecisionGroup {
+  string key = 1;
+  SecuritySubmissionPrecision precision = 2;
+}
+
+message SecuritySubmissionPrecisionRollup {
+  SecuritySubmissionPrecision total = 1;
+  repeated SecuritySubmissionPrecisionGroup by_program = 2;
+  repeated SecuritySubmissionPrecisionGroup by_workflow = 3;
+}
+
+message GetSecuritySubmissionPrecisionRollupRequest {
+  string namespace = 1;
+  google.protobuf.Timestamp since = 2;
 }

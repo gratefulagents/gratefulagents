@@ -260,16 +260,30 @@ func (s *fakeSecurityResearchStore) ReserveSecurityResearchSubmission(_ context.
 	return &copy, nil
 }
 
-func (s *fakeSecurityResearchStore) MarkSecurityResearchSubmissionSubmitted(_ context.Context, namespace string, submissionID uuid.UUID, submittedAt time.Time) error {
+func (s *fakeSecurityResearchStore) MarkSecurityResearchSubmissionPackaged(_ context.Context, namespace string, submissionID uuid.UUID, packagedAt time.Time) error {
 	s.lastNamespace = namespace
 	for _, submission := range s.submissions {
 		if submission.ID == submissionID {
-			submission.Status = "submitted"
-			submission.SubmittedAt = &submittedAt
+			submission.Status = store.SecuritySubmissionStatusPackaged
+			submission.PackagedAt = &packagedAt
 			return nil
 		}
 	}
 	return store.ErrSecurityResearchSubmissionNotFound
+}
+
+func (s *fakeSecurityResearchStore) MarkSecurityResearchSubmissionSubmitted(_ context.Context, namespace string, submissionID uuid.UUID, handoff store.SecuritySubmissionHandoff) (*store.SecurityResearchSubmission, error) {
+	s.lastNamespace = namespace
+	for _, submission := range s.submissions {
+		if submission.ID == submissionID {
+			submission.Status = store.SecuritySubmissionStatusSubmitted
+			submission.SubmittedAt = &handoff.SubmittedAt
+			submission.Program, submission.ExternalReference, submission.SubmittedBy = handoff.Program, handoff.ExternalReference, handoff.Actor
+			copy := *submission
+			return &copy, nil
+		}
+	}
+	return nil, store.ErrSecurityResearchSubmissionNotFound
 }
 
 func (s *fakeSecurityResearchStore) GetSecuritySubmissionPrecision(_ context.Context, namespace string, _ uuid.UUID, _ string, _ *time.Time) (*store.SecuritySubmissionPrecision, error) {
@@ -461,7 +475,7 @@ func TestSecurityBountyPeriodExhaustionRetainsCandidateWithoutToolError(t *testi
 	}
 }
 
-func TestSecurityBountySubmissionWithoutRollingBudgetIsDurableAndSubmitted(t *testing.T) {
+func TestSecurityBountySubmissionWithoutRollingBudgetIsDurableAndPackaged(t *testing.T) {
 	researchStore := newFakeSecurityResearchStore()
 	scanCtx := bountyLaneContext(bountyLaneReportRun, "research-bounty-fp", bountyLaneProgram())
 	scanCtx.SubmissionBudgetPeriodDays = 0
@@ -478,8 +492,10 @@ func TestSecurityBountySubmissionWithoutRollingBudgetIsDurableAndSubmitted(t *te
 		t.Fatalf("durable state: submissions=%d decisions=%d reservations=%d uploads=%d", len(researchStore.submissions), len(researchStore.decisions), len(researchStore.reservations), len(blobs.puts))
 	}
 	for _, submission := range researchStore.submissions {
-		if submission.Status != "submitted" || submission.SubmittedAt == nil || submission.FindingID == nil || *submission.FindingID != finding.ID || submission.CandidateKey != finding.Fingerprint || submission.Rank != 1 {
-			t.Fatalf("submission = %+v, want submitted rank-1 candidate for the finding", submission)
+		// Storing a bundle is packaging, not filing: only a human handoff from
+		// the dashboard queue may mark the row submitted.
+		if submission.Status != store.SecuritySubmissionStatusPackaged || submission.PackagedAt == nil || submission.SubmittedAt != nil || submission.FindingID == nil || *submission.FindingID != finding.ID || submission.CandidateKey != finding.Fingerprint || submission.Rank != 1 {
+			t.Fatalf("submission = %+v, want packaged rank-1 candidate for the finding", submission)
 		}
 	}
 	for key, decision := range researchStore.decisions {

@@ -23,7 +23,13 @@ type mockSecurityResearchStore struct {
 	submissions   []store.SecurityResearchSubmission
 	outcomes      map[uuid.UUID][]store.SecuritySubmissionOutcomeEvent
 	precision     store.SecuritySubmissionPrecision
+	queue         []store.SecuritySubmissionQueueItem
+	rollup        store.SecuritySubmissionPrecisionRollup
 	revisionCalls int
+
+	lastQueueHidden  []string
+	lastRollupHidden []string
+	lastHandoff      *store.SecuritySubmissionHandoff
 }
 
 func newMockSecurityResearchStore() *mockSecurityResearchStore {
@@ -118,8 +124,52 @@ func (m *mockSecurityResearchStore) ListSecurityResearchSubmissions(context.Cont
 func (m *mockSecurityResearchStore) ReserveSecurityResearchSubmission(context.Context, string, store.SecuritySubmissionReservationRequest) (*store.SecuritySubmissionReservationResult, error) {
 	return nil, nil
 }
-func (m *mockSecurityResearchStore) MarkSecurityResearchSubmissionSubmitted(context.Context, string, uuid.UUID, time.Time) error {
+func (m *mockSecurityResearchStore) GetSecurityResearchSubmission(_ context.Context, _ string, id uuid.UUID) (*store.SecurityResearchSubmission, error) {
+	for i := range m.submissions {
+		if m.submissions[i].ID == id {
+			value := m.submissions[i]
+			return &value, nil
+		}
+	}
+	return nil, store.ErrSecurityResearchSubmissionNotFound
+}
+func (m *mockSecurityResearchStore) MarkSecurityResearchSubmissionPackaged(context.Context, string, uuid.UUID, time.Time) error {
 	return nil
+}
+func (m *mockSecurityResearchStore) MarkSecurityResearchSubmissionSubmitted(_ context.Context, _ string, id uuid.UUID, handoff store.SecuritySubmissionHandoff) (*store.SecurityResearchSubmission, error) {
+	m.lastHandoff = &handoff
+	for i := range m.submissions {
+		if m.submissions[i].ID == id {
+			at := handoff.SubmittedAt
+			if at.IsZero() {
+				at = time.Now()
+			}
+			m.submissions[i].Status, m.submissions[i].SubmittedAt = store.SecuritySubmissionStatusSubmitted, &at
+			m.submissions[i].Program, m.submissions[i].ExternalReference, m.submissions[i].SubmittedBy = handoff.Program, handoff.ExternalReference, handoff.Actor
+			value := m.submissions[i]
+			return &value, nil
+		}
+	}
+	return nil, store.ErrSecurityResearchSubmissionNotFound
+}
+func (m *mockSecurityResearchStore) ListSecuritySubmissionQueue(_ context.Context, _ string, hidden []string) ([]store.SecuritySubmissionQueueItem, error) {
+	m.lastQueueHidden = hidden
+	excluded := map[string]bool{}
+	for _, name := range hidden {
+		excluded[name] = true
+	}
+	var out []store.SecuritySubmissionQueueItem
+	for _, item := range m.queue {
+		if !excluded[item.ScanName] {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+func (m *mockSecurityResearchStore) GetSecuritySubmissionPrecisionRollup(_ context.Context, _ string, _ *time.Time, hidden []string) (*store.SecuritySubmissionPrecisionRollup, error) {
+	m.lastRollupHidden = hidden
+	rollup := m.rollup
+	return &rollup, nil
 }
 func (m *mockSecurityResearchStore) RecordSecuritySubmissionOutcome(_ context.Context, _ string, submissionID uuid.UUID, input store.SecuritySubmissionOutcomeInput) (*store.SecuritySubmissionOutcome, bool, error) {
 	event := store.SecuritySubmissionOutcomeEvent{ID: int64(len(m.outcomes[submissionID]) + 1), SubmissionID: submissionID, Outcome: input.Outcome, ExternalReference: input.ExternalReference, Rationale: input.Rationale, Actor: input.Actor, CorrectionOf: input.CorrectionOf, IdempotencyKey: input.IdempotencyKey, CreatedAt: time.Now()}
@@ -277,5 +327,140 @@ func TestSecurityResearchMutationsUseActorAndCorrectionsAppend(t *testing.T) {
 	}
 	if _, err := srv.RecordSecuritySubmissionOutcome(context.Background(), &platform.RecordSecuritySubmissionOutcomeRequest{}); connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Fatalf("unauthenticated mutation error = %v", err)
+	}
+}
+
+func seedSubmissionQueueStore(t *testing.T) (*mockSecurityResearchStore, uuid.UUID) {
+	t.Helper()
+	m := seedResearchStore(t)
+	if err := m.SetResourceOwner(context.Background(), securityScanResourceType, "carol-scan", "default", "carol"); err != nil {
+		t.Fatal(err)
+	}
+	aliceSubmission, carolSubmission := uuid.New(), uuid.New()
+	packagedAt := time.Now().Add(-2 * time.Hour)
+	m.submissions = []store.SecurityResearchSubmission{
+		{ID: aliceSubmission, RevisionID: m.revision.ID, TargetID: m.revision.TargetID, Workflow: "bounty", CandidateKey: "fp-1", Rank: 1, Status: store.SecuritySubmissionStatusPackaged, PackagedAt: &packagedAt, CreatedAt: time.Now(), TargetKey: "alice-scan", Revision: "abc123"},
+		{ID: carolSubmission, RevisionID: uuid.New(), TargetID: uuid.New(), Workflow: "bounty", CandidateKey: "fp-2", Rank: 1, Status: store.SecuritySubmissionStatusPackaged, PackagedAt: &packagedAt, CreatedAt: time.Now(), TargetKey: "carol-scan", Revision: "def456"},
+	}
+	m.queue = []store.SecuritySubmissionQueueItem{
+		{FindingID: uuid.New(), Namespace: "default", ScanName: "alice-scan", RunName: "alice-scan-1", Title: "Reentrancy", Severity: "critical", FindingStatus: "confirmed", BundleReadyAt: packagedAt, SubmissionID: &aliceSubmission, SubmissionStatus: store.SecuritySubmissionStatusPackaged, TargetKey: "alice-scan", Revision: "abc123", Workflow: "bounty"},
+		{FindingID: uuid.New(), Namespace: "default", ScanName: "carol-scan", RunName: "carol-scan-1", Title: "Oracle drift", Severity: "high", FindingStatus: "triaged", BundleReadyAt: packagedAt, SubmissionID: &carolSubmission, SubmissionStatus: store.SecuritySubmissionStatusPackaged, TargetKey: "carol-scan", Revision: "def456", Workflow: "bounty"},
+		{FindingID: uuid.New(), Namespace: "default", ScanName: "unowned-scan", RunName: "unowned-scan-1", Title: "Legacy bundle", Severity: "medium", FindingStatus: "confirmed", BundleReadyAt: packagedAt},
+	}
+	m.rollup = store.SecuritySubmissionPrecisionRollup{
+		Total:     store.SecuritySubmissionPrecision{Submitted: 3, Accepted: 2, Rejected: 1},
+		ByProgram: []store.SecuritySubmissionPrecisionGroup{{Key: "immunefi", Precision: store.SecuritySubmissionPrecision{Submitted: 3, Accepted: 2, Rejected: 1}}},
+	}
+	return m, aliceSubmission
+}
+
+func queueScanNames(items []*platform.SecuritySubmissionQueueItem) []string {
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		names = append(names, item.GetScanName())
+	}
+	return names
+}
+
+func TestListSecuritySubmissionQueueFiltersByScanOwnership(t *testing.T) {
+	m, _ := seedSubmissionQueueStore(t)
+	srv := newSecurityTestServer(t, m)
+
+	got, err := srv.ListSecuritySubmissionQueue(actorContext("alice", "member", "", ""), &platform.ListSecuritySubmissionQueueRequest{Namespace: "default"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := queueScanNames(got.GetItems()); len(names) != 2 || names[0] != "alice-scan" || names[1] != "unowned-scan" {
+		t.Fatalf("owner queue = %v, want own scan plus unowned", names)
+	}
+	if len(m.lastQueueHidden) != 1 || m.lastQueueHidden[0] != "carol-scan" {
+		t.Fatalf("store exclusion = %v, want carol-scan pushed down", m.lastQueueHidden)
+	}
+	first := got.GetItems()[0]
+	if first.GetSubmissionStatus() != "packaged" || first.GetTargetKey() != "alice-scan" || first.GetRevision() != "abc123" || first.GetBundleReadyAt() == nil || first.GetSubmissionId() == "" {
+		t.Fatalf("queue item = %+v", first)
+	}
+	if got.GetItems()[1].GetSubmissionId() != "" || got.GetItems()[1].GetSubmittedAt() != nil {
+		t.Fatalf("bundle without a durable submission = %+v", got.GetItems()[1])
+	}
+
+	m.shares = []store.ResourceShare{{ResourceType: securityScanResourceType, ResourceID: "carol-scan", ResourceNamespace: "default", SharedWithUserID: "alice", Permission: "viewer"}}
+	got, err = srv.ListSecuritySubmissionQueue(actorContext("alice", "member", "", ""), &platform.ListSecuritySubmissionQueueRequest{Namespace: "default"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := queueScanNames(got.GetItems()); len(names) != 3 {
+		t.Fatalf("shared queue = %v, want all three", names)
+	}
+	m.shares = nil
+
+	got, err = srv.ListSecuritySubmissionQueue(actorContext("dave", "admin", "", ""), &platform.ListSecuritySubmissionQueueRequest{Namespace: "default", Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.GetItems()) != 2 || !got.GetTruncated() || len(m.lastQueueHidden) != 0 {
+		t.Fatalf("admin queue = %d items truncated=%v hidden=%v", len(got.GetItems()), got.GetTruncated(), m.lastQueueHidden)
+	}
+}
+
+func TestMarkSecuritySubmissionSubmittedEnforcesOwnershipAndRecordsActor(t *testing.T) {
+	m, aliceSubmission := seedSubmissionQueueStore(t)
+	srv := newSecurityTestServer(t, m)
+	carolSubmission := m.submissions[1].ID
+	request := func(id uuid.UUID) *platform.MarkSecuritySubmissionSubmittedRequest {
+		return &platform.MarkSecuritySubmissionSubmittedRequest{Namespace: "default", SubmissionId: id.String(), Program: "immunefi", ExternalReference: "IMM-42", IdempotencyKey: "handoff-1"}
+	}
+
+	if _, err := srv.MarkSecuritySubmissionSubmitted(context.Background(), request(aliceSubmission)); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("unauthenticated error = %v", err)
+	}
+	if _, err := srv.MarkSecuritySubmissionSubmitted(actorContext("alice", "member", "", ""), request(carolSubmission)); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("hidden submission error = %v, want NotFound", err)
+	}
+	if m.lastHandoff != nil {
+		t.Fatalf("hidden submission reached the store: %+v", m.lastHandoff)
+	}
+	m.shares = []store.ResourceShare{{ResourceType: securityScanResourceType, ResourceID: "carol-scan", ResourceNamespace: "default", SharedWithUserID: "alice", Permission: "viewer"}}
+	if _, err := srv.MarkSecuritySubmissionSubmitted(actorContext("alice", "member", "", ""), request(carolSubmission)); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("viewer share error = %v, want PermissionDenied", err)
+	}
+	m.shares = nil
+	if _, err := srv.MarkSecuritySubmissionSubmitted(actorContext("alice", "member", "", ""), &platform.MarkSecuritySubmissionSubmittedRequest{Namespace: "default", SubmissionId: aliceSubmission.String(), IdempotencyKey: "handoff-1"}); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("missing program error = %v, want InvalidArgument", err)
+	}
+
+	got, err := srv.MarkSecuritySubmissionSubmitted(actorContext("alice", "member", "", ""), request(aliceSubmission))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := got.GetSubmission()
+	if sub.GetStatus() != "submitted" || sub.GetProgram() != "immunefi" || sub.GetExternalReference() != "IMM-42" || sub.GetSubmittedBy() != "alice" || sub.GetSubmittedAt() == nil || sub.GetPackagedAt() == nil {
+		t.Fatalf("submitted row = %+v", sub)
+	}
+	if m.lastHandoff == nil || m.lastHandoff.Actor != "alice" {
+		t.Fatalf("handoff actor = %+v, want the authenticated subject", m.lastHandoff)
+	}
+
+	if _, err := srv.MarkSecuritySubmissionSubmitted(actorContext("dave", "admin", "", ""), request(carolSubmission)); err != nil {
+		t.Fatalf("admin handoff error = %v", err)
+	}
+}
+
+func TestGetSecuritySubmissionPrecisionRollupExcludesHiddenScans(t *testing.T) {
+	m, _ := seedSubmissionQueueStore(t)
+	srv := newSecurityTestServer(t, m)
+
+	got, err := srv.GetSecuritySubmissionPrecisionRollup(actorContext("alice", "member", "", ""), &platform.GetSecuritySubmissionPrecisionRollupRequest{Namespace: "default"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.lastRollupHidden) != 1 || m.lastRollupHidden[0] != "carol-scan" {
+		t.Fatalf("rollup exclusion = %v, want carol-scan", m.lastRollupHidden)
+	}
+	if got.GetTotal().GetSubmitted() != 3 || len(got.GetByProgram()) != 1 || got.GetByProgram()[0].GetKey() != "immunefi" || got.GetByProgram()[0].GetPrecision().GetAccepted() != 2 {
+		t.Fatalf("rollup = %+v", got)
+	}
+	if _, err := srv.GetSecuritySubmissionPrecisionRollup(actorContext("dave", "admin", "", ""), &platform.GetSecuritySubmissionPrecisionRollupRequest{Namespace: "default"}); err != nil || len(m.lastRollupHidden) != 0 {
+		t.Fatalf("admin rollup err=%v hidden=%v", err, m.lastRollupHidden)
 	}
 }

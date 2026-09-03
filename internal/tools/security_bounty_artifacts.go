@@ -914,12 +914,14 @@ func (d durableSubmissionAttempt) recordDecision(ctx context.Context, candidate 
 	return nil
 }
 
-// finish marks the candidate submitted once the bundle is stored; on failure
-// it releases the rolling-budget reservation when one was taken.
+// finish marks the candidate packaged once the bundle is stored; a human
+// later marks it submitted from the dashboard queue when the report is filed
+// with the program. On failure it releases the rolling-budget reservation
+// when one was taken.
 func (d durableSubmissionAttempt) finish(candidate *store.SecurityResearchSubmission, reserved bool) func(bool) error {
 	return func(success bool) error {
 		if success {
-			return d.tool.state.researchStore.MarkSecurityResearchSubmissionSubmitted(context.Background(), d.tool.state.scanCtx.Namespace, candidate.ID, time.Now().UTC())
+			return d.tool.state.researchStore.MarkSecurityResearchSubmissionPackaged(context.Background(), d.tool.state.scanCtx.Namespace, candidate.ID, time.Now().UTC())
 		}
 		if !reserved {
 			return nil

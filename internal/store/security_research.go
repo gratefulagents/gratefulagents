@@ -266,24 +266,92 @@ type SecurityResearchVariantSweepEvent struct {
 	CreatedAt      time.Time
 }
 
+// Submission lifecycle. "packaged" means an agent stored a bounty bundle;
+// only "submitted" means a human filed the report with a program, so
+// precision denominators count submitted and resolved rows alone.
+const (
+	SecuritySubmissionStatusCandidate = "candidate"
+	SecuritySubmissionStatusReserved  = "reserved"
+	SecuritySubmissionStatusPackaged  = "packaged"
+	SecuritySubmissionStatusSubmitted = "submitted"
+	SecuritySubmissionStatusResolved  = "resolved"
+)
+
 type SecurityResearchSubmission struct {
-	ID           uuid.UUID
-	RevisionID   uuid.UUID
-	TargetID     uuid.UUID
-	FindingID    *uuid.UUID
-	Workflow     string
-	CandidateKey string
-	Rank         int32
-	Payload      json.RawMessage
-	Status       string
-	CreatedAt    time.Time
-	SubmittedAt  *time.Time
+	ID                uuid.UUID
+	RevisionID        uuid.UUID
+	TargetID          uuid.UUID
+	FindingID         *uuid.UUID
+	Workflow          string
+	CandidateKey      string
+	Rank              int32
+	Payload           json.RawMessage
+	Status            string
+	Program           string
+	ExternalReference string
+	SubmittedBy       string
+	CreatedAt         time.Time
+	PackagedAt        *time.Time
+	SubmittedAt       *time.Time
 	// FindingFingerprint, FindingTitle, Outcome, and OutcomeRecordedAt are
 	// populated by ListSecurityResearchSubmissions only.
 	FindingFingerprint string
 	FindingTitle       string
 	Outcome            string
 	OutcomeRecordedAt  *time.Time
+	// TargetKey and Revision are populated by GetSecurityResearchSubmission only.
+	TargetKey string
+	Revision  string
+}
+
+// SecuritySubmissionHandoff records that a human filed a packaged bundle
+// with an external program.
+type SecuritySubmissionHandoff struct {
+	Program           string
+	ExternalReference string
+	Actor             string
+	SubmittedAt       time.Time
+}
+
+// SecuritySubmissionQueueItem is one finding with a ready bounty bundle,
+// joined to its latest durable submission row and adjudicated outcome.
+type SecuritySubmissionQueueItem struct {
+	FindingID      uuid.UUID
+	Namespace      string
+	ScanName       string
+	RunName        string
+	Title          string
+	Severity       string
+	FindingStatus  string
+	Fingerprint    string
+	Repository     string
+	BundleReadyAt  time.Time
+	BundleFilename string
+
+	SubmissionID      *uuid.UUID
+	SubmissionStatus  string
+	TargetKey         string
+	Revision          string
+	Workflow          string
+	Program           string
+	ExternalReference string
+	SubmittedAt       *time.Time
+	SubmittedBy       string
+	Outcome           string
+	OutcomeRecordedAt *time.Time
+}
+
+type SecuritySubmissionPrecisionGroup struct {
+	Key       string
+	Precision SecuritySubmissionPrecision
+}
+
+// SecuritySubmissionPrecisionRollup aggregates human-submitted reports across
+// a namespace, grouped by the program they were filed with and by workflow.
+type SecuritySubmissionPrecisionRollup struct {
+	Total      SecuritySubmissionPrecision
+	ByProgram  []SecuritySubmissionPrecisionGroup
+	ByWorkflow []SecuritySubmissionPrecisionGroup
 }
 
 type SecuritySubmissionReservationRequest struct {
@@ -413,10 +481,26 @@ type SecurityResearchStore interface {
 	// and the finding fingerprint/title attached.
 	ListSecurityResearchSubmissions(context.Context, string, uuid.UUID) ([]SecurityResearchSubmission, error)
 	ReserveSecurityResearchSubmission(context.Context, string, SecuritySubmissionReservationRequest) (*SecuritySubmissionReservationResult, error)
-	MarkSecurityResearchSubmissionSubmitted(context.Context, string, uuid.UUID, time.Time) error
+	// GetSecurityResearchSubmission returns one submission with its target key
+	// and revision attached so callers can authorize against the owning scan.
+	GetSecurityResearchSubmission(context.Context, string, uuid.UUID) (*SecurityResearchSubmission, error)
+	// MarkSecurityResearchSubmissionPackaged records that an agent stored a
+	// bounty bundle for the candidate. It consumes the rolling-budget
+	// reservation but does not count as a filed report.
+	MarkSecurityResearchSubmissionPackaged(context.Context, string, uuid.UUID, time.Time) error
+	// MarkSecurityResearchSubmissionSubmitted records the human handoff of a
+	// candidate, reserved, or packaged submission to an external program.
+	MarkSecurityResearchSubmissionSubmitted(context.Context, string, uuid.UUID, SecuritySubmissionHandoff) (*SecurityResearchSubmission, error)
+	// ListSecuritySubmissionQueue returns every confirmed or triaged finding in
+	// the namespace with a ready submission bundle, excluding findings from the
+	// given scan names, ordered by severity then bundle readiness.
+	ListSecuritySubmissionQueue(context.Context, string, []string) ([]SecuritySubmissionQueueItem, error)
 	RecordSecuritySubmissionOutcome(context.Context, string, uuid.UUID, SecuritySubmissionOutcomeInput) (*SecuritySubmissionOutcome, bool, error)
 	ListSecuritySubmissionOutcomeEvents(context.Context, string, uuid.UUID, uuid.UUID) ([]SecuritySubmissionOutcomeEvent, error)
 	GetSecuritySubmissionPrecision(context.Context, string, uuid.UUID, string, *time.Time) (*SecuritySubmissionPrecision, error)
+	// GetSecuritySubmissionPrecisionRollup aggregates human-submitted
+	// precision across the namespace, excluding the given scan target keys.
+	GetSecuritySubmissionPrecisionRollup(context.Context, string, *time.Time, []string) (*SecuritySubmissionPrecisionRollup, error)
 	CreateSecurityResearchDecisionSnapshot(context.Context, string, *SecurityResearchDecisionSnapshot) (*SecurityResearchDecisionSnapshot, bool, error)
 }
 
