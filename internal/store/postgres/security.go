@@ -725,13 +725,17 @@ const setSecurityFindingStatusSQL = `
 	WHERE f.namespace = $1 AND f.id = $2 AND prev.id = f.id
 	RETURNING prev.status`
 
-func (s *Store) SetSecurityFindingStatus(ctx context.Context, namespace string, id uuid.UUID, status, actor, note string, acceptedRiskExpiresAt *time.Time) error {
+func (s *Store) SetSecurityFindingStatus(ctx context.Context, namespace string, id uuid.UUID, status, actor, note string, opts store.SetSecurityFindingStatusOpts) error {
 	if err := requireSecurityNamespace(namespace); err != nil {
 		return err
 	}
 	if !store.ValidSecurityFindingStatus(status) {
 		return fmt.Errorf("invalid security finding status %q", status)
 	}
+	if status == store.SecurityFindingStatusAcceptedRisk && !opts.HumanActor {
+		return store.ErrSecurityFindingAcceptedRiskHumanOnly
+	}
+	acceptedRiskExpiresAt := opts.AcceptedRiskExpiresAt
 	if acceptedRiskExpiresAt != nil && status != store.SecurityFindingStatusAcceptedRisk {
 		return fmt.Errorf("accepted-risk expiry requires status %q, got %q", store.SecurityFindingStatusAcceptedRisk, status)
 	}

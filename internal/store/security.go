@@ -242,7 +242,7 @@ func SecurityFindingDefinitivePreBountyExclusion(events []SecurityFindingEvent, 
 }
 
 func securityFindingPreBountyPolicyBlock(events []SecurityFindingEvent, executionID string, blockNotReady bool) string {
-	var seenScope, seenPriorArt bool
+	var seenScope, seenPriorArt, seenReproduction bool
 	for _, event := range events {
 		decision, ok := securityFindingPolicyDecisionFromEvent(event, executionID)
 		if !ok {
@@ -279,6 +279,16 @@ func securityFindingPreBountyPolicyBlock(events []SecurityFindingEvent, executio
 			if decision.Disposition == "known_issue" || decision.Disposition == "bot_findable" || decision.Disposition == "fixed_release" || blockNotReady && decision.Disposition == "not_ready" {
 				return decision.Disposition
 			}
+		case "reproduction":
+			if seenReproduction {
+				continue
+			}
+			seenReproduction = true
+			// An environment that could not run the PoC is inconclusive: it
+			// blocks packaging but is never a definitive exclusion.
+			if blockNotReady && SecurityFindingPolicyDispositionRetryable(decision.Disposition) {
+				return decision.Disposition
+			}
 		}
 	}
 	return ""
@@ -294,10 +304,48 @@ func ValidSecurityFindingPolicyDecision(check, disposition string) bool {
 	case "prior_art":
 		return disposition == "known_issue" || disposition == "bot_findable" || disposition == "fixed_release" || disposition == "novel" || disposition == "not_ready"
 	case "bounty":
-		return disposition == "accepted" || disposition == "disproved" || disposition == "scope_excluded" || disposition == "known_issue" || disposition == "bot_findable" || disposition == "not_ready"
+		return disposition == "accepted" || disposition == "disproved" || disposition == "scope_excluded" || disposition == "known_issue" || disposition == "bot_findable" || disposition == "not_ready" || disposition == SecurityFindingPolicyDispositionUnreproducibleEnv
+	case "reproduction":
+		return disposition == "reproduced" || disposition == "not_reproduced" || disposition == "not_ready" || disposition == SecurityFindingPolicyDispositionUnreproducibleEnv
 	default:
 		return false
 	}
+}
+
+// SecurityFindingPolicyDispositionUnreproducibleEnv records that a post-script
+// could not run the stored PoC because of the environment (build failure,
+// missing toolchain, unconfigured fork endpoint). Like not_ready it blocks
+// report packaging without changing the finding's technical status, and the
+// controller retries the post-script.
+const SecurityFindingPolicyDispositionUnreproducibleEnv = "unreproducible_env"
+
+// SecurityFindingPolicyDispositionRetryable reports whether disposition is an
+// inconclusive environment outcome the controller should retry rather than
+// treat as a verdict.
+func SecurityFindingPolicyDispositionRetryable(disposition string) bool {
+	return disposition == "not_ready" || disposition == SecurityFindingPolicyDispositionUnreproducibleEnv
+}
+
+// SecurityFindingRetryablePolicyDisposition returns the newest policy
+// disposition recorded by actor for executionID when it is an inconclusive
+// environment outcome (see SecurityFindingPolicyDispositionRetryable), or ""
+// when the actor's latest decision is a real verdict or it recorded none.
+// Events must be ordered newest first.
+func SecurityFindingRetryablePolicyDisposition(events []SecurityFindingEvent, executionID, actor string) string {
+	for _, event := range events {
+		if event.Actor != actor {
+			continue
+		}
+		decision, ok := securityFindingPolicyDecisionFromEvent(event, executionID)
+		if !ok {
+			continue
+		}
+		if SecurityFindingPolicyDispositionRetryable(decision.Disposition) {
+			return decision.Disposition
+		}
+		return ""
+	}
+	return ""
 }
 
 type securityFindingPolicyDecision struct {
@@ -627,6 +675,30 @@ type SecurityFindingArtifactStore interface {
 	ListSecurityFindingArtifacts(ctx context.Context, namespace string, findingID uuid.UUID, executionID string) ([]SecurityFindingArtifact, error)
 }
 
+// ErrSecurityFindingAcceptedRiskHumanOnly is returned when a non-human caller
+// tries to record accepted_risk.
+var ErrSecurityFindingAcceptedRiskHumanOnly = errors.New("accepted_risk is a human decision recorded from the dashboard")
+
+// SetSecurityFindingStatusOpts carries the optional inputs of a status change.
+type SetSecurityFindingStatusOpts struct {
+	// HumanActor marks the change as a human decision made from the dashboard.
+	// Only human actors may record accepted_risk; scan runs and post-scripts
+	// never do.
+	HumanActor bool
+	// AcceptedRiskExpiresAt optionally bounds an accepted_risk decision.
+	AcceptedRiskExpiresAt *time.Time
+}
+
+// SecurityResearchHypothesisReopenStore is the optional capability for
+// reopening every blocked hypothesis of a revision when a new execution
+// starts for it, so environment failures in one execution do not permanently
+// bury research leads.
+type SecurityResearchHypothesisReopenStore interface {
+	// ReopenBlockedSecurityResearchHypotheses moves every blocked hypothesis
+	// of the revision back to investigating and returns how many changed.
+	ReopenBlockedSecurityResearchHypotheses(ctx context.Context, namespace string, revisionID uuid.UUID) (int, error)
+}
+
 // SecurityFindingStore persists security scans, findings, and finding events.
 type SecurityFindingStore interface {
 	// UpsertSecurityScan inserts or updates the scan keyed by
@@ -673,13 +745,14 @@ type SecurityFindingStore interface {
 	// in the namespace. An empty namespace is rejected with an error.
 	GetSecurityFinding(ctx context.Context, namespace string, id uuid.UUID) (*SecurityFindingRecord, error)
 	// SetSecurityFindingStatus validates the status, updates the finding in
-	// the namespace, and appends a status-change event. When the new status
-	// is accepted_risk an optional expiry may be recorded; any other status
-	// rejects a non-nil expiry and clears a previously stored one. The first
-	// transition out of "open" stamps triaged_at. It returns
-	// ErrSecurityFindingNotFound when no finding matches. An empty namespace
-	// is rejected with an error.
-	SetSecurityFindingStatus(ctx context.Context, namespace string, id uuid.UUID, status, actor, note string, acceptedRiskExpiresAt *time.Time) error
+	// the namespace, and appends a status-change event. accepted_risk is a
+	// human decision: it is rejected with ErrSecurityFindingAcceptedRiskHumanOnly
+	// unless opts.HumanActor is set. When the new status is accepted_risk an
+	// optional expiry may be recorded; any other status rejects a non-nil
+	// expiry and clears a previously stored one. The first transition out of
+	// "open" stamps triaged_at. It returns ErrSecurityFindingNotFound when no
+	// finding matches. An empty namespace is rejected with an error.
+	SetSecurityFindingStatus(ctx context.Context, namespace string, id uuid.UUID, status, actor, note string, opts SetSecurityFindingStatusOpts) error
 	// SetSecurityFindingAssignee sets (or clears, with "") the finding's
 	// assignee and appends an "assignee_changed" event with from/to detail.
 	SetSecurityFindingAssignee(ctx context.Context, namespace string, id uuid.UUID, assignee, actor string) error

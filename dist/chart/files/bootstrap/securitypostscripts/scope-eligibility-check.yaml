@@ -45,4 +45,4 @@ spec:
     carries status `false_positive`, `accepted_risk`, or `fixed` keeps it: record
     your note and leave the status unchanged. Otherwise retain `confirmed` when
     technically confirmed and set status `triaged` for every other disposition.
-    Set status `accepted_risk` only when the workflow explicitly reaches a risk-acceptance decision; never infer it from a scope exclusion.
+    `accepted_risk` is a human decision recorded from the dashboard; a post-script never sets it. Never infer risk acceptance from a scope exclusion.

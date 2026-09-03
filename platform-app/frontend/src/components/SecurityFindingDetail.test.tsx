@@ -140,6 +140,14 @@ function minimalFindingFixture() {
 function eventsFixture() {
   return [
     create(SecurityFindingEventSchema, {
+      id: 4n,
+      eventType: "policy_disposition",
+      actor: "secscan-nightly-1-ps-poc-validator",
+      note: "repository does not build: missing toolchain",
+      detail: '{"execution_id":"exec-1","policy_check":"reproduction","policy_disposition":"unreproducible_env"}',
+      createdAt: timestampFromDate(new Date("2026-02-05T10:00:00Z")),
+    }),
+    create(SecurityFindingEventSchema, {
       id: 3n,
       eventType: "status_reviewed",
       actor: "validator",
@@ -251,6 +259,9 @@ describe("SecurityFindingDetail", () => {
     expect(screen.getByText("Open → Confirmed")).toBeTruthy();
     expect(screen.getByText("Status reviewed")).toBeTruthy();
     expect(screen.getByText("still reproducible")).toBeTruthy();
+    expect(screen.getByText("Policy disposition")).toBeTruthy();
+    expect(screen.getByText("reproduction: unreproducible env")).toBeTruthy();
+    expect(screen.getByText("repository does not build: missing toolchain")).toBeTruthy();
     expect(screen.getByText("needs a second look")).toBeTruthy();
 
     // Source agent run link.

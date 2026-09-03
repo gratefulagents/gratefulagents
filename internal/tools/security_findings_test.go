@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -192,12 +193,15 @@ func (s *fakeSecurityFindingStore) GetSecurityFinding(_ context.Context, namespa
 	return nil, nil
 }
 
-func (s *fakeSecurityFindingStore) SetSecurityFindingStatus(_ context.Context, namespace string, id uuid.UUID, status, actor, note string, _ *time.Time) error {
+func (s *fakeSecurityFindingStore) SetSecurityFindingStatus(_ context.Context, namespace string, id uuid.UUID, status, actor, note string, opts store.SetSecurityFindingStatusOpts) error {
 	if namespace == "" {
 		return fmt.Errorf("namespace is required")
 	}
 	if !store.ValidSecurityFindingStatus(status) {
 		return fmt.Errorf("invalid security finding status %q", status)
+	}
+	if status == store.SecurityFindingStatusAcceptedRisk && !opts.HumanActor {
+		return store.ErrSecurityFindingAcceptedRiskHumanOnly
 	}
 	for _, rec := range s.findings {
 		if rec.Namespace == namespace && rec.ID == id {
@@ -739,8 +743,8 @@ func TestReportSecurityFindingSchemaOmitsScanIdentity(t *testing.T) {
 	if strings.Contains(updateSchema, `"actor"`) {
 		t.Errorf("update_security_finding must not accept a model-supplied actor: %s", updateSchema)
 	}
-	if !strings.Contains(updateSchema, `"accepted_risk"`) {
-		t.Errorf("update_security_finding must allow agents to record accepted risk: %s", updateSchema)
+	if strings.Contains(updateSchema, `"accepted_risk"`) {
+		t.Errorf("update_security_finding must not offer accepted_risk to scan runs: %s", updateSchema)
 	}
 }
 
@@ -812,11 +816,11 @@ func TestUpdateSecurityFindingRejectsForeignFindings(t *testing.T) {
 	}
 	result = execTool(t, registry, "update_security_finding",
 		`{"id":"`+own.ID.String()+`","status":"accepted_risk","note":"agent chose to accept it"}`)
-	if result.IsError {
-		t.Errorf("scan agent risk acceptance must be allowed: %s", result.Content)
+	if !result.IsError {
+		t.Errorf("scan agent risk acceptance must be refused: %s", result.Content)
 	}
-	if own.Status != store.SecurityFindingStatusAcceptedRisk {
-		t.Errorf("risk acceptance left status at %q", own.Status)
+	if own.Status != store.SecurityFindingStatusConfirmed {
+		t.Errorf("refused risk acceptance changed status to %q", own.Status)
 	}
 	result = execTool(t, registry, "update_security_finding",
 		`{"id":"`+own.ID.String()+`","status":"confirmed","policy_disposition":"known_issue","note":"missing provenance"}`)
@@ -989,7 +993,7 @@ func TestSecurityFindingIDLookupEnforcesExecutionScope(t *testing.T) {
 				input string
 			}{
 				{tool: "get_security_finding", input: `{"id":"` + id + `"}`},
-				{tool: "update_security_finding", input: `{"id":"` + id + `","status":"accepted_risk","note":"wrong execution"}`},
+				{tool: "update_security_finding", input: `{"id":"` + id + `","status":"false_positive","note":"wrong execution"}`},
 			} {
 				result := execTool(t, other, call.tool, call.input)
 				if !result.IsError || !strings.Contains(result.Content, "does not belong") {
@@ -2045,6 +2049,13 @@ func TestSubmitSecurityScanReportExcludesIneligibleFindings(t *testing.T) {
 		if f.status == store.SecurityFindingStatusOpen {
 			continue
 		}
+		if f.status == store.SecurityFindingStatusAcceptedRisk {
+			// accepted_risk is a human decision recorded from the dashboard.
+			if err := findingStore.SetSecurityFindingStatus(context.Background(), scanCtx.Namespace, findingStore.findings[i].ID, f.status, "reviewer", "triaged", store.SetSecurityFindingStatusOpts{HumanActor: true}); err != nil {
+				t.Fatalf("human accepted_risk for %q failed: %v", f.title, err)
+			}
+			continue
+		}
 		update := execTool(t, registry, "update_security_finding",
 			fmt.Sprintf(`{"fingerprint":%q,"status":%q,"note":"triaged"}`, findingStore.findings[i].Fingerprint, f.status))
 		if update.IsError {
@@ -2330,5 +2341,91 @@ func TestUpdateSecurityFindingMarksDuplicates(t *testing.T) {
 	listed := execTool(t, registry, "list_security_findings", `{}`)
 	if listed.IsError || strings.Contains(listed.Content, "duplicate-fp-00001") || !strings.Contains(listed.Content, "canonical-fp-000001") {
 		t.Fatalf("list must hide duplicates by default: %+v", listed)
+	}
+}
+
+// accepted_risk is a human decision recorded from the dashboard: a scan run
+// or post-script that tries to set it is refused before any store write, the
+// tool schema no longer advertises it, and an existing human acceptance is
+// still preserved during post-processing.
+func TestUpdateSecurityFindingRejectsAcceptedRiskFromScanRuns(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	registry := newSecurityTestRegistry(t, findingStore, nil)
+	if report := execTool(t, registry, "report_security_finding",
+		`{"title":"SQL injection in login","category":"injection","severity":"high","description":"d"}`); report.IsError {
+		t.Fatalf("report failed: %s", report.Content)
+	}
+	fingerprint := findingStore.findings[0].Fingerprint
+
+	result := execTool(t, registry, "update_security_finding",
+		`{"fingerprint":"`+fingerprint+`","status":"accepted_risk","note":"already terminal, skipping"}`)
+	if !result.IsError || !strings.Contains(result.Content, "accepted_risk is a human decision recorded from the dashboard") {
+		t.Fatalf("accepted_risk from a scan run = %+v, want a clear rejection", result)
+	}
+	if len(findingStore.events) != 0 || findingStore.findings[0].Status != store.SecurityFindingStatusOpen {
+		t.Fatalf("rejected update mutated the finding: status=%q events=%d", findingStore.findings[0].Status, len(findingStore.events))
+	}
+	if err := findingStore.SetSecurityFindingStatus(context.Background(), findingStore.findings[0].Namespace, findingStore.findings[0].ID,
+		store.SecurityFindingStatusAcceptedRisk, "scan", "", store.SetSecurityFindingStatusOpts{}); !errors.Is(err, store.ErrSecurityFindingAcceptedRiskHumanOnly) {
+		t.Fatalf("store accepted a non-human accepted_risk: %v", err)
+	}
+
+	tool := registry.Get("update_security_finding")
+	var schema struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(tool.InputSchema(), &schema); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	if slices.Contains(schema.Properties["status"].Enum, store.SecurityFindingStatusAcceptedRisk) {
+		t.Fatalf("status enum %v still advertises accepted_risk", schema.Properties["status"].Enum)
+	}
+	if !slices.Contains(schema.Properties["policy_disposition"].Enum, store.SecurityFindingPolicyDispositionUnreproducibleEnv) ||
+		!slices.Contains(schema.Properties["policy_check"].Enum, "reproduction") {
+		t.Fatalf("schema does not offer the unreproducible_env escape hatch: %s", tool.InputSchema())
+	}
+	if strings.Contains(tool.Description(), "fixed, accepted_risk, or open") {
+		t.Fatal("description still lists accepted_risk as a status the model may set")
+	}
+
+	// A human-set accepted_risk stays terminal during post-processing.
+	findingStore.findings[0].Status = store.SecurityFindingStatusAcceptedRisk
+	postScriptCtx := testScanContext()
+	postScriptCtx.PostScriptFingerprint = fingerprint
+	postScript := newSecurityTestRegistryWithCtx(t, findingStore, nil, postScriptCtx)
+	result = execTool(t, postScript, "update_security_finding",
+		`{"fingerprint":"`+fingerprint+`","status":"triaged","note":"re-validated"}`)
+	if !result.IsError || !strings.Contains(result.Content, "terminal finding status accepted_risk is preserved") {
+		t.Fatalf("post-script overrode a human accepted_risk: %+v", result)
+	}
+}
+
+// unreproducible_env records an environment failure without touching the
+// technical status, for both the final bounty gate and the PoC steps.
+func TestUpdateSecurityFindingRecordsUnreproducibleEnvironment(t *testing.T) {
+	findingStore := newFakeSecurityFindingStore()
+	registry := newSecurityTestRegistry(t, findingStore, nil)
+	if report := execTool(t, registry, "report_security_finding",
+		`{"title":"SQL injection in login","category":"injection","severity":"high","description":"d"}`); report.IsError {
+		t.Fatalf("report failed: %s", report.Content)
+	}
+	fingerprint := findingStore.findings[0].Fingerprint
+
+	for _, check := range []string{"reproduction", "bounty"} {
+		result := execTool(t, registry, "update_security_finding",
+			`{"fingerprint":"`+fingerprint+`","status":"triaged","policy_check":"`+check+`","policy_disposition":"unreproducible_env","note":"repository does not build: missing toolchain"}`)
+		if result.IsError {
+			t.Fatalf("%s unreproducible_env rejected: %s", check, result.Content)
+		}
+	}
+	if findingStore.findings[0].Status != store.SecurityFindingStatusTriaged {
+		t.Fatalf("status = %q, want triaged", findingStore.findings[0].Status)
+	}
+	result := execTool(t, registry, "update_security_finding",
+		`{"fingerprint":"`+fingerprint+`","status":"triaged","policy_check":"scope","policy_disposition":"unreproducible_env","note":"n"}`)
+	if !result.IsError || !strings.Contains(result.Content, "not valid for policy_check") {
+		t.Fatalf("scope accepted unreproducible_env: %+v", result)
 	}
 }

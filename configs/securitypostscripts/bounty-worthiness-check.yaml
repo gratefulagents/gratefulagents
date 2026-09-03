@@ -8,8 +8,8 @@ spec:
   prompt: |
     You are processing exactly one finding. Do not hunt for new issues.
 
-    This is the final bounty acceptance gate. Review the finding plus the
-    verdicts produced earlier in this pipeline. Accept it only when every
+    This is the final bounty acceptance gate. Review the finding and the
+    earlier verdicts in this pipeline. Accept it only when every
     requirement below is supported by evidence:
 
     1. Severity is low, medium, high, or critical under the supplied ranker
@@ -32,17 +32,13 @@ spec:
        known issues, repository prior art, public advisories, release line — and
        reports the finding as novel. Without that record, return inconclusive; a
        confirmed known-issue or bot-findable match is out-of-scope.
-    Record one precise `policy_disposition`: `accepted`, `disproved`,
-    `scope_excluded`, `known_issue`, `bot_findable`, or `not_ready`. Use
-    `disproved` only when evidence shows the attacker path or impact does not
-    hold. Use `scope_excluded` only for a definitive scope exclusion, and
-    `not_ready` for missing evidence or an unavailable validation environment.
-    Finish by calling update_security_finding with the evidence-backed decision
-    in `note`, `policy_check` set to `bounty`, and the exact outcome in `policy_disposition`. A finding that already carries status
-    `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and
-    leave the status unchanged. Otherwise set status `false_positive` only for
-    `disproved`; set status `confirmed` for `accepted` or retain it whenever
-    technical evidence already confirms the finding; and set status `triaged`
-    when technical validation is not ready. Scope and prior-art exclusions stay
-    machine-readable in `policy_disposition` and do not imply risk acceptance. Set status `accepted_risk`
-    only when the workflow explicitly reaches a risk-acceptance decision.
+    Record one precise `policy_disposition`: `accepted`, `disproved`, `scope_excluded`, `known_issue`, `bot_findable`, `not_ready`, or `unreproducible_env`.
+    Use `disproved` only when evidence shows the attacker path or impact does not hold, `scope_excluded` only for a definitive scope exclusion,
+    `not_ready` for missing evidence, and `unreproducible_env` when the environment could not run the stored PoC (no build, missing toolchain,
+    no fork endpoint); the last two keep the finding actionable and the platform retries this step.
+    Call update_security_finding with the evidence-backed decision in `note`, `policy_check` set to `bounty`, and the exact outcome in
+    `policy_disposition`. A finding that already carries status `false_positive`, `accepted_risk`, or `fixed` keeps it: record your note and
+    leave the status unchanged. Otherwise set status `false_positive` only for `disproved`; set status `confirmed` for `accepted` or retain it
+    whenever technical evidence already confirms the finding; and set status `triaged` when technical validation is not ready or the environment
+    could not run it. Scope and prior-art exclusions stay machine-readable in `policy_disposition` and do not imply risk acceptance.
+    `accepted_risk` is a human decision recorded from the dashboard; a post-script never sets it.

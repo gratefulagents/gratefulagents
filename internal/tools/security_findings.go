@@ -604,7 +604,7 @@ func (s *securityScanState) setFindingStatus(ctx context.Context, id uuid.UUID, 
 		}
 	}
 	if s.findingStore != nil {
-		return s.findingStore.SetSecurityFindingStatus(ctx, s.scanCtx.Namespace, id, status, actor, note, nil)
+		return s.findingStore.SetSecurityFindingStatus(ctx, s.scanCtx.Namespace, id, status, actor, note, store.SetSecurityFindingStatusOpts{})
 	}
 	if !store.ValidSecurityFindingStatus(status) {
 		return fmt.Errorf("invalid status %q", status)
@@ -1161,10 +1161,12 @@ var securityPolicyDispositions = map[string]bool{
 	"accepted": true, "disproved": true, "scope_excluded": true,
 	"scope_eligible": true, "known_issue": true, "bot_findable": true,
 	"fixed_release": true, "novel": true, "not_ready": true,
+	"reproduced": true, "not_reproduced": true,
+	store.SecurityFindingPolicyDispositionUnreproducibleEnv: true,
 }
 
 var securityPolicyChecks = map[string]bool{
-	"scope": true, "prior_art": true, "bounty": true,
+	"scope": true, "prior_art": true, "bounty": true, "reproduction": true,
 }
 
 func (t *updateSecurityFindingTool) Name() string { return "update_security_finding" }
@@ -1172,7 +1174,11 @@ func (t *updateSecurityFindingTool) Name() string { return "update_security_find
 func (t *updateSecurityFindingTool) Description() string {
 	return "Set the status of a security finding recorded by this scan with an audit note: " +
 		"confirmed (you built a PoC or proved exploitability), false_positive (you disproved " +
-		"it), triaged, fixed, accepted_risk, or open. Identify the finding by the fingerprint " +
+		"it), triaged, fixed, or open. accepted_risk is a human decision recorded from the " +
+		"dashboard and cannot be set here. When the stored PoC could not run because of the " +
+		"environment (build failure, missing toolchain, unconfigured fork endpoint), keep the " +
+		"status triaged and record policy_check reproduction with policy_disposition " +
+		"unreproducible_env. Identify the finding by the fingerprint " +
 		"returned from report_security_finding / list_security_findings (or its id). Only " +
 		"findings belonging to this scan can be updated; the audit trail records this run as " +
 		"the actor. When the finding describes the same root cause as another finding in this " +
@@ -1188,10 +1194,10 @@ func (t *updateSecurityFindingTool) InputSchema() json.RawMessage {
 		"properties": {
 			"fingerprint": {"type": "string", "description": "Fingerprint of the finding to update"},
 			"id": {"type": "string", "description": "Finding UUID, as an alternative to fingerprint"},
-			"status": {"type": "string", "enum": ["open", "triaged", "confirmed", "false_positive", "fixed", "accepted_risk"], "description": "New status"},
+			"status": {"type": "string", "enum": ["open", "triaged", "confirmed", "false_positive", "fixed"], "description": "New status; accepted_risk is reserved for human reviewers"},
 			"duplicate_of": {"type": "string", "description": "Fingerprint or UUID of the canonical finding in this scan that this finding duplicates (same root cause). Use this instead of status false_positive for duplicates; the canonical finding must not itself be a duplicate"},
-			"policy_check": {"type": "string", "enum": ["scope", "prior_art", "bounty"], "description": "Policy check that produced policy_disposition; required with a disposition so independent decisions can be resolved safely"},
-			"policy_disposition": {"type": "string", "enum": ["accepted", "disproved", "scope_excluded", "scope_eligible", "known_issue", "bot_findable", "fixed_release", "novel", "not_ready"], "description": "Optional machine-readable program-policy outcome, independent of technical status"},
+			"policy_check": {"type": "string", "enum": ["scope", "prior_art", "bounty", "reproduction"], "description": "Policy check that produced policy_disposition; required with a disposition so independent decisions can be resolved safely"},
+			"policy_disposition": {"type": "string", "enum": ["accepted", "disproved", "scope_excluded", "scope_eligible", "known_issue", "bot_findable", "fixed_release", "novel", "not_ready", "reproduced", "not_reproduced", "unreproducible_env"], "description": "Optional machine-readable program-policy outcome, independent of technical status. unreproducible_env (checks bounty and reproduction) means the environment prevented running the PoC; the finding stays actionable and the step is retried"},
 			"note": {"type": "string", "description": "Why the status changed, e.g. the PoC that confirmed it or the reasoning that disproved it"}
 		},
 		"required": ["note"],
@@ -1214,12 +1220,15 @@ func (t *updateSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 	if status == "" && duplicateOf == "" {
 		return Result{Content: "either status or duplicate_of is required", IsError: true}, nil
 	}
+	if status == store.SecurityFindingStatusAcceptedRisk {
+		return Result{Content: "accepted_risk is a human decision recorded from the dashboard; keep the finding triaged and explain in note", IsError: true}, nil
+	}
 	if status != "" && !store.ValidSecurityFindingStatus(status) {
-		return Result{Content: fmt.Sprintf("invalid status %q (valid: %s, %s, %s, %s, %s, %s)",
+		return Result{Content: fmt.Sprintf("invalid status %q (valid: %s, %s, %s, %s, %s)",
 			in.Status,
 			store.SecurityFindingStatusOpen, store.SecurityFindingStatusTriaged,
 			store.SecurityFindingStatusConfirmed, store.SecurityFindingStatusFalsePositive,
-			store.SecurityFindingStatusFixed, store.SecurityFindingStatusAcceptedRisk), IsError: true}, nil
+			store.SecurityFindingStatusFixed), IsError: true}, nil
 	}
 	note := strings.TrimSpace(in.Note)
 	if note == "" {
@@ -1247,7 +1256,7 @@ func (t *updateSecurityFindingTool) Execute(ctx context.Context, input json.RawM
 		}
 		check := strings.ToLower(strings.TrimSpace(in.PolicyCheck))
 		if !securityPolicyChecks[check] {
-			return Result{Content: "policy_check must be scope, prior_art, or bounty when policy_disposition is set", IsError: true}, nil
+			return Result{Content: "policy_check must be scope, prior_art, bounty, or reproduction when policy_disposition is set", IsError: true}, nil
 		}
 		if !store.ValidSecurityFindingPolicyDecision(check, disposition) {
 			return Result{Content: fmt.Sprintf("policy_disposition %q is not valid for policy_check %q", disposition, check), IsError: true}, nil

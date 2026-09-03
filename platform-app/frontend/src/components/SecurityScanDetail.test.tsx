@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
-import { SecurityScanDetail } from "@/components/SecurityScanDetail";
+import { SecurityScanDetail, blockingPolicyDisposition } from "@/components/SecurityScanDetail";
 import {
   SecurityFindingEventSchema,
   SecurityFindingSchema,
@@ -995,6 +995,57 @@ describe("SecurityScanDetail budgets, retention, and suppression", () => {
     const note = await screen.findByTestId("finding-suppression-note");
     expect(note.textContent).toContain("rule prod-policy/vendored");
     expect(note.textContent).toContain("Reason: third-party code");
+  });
+});
+
+function policyEvent(id: bigint, check: string, disposition: string) {
+  return create(SecurityFindingEventSchema, {
+    id,
+    eventType: "policy_disposition",
+    actor: "secscan-nightly-1-ps-poc-validator",
+    detail: JSON.stringify({ execution_id: "exec-1", policy_check: check, policy_disposition: disposition }),
+    createdAt: timestampFromDate(new Date("2026-02-03T10:00:00Z")),
+  });
+}
+
+describe("blockingPolicyDisposition", () => {
+  it("surfaces an environment block until a verdict or a bounty acceptance supersedes it", () => {
+    const blocked = [policyEvent(2n, "reproduction", "unreproducible_env"), policyEvent(1n, "scope", "scope_eligible")];
+    expect(blockingPolicyDisposition(blocked)).toEqual({ check: "reproduction", disposition: "unreproducible_env" });
+    expect(blockingPolicyDisposition([policyEvent(3n, "reproduction", "reproduced"), ...blocked])).toBeNull();
+    expect(blockingPolicyDisposition([policyEvent(3n, "bounty", "accepted"), ...blocked])).toBeNull();
+    expect(blockingPolicyDisposition([policyEvent(3n, "bounty", "known_issue"), ...blocked])).toEqual({
+      check: "bounty",
+      disposition: "known_issue",
+    });
+    expect(blockingPolicyDisposition(findingEventsResponse().events)).toBeNull();
+  });
+});
+
+describe("SecurityScanDetail policy disposition badge", () => {
+  it("shows the blocking disposition for the selected finding and nothing when unblocked", async () => {
+    getSecurityScan.mockResolvedValue(scanFixture());
+    getSecurityFindingSummary.mockResolvedValue({ counts: {} });
+    listSecurityFindings.mockResolvedValue({ findings: [findingFixture()] });
+    getSecurityFinding.mockResolvedValue({
+      finding: findingFixture(),
+      events: [policyEvent(2n, "reproduction", "unreproducible_env"), ...findingEventsResponse().events],
+    });
+
+    renderDetail();
+    await screen.findByText("SQL injection in payment lookup");
+    openFinding("SQL injection in payment lookup");
+    const badge = await screen.findByTestId("finding-policy-disposition");
+    expect(badge.textContent).toBe("reproduction: unreproducible env");
+    expect(badge.getAttribute("title")).toContain("stays actionable");
+    cleanup();
+
+    getSecurityFinding.mockResolvedValue(findingEventsResponse());
+    renderDetail();
+    await screen.findByText("SQL injection in payment lookup");
+    openFinding("SQL injection in payment lookup");
+    await screen.findByText("confirmed exploitable");
+    expect(screen.queryByTestId("finding-policy-disposition")).toBeNull();
   });
 });
 

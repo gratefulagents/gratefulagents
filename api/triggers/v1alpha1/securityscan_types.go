@@ -736,6 +736,17 @@ type SecurityScanExecution struct {
 	// Default 30s. Rate-limited failures always wait at least this long.
 	// +optional
 	RetryBackoff metav1.Duration `json:"retryBackoff,omitempty"`
+
+	// maxEnvRetries bounds how many times a post-script job whose run
+	// recorded an inconclusive environment disposition (unreproducible_env or
+	// not_ready: the PoC could not run because the repository would not
+	// build, a toolchain was missing, or a fork endpoint was unconfigured) is
+	// re-run with retryBackoff before its result stands. The finding stays
+	// actionable either way. Default 2.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=10
+	// +optional
+	MaxEnvRetries *int32 `json:"maxEnvRetries,omitempty"`
 }
 
 // SecurityScanRanker is operator-authored severity-ranking rule text.
@@ -1653,6 +1664,15 @@ func (s SecurityScanSpec) EffectiveTaskMaxRetries(task SecurityScanTask) int32 {
 		return *s.Execution.TaskMaxRetries
 	}
 	return 1
+}
+
+// EffectivePostScriptMaxEnvRetries returns spec.execution.maxEnvRetries,
+// defaulting to 2.
+func (s SecurityScanSpec) EffectivePostScriptMaxEnvRetries() int32 {
+	if s.Execution != nil && s.Execution.MaxEnvRetries != nil {
+		return *s.Execution.MaxEnvRetries
+	}
+	return 2
 }
 
 // EffectiveRetryBackoff returns spec.execution.retryBackoff, defaulting to

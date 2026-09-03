@@ -218,7 +218,7 @@ func TestSecurityEmptyNamespaceRejected(t *testing.T) {
 	if _, err := s.GetSecurityFinding(ctx, "", id); err == nil {
 		t.Error("GetSecurityFinding(empty namespace) = nil error, want error")
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "", id, store.SecurityFindingStatusOpen, "a", "", nil); err == nil {
+	if err := s.SetSecurityFindingStatus(ctx, "", id, store.SecurityFindingStatusOpen, "a", "", store.SetSecurityFindingStatusOpts{}); err == nil {
 		t.Error("SetSecurityFindingStatus(empty namespace) = nil error, want error")
 	}
 	if _, err := s.ListSecurityFindingEvents(ctx, "", id, 10); err == nil {
@@ -235,7 +235,7 @@ func TestSecurityEmptyNamespaceRejected(t *testing.T) {
 func TestSetSecurityFindingStatusRejectsInvalidStatus(t *testing.T) {
 	s := &Store{}
 	for _, status := range []string{"", "bogus", "OPEN"} {
-		if err := s.SetSecurityFindingStatus(context.Background(), "default", uuid.New(), status, "a", "", nil); err == nil {
+		if err := s.SetSecurityFindingStatus(context.Background(), "default", uuid.New(), status, "a", "", store.SetSecurityFindingStatusOpts{}); err == nil {
 			t.Errorf("SetSecurityFindingStatus(%q) = nil error, want validation error", status)
 		}
 	}
@@ -524,16 +524,16 @@ func lifecycleTestFindingUpserts(ctx context.Context, t *testing.T, s *Store, sc
 func lifecycleTestStatusTransitions(ctx context.Context, t *testing.T, s *Store, scan *store.SecurityScanRecord, finding *store.SecurityFindingRecord) {
 	t.Helper()
 
-	if err := s.SetSecurityFindingStatus(ctx, "default", finding.ID, "bogus", "alice", "", nil); err == nil {
+	if err := s.SetSecurityFindingStatus(ctx, "default", finding.ID, "bogus", "alice", "", store.SetSecurityFindingStatusOpts{}); err == nil {
 		t.Error("SetSecurityFindingStatus(bogus) = nil error, want validation error")
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "default", uuid.New(), store.SecurityFindingStatusTriaged, "alice", "", nil); !errors.Is(err, store.ErrSecurityFindingNotFound) {
+	if err := s.SetSecurityFindingStatus(ctx, "default", uuid.New(), store.SecurityFindingStatusTriaged, "alice", "", store.SetSecurityFindingStatusOpts{}); !errors.Is(err, store.ErrSecurityFindingNotFound) {
 		t.Errorf("SetSecurityFindingStatus(missing) = %v, want ErrSecurityFindingNotFound", err)
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "other-ns", finding.ID, store.SecurityFindingStatusTriaged, "alice", "", nil); !errors.Is(err, store.ErrSecurityFindingNotFound) {
+	if err := s.SetSecurityFindingStatus(ctx, "other-ns", finding.ID, store.SecurityFindingStatusTriaged, "alice", "", store.SetSecurityFindingStatusOpts{}); !errors.Is(err, store.ErrSecurityFindingNotFound) {
 		t.Errorf("SetSecurityFindingStatus(wrong namespace) = %v, want ErrSecurityFindingNotFound", err)
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "default", finding.ID, store.SecurityFindingStatusConfirmed, "alice", "verified", nil); err != nil {
+	if err := s.SetSecurityFindingStatus(ctx, "default", finding.ID, store.SecurityFindingStatusConfirmed, "alice", "verified", store.SetSecurityFindingStatusOpts{}); err != nil {
 		t.Fatalf("SetSecurityFindingStatus: %v", err)
 	}
 
@@ -568,7 +568,7 @@ func lifecycleTestQueriesAndSummaries(ctx context.Context, t *testing.T, s *Stor
 	if err != nil || len(events) != 3 || events[1].EventType != "status_changed" || events[1].Actor != "alice" {
 		t.Fatalf("events after status = %v, %v, want status_changed second-newest", events, err)
 	}
-	if err := s.SetSecurityFindingStatus(ctx, "default", finding.ID, store.SecurityFindingStatusConfirmed, "reviewer", "still reproducible", nil); err != nil {
+	if err := s.SetSecurityFindingStatus(ctx, "default", finding.ID, store.SecurityFindingStatusConfirmed, "reviewer", "still reproducible", store.SetSecurityFindingStatusOpts{}); err != nil {
 		t.Fatalf("SetSecurityFindingStatus(no-op review): %v", err)
 	}
 	events, err = s.ListSecurityFindingEvents(ctx, "default", finding.ID, 0)

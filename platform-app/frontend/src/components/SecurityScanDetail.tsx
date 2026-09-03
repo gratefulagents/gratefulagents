@@ -59,6 +59,69 @@ export function statusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }
 
+/** Policy dispositions that do not block report packaging. */
+const NON_BLOCKING_POLICY_DISPOSITIONS = new Set([
+  "accepted",
+  "scope_eligible",
+  "novel",
+  "reproduced",
+  "not_reproduced",
+]);
+
+/**
+ * The newest policy disposition that blocks report packaging for the finding
+ * — e.g. `unreproducible_env` when the environment could not run the PoC, or
+ * `scope_excluded` — derived from the finding history (newest first). A later
+ * bounty acceptance clears earlier blocks; an inconclusive check keeps the
+ * finding actionable but unpackaged. Returns null when nothing blocks.
+ */
+export function blockingPolicyDisposition(
+  events: readonly SecurityFindingEvent[],
+): { check: string; disposition: string } | null {
+  const seen = new Set<string>();
+  for (const event of events) {
+    if (event.eventType !== "policy_disposition" || !event.detail) continue;
+    let detail: Record<string, unknown>;
+    try {
+      detail = JSON.parse(event.detail) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const check = typeof detail.policy_check === "string" ? detail.policy_check : "";
+    const disposition = typeof detail.policy_disposition === "string" ? detail.policy_disposition : "";
+    if (!disposition) continue;
+    if (check === "bounty") {
+      return disposition === "accepted" ? null : { check, disposition };
+    }
+    if (seen.has(check)) continue;
+    seen.add(check);
+    if (!NON_BLOCKING_POLICY_DISPOSITIONS.has(disposition)) return { check, disposition };
+  }
+  return null;
+}
+
+function PolicyDispositionBadge({ events }: { events: readonly SecurityFindingEvent[] }) {
+  const blocking = blockingPolicyDisposition(events);
+  if (!blocking) return null;
+  const label = blocking.check
+    ? `${statusLabel(blocking.check)}: ${statusLabel(blocking.disposition)}`
+    : statusLabel(blocking.disposition);
+  const isEnvironment = blocking.disposition === "unreproducible_env" || blocking.disposition === "not_ready";
+  const help = isEnvironment
+    ? "Validation could not run in this execution's environment; the finding stays actionable and the step is retried. Report packaging waits for a verdict."
+    : "This policy disposition excludes the finding from report packaging in this execution.";
+  return (
+    <Badge
+      variant="outline"
+      data-testid="finding-policy-disposition"
+      title={help}
+      className="border-amber-500/50 text-[11px] text-amber-700 dark:text-amber-300"
+    >
+      {label}
+    </Badge>
+  );
+}
+
 export function formatSeen(ts: Timestamp | undefined): ReactNode {
   if (!ts) return <EmptyCell meaning="Not recorded" />;
   return timestampDate(ts).toLocaleString();
@@ -1300,6 +1363,7 @@ export function SecurityScanDetail() {
                       <Badge variant="outline" className="text-[11px]">{selected.category}</Badge>
                     )}
                     <SuppressedBadge finding={selected} />
+                    <PolicyDispositionBadge events={events} />
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
