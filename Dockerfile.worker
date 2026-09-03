@@ -158,15 +158,22 @@ ENV GA_RUST_NIGHTLY=${RUST_NIGHTLY}
 # ── LLVM 22 (llvm-sys consumers such as paradigmxyz/reth) ───────────────────
 # reth's default build pulls llvm-sys 221, which needs a system LLVM 22 found
 # through LLVM_SYS_221_PREFIX. The Debian clang/llvm-dev above stays for
-# bindgen; this adds the apt.llvm.org toolchain side by side. libpolly is a
-# hard link-time dependency of llvm-sys.
+# bindgen; this adds only the llvm-sys inputs from apt.llvm.org side by side
+# (libpolly is a hard link-time dependency of llvm-sys). apt.llvm.org name
+# resolution is intermittently unavailable, so the fetch retries at both the
+# apt and shell level instead of failing the whole image on one DNS miss.
 RUN install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /etc/apt/keyrings/apt.llvm.org.asc \
+    && curl --retry 5 --retry-all-errors -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /etc/apt/keyrings/apt.llvm.org.asc \
     && chmod a+r /etc/apt/keyrings/apt.llvm.org.asc \
     && CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")" \
     && echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-22 main" > /etc/apt/sources.list.d/apt-llvm-org-22.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends llvm-22 llvm-22-dev libpolly-22-dev libclang-22-dev libzstd-dev zlib1g-dev libffi-dev \
+    && for attempt in 1 2 3 4 5; do \
+        apt-get -o Acquire::Retries=5 update \
+        && apt-get -o Acquire::Retries=5 install -y --no-install-recommends llvm-22-dev libpolly-22-dev libzstd-dev zlib1g-dev libffi-dev \
+        && break; \
+        if [ "$attempt" = 5 ]; then echo "apt.llvm.org install failed after $attempt attempts" >&2; exit 1; fi; \
+        echo "apt.llvm.org attempt $attempt failed; retrying" >&2; sleep 20; \
+    done \
     && rm -rf /var/lib/apt/lists/* \
     && /usr/lib/llvm-22/bin/llvm-config --version
 ENV LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
