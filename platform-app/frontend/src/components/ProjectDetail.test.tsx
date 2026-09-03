@@ -12,14 +12,25 @@ vi.mock("@/hooks/useAgentRuns", () => ({ useAgentRuns }));
 vi.mock("@/components/project-settings/ProjectSettingsPanel", () => ({
   ProjectSettingsPanel: () => <form aria-label="Project settings" data-testid="project-settings-panel" />,
 }));
-vi.mock("@/components/CreateRunDialog", async () => {
+vi.mock("@/components/NewChatComposer", async () => {
   const { useState } = await import("react");
   return {
-    CreateRunDialog: ({ defaultSource }: { defaultSource: string }) => {
-      // Mirror the real dialog's mount-scoped form initialization so route
-      // reuse regressions are visible in this parent integration test.
-      const [mountedSource] = useState(defaultSource);
-      return <div data-testid="create-run-project">{mountedSource}</div>;
+    NewChatComposer: ({
+      fixedProject,
+      textareaRef,
+    }: {
+      fixedProject: string;
+      textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
+    }) => {
+      // Mirror the real composer's mount-scoped state so route reuse
+      // regressions are visible in this parent integration test.
+      const [mountedSource] = useState(fixedProject);
+      return (
+        <div data-testid="run-composer-project">
+          {mountedSource}
+          <textarea ref={textareaRef} aria-label="Run request" />
+        </div>
+      );
     },
   };
 });
@@ -199,7 +210,7 @@ describe("ProjectDetail triggers", () => {
     expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
   });
 
-  it("remounts New Run with the current project when the project route changes", () => {
+  it("remounts the pinned run composer when the project route changes", () => {
     useProjects.mockReturnValue({
       projects: [
         {
@@ -237,9 +248,41 @@ describe("ProjectDetail triggers", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByTestId("create-run-project").textContent).toBe("alpha");
+    expect(screen.getByTestId("run-composer-project").textContent).toBe("alpha");
     fireEvent.click(screen.getByRole("link", { name: "Open Beta" }));
-    expect(screen.getByTestId("create-run-project").textContent).toBe("beta");
+    expect(screen.getByTestId("run-composer-project").textContent).toBe("beta");
+  });
+
+  it("focuses the Overview composer from the header New run button", () => {
+    useProjects.mockReturnValue({
+      projects: [{
+        namespace: "team",
+        name: "platform",
+        displayName: "Platform",
+        additionalRepoUrls: [],
+        allowedModels: [],
+        mcpPolicyAllowedServers: [],
+        metrics: {},
+        triggers: [],
+      }],
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    Element.prototype.scrollIntoView = vi.fn();
+
+    render(
+      <MemoryRouter initialEntries={["/projects/team/platform?tab=files"]}>
+        <Routes>
+          <Route path="/projects/:namespace/:name" element={<ProjectDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByTestId("run-composer-project")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "New run" }));
+    expect(screen.getByRole("tab", { name: "Overview", selected: true })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Run request" }));
   });
 
   it("opens the tab named in the URL", () => {

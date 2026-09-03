@@ -49,7 +49,7 @@ See [Run defaults](./run-defaults.md) for field-level guidance. Changing Project
 The Project page contains the following shared surfaces:
 
 - **Dashboard chat** under **Entry points** opens a focused chat with this Project selected.
-- **New Run** starts a Project run. Its advanced fields can override defaults for that run only.
+- The run composer at the top of **Overview** (also reached with **New run** in the header) starts a run in this Project. Its **Options** popover can override defaults for that run only.
 - **Entry points** lists the Project's GitHub, Slack, Cron, and Linear automations. Create and manage them here, not from a standalone integration page.
 - **Files & artifacts** keeps Project-scoped content that outlives an individual run.
 - **Runs** shows runs created for the Project.
