@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
-import { Copy, Download, FileText, FilterX, Info, SquareArrowOutUpRight, X } from "lucide-react";
+import {
+  Activity, Copy, Download, FileText, FilterX, Info, SquareArrowOutUpRight, X,
+} from "lucide-react";
 
 import {
   Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
@@ -16,10 +18,12 @@ import {
 } from "@/components/ui/filter-bar";
 import { DetailErrorState, classifyDetailError } from "@/components/ui/detail-state";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUrlFilters } from "@/hooks/useUrlFilters";
+import { useNow } from "@/hooks/useNow";
 import { SEVERITY_ORDER, optionsFrom } from "@/lib/securityFilters";
 import {
-  DetailHeader, DetailSection, FactList, Fact, FactLink,
+  DetailHeader, FactList, Fact, FactLink,
 } from "@/components/detail-page";
 import {
   EmptyCell, SEVERITIES, STATUS_PILL, SeverityBadge, severityTone,
@@ -35,6 +39,7 @@ import { packBudgetSummary } from "@/components/SecurityPolicyPackDialog";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import { downloadBlob } from "@/lib/download";
+import { formatDuration } from "@/lib/activityGrouping";
 import { toneColor, toneSoft, type StatusTone } from "@/lib/status";
 import type {
   BulkUpdateSecurityFindingOutcome,
@@ -141,7 +146,9 @@ const filterInputClass =
 /**
  * Canonical finding-filter contract, shared with the configuration and finding
  * detail pages. `selected` is the finding shown in the split panel: it lives in
- * the URL so a specific finding view is shareable and survives a reload.
+ * the URL so a specific finding view is shareable and survives a reload. `tab`
+ * is the page section in view; it is a place, not a filter, so "Clear" and
+ * saved views leave it alone.
  */
 const FILTER_SPEC = {
   q: "",
@@ -155,6 +162,7 @@ const FILTER_SPEC = {
   suppressed: "exclude",
   dupes: "hide",
   selected: "",
+  tab: "findings",
 } as const;
 
 /** Keys "Clear" resets and saved views persist; `selected` is not a filter. */
@@ -218,6 +226,43 @@ const IN_FLIGHT_SCAN_STATUSES = new Set(["pending", "queued", "running"]);
 
 const ARTIFACTS_PENDING_HINT =
   "Available once the scan run finishes and submits its results.";
+
+/** How often the page re-fetches the scan and its findings while in flight. */
+const LIVE_POLL_MS = 5_000;
+
+/**
+ * The page below the summary strip is split into places. Everything used to
+ * stack vertically — findings table, research dossier, execution DAG, run
+ * facts and sub-agent graph, integration and budget notes — which made the
+ * page several screens tall and buried the live run progress at the bottom.
+ */
+type ScanTab = "findings" | "research" | "run" | "settings";
+const SCAN_TABS: ReadonlyArray<{ id: ScanTab; label: string; help: string }> = [
+  {
+    id: "findings",
+    label: "Findings",
+    help: "Everything this run reported, with triage, filters, and saved views.",
+  },
+  {
+    id: "research",
+    label: "Research",
+    help: "The durable research dossier for this target: hypotheses, results, coverage, variant sweeps, and submissions.",
+  },
+  {
+    id: "run",
+    label: "Run",
+    help: "Live execution progress: phase, duration, cost, the sub-agent graph, and run controls.",
+  },
+  {
+    id: "settings",
+    label: "Integration",
+    help: "Repository check and notification delivery, effective budgets, and retention for this scan.",
+  },
+];
+
+function isScanTab(value: string): value is ScanTab {
+  return SCAN_TABS.some((entry) => entry.id === value);
+}
 
 function scanStatusTone(status: string): StatusTone {
   switch (status.toLowerCase()) {
@@ -503,7 +548,7 @@ export function SecurityScanDetail() {
       if (document.hidden) return;
       void fetchScan(true);
       void fetchFindings(true);
-    }, 5_000);
+    }, LIVE_POLL_MS);
     return () => window.clearInterval(id);
   }, [scanLoaded, scanSettled, fetchScan, fetchFindings]);
 
@@ -812,10 +857,26 @@ export function SecurityScanDetail() {
     );
   }
 
-  const filtersActive = activeCount(["selected"]);
+  const filtersActive = activeCount(["selected", "tab"]);
   const filteredEmpty = visibleFindings.length === 0 && filtersActive > 0;
   const artifactsReady = !IN_FLIGHT_SCAN_STATUSES.has(scan.status.toLowerCase());
+  const inFlight = !artifactsReady;
   const exportHint = artifactsReady ? undefined : ARTIFACTS_PENDING_HINT;
+
+  const hasExecution = Boolean(
+    scanConfig?.lastExecution && scanConfig.lastExecution.mode === "deterministic",
+  );
+  const hasSettings = Boolean(
+    scanConfig &&
+      (scanConfig.lastCheck || scanConfig.lastNotifications ||
+        scanConfig.effectiveBudgets || scanConfig.retention),
+  );
+  const tabs = SCAN_TABS.filter((entry) => entry.id !== "settings" || hasSettings);
+  const tab: ScanTab = isScanTab(values.tab) && tabs.some((entry) => entry.id === values.tab)
+    ? values.tab
+    : "findings";
+  const showTab = (next: ScanTab) => set("tab", next, { history: "push" });
+  const totalFindings = summary["total"] ?? 0;
 
   return (
     <div className="space-y-7">
@@ -911,11 +972,12 @@ export function SecurityScanDetail() {
         }
       />
 
-      {!artifactsReady && (
-        <p className="text-[12.5px] text-muted-foreground">
-          This scan run has not finished. The Markdown report and SARIF artifact become
-          available once the run submits its results.
-        </p>
+      {inFlight && (
+        <ScanInProgressBanner
+          status={scan.status}
+          startedAt={scan.startedAt}
+          onViewRun={tab === "run" ? undefined : () => showTab("run")}
+        />
       )}
 
       {reportNotice && (
@@ -945,6 +1007,14 @@ export function SecurityScanDetail() {
           sits directly under the header and the findings workspace follows it;
           execution, run, and configuration detail live below the table. */}
       <section aria-label="Finding summary" className="space-y-3">
+        {inFlight && (
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 className="text-[14px] font-semibold tracking-[-0.01em] text-foreground">
+              Findings so far
+            </h2>
+            <LiveCaption />
+          </div>
+        )}
         <div className="flex flex-wrap items-stretch gap-2">
           <SummaryTile label="Total" value={summary["total"] ?? 0} />
           <SummaryTile
@@ -969,7 +1039,53 @@ export function SecurityScanDetail() {
         )}
       </section>
 
-      <DetailSection title="Findings">
+      <Tabs
+        value={tab}
+        onValueChange={(next) => {
+          // Tabs are a place, not a filter: the back button should walk them.
+          if (typeof next === "string" && isScanTab(next)) showTab(next);
+        }}
+        className="gap-3"
+      >
+        <div className="border-b border-border/70">
+          <TabsList
+            aria-label="Scan sections"
+            variant="line"
+            className="max-w-full flex-1 justify-start gap-5 overflow-x-auto bg-transparent p-0 group-data-horizontal/tabs:h-9 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {tabs.map((entry) => (
+              <TabsTrigger
+                key={entry.id}
+                value={entry.id}
+                className="group/tab h-9 flex-none rounded-none px-0.5 text-[13.5px] text-muted-foreground data-active:text-foreground dark:data-active:text-foreground group-data-horizontal/tabs:after:bottom-0 group-data-horizontal/tabs:after:h-[2px] data-active:after:bg-primary"
+              >
+                {entry.label}
+                {entry.id === "findings" && (
+                  <span className="rounded-full bg-muted px-1.5 py-px text-[10.5px] font-medium tabular-nums text-muted-foreground transition-colors group-data-active/tab:bg-primary/15 group-data-active/tab:text-primary">
+                    {totalFindings}
+                  </span>
+                )}
+                {entry.id === "run" && inFlight && (
+                  <>
+                    <span
+                      aria-hidden
+                      title="Run in progress"
+                      data-testid="run-tab-live"
+                      className="size-1.5 rounded-full animate-pulse"
+                      style={{ backgroundColor: toneColor.running }}
+                    />
+                    <span className="sr-only">(in progress)</span>
+                  </>
+                )}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+        <p className="text-[12.5px] text-muted-foreground">
+          {tabs.find((entry) => entry.id === tab)?.help}
+        </p>
+
+        <TabsContent value="findings" className="space-y-3 pt-1">
         {/* Sticky so the filters stay reachable while a long findings list
             scrolls under them. The background is opaque: rows pass behind it. */}
         <div className="sticky top-0 z-20 -mx-1 space-y-2 bg-background px-1 py-2">
@@ -1129,18 +1245,37 @@ export function SecurityScanDetail() {
             empty={!visibleFindings.length}
             skeleton={<ListRowSkeleton rows={4} />}
             onRetry={() => void fetchFindings()}
-            emptyIcon={filteredEmpty ? <FilterX className="size-6" /> : undefined}
-            emptyTitle={filteredEmpty ? "No findings match these filters" : "No findings"}
+            emptyIcon={
+              filteredEmpty
+                ? <FilterX className="size-6" />
+                : inFlight
+                  ? <Activity className="size-6 animate-pulse" style={{ color: toneColor.running }} />
+                  : undefined
+            }
+            emptyTitle={
+              filteredEmpty
+                ? "No findings match these filters"
+                : inFlight
+                  ? "No findings yet"
+                  : "No findings"
+            }
             emptyDescription={
               filteredEmpty
                 ? "Clear the filters to see everything this scan reported."
-                : "This scan reported no findings."
+                : inFlight
+                  ? "The scan is still running. Findings appear here as soon as the run submits them; this list refreshes automatically."
+                  : "This scan reported no findings."
             }
             emptyAction={
               filteredEmpty ? (
                 <Button variant="outline" size="sm" onClick={clearFilters}>
                   <FilterX />
                   Clear filters
+                </Button>
+              ) : inFlight ? (
+                <Button variant="outline" size="sm" onClick={() => showTab("run")}>
+                  <Activity />
+                  View run progress
                 </Button>
               ) : undefined
             }
@@ -1540,47 +1675,48 @@ export function SecurityScanDetail() {
             </aside>
           )}
         </div>
-      </DetailSection>
+        </TabsContent>
 
-      <SecurityResearchPanel
-        namespace={scan.namespace}
-        targetKey={scan.scanName}
-        revision={scan.revision}
-        workflow={scan.scanName}
-        permission={scanConfig?.myPermission ?? ""}
-      />
-
-      {namespace &&
-        scanConfig?.lastExecution &&
-        scanConfig.lastExecution.mode === "deterministic" && (
-          <ExecutionProgressPanel
-            namespace={namespace}
-            execution={scanConfig.lastExecution}
-            workflowTasks={workflowTasks}
-            findingLinkBase={runName ? `/security/${namespace}/${runName}/findings` : undefined}
-            onResume={async () => {
-              setActionError(null);
-              try {
-                await client.resumeSecurityScan({ namespace, name: scanConfig.name });
-                await fetchScan();
-              } catch (e: unknown) {
-                setActionError(
-                  e instanceof Error ? e.message : "Failed to resume the execution",
-                );
-              }
-            }}
+        <TabsContent value="research" className="pt-1">
+          <SecurityResearchPanel
+            namespace={scan.namespace}
+            targetKey={scan.scanName}
+            revision={scan.revision}
+            workflow={scan.scanName}
+            permission={scanConfig?.myPermission ?? ""}
           />
-        )}
+        </TabsContent>
 
-      {namespace && runName && (
-        <SecurityScanRunPanel
-          namespace={namespace}
-          runName={runName}
-          onRunSettled={handleRunSettled}
-          hideWhenMissing={Boolean(scanConfig?.lastExecution)}
-        />
-      )}
+        <TabsContent value="run" className="space-y-7 pt-1">
+          {hasExecution && scanConfig?.lastExecution && (
+            <ExecutionProgressPanel
+              namespace={namespace}
+              execution={scanConfig.lastExecution}
+              workflowTasks={workflowTasks}
+              findingLinkBase={`/security/${namespace}/${runName}/findings`}
+              onResume={async () => {
+                setActionError(null);
+                try {
+                  await client.resumeSecurityScan({ namespace, name: scanConfig.name });
+                  await fetchScan();
+                } catch (e: unknown) {
+                  setActionError(
+                    e instanceof Error ? e.message : "Failed to resume the execution",
+                  );
+                }
+              }}
+            />
+          )}
+          <SecurityScanRunPanel
+            namespace={namespace}
+            runName={runName}
+            onRunSettled={handleRunSettled}
+            hideWhenMissing={hasExecution}
+          />
+        </TabsContent>
 
+        {hasSettings && (
+          <TabsContent value="settings" className="space-y-4 pt-1">
       {scanConfig && (scanConfig.lastCheck || scanConfig.lastNotifications) && (
         <section
           aria-label="Repository integration"
@@ -1669,7 +1805,9 @@ export function SecurityScanDetail() {
           )}
         </section>
       )}
-
+          </TabsContent>
+        )}
+      </Tabs>
     </div>
   );
 }
@@ -1713,6 +1851,85 @@ function ScanStatusPill({ status }: { status: string }) {
         style={{ backgroundColor: toneColor[tone] }}
       />
       {status || "unknown"}
+    </span>
+  );
+}
+
+/**
+ * Replaces the one-line "has not finished" footnote while the run is in
+ * flight: says what is happening, for how long, what will unlock when it
+ * finishes, and where to watch progress.
+ */
+function ScanInProgressBanner({
+  status,
+  startedAt,
+  onViewRun,
+}: {
+  status: string;
+  startedAt?: Timestamp;
+  /** Switches to the Run tab; omitted when that tab is already in view. */
+  onViewRun?: () => void;
+}) {
+  const now = useNow(1_000);
+  const startedMs = startedAt ? timestampDate(startedAt).getTime() : 0;
+  const elapsed = startedMs > 0 ? formatDuration(Math.max(now - startedMs, 0)) : "";
+  const queued = status.toLowerCase() !== "running";
+  return (
+    <section
+      role="status"
+      data-testid="scan-in-progress"
+      className="flex flex-wrap items-start gap-x-4 gap-y-2 rounded-lg border px-3.5 py-3"
+      style={{
+        borderColor: "color-mix(in oklch, var(--tone-running) 30%, transparent)",
+        background: "color-mix(in oklch, var(--tone-running) 7%, transparent)",
+      }}
+    >
+      <span
+        aria-hidden
+        className="mt-px flex size-6 shrink-0 items-center justify-center rounded-full"
+        style={{ background: "color-mix(in oklch, var(--tone-running) 16%, transparent)" }}
+      >
+        <Activity className="size-3.5 animate-pulse" style={{ color: toneColor.running }} />
+      </span>
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="flex flex-wrap items-baseline gap-x-2 text-[13px] font-semibold text-foreground">
+          {queued ? "Scan is waiting to start" : "Scan in progress"}
+          {elapsed && (
+            <span className="font-mono text-[12px] font-medium tabular-nums text-muted-foreground">
+              {queued ? "queued for" : "running for"} {elapsed}
+            </span>
+          )}
+        </p>
+        <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+          This scan run has not finished. Findings appear as the run submits them and the
+          counts refresh every {LIVE_POLL_MS / 1000} seconds. The Markdown report, SARIF
+          artifact, and audit export unlock once the run completes.
+        </p>
+      </div>
+      {onViewRun && (
+        // Full-width row on a phone: beside the copy it would squeeze the
+        // text into a narrow, tall column.
+        <div className="flex w-full items-center pl-10 sm:w-auto sm:pl-0">
+          <Button variant="outline" size="sm" onClick={onViewRun}>
+            <Activity />
+            View run progress
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Small "live" marker for counts that are still changing under the reader. */
+function LiveCaption() {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.07em] text-muted-foreground/80">
+      <span
+        aria-hidden
+        className="size-1.5 rounded-full animate-pulse"
+        style={{ backgroundColor: toneColor.running }}
+      />
+      Live · updates every {LIVE_POLL_MS / 1000}s
     </span>
   );
 }
