@@ -329,22 +329,30 @@ export const SubagentCard = memo(function SubagentCard({
       {(dependsOn.length > 0 || waitingOn.length > 0) && (
         <div className="flex flex-wrap items-center gap-1.5">
           <SectionLabel>Depends on</SectionLabel>
-          {dependsOn.map((d) => (
-            <span
-              key={`dep-${d}`}
-              className={`rounded-sm px-1.5 py-px font-mono text-3xs ${toneSoft.neutral}`}
-            >
-              {d}
-            </span>
-          ))}
-          {waitingOn.map((w) => (
-            <span
-              key={`wait-${w}`}
-              className={`rounded-sm px-1.5 py-px font-mono text-3xs ${toneSoft.warning}`}
-            >
-              waiting {w}
-            </span>
-          ))}
+          {dependsOn.map((d) => {
+            const depOrdinal = shared.ordinalByTaskId.get(d);
+            return (
+              <span
+                key={`dep-${d}`}
+                className={`rounded-sm px-1.5 py-px font-mono text-3xs ${toneSoft.neutral}`}
+                title={d}
+              >
+                {depOrdinal !== undefined ? `#${depOrdinal}` : d}
+              </span>
+            );
+          })}
+          {waitingOn.map((w) => {
+            const waitOrdinal = shared.ordinalByTaskId.get(w);
+            return (
+              <span
+                key={`wait-${w}`}
+                className={`rounded-sm px-1.5 py-px font-mono text-3xs ${toneSoft.warning}`}
+                title={w}
+              >
+                waiting {waitOrdinal !== undefined ? `#${waitOrdinal}` : w}
+              </span>
+            );
+          })}
         </div>
       )}
 

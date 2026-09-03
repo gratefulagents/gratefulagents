@@ -566,7 +566,11 @@ func BuildSubagentGraph(entries []*pb.ActivityEntry, runName string) *pb.Subagen
 		}
 	}
 
-	// Sort nodes: root first, then by timestamp.
+	// Sort nodes: root first, then by timestamp. Timestamps have second
+	// granularity, so a batch delegation ties; the stable sort keeps those
+	// nodes in observed (spawn) order, which is also the order the edges were
+	// emitted in. Clients number tasks from this order, so it must not depend
+	// on random task ids.
 	sort.SliceStable(nodes, func(i, j int) bool {
 		a, b := nodes[i], nodes[j]
 		if a.Kind == "root" {
@@ -575,10 +579,7 @@ func BuildSubagentGraph(entries []*pb.ActivityEntry, runName string) *pb.Subagen
 		if b.Kind == "root" {
 			return false
 		}
-		if a.TimestampUnix != b.TimestampUnix {
-			return a.TimestampUnix < b.TimestampUnix
-		}
-		return a.Id < b.Id
+		return a.TimestampUnix < b.TimestampUnix
 	})
 
 	hasSubagents := false
