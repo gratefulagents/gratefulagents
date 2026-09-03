@@ -51,6 +51,7 @@ func TestNextPendingUserMessagePrioritizesImmediateOverEarlierQueued(t *testing.
 }
 
 func TestCollectImmediateRunItemsPreservesOrderAndCursor(t *testing.T) {
+	t.Parallel()
 	messages := []sessionclient.UserMessage{
 		{Message: store.Message{ID: 20, Content: "queued"}, Mode: sessionclient.UserMessageModeEnqueue},
 		{Message: store.Message{ID: 21, Content: "first immediate"}, Mode: sessionclient.UserMessageModeImmediate},
@@ -79,6 +80,52 @@ func TestCollectImmediateRunItemsPreservesOrderAndCursor(t *testing.T) {
 	}
 	if len(consumed) != 0 {
 		t.Fatalf("selection must not mutate durable-consumption map before claim: %v", consumed)
+	}
+}
+
+// A turn boundary has nothing to interrupt, so the oldest pending message
+// opens the turn even when a newer immediate steer is queued behind it. The
+// steer is not skipped or marked handled: the runner's immediate-input poll
+// folds it into the same turn before the first model call.
+func TestNextTurnStartingUserMessageKeepsCreationOrder(t *testing.T) {
+	t.Parallel()
+	messages := []sessionclient.UserMessage{
+		{Message: store.Message{ID: 30, Content: "seeded kickoff request"}, Mode: sessionclient.UserMessageModeEnqueue},
+		{Message: store.Message{ID: 31, Content: "steer typed during startup"}, Mode: sessionclient.UserMessageModeImmediate},
+	}
+
+	msg, ok, immediate := nextTurnStartingUserMessage(messages, map[int64]struct{}{})
+	if !ok {
+		t.Fatal("expected pending message")
+	}
+	if msg.ID != 30 {
+		t.Fatalf("message ID = %d, want the older kickoff message 30", msg.ID)
+	}
+	if immediate {
+		t.Fatal("kickoff message must not be reported as immediate")
+	}
+}
+
+func TestNextTurnStartingUserMessageSkipsBlankAndHandledImmediate(t *testing.T) {
+	t.Parallel()
+	messages := []sessionclient.UserMessage{
+		{Message: store.Message{ID: 40, Content: "   "}, Mode: sessionclient.UserMessageModeEnqueue},
+		{Message: store.Message{ID: 41, Content: "already folded into last turn"}, Mode: sessionclient.UserMessageModeImmediate},
+		{Message: store.Message{ID: 42, Content: "fresh steer"}, Mode: sessionclient.UserMessageModeImmediate},
+	}
+
+	msg, ok, immediate := nextTurnStartingUserMessage(messages, map[int64]struct{}{41: {}})
+	if !ok {
+		t.Fatal("expected pending message")
+	}
+	if msg.ID != 42 {
+		t.Fatalf("message ID = %d, want 42", msg.ID)
+	}
+	if !immediate {
+		t.Fatal("an immediate message that opens a turn must be reported as immediate")
+	}
+	if _, ok, _ := nextTurnStartingUserMessage(messages[:2], map[int64]struct{}{41: {}}); ok {
+		t.Fatal("blank and handled messages must not open a turn")
 	}
 }
 

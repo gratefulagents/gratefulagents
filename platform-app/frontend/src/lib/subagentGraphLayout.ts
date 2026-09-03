@@ -173,6 +173,13 @@ export function buildLayout(graph: SubagentGraph, dims: LayoutDims = DEFAULT_DIM
   const dependenciesOf: Record<string, string[]> = {};
 
   for (const n of graph.nodes) byId[n.id] = n;
+  // Canonical sibling order. Batch delegations share a timestamp (second
+  // granularity), so ties are broken by the node's position in `graph.nodes`
+  // — the same key regardless of whether the caller kept the root node or
+  // reached a node through a spawn edge. This keeps `#n` identical across the
+  // transcript cards, the dock and the graph tab.
+  const rankOf = new Map<string, number>();
+  graph.nodes.forEach((n, i) => rankOf.set(n.id, i));
 
   for (const e of graph.edges as SubagentGraphEdge[]) {
     if (e.kind === "depends-on") {
@@ -184,8 +191,11 @@ export function buildLayout(graph: SubagentGraph, dims: LayoutDims = DEFAULT_DIM
   }
 
   const tsOf = (id: string) => (byId[id] ? Number(byId[id].timestampUnix) : 0);
+  const compareSiblings = (a: string, b: string) =>
+    tsOf(a) - tsOf(b) ||
+    (rankOf.get(a) ?? Number.MAX_SAFE_INTEGER) - (rankOf.get(b) ?? Number.MAX_SAFE_INTEGER);
   for (const pid of Object.keys(childrenOf)) {
-    childrenOf[pid] = unique(childrenOf[pid]).sort((a, b) => tsOf(a) - tsOf(b));
+    childrenOf[pid] = unique(childrenOf[pid]).sort(compareSiblings);
   }
 
   // Roots = nodes that nobody spawned. Surface the declared root first.
@@ -198,7 +208,7 @@ export function buildLayout(graph: SubagentGraph, dims: LayoutDims = DEFAULT_DIM
       const ra = byId[a]?.kind === "root" ? 0 : 1;
       const rb = byId[b]?.kind === "root" ? 0 : 1;
       if (ra !== rb) return ra - rb;
-      return tsOf(a) - tsOf(b);
+      return compareSiblings(a, b);
     });
 
   const pos = new Map<string, { x: number; y: number; depth: number }>();
@@ -272,7 +282,7 @@ export function buildLayout(graph: SubagentGraph, dims: LayoutDims = DEFAULT_DIM
       yOf.set(id, mean);
     }
     // De-overlap top-to-bottom, preserving the desired ordering.
-    ids.sort((a, b) => yOf.get(a)! - yOf.get(b)! || tsOf(a) - tsOf(b));
+    ids.sort((a, b) => yOf.get(a)! - yOf.get(b)! || compareSiblings(a, b));
     let minY = -Infinity;
     for (const id of ids) {
       const y = Math.max(yOf.get(id)!, minY);

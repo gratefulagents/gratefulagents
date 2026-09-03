@@ -490,3 +490,45 @@ func TestCleanSubagentDescriptionRejectsLifecycleMarkers(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildSubagentGraphKeepsSpawnOrderOnTimestampTies(t *testing.T) {
+	// A batch delegation lands several subagent_started events in the same
+	// second. Clients number tasks (#1, #2, …) from the node order, and the
+	// spawn edges are emitted in observed order, so tied nodes must keep that
+	// same order instead of being reshuffled by their random task ids.
+	spawned := []string{"task_c9", "task_a1", "task_f4", "task_b7"}
+	var entries []*platform.ActivityEntry
+	for _, id := range spawned {
+		entries = append(entries, &platform.ActivityEntry{
+			TimestampUnix:  100,
+			Type:           "subagent_started",
+			TaskId:         id,
+			ToolUseId:      "call_" + id,
+			SubagentType:   "executor",
+			SubagentStatus: "started",
+		})
+	}
+
+	graph := BuildSubagentGraph(entries, "run-1")
+
+	var nodeOrder []string
+	for _, n := range graph.Nodes {
+		if n.Kind == "root" {
+			continue
+		}
+		nodeOrder = append(nodeOrder, n.TaskId)
+	}
+	if strings.Join(nodeOrder, ",") != strings.Join(spawned, ",") {
+		t.Fatalf("node order = %v, want spawn order %v", nodeOrder, spawned)
+	}
+
+	var edgeOrder []string
+	for _, e := range graph.Edges {
+		if e.Kind == "spawned" {
+			edgeOrder = append(edgeOrder, strings.TrimPrefix(e.To, "task:"))
+		}
+	}
+	if strings.Join(edgeOrder, ",") != strings.Join(nodeOrder, ",") {
+		t.Fatalf("spawn edge order %v disagrees with node order %v", edgeOrder, nodeOrder)
+	}
+}

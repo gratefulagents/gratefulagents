@@ -1,7 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
 
-import { buildLayout, COMPACT_DIMS, DEFAULT_DIMS } from "@/lib/subagentGraphLayout";
+import { buildLayout, COMPACT_DIMS, DEFAULT_DIMS, ordinalsForGraph } from "@/lib/subagentGraphLayout";
 import {
   SubagentGraphSchema,
   SubagentGraphNodeSchema,
@@ -161,5 +161,53 @@ describe("buildLayout", () => {
     expect(compact.nodes.get("b")!.y).toBe(COMPACT_DIMS.nodeH + COMPACT_DIMS.vGap);
     expect(compact.width).toBeLessThan(full.width);
     expect(compact.height).toBeLessThan(full.height);
+  });
+
+  it("numbers tied-timestamp siblings identically with and without the root node", () => {
+    // A batch delegation shares one timestamp (second granularity). The
+    // backend emits spawn edges in launch order (B, C, D, E) while the node
+    // list may arrive in a different order (e.g. sorted by random task id).
+    // Every surface must still agree on which task is "#4": the transcript
+    // numbers from the full graph (root + spawn edges), the dock from the
+    // sub-agent nodes alone. Both must follow the node-list order on ties.
+    const tie = 100;
+    const root = node({ id: "root", kind: "root", status: "running" });
+    const launched = ["task:B", "task:C", "task:D", "task:E"];
+    const subagents = [
+      node({ id: "task:D", parentId: "root", timestampUnix: tie }),
+      node({ id: "task:B", parentId: "root", timestampUnix: tie }),
+      node({ id: "task:C", parentId: "root", timestampUnix: tie }),
+      node({ id: "task:E", parentId: "root", timestampUnix: tie }),
+      node({ id: "task:A", parentId: "root", timestampUnix: tie + 5, dependsOn: ["B"] }),
+    ];
+    const full = create(SubagentGraphSchema, {
+      rootId: "root",
+      hasSubagents: true,
+      nodes: [root, ...subagents],
+      edges: [
+        ...launched.map((id) => spawnEdge("root", id)),
+        spawnEdge("root", "task:A"),
+        depEdge("task:B", "task:A"),
+      ],
+    });
+    const dockGraph = create(SubagentGraphSchema, {
+      rootId: "",
+      hasSubagents: true,
+      nodes: subagents,
+      edges: [depEdge("task:B", "task:A")],
+    });
+
+    const fromFull = ordinalsForGraph(full);
+    const fromDock = ordinalsForGraph(dockGraph);
+    for (const n of subagents) {
+      expect(fromDock.get(n.id)).toBe(fromFull.get(n.id));
+    }
+    // Ties follow the node-list order, not edge order or id order.
+    expect(fromFull.get("task:D")).toBe(1);
+    expect(fromFull.get("task:B")).toBe(2);
+    expect(fromFull.get("task:C")).toBe(3);
+    expect(fromFull.get("task:E")).toBe(4);
+    // The dependent join task is numbered after the wave it waits on.
+    expect(fromFull.get("task:A")).toBe(5);
   });
 });
