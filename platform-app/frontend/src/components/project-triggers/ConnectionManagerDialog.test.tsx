@@ -129,6 +129,34 @@ describe("ConnectionManagerDialog", () => {
     expect(connection.name).toBe("github");
   });
 
+  it("quick-create opens straight on the provider form and closes once saved", async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    const onOpenChange = vi.fn();
+    render(
+      <ConnectionManagerDialog
+        open
+        onOpenChange={onOpenChange}
+        connections={[]}
+        onCreate={onCreate}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+        quickCreate="github"
+      />,
+    );
+
+    // No list, no provider picker — the GitHub form is the first thing shown.
+    expect(screen.queryByRole("button", { name: /New connection/ })).toBeNull();
+    fireEvent.change(screen.getByLabelText("GitHub personal access token"), {
+      target: { value: "test-github-credential-value" },
+    });
+    fireEvent.change(screen.getByLabelText("Connection name"), { target: { value: "github" } });
+    fireEvent.submit(document.querySelector("form")!);
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    // Saved → hand control back to the trigger form instead of showing the list.
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
   it("shows validation error when Slack create is missing the second token", async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     renderDialog({ onCreate });

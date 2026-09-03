@@ -95,7 +95,27 @@ describe("ProjectTriggerDialog", () => {
     const githubCard = buttons.find((b) => b.textContent?.includes("GitHub") && b.textContent?.includes("React to issues"));
     fireEvent.click(githubCard!);
     expect(screen.getByRole("button", { name: /Add connection/ })).toBeTruthy();
-    expect(screen.getByText(/No GitHub connection yet/)).toBeTruthy();
+    expect(screen.getByText(/Connect GitHub first/)).toBeTruthy();
+    // Nothing can be created until the connection exists, and the form says why.
+    expect(screen.getByRole("button", { name: "Create trigger" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("adopts a connection that appears after the empty state and re-enables Create", () => {
+    const onManageConnections = vi.fn();
+    const { rerender } = render(
+      <ProjectTriggerDialog open onOpenChange={vi.fn()} onSave={vi.fn()} connections={[]} onManageConnections={onManageConnections} />,
+    );
+    const githubCard = screen.getAllByRole("button").find((b) => b.textContent?.includes("GitHub") && b.textContent?.includes("React to issues"));
+    fireEvent.click(githubCard!);
+    fireEvent.click(screen.getByRole("button", { name: /Add connection/ }));
+    // Straight to the GitHub connection form — no list, no provider picker.
+    expect(onManageConnections).toHaveBeenCalledWith("github");
+
+    rerender(
+      <ProjectTriggerDialog open onOpenChange={vi.fn()} onSave={vi.fn()} connections={[GITHUB_CONNECTION]} onManageConnections={onManageConnections} />,
+    );
+    expect(screen.getByText("my-github")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create trigger" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("clicking 'Add connection' in empty state calls onManageConnections", () => {
@@ -105,7 +125,7 @@ describe("ProjectTriggerDialog", () => {
     const githubCard = buttons.find((b) => b.textContent?.includes("GitHub") && b.textContent?.includes("React to issues"));
     fireEvent.click(githubCard!);
     fireEvent.click(screen.getByRole("button", { name: /Add connection/ }));
-    expect(onManageConnections).toHaveBeenCalledTimes(1);
+    expect(onManageConnections).toHaveBeenCalledWith("github");
   });
 
   it("selecting Slack type shows all trigger behavior fields", () => {
@@ -125,13 +145,17 @@ describe("ProjectTriggerDialog", () => {
     const cronCard = buttons.find((b) => b.textContent?.includes("Scheduled") || (b.textContent?.includes("cron") || b.textContent?.includes("schedule")));
     fireEvent.click(cronCard!);
 
-    // Find preset chip "Every hour"
-    const hourlyBtn = screen.getByRole("button", { name: /Preset: Every hour/ });
-    expect(hourlyBtn).toBeTruthy();
-    fireEvent.click(hourlyBtn);
-
+    // Weekdays at 9 is preselected; chips show the selected state.
     const scheduleInput = screen.getByLabelText("Cron schedule") as HTMLInputElement;
+    expect(scheduleInput.value).toBe("0 9 * * 1-5");
+    expect(screen.getByRole("button", { name: "Weekdays 9 am" }).getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Every hour" }));
     expect(scheduleInput.value).toBe("0 * * * *");
+    expect(screen.getByRole("button", { name: "Every hour" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Weekdays 9 am" }).getAttribute("aria-pressed")).toBe("false");
+    // Name follows the schedule until typed.
+    expect(screen.getByLabelText<HTMLInputElement>("Trigger name").value).toBe("every-hour");
   });
 
   it("cron: clicking a preset chip fills the schedule and shows human-readable label", () => {
@@ -140,13 +164,20 @@ describe("ProjectTriggerDialog", () => {
     const cronCard = buttons.find((b) => b.textContent?.includes("Scheduled") || b.textContent?.includes("recurring"));
     fireEvent.click(cronCard!);
 
-    const dailyBtn = screen.getByRole("button", { name: /Preset: Daily 9 am/ });
-    fireEvent.click(dailyBtn);
+    fireEvent.click(screen.getByRole("button", { name: "Daily 9 am" }));
 
     const scheduleInput = screen.getByLabelText("Cron schedule") as HTMLInputElement;
     expect(scheduleInput.value).toBe("0 9 * * *");
-    // The human-readable description should appear
-    expect(screen.getByText("Daily at 09:00")).toBeTruthy();
+    // The preview reads the schedule and the time zone in plain words.
+    const preview = screen.getByTestId("schedule-preview");
+    expect(preview.textContent).toContain("Daily at 09:00");
+    expect(preview.textContent).toContain((screen.getByLabelText("Time zone") as HTMLInputElement).value);
+    expect((screen.getByLabelText("Time zone") as HTMLInputElement).value).not.toBe("");
+
+    // Custom keeps the raw expression editable and previews it verbatim.
+    fireEvent.change(scheduleInput, { target: { value: "15 */2 * * *" } });
+    expect(screen.getByRole("button", { name: "Custom" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("schedule-preview").textContent).toContain("15 */2 * * *");
   });
 
   it("shows validation error when trigger name is empty on submit", async () => {
@@ -226,7 +257,8 @@ describe("ProjectTriggerDialog", () => {
     renderDialog({ duplicateFrom, connections: [GITHUB_CONNECTION], onSave });
 
     expect(screen.getByRole("heading", { name: "Duplicate issues" })).toBeTruthy();
-    expect(screen.getByLabelText<HTMLInputElement>("Trigger name").value).toBe("");
+    // The copied name is dropped; a suggestion from the copied settings takes its place.
+    expect(screen.getByLabelText<HTMLInputElement>("Trigger name").value).toBe("gh-acme-payments");
     expect(screen.getByLabelText<HTMLInputElement>("Repository").value).toBe("acme/payments");
 
     fireEvent.change(screen.getByLabelText("Trigger name"), { target: { value: "issues-copy" } });
@@ -254,7 +286,7 @@ describe("ProjectTriggerDialog", () => {
     const cronCard = buttons.find((b) => b.textContent?.includes("Scheduled") || b.textContent?.includes("recurring") || b.textContent?.includes("hourly"));
     fireEvent.click(cronCard!);
 
-    fireEvent.click(screen.getByRole("button", { name: /Preset: Daily 9 am/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Daily 9 am" }));
 
     fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Summarize open PRs" } });
     fireEvent.change(screen.getByLabelText("Trigger name"), { target: { value: "daily-summary" } });
@@ -314,6 +346,7 @@ describe("ProjectTriggerDialog", () => {
     fireEvent.click(githubCard!);
     fireEvent.click(screen.getByText("my-github"));
     fireEvent.change(screen.getByLabelText("Repository"), { target: { value: "acme/payments" } });
+    fireEvent.click(screen.getByRole("button", { name: /Repository maintainer/ }));
     fireEvent.click(screen.getByLabelText("Enable repository maintainer"));
     fireEvent.change(screen.getByLabelText("Maintainer max concurrent dispatches"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Maintainer max dispatches per day"), { target: { value: "12" } });
@@ -367,6 +400,8 @@ describe("ProjectTriggerDialog", () => {
     };
     renderDialog({ trigger, connections: [GITHUB_CONNECTION], onSave });
 
+    expect(screen.getByRole("button", { name: /Repository maintainer/ }).textContent).toContain("On");
+    fireEvent.click(screen.getByRole("button", { name: /Repository maintainer/ }));
     expect(screen.getByLabelText<HTMLInputElement>("Enable repository maintainer").checked).toBe(true);
     expect(screen.getByLabelText<HTMLInputElement>("Maintainer max concurrent dispatches").value).toBe("4");
     expect(screen.getByLabelText<HTMLInputElement>("Maintainer mode").value).toBe("repository-maintainer");
@@ -486,8 +521,43 @@ describe("ProjectTriggerDialog", () => {
     const linearCard = buttons.find((b) => b.textContent?.includes("Linear") && b.textContent?.includes("issue"));
     fireEvent.click(linearCard!);
 
-    expect(screen.getByText(/No Linear connection yet/)).toBeTruthy();
+    expect(screen.getByText(/Connect Linear first/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Add connection/ }));
-    expect(onManageConnections).toHaveBeenCalledTimes(1);
+    expect(onManageConnections).toHaveBeenCalledWith("linear");
+  });
+
+  it("suggests a name from the details and stops once the user types one", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    renderDialog({ connections: [GITHUB_CONNECTION], onSave });
+    const githubCard = screen.getAllByRole("button").find((b) => b.textContent?.includes("GitHub") && b.textContent?.includes("React to issues"));
+    fireEvent.click(githubCard!);
+
+    const name = screen.getByLabelText<HTMLInputElement>("Trigger name");
+    expect(name.value).toBe("");
+    fireEvent.change(screen.getByLabelText("Repository"), { target: { value: "Acme/Payments-API" } });
+    expect(name.value).toBe("gh-acme-payments-api");
+    // Both event kinds start on so a new trigger never reacts to nothing.
+    expect(screen.getByLabelText<HTMLInputElement>("React to issue events").checked).toBe(true);
+    expect(screen.getByLabelText<HTMLInputElement>("React to comment events").checked).toBe(true);
+
+    fireEvent.change(name, { target: { value: "payments-bot" } });
+    fireEvent.change(screen.getByLabelText("Repository"), { target: { value: "acme/other" } });
+    expect(name.value).toBe("payments-bot");
+
+    fireEvent.submit(document.querySelector("form")!);
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({ name: "payments-bot", github: { owner: "acme", repo: "other", issues: true, comments: true } });
+  });
+
+  it("rejects names that are not DNS labels", async () => {
+    const onSave = vi.fn();
+    renderDialog({ connections: [GITHUB_CONNECTION], onSave });
+    const githubCard = screen.getAllByRole("button").find((b) => b.textContent?.includes("GitHub") && b.textContent?.includes("React to issues"));
+    fireEvent.click(githubCard!);
+    fireEvent.change(screen.getByLabelText("Repository"), { target: { value: "acme/payments" } });
+    fireEvent.change(screen.getByLabelText("Trigger name"), { target: { value: "Bad Name" } });
+    fireEvent.submit(document.querySelector("form")!);
+    expect(await screen.findByText(/lowercase letters, numbers, and hyphens/)).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
   });
 });

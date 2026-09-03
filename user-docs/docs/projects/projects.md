@@ -81,10 +81,12 @@ Use **History** to view versions. Selecting **Restore** for an older version cre
 
 Open a Project and use **Entry points**:
 
-1. Select **Manage connections** to create a reusable GitHub, Slack, or Linear connection in the Project namespace.
-2. Select **New trigger** and choose GitHub, Slack, Cron, or Linear.
-3. Choose a matching connection for GitHub, Slack, or Linear; Cron needs no connection.
-4. Enter the source-specific fields and select **Create trigger**.
+1. Select **New trigger** and choose GitHub, Slack, Scheduled, or Linear.
+2. GitHub, Slack, and Linear need a connection. If the namespace already has one it is selected for you; otherwise the form says **Connect … first** and **Add connection** opens the connection form for that provider directly — saving it returns you to the trigger with the new connection selected. **Create trigger** stays disabled until then. Scheduled triggers need no connection.
+3. Enter the source-specific fields. The **Trigger name** is suggested from them (`gh-acme-payments`, `weekdays-0900`, `slack-engineering`, `linear-eng`) until you type your own; names are DNS-style labels.
+4. Select **Create trigger**.
+
+**Manage connections** lists every reusable GitHub, Slack, or Linear connection in the Project namespace for editing or removal.
 
 The rail always includes **Dashboard chat**. Each automation shows its name, source summary, last activity, and, for Cron, the next scheduled activity. See [Cron schedules](./cron.md), [GitHub](../integrations/github.md), [Linear](../integrations/linear.md), and [Slack](../integrations/slack.md) for the exact fields and source behavior.
 

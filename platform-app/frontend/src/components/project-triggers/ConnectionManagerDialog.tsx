@@ -125,6 +125,7 @@ export function ConnectionManagerDialog({
   onCreate,
   onUpdate,
   onDelete,
+  quickCreate,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -132,12 +133,29 @@ export function ConnectionManagerDialog({
   onCreate: (connection: ProjectConnection) => Promise<void>;
   onUpdate: (connection: ProjectConnection, existing: ProjectConnection) => Promise<void>;
   onDelete: (connection: ProjectConnection) => Promise<void>;
+  /**
+   * Open straight on the form for this provider and close once it is saved —
+   * the path a trigger form takes when it is missing its connection, so the
+   * user never sees the list or the provider picker in between.
+   */
+  quickCreate?: ConnectionType;
 }) {
   type View = "list" | "pick-provider" | "form";
-  const [view, setView] = useState<View>("list");
-  const [provider, setProvider] = useState<ConnectionType>("github");
+  const [view, setView] = useState<View>(quickCreate ? "form" : "list");
+  const [provider, setProvider] = useState<ConnectionType>(quickCreate ?? "github");
   const [editingConnection, setEditingConnection] = useState<ProjectConnection | undefined>();
   const [deleting, setDeleting] = useState<ProjectConnection | undefined>();
+
+  // Re-arm the quick-create shortcut each time the dialog opens for one.
+  const [lastQuick, setLastQuick] = useState<{ open: boolean; type?: ConnectionType }>({ open, type: quickCreate });
+  if (lastQuick.open !== open || lastQuick.type !== quickCreate) {
+    setLastQuick({ open, type: quickCreate });
+    if (open) {
+      setView(quickCreate ? "form" : "list");
+      setProvider(quickCreate ?? "github");
+      setEditingConnection(undefined);
+    }
+  }
 
   function reset() {
     setView("list");
@@ -186,12 +204,20 @@ export function ConnectionManagerDialog({
           <ConnectionFormView
             provider={provider}
             connection={editingConnection}
-            onBack={() => setView(editingConnection ? "list" : "pick-provider")}
+            onBack={
+              quickCreate && !editingConnection
+                ? () => handleClose(false)
+                : () => setView(editingConnection ? "list" : "pick-provider")
+            }
             onSave={async (connection) => {
               if (editingConnection) {
                 await onUpdate(connection, editingConnection);
               } else {
                 await onCreate(connection);
+              }
+              if (quickCreate && !editingConnection) {
+                handleClose(false);
+                return;
               }
               reset();
             }}

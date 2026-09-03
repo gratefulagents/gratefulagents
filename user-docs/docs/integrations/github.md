@@ -32,18 +32,17 @@ The connection must have **Token Secret**, or all three GitHub App fields. A con
 
 ## Create a GitHub Entry point
 
-1. In the same Project, select **New trigger**.
-2. Enter the trigger **Name**, select **GitHub**, then select a GitHub **Connection**.
-3. Enter **Repository** as `owner/repository`.
-4. In **Events**, enter `issues`, `comments`, or both as a comma-separated list.
-5. Select **Create trigger**.
+1. In the same Project, select **New trigger → GitHub**. An existing GitHub connection is selected automatically; with none, **Add connection** opens the GitHub connection form directly and returns you here.
+2. Enter **Repository** as `owner/repository`.
+3. Both **Events** (issues and comments) start checked; untick what you do not want. **Repository maintainer** is an optional collapsed section.
+4. Adjust the suggested **Trigger name** (`gh-acme-payments`) if you like and select **Create trigger**.
 
 | Field | Required | Behavior |
 | --- | --- | --- |
 | **Name** | Yes | DNS-style trigger identifier. `manual` is reserved. |
 | **Connection** | Yes | A GitHub connection in the Project namespace. |
 | **Repository** | Yes | GitHub owner and repository, entered as `owner/repository`. |
-| **Events** | No | Enables issue polling when it includes `issues`, and issue-comment handling when it includes `comments`. An empty value enables neither. |
+| **Events** | No | **Issues** enables issue polling and **Comments** enables issue/pull-request comment handling. Both are on for a new trigger; unticking both creates a trigger that reacts to nothing. |
 
 This Entry point inherits the Project's repository defaults, model and credential defaults, runtime, Skills, MCP policy, and custom instructions. It does not have its own run-defaults form.
 

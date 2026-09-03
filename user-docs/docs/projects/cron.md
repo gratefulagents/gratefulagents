@@ -15,18 +15,18 @@ See [Projects](./projects.md) for the shared Entry-point lifecycle and [Run defa
 ## Create a Cron Entry point
 
 1. Open the Project.
-2. In **Entry points**, select **New trigger**.
-3. Enter a DNS-style **Name**, choose **Cron** as the source type, then enter **Schedule**, optional **Time zone**, and **Prompt**.
-4. Select **Create trigger**.
+2. In **Entry points**, select **New trigger → Scheduled**.
+3. Write the **Prompt** (what each run should do), then pick **When**: a preset chip (**Every hour**, **Weekdays 9 am**, **Daily 9 am**, **Weekly Monday**) or **Custom** with a five-field cron expression. The preview line reads the schedule back in plain words with its time zone (`Weekdays at 09:00 · Europe/Berlin`).
+4. Adjust the suggested **Trigger name** if you like and select **Create trigger**.
 
 Cron does not use a connection. Its runs inherit the Project's repository, model, credentials, runtime, tools, policies, and custom instructions.
 
 | Field | Required | Behavior |
 | --- | --- | --- |
-| **Name** | Yes | Identifies this Entry point. It cannot be `manual`. |
-| **Schedule** | Yes | A standard five-field cron expression or a supported descriptor such as `@hourly`. |
-| **Time zone** | No | An IANA time-zone name. Leave it empty to use UTC. |
 | **Prompt** | Yes | The first user message in every scheduled run. |
+| **Schedule** | Yes | A standard five-field cron expression or a supported descriptor such as `@hourly`. Defaults to weekdays at 09:00. |
+| **Time zone** | No | An IANA time-zone name; the field offers a searchable list and defaults to your browser's zone. Empty means UTC. |
+| **Trigger name** | Yes | Suggested from the schedule (`weekdays-0900`); DNS-style, and it cannot be `manual`. |
 
 ## Scheduling behavior
 
