@@ -16,6 +16,7 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 	oauth "github.com/gratefulagents/sdk/pkg/agentsdk/providers/oauth"
+	openai "github.com/gratefulagents/sdk/pkg/agentsdk/providers/openai"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -513,5 +514,31 @@ func TestListAvailableModelsSavedCredentialAnthropic(t *testing.T) {
 	}
 	if want := []string{"claude-a"}; !reflect.DeepEqual(resp.Models, want) {
 		t.Fatalf("models = %v, want %v", resp.Models, want)
+	}
+}
+
+func TestPickerModelIDsMirrorsCodexPicker(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors the ChatGPT Codex backend /models catalog at client_version
+	// 0.153.4: gpt-6-astra is priority 1, hidden internal models are dropped.
+	got := pickerModelIDs([]openai.ModelMetadata{
+		{ID: "gpt-5.6-sol", Visibility: "list", Priority: 6},
+		{ID: "gpt-reserve", Visibility: "hide", Priority: 3},
+		{ID: "gpt-5.5", Visibility: "list", Priority: 12},
+		{ID: "gpt-6-astra", Visibility: "list", Priority: 1},
+		{ID: "codex-auto-review", Visibility: "hide", Priority: 43},
+	})
+	want := []string{"gpt-6-astra", "gpt-5.6-sol", "gpt-5.5"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pickerModelIDs() = %v, want %v", got, want)
+	}
+
+	// Plain OpenAI /v1/models and Copilot shapes carry no catalog metadata and
+	// stay alphabetical.
+	got = pickerModelIDs([]openai.ModelMetadata{{ID: "o3"}, {ID: "gpt-4.1"}, {ID: "gpt-4.1"}})
+	want = []string{"gpt-4.1", "o3"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pickerModelIDs() = %v, want %v", got, want)
 	}
 }

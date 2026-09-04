@@ -486,13 +486,31 @@ func fetchOpenAICompatibleModels(ctx context.Context, baseURL string, session *o
 	if err != nil {
 		return nil, err
 	}
-	ids := make([]string, 0, len(models))
-	for _, model := range models {
+	return pickerModelIDs(models), nil
+}
+
+// pickerModelIDs mirrors the Codex CLI model picker: catalog models marked
+// visibility=hide (gpt-reserve, codex-auto-review) are dropped and the rest
+// are ordered by catalog priority, so gpt-6-astra lands first on the ChatGPT
+// Codex backend. Providers without catalog metadata (plain OpenAI /v1/models,
+// Copilot) keep their alphabetical order.
+func pickerModelIDs(models []openai.ModelMetadata) []string {
+	picker := openai.PickerModelMetadata(models)
+	ids := make([]string, 0, len(picker))
+	seen := make(map[string]struct{}, len(picker))
+	for _, model := range picker {
 		if id := strings.TrimSpace(model.ID); id != "" {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
 			ids = append(ids, id)
 		}
 	}
-	return uniqueSorted(ids), nil
+	if len(ids) == 0 {
+		return nil
+	}
+	return ids
 }
 
 func fetchAnthropicModels(ctx context.Context, headers map[string]string) ([]string, error) {
