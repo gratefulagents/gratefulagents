@@ -515,6 +515,9 @@ const (
 	// PlatformServiceGetMyAnthropicUsageProcedure is the fully-qualified name of the PlatformService's
 	// GetMyAnthropicUsage RPC.
 	PlatformServiceGetMyAnthropicUsageProcedure = "/platform.v1.PlatformService/GetMyAnthropicUsage"
+	// PlatformServiceConsumeMyOpenAIRateLimitResetCreditProcedure is the fully-qualified name of the
+	// PlatformService's ConsumeMyOpenAIRateLimitResetCredit RPC.
+	PlatformServiceConsumeMyOpenAIRateLimitResetCreditProcedure = "/platform.v1.PlatformService/ConsumeMyOpenAIRateLimitResetCredit"
 	// PlatformServiceListSecurityScansProcedure is the fully-qualified name of the PlatformService's
 	// ListSecurityScans RPC.
 	PlatformServiceListSecurityScansProcedure = "/platform.v1.PlatformService/ListSecurityScans"
@@ -1005,6 +1008,11 @@ type PlatformServiceClient interface {
 	// the calling user's current Claude OAuth credential. Provider tokens and
 	// raw credential material never leave the server.
 	GetMyAnthropicUsage(context.Context, *connect.Request[platform.GetMyAnthropicUsageRequest]) (*connect.Response[platform.MyAnthropicUsage], error)
+	// ConsumeMyOpenAIRateLimitResetCredit redeems one earned ChatGPT usage
+	// limit reset (as Codex CLI's "Redeem usage limit reset") through the
+	// calling user's current OpenAI OAuth credential. Provider tokens never
+	// leave the server.
+	ConsumeMyOpenAIRateLimitResetCredit(context.Context, *connect.Request[platform.ConsumeMyOpenAIRateLimitResetCreditRequest]) (*connect.Response[platform.ConsumeMyOpenAIRateLimitResetCreditResponse], error)
 	// Security scanning: scans and deduplicated findings recorded by the
 	// security scan feature, backed by the optional Postgres state store.
 	ListSecurityScans(context.Context, *connect.Request[platform.ListSecurityScansRequest]) (*connect.Response[platform.ListSecurityScansResponse], error)
@@ -2183,6 +2191,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("GetMyAnthropicUsage")),
 			connect.WithClientOptions(opts...),
 		),
+		consumeMyOpenAIRateLimitResetCredit: connect.NewClient[platform.ConsumeMyOpenAIRateLimitResetCreditRequest, platform.ConsumeMyOpenAIRateLimitResetCreditResponse](
+			httpClient,
+			baseURL+PlatformServiceConsumeMyOpenAIRateLimitResetCreditProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ConsumeMyOpenAIRateLimitResetCredit")),
+			connect.WithClientOptions(opts...),
+		),
 		listSecurityScans: connect.NewClient[platform.ListSecurityScansRequest, platform.ListSecurityScansResponse](
 			httpClient,
 			baseURL+PlatformServiceListSecurityScansProcedure,
@@ -2853,6 +2867,7 @@ type platformServiceClient struct {
 	getMyOpenAIUsage                       *connect.Client[platform.GetMyOpenAIUsageRequest, platform.MyOpenAIUsage]
 	getMyCopilotUsage                      *connect.Client[platform.GetMyCopilotUsageRequest, platform.MyCopilotUsage]
 	getMyAnthropicUsage                    *connect.Client[platform.GetMyAnthropicUsageRequest, platform.MyAnthropicUsage]
+	consumeMyOpenAIRateLimitResetCredit    *connect.Client[platform.ConsumeMyOpenAIRateLimitResetCreditRequest, platform.ConsumeMyOpenAIRateLimitResetCreditResponse]
 	listSecurityScans                      *connect.Client[platform.ListSecurityScansRequest, platform.ListSecurityScansResponse]
 	getSecurityScan                        *connect.Client[platform.GetSecurityScanRequest, platform.SecurityScan]
 	listSecurityFindings                   *connect.Client[platform.ListSecurityFindingsRequest, platform.ListSecurityFindingsResponse]
@@ -3748,6 +3763,12 @@ func (c *platformServiceClient) GetMyAnthropicUsage(ctx context.Context, req *co
 	return c.getMyAnthropicUsage.CallUnary(ctx, req)
 }
 
+// ConsumeMyOpenAIRateLimitResetCredit calls
+// platform.v1.PlatformService.ConsumeMyOpenAIRateLimitResetCredit.
+func (c *platformServiceClient) ConsumeMyOpenAIRateLimitResetCredit(ctx context.Context, req *connect.Request[platform.ConsumeMyOpenAIRateLimitResetCreditRequest]) (*connect.Response[platform.ConsumeMyOpenAIRateLimitResetCreditResponse], error) {
+	return c.consumeMyOpenAIRateLimitResetCredit.CallUnary(ctx, req)
+}
+
 // ListSecurityScans calls platform.v1.PlatformService.ListSecurityScans.
 func (c *platformServiceClient) ListSecurityScans(ctx context.Context, req *connect.Request[platform.ListSecurityScansRequest]) (*connect.Response[platform.ListSecurityScansResponse], error) {
 	return c.listSecurityScans.CallUnary(ctx, req)
@@ -4419,6 +4440,11 @@ type PlatformServiceHandler interface {
 	// the calling user's current Claude OAuth credential. Provider tokens and
 	// raw credential material never leave the server.
 	GetMyAnthropicUsage(context.Context, *connect.Request[platform.GetMyAnthropicUsageRequest]) (*connect.Response[platform.MyAnthropicUsage], error)
+	// ConsumeMyOpenAIRateLimitResetCredit redeems one earned ChatGPT usage
+	// limit reset (as Codex CLI's "Redeem usage limit reset") through the
+	// calling user's current OpenAI OAuth credential. Provider tokens never
+	// leave the server.
+	ConsumeMyOpenAIRateLimitResetCredit(context.Context, *connect.Request[platform.ConsumeMyOpenAIRateLimitResetCreditRequest]) (*connect.Response[platform.ConsumeMyOpenAIRateLimitResetCreditResponse], error)
 	// Security scanning: scans and deduplicated findings recorded by the
 	// security scan feature, backed by the optional Postgres state store.
 	ListSecurityScans(context.Context, *connect.Request[platform.ListSecurityScansRequest]) (*connect.Response[platform.ListSecurityScansResponse], error)
@@ -5593,6 +5619,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("GetMyAnthropicUsage")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceConsumeMyOpenAIRateLimitResetCreditHandler := connect.NewUnaryHandler(
+		PlatformServiceConsumeMyOpenAIRateLimitResetCreditProcedure,
+		svc.ConsumeMyOpenAIRateLimitResetCredit,
+		connect.WithSchema(platformServiceMethods.ByName("ConsumeMyOpenAIRateLimitResetCredit")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceListSecurityScansHandler := connect.NewUnaryHandler(
 		PlatformServiceListSecurityScansProcedure,
 		svc.ListSecurityScans,
@@ -6421,6 +6453,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceGetMyCopilotUsageHandler.ServeHTTP(w, r)
 		case PlatformServiceGetMyAnthropicUsageProcedure:
 			platformServiceGetMyAnthropicUsageHandler.ServeHTTP(w, r)
+		case PlatformServiceConsumeMyOpenAIRateLimitResetCreditProcedure:
+			platformServiceConsumeMyOpenAIRateLimitResetCreditHandler.ServeHTTP(w, r)
 		case PlatformServiceListSecurityScansProcedure:
 			platformServiceListSecurityScansHandler.ServeHTTP(w, r)
 		case PlatformServiceGetSecurityScanProcedure:
@@ -7240,6 +7274,10 @@ func (UnimplementedPlatformServiceHandler) GetMyCopilotUsage(context.Context, *c
 
 func (UnimplementedPlatformServiceHandler) GetMyAnthropicUsage(context.Context, *connect.Request[platform.GetMyAnthropicUsageRequest]) (*connect.Response[platform.MyAnthropicUsage], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetMyAnthropicUsage is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ConsumeMyOpenAIRateLimitResetCredit(context.Context, *connect.Request[platform.ConsumeMyOpenAIRateLimitResetCreditRequest]) (*connect.Response[platform.ConsumeMyOpenAIRateLimitResetCreditResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ConsumeMyOpenAIRateLimitResetCredit is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) ListSecurityScans(context.Context, *connect.Request[platform.ListSecurityScansRequest]) (*connect.Response[platform.ListSecurityScansResponse], error) {

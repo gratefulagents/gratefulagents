@@ -21,6 +21,8 @@ import {
   AgentRunSchema,
   AgentRunUsageResponseSchema,
   ChatMessageSchema,
+  CodexRateLimitResetOutcome,
+  ConsumeMyOpenAIRateLimitResetCreditResponseSchema,
   CronEventSchema,
   ExportAgentRunArchiveResponseSchema,
   GetActivityLogResponseSchema,
@@ -1062,6 +1064,23 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
     listMyCredentials: async () => s.credentials,
     updateMyCredentials: async () => s.credentials,
     getMyOpenAIUsage: async () => s.openAIUsage,
+    consumeMyOpenAIRateLimitResetCredit: async (req: { creditId: string }) => {
+      const resets = s.openAIUsage.rateLimitResetCredits;
+      if (!resets || resets.availableCount <= 0n) {
+        return create(ConsumeMyOpenAIRateLimitResetCreditResponseSchema, {
+          outcome: CodexRateLimitResetOutcome.NO_CREDIT,
+        });
+      }
+      resets.availableCount -= 1n;
+      resets.credits = req.creditId
+        ? resets.credits.filter((credit) => credit.id !== req.creditId)
+        : resets.credits.slice(1);
+      for (const limit of s.openAIUsage.limits) limit.usedPercent = 0;
+      return create(ConsumeMyOpenAIRateLimitResetCreditResponseSchema, {
+        outcome: CodexRateLimitResetOutcome.RESET,
+        windowsReset: BigInt(s.openAIUsage.limits.length),
+      });
+    },
     getMyCopilotUsage: async () => s.copilotUsage,
     getMyAnthropicUsage: async () => s.anthropicUsage,
     startProviderOAuth: async (req: { provider: string }) =>

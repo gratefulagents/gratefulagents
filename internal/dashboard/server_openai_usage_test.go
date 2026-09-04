@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -45,7 +47,9 @@ func TestGetMyOpenAIUsageReadsCurrentOAuthAccount(t *testing.T) {
 		var body string
 		switch req.URL.Path {
 		case "/backend-api/wham/usage":
-			body = `{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":42,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":9,"limit_window_seconds":604800,"reset_at":1893888000}},"credits":{"has_credits":true,"unlimited":false,"balance":"12.50"}}`
+			body = `{"plan_type":"pro","rate_limit":{"primary_window":{"used_percent":42,"limit_window_seconds":18000,"reset_at":1893456000},"secondary_window":{"used_percent":9,"limit_window_seconds":604800,"reset_at":1893888000}},"credits":{"has_credits":true,"unlimited":false,"balance":"12.50"},"rate_limit_reset_credits":{"available_count":2}}`
+		case "/backend-api/wham/rate-limit-reset-credits":
+			body = `{"available_count":2,"credits":[{"id":"credit-late","reset_type":"codex_rate_limits","status":"available","granted_at":"2026-01-01T00:00:00Z","expires_at":"2026-03-01T00:00:00Z","title":"Full reset","description":"Reset your current usage limits."},{"id":"credit-redeemed","reset_type":"codex_rate_limits","status":"redeemed","granted_at":"2026-01-01T00:00:00Z"},{"id":"credit-soon","reset_type":"codex_rate_limits","status":"available","granted_at":"2026-01-02T00:00:00Z","expires_at":"2026-02-01T00:00:00Z","title":null,"description":null}]}`
 		case "/backend-api/wham/profiles/me":
 			body = fmt.Sprintf(`{"stats":{"lifetime_tokens":10000,"peak_daily_tokens":1200,"current_streak_days":3,"longest_streak_days":8,"longest_running_turn_sec":3900,"daily_usage_buckets":[{"start_date":%q,"tokens":700}]}}`, time.Now().UTC().Format("2006-01-02"))
 		default:
@@ -79,12 +83,131 @@ func TestGetMyOpenAIUsageReadsCurrentOAuthAccount(t *testing.T) {
 	if len(got.Limits) != 2 || got.Limits[0].Label != "5 hour" || got.Limits[0].UsedPercent != 42 {
 		t.Fatalf("limits = %#v", got.Limits)
 	}
+	resets := got.RateLimitResetCredits
+	if resets == nil || resets.AvailableCount != 2 || !resets.DetailsAvailable {
+		t.Fatalf("reset credits = %#v", resets)
+	}
+	if len(resets.Credits) != 2 || resets.Credits[0].Id != "credit-soon" || resets.Credits[1].Id != "credit-late" {
+		t.Fatalf("reset credit rows = %#v", resets.Credits)
+	}
+	if resets.Credits[0].ExpiresAtUnix != time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC).Unix() || resets.Credits[0].Title != "" {
+		t.Fatalf("soonest reset credit = %#v", resets.Credits[0])
+	}
+	if resets.Credits[1].Title != "Full reset" || resets.Credits[1].Description != "Reset your current usage limits." {
+		t.Fatalf("labelled reset credit = %#v", resets.Credits[1])
+	}
 	mu.Lock()
 	seenUsage := seen["/backend-api/wham/usage"]
 	seenProfile := seen["/backend-api/wham/profiles/me"]
+	seenResets := seen["/backend-api/wham/rate-limit-reset-credits"]
 	mu.Unlock()
-	if !seenUsage || !seenProfile {
+	if !seenUsage || !seenProfile || !seenResets {
 		t.Fatalf("seen paths = %#v", seen)
+	}
+}
+
+func TestGetMyOpenAIUsageFallsBackToUsageResetCreditSummary(t *testing.T) {
+	scheme := testProjectScheme(t)
+	transport := providerOAuthRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case strings.HasSuffix(req.URL.Path, "/wham/rate-limit-reset-credits"):
+			return &http.Response{StatusCode: http.StatusNotFound, Status: "404 Not Found", Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+		case strings.HasSuffix(req.URL.Path, "/wham/usage"):
+			return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"plan_type":"plus","rate_limit_reset_credits":{"available_count":1}}`))}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"stats":{}}`))}, nil
+	})
+	srv := &Server{k8sClient: fake.NewClientBuilder().WithScheme(scheme).Build(), scheme: scheme, providerOAuthHTTP: &http.Client{Transport: transport}}
+	ctx := credActorCtx("user-reset-summary", "Reset Summary")
+	if _, err := srv.UpdateMyCredentials(ctx, &platform.UpdateMyCredentialsRequest{
+		OpenaiOauthJson: testOpenAIOAuthJSON(t, "account-reset"), OpenaiAccountId: "account-reset",
+	}); err != nil {
+		t.Fatalf("UpdateMyCredentials() error = %v", err)
+	}
+
+	got, err := srv.GetMyOpenAIUsage(ctx, &platform.GetMyOpenAIUsageRequest{})
+	if err != nil {
+		t.Fatalf("GetMyOpenAIUsage() error = %v", err)
+	}
+	resets := got.RateLimitResetCredits
+	if resets == nil || resets.AvailableCount != 1 || resets.DetailsAvailable || len(resets.Credits) != 0 {
+		t.Fatalf("reset credits = %#v", resets)
+	}
+	if len(got.Warnings) != 0 {
+		t.Fatalf("warnings = %#v", got.Warnings)
+	}
+}
+
+func TestConsumeMyOpenAIRateLimitResetCreditPostsRedeemRequest(t *testing.T) {
+	scheme := testProjectScheme(t)
+	var mu sync.Mutex
+	var bodies []string
+	transport := providerOAuthRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost || req.URL.Path != "/backend-api/wham/rate-limit-reset-credits/consume" {
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+		}
+		if got := req.Header.Get("Authorization"); got != "Bearer access-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		if got := req.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("Content-Type = %q", got)
+		}
+		raw, _ := io.ReadAll(req.Body)
+		mu.Lock()
+		bodies = append(bodies, string(raw))
+		count := len(bodies)
+		mu.Unlock()
+		body := `{"code":"reset","windows_reset":2}`
+		if count > 1 {
+			body = `{"code":"already_redeemed"}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	srv := &Server{k8sClient: fake.NewClientBuilder().WithScheme(scheme).Build(), scheme: scheme, providerOAuthHTTP: &http.Client{Transport: transport}}
+	ctx := credActorCtx("user-reset-consume", "Reset Consumer")
+	if _, err := srv.UpdateMyCredentials(ctx, &platform.UpdateMyCredentialsRequest{
+		OpenaiOauthJson: testOpenAIOAuthJSON(t, "account-reset"), OpenaiAccountId: "account-reset",
+	}); err != nil {
+		t.Fatalf("UpdateMyCredentials() error = %v", err)
+	}
+
+	got, err := srv.ConsumeMyOpenAIRateLimitResetCredit(ctx, &platform.ConsumeMyOpenAIRateLimitResetCreditRequest{IdempotencyKey: "attempt-1", CreditId: "credit-soon"})
+	if err != nil {
+		t.Fatalf("ConsumeMyOpenAIRateLimitResetCredit() error = %v", err)
+	}
+	if got.Outcome != platform.CodexRateLimitResetOutcome_CODEX_RATE_LIMIT_RESET_OUTCOME_RESET || got.WindowsReset != 2 {
+		t.Fatalf("outcome = %#v", got)
+	}
+	retry, err := srv.ConsumeMyOpenAIRateLimitResetCredit(ctx, &platform.ConsumeMyOpenAIRateLimitResetCreditRequest{IdempotencyKey: "attempt-1"})
+	if err != nil {
+		t.Fatalf("retry error = %v", err)
+	}
+	if retry.Outcome != platform.CodexRateLimitResetOutcome_CODEX_RATE_LIMIT_RESET_OUTCOME_ALREADY_REDEEMED {
+		t.Fatalf("retry outcome = %#v", retry)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(bodies) != 2 || bodies[0] != `{"redeem_request_id":"attempt-1","credit_id":"credit-soon"}` || bodies[1] != `{"redeem_request_id":"attempt-1"}` {
+		t.Fatalf("request bodies = %#v", bodies)
+	}
+}
+
+func TestConsumeMyOpenAIRateLimitResetCreditRejectsMissingKeyAndCredential(t *testing.T) {
+	scheme := testProjectScheme(t)
+	transport := providerOAuthRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("unexpected request %s %s", req.Method, req.URL.Path)
+		return nil, nil
+	})
+	srv := &Server{k8sClient: fake.NewClientBuilder().WithScheme(scheme).Build(), scheme: scheme, providerOAuthHTTP: &http.Client{Transport: transport}}
+	ctx := credActorCtx("user-reset-missing", "Reset Missing")
+
+	_, err := srv.ConsumeMyOpenAIRateLimitResetCredit(ctx, &platform.ConsumeMyOpenAIRateLimitResetCreditRequest{})
+	if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("empty idempotency key error = %v", err)
+	}
+	_, err = srv.ConsumeMyOpenAIRateLimitResetCredit(ctx, &platform.ConsumeMyOpenAIRateLimitResetCreditRequest{IdempotencyKey: "attempt-1"})
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("missing credential error = %v", err)
 	}
 }
 

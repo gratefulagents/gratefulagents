@@ -1612,3 +1612,11 @@ func (h *PlatformServiceConnectHandler) UpdateBugReportStatus(ctx context.Contex
 	}
 	return connect.NewResponse(resp), nil
 }
+
+func (h *PlatformServiceConnectHandler) ConsumeMyOpenAIRateLimitResetCredit(ctx context.Context, req *connect.Request[platform.ConsumeMyOpenAIRateLimitResetCreditRequest]) (*connect.Response[platform.ConsumeMyOpenAIRateLimitResetCreditResponse], error) {
+	resp, err := h.srv.ConsumeMyOpenAIRateLimitResetCredit(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}

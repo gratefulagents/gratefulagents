@@ -12,12 +12,31 @@ import {
   MyCopilotUsageSchema,
   MyOpenAIUsageSchema,
   type MyOpenAIUsage,
+  ConsumeMyOpenAIRateLimitResetCreditResponseSchema,
+  OpenAIRateLimitResetCreditSchema,
+  OpenAIRateLimitResetCreditsSchema,
+  CodexRateLimitResetOutcome,
   OpenAIUsageLimitSchema,
 } from "@/rpc/platform/service_pb";
 
 vi.mock("@/lib/client", () => ({
-  client: { getMyOpenAIUsage: vi.fn(), getMyCopilotUsage: vi.fn(), getMyAnthropicUsage: vi.fn() },
+  client: {
+    getMyOpenAIUsage: vi.fn(),
+    getMyCopilotUsage: vi.fn(),
+    getMyAnthropicUsage: vi.fn(),
+    consumeMyOpenAIRateLimitResetCredit: vi.fn(),
+  },
 }));
+
+function openAIUsageWithResets(resets: Parameters<typeof create<typeof OpenAIRateLimitResetCreditsSchema>>[1] | undefined) {
+  return create(MyOpenAIUsageSchema, {
+    openaiOauthPresent: true,
+    planType: "pro",
+    accountStatusAvailable: true,
+    lookbackDays: 30,
+    rateLimitResetCredits: resets === undefined ? undefined : create(OpenAIRateLimitResetCreditsSchema, resets),
+  });
+}
 
 function renderPage() {
   return render(
@@ -273,5 +292,124 @@ describe("UsagePage", () => {
     resolveRetry(create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }));
     expect(await screen.findByText("Connect OpenAI to see usage")).toBeTruthy();
     await waitFor(() => expect(client.getMyOpenAIUsage).toHaveBeenCalledTimes(2));
+  });
+
+  it("lists earned usage limit resets and redeems one after confirmation", async () => {
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValueOnce(
+      openAIUsageWithResets({
+        availableCount: 2n,
+        detailsAvailable: true,
+        credits: [
+          create(OpenAIRateLimitResetCreditSchema, {
+            id: "credit-soon",
+            status: "available",
+            grantedAtUnix: 1893456000n,
+            expiresAtUnix: 1896134400n,
+          }),
+          create(OpenAIRateLimitResetCreditSchema, {
+            id: "credit-late",
+            status: "available",
+            title: "Weekly bonus reset",
+            description: "Clears the weekly window.",
+          }),
+        ],
+      }),
+    );
+    vi.mocked(client.consumeMyOpenAIRateLimitResetCredit).mockResolvedValue(
+      create(ConsumeMyOpenAIRateLimitResetCreditResponseSchema, {
+        outcome: CodexRateLimitResetOutcome.RESET,
+        windowsReset: 2n,
+      }),
+    );
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValueOnce(
+      openAIUsageWithResets({ availableCount: 1n, detailsAvailable: true, credits: [] }),
+    );
+
+    renderPage();
+    fireEvent.click(screen.getByRole("tab", { name: "OpenAI" }));
+
+    expect(await screen.findByText("Usage limit resets")).toBeTruthy();
+    expect(screen.getByText("You have 2 resets available.")).toBeTruthy();
+    expect(screen.getByText("Full reset")).toBeTruthy();
+    expect(screen.getByText("Weekly bonus reset")).toBeTruthy();
+    expect(screen.getByText(/Does not expire\. Clears the weekly window\./)).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Use reset" })[0]!);
+    expect(await screen.findByText("Use this reset?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Yes, use reset" }));
+
+    expect(await screen.findByText("Your usage limits were reset.")).toBeTruthy();
+    expect(client.consumeMyOpenAIRateLimitResetCredit).toHaveBeenCalledTimes(1);
+    const request = vi.mocked(client.consumeMyOpenAIRateLimitResetCredit).mock.calls[0]![0];
+    expect(request.creditId).toBe("credit-soon");
+    expect(request.idempotencyKey).toMatch(/[0-9a-f-]{36}/);
+    await waitFor(() => expect(client.getMyOpenAIUsage).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("You have 1 reset available.")).toBeTruthy();
+  });
+
+  it("offers a generic reset when only a count is known and cancelling keeps the credit", async () => {
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValue(
+      openAIUsageWithResets({ availableCount: 1n, detailsAvailable: false }),
+    );
+    vi.mocked(client.consumeMyOpenAIRateLimitResetCredit).mockResolvedValue(
+      create(ConsumeMyOpenAIRateLimitResetCreditResponseSchema, {
+        outcome: CodexRateLimitResetOutcome.NOTHING_TO_RESET,
+      }),
+    );
+
+    renderPage();
+    fireEvent.click(screen.getByRole("tab", { name: "OpenAI" }));
+
+    expect(await screen.findByText("You have 1 reset available.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Use reset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "No, go back" }));
+    expect(client.consumeMyOpenAIRateLimitResetCredit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use reset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Yes, use reset" }));
+
+    expect(await screen.findByText("Your usage does not need a reset right now.")).toBeTruthy();
+    expect(vi.mocked(client.consumeMyOpenAIRateLimitResetCredit).mock.calls[0]![0].creditId).toBe("");
+    expect(client.getMyOpenAIUsage).toHaveBeenCalledTimes(1);
+  });
+
+  it("explains when no resets are available or reported", async () => {
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValueOnce(
+      openAIUsageWithResets({ availableCount: 0n, detailsAvailable: true }),
+    );
+    renderPage();
+    fireEvent.click(screen.getByRole("tab", { name: "OpenAI" }));
+    expect(await screen.findByText("No usage limit resets available.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Use reset" })).toBeNull();
+
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValueOnce(openAIUsageWithResets(undefined));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh usage" }));
+    expect(await screen.findByText("ChatGPT did not report usage limit resets for this account.")).toBeTruthy();
+  });
+
+  it("keeps the confirmation open with the error when redeeming fails", async () => {
+    vi.mocked(client.getMyOpenAIUsage).mockResolvedValue(
+      openAIUsageWithResets({ availableCount: 1n, detailsAvailable: false }),
+    );
+    vi.mocked(client.consumeMyOpenAIRateLimitResetCredit).mockRejectedValueOnce(new Error("reset timed out"));
+    vi.mocked(client.consumeMyOpenAIRateLimitResetCredit).mockResolvedValueOnce(
+      create(ConsumeMyOpenAIRateLimitResetCreditResponseSchema, {
+        outcome: CodexRateLimitResetOutcome.ALREADY_REDEEMED,
+      }),
+    );
+
+    renderPage();
+    fireEvent.click(screen.getByRole("tab", { name: "OpenAI" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Use reset" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Yes, use reset" }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("reset timed out");
+    fireEvent.click(screen.getByRole("button", { name: "Yes, use reset" }));
+    expect(await screen.findByText("Your usage limits were reset.")).toBeTruthy();
+
+    const calls = vi.mocked(client.consumeMyOpenAIRateLimitResetCredit).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[1]![0].idempotencyKey).toBe(calls[0]![0].idempotencyKey);
   });
 });
