@@ -1,7 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { SecurityCatalogDialog } from "@/components/SecurityCatalogDialog";
@@ -55,6 +55,9 @@ function catalogFixture() {
     ready: true,
     entries: [
       catalogEntry(SecurityCatalogKind.SKILL, "web-skill", "Web review skill"),
+      catalogEntry(SecurityCatalogKind.SKILL, "legacy-skill", "Legacy skill", {
+        installState: SecurityCatalogInstallState.UPDATE_AVAILABLE,
+      }),
       catalogEntry(SecurityCatalogKind.WORKFLOW, "web-review", "Web review workflow", {
         dependencies: [{ resource: { kind: SecurityCatalogKind.SKILL, name: "web-skill" }, required: true }],
       }),
@@ -102,8 +105,16 @@ describe("SecurityCatalogDialog", () => {
     expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe("/settings/skills");
     expect(screen.getByRole("link", { name: "Configurations" }).getAttribute("href")).toBe("/security/configs");
 
-    const options = screen.getAllByRole("option").map((option) => option.textContent);
+    const options = within(screen.getByLabelText("Catalog kind")).getAllByRole("option").map((option) => option.textContent);
     expect(options).toEqual(["All kinds", "Skills", "Workflows", "Rankers", "Post-scripts", "Policy packs", "Programs"]);
+    const statuses = within(screen.getByLabelText("Install status")).getAllByRole("option").map((option) => option.textContent);
+    expect(statuses).toEqual([
+      "All statuses",
+      "Update available (1)",
+      "Not installed (4)",
+      "Installed (1)",
+      "Conflict (1)",
+    ]);
 
     fireEvent.change(screen.getByLabelText("Catalog kind"), {
       target: { value: String(SecurityCatalogKind.PROGRAM) },
@@ -112,7 +123,54 @@ describe("SecurityCatalogDialog", () => {
     expect(screen.queryByText("Web review workflow")).toBeNull();
 
     fireEvent.change(screen.getByLabelText("Search catalog"), { target: { value: "missing" } });
-    expect(screen.getByText("No catalog items match this search and kind.")).toBeTruthy();
+    expect(screen.getByText("No catalog items match this search, kind, and status.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(screen.getByText("Web review workflow")).toBeTruthy();
+  });
+
+  it("bulk-selects visible ready items and quick-selects only the ones with updates", async () => {
+    listSecurityCatalog.mockResolvedValue(catalogFixture());
+    renderDialog();
+    await screen.findByText("Web review skill");
+
+    const checked = (name: string) => (screen.getByRole("checkbox", { name }) as HTMLInputElement).checked;
+
+    // The update banner selects exactly the items with an update and narrows the list to them.
+    expect(screen.getByRole("status").textContent).toContain("1 installed item has an update available");
+    fireEvent.click(screen.getByRole("button", { name: "Select all 1 update" }));
+    expect(checked("Select Skills Legacy skill")).toBe(true);
+    expect((screen.getByLabelText("Install status") as HTMLSelectElement).value).toBe(String(SecurityCatalogInstallState.UPDATE_AVAILABLE));
+    expect(screen.queryByText("Web review skill")).toBeNull();
+    expect(screen.getByRole("button", { name: "Review selection (1)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "All updates selected" })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Install status"), { target: { value: "all" } });
+    fireEvent.click(screen.getByRole("button", { name: "Not installed (3)" }));
+    expect(checked("Select Skills Web review skill")).toBe(true);
+    expect(checked("Select Workflows Web review workflow")).toBe(true);
+    expect(checked("Select Post-scripts Verification post-script")).toBe(true);
+    expect(checked("Select Rankers Severity ranker")).toBe(false);
+    // Not-ready items never enter a bulk selection.
+    expect(checked("Select Policy packs Bounty policy pack")).toBe(false);
+    expect(screen.getByText(/skipped by bulk selection/)).toBeTruthy();
+
+    // Select all covers every ready item; toggling again clears them.
+    const selectAll = screen.getByRole("checkbox", { name: "Select all" }) as HTMLInputElement;
+    expect(selectAll.indeterminate).toBe(true);
+    fireEvent.click(selectAll);
+    expect(checked("Select Rankers Severity ranker")).toBe(true);
+    expect(checked("Select Programs Acme program")).toBe(true);
+    expect(checked("Select Policy packs Bounty policy pack")).toBe(false);
+    expect(screen.getByRole("button", { name: "Review selection (6)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select all" }));
+    expect(screen.getByRole("toolbar", { name: "Selection" }).textContent).toContain("0 selected");
+
+    // With a kind filter, select all only touches the visible items.
+    fireEvent.change(screen.getByLabelText("Catalog kind"), { target: { value: String(SecurityCatalogKind.SKILL) } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select all visible" }));
+    expect(screen.getByRole("button", { name: "Review selection (2)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect((screen.getByRole("button", { name: "Review selection (0)" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("applies independent items from a blocked plan and reports the partial outcome", async () => {
