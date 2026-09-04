@@ -42,6 +42,20 @@ function kindLabel(kind: SecurityCatalogKind): string {
   return kindLabels[kind] ?? "Other";
 }
 
+const statusFilterOrder: SecurityCatalogInstallState[] = [
+  SecurityCatalogInstallState.UPDATE_AVAILABLE,
+  SecurityCatalogInstallState.NOT_INSTALLED,
+  SecurityCatalogInstallState.INSTALLED,
+  SecurityCatalogInstallState.MODIFIED,
+  SecurityCatalogInstallState.CONFLICT,
+  SecurityCatalogInstallState.UNSPECIFIED,
+];
+
+/** selectableInBulk excludes items whose plan would only ever come back blocked. */
+function selectableInBulk(entry: SecurityCatalogEntry): boolean {
+  return Boolean(entry.resource) && entry.ready;
+}
+
 function entryKey(entry: SecurityCatalogEntry): string {
   return `${entry.resource?.kind ?? 0}:${entry.resource?.name ?? ""}`;
 }
@@ -78,6 +92,7 @@ export function SecurityCatalogDialog({
   const [loadError, setLoadError] = useState("");
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("all");
+  const [status, setStatus] = useState("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [review, setReview] = useState<SecurityCatalogInstallResponse | null>(null);
   const [operationError, setOperationError] = useState("");
@@ -92,15 +107,38 @@ export function SecurityCatalogDialog({
     return [...values].sort((a, b) => a - b);
   }, [catalog]);
 
+  const statusCounts = useMemo(() => {
+    const counts = new Map<SecurityCatalogInstallState, number>();
+    for (const entry of catalog?.entries ?? []) {
+      counts.set(entry.installState, (counts.get(entry.installState) ?? 0) + 1);
+    }
+    return counts;
+  }, [catalog]);
+
+  const availableStatuses = statusFilterOrder.filter((value) => (statusCounts.get(value) ?? 0) > 0);
+
   const visibleEntries = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return (catalog?.entries ?? []).filter((entry) => {
       if (kind !== "all" && entry.resource?.kind !== Number(kind)) return false;
+      if (status !== "all" && entry.installState !== Number(status)) return false;
       if (!needle) return true;
       return [entry.title, entry.description, entry.resource?.name ?? "", kindLabel(entry.resource?.kind ?? 0)]
         .some((value) => value.toLowerCase().includes(needle));
     });
-  }, [catalog, kind, query]);
+  }, [catalog, kind, query, status]);
+
+  const bulkSelectable = visibleEntries.filter(selectableInBulk);
+  const visibleSelectedCount = bulkSelectable.filter((entry) => selected.has(entryKey(entry))).length;
+  const allVisibleSelected = bulkSelectable.length > 0 && visibleSelectedCount === bulkSelectable.length;
+  const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
+  const visibleUpdates = bulkSelectable.filter((entry) => entry.installState === SecurityCatalogInstallState.UPDATE_AVAILABLE);
+  const visibleNotInstalled = bulkSelectable.filter((entry) => entry.installState === SecurityCatalogInstallState.NOT_INSTALLED);
+  const filtersActive = kind !== "all" || status !== "all" || query.trim() !== "";
+  const allUpdates = (catalog?.entries ?? []).filter(
+    (entry) => selectableInBulk(entry) && entry.installState === SecurityCatalogInstallState.UPDATE_AVAILABLE,
+  );
+  const allUpdatesSelected = allUpdates.length > 0 && allUpdates.every((entry) => selected.has(entryKey(entry)));
 
   async function loadCatalog() {
     setLoading(true);
@@ -125,6 +163,7 @@ export function SecurityCatalogDialog({
     if (nextOpen) {
       setQuery("");
       setKind("all");
+      setStatus("all");
       setSuccess("");
       void loadCatalog();
     }
@@ -140,6 +179,23 @@ export function SecurityCatalogDialog({
     });
     setReview(null);
     setOperationError("");
+  }
+
+  function replaceSelection(entries: SecurityCatalogEntry[], mode: "add" | "remove" | "only") {
+    setSelected((current) => {
+      const next = mode === "only" ? new Set<string>() : new Set(current);
+      for (const entry of entries) {
+        if (mode === "remove") next.delete(entryKey(entry));
+        else next.add(entryKey(entry));
+      }
+      return next;
+    });
+    setReview(null);
+    setOperationError("");
+  }
+
+  function toggleSelectAllVisible() {
+    replaceSelection(bulkSelectable, allVisibleSelected ? "remove" : "add");
   }
 
   function requestResources() {
@@ -284,6 +340,23 @@ export function SecurityCatalogDialog({
                   {success} The library and catalog are now refreshed.
                 </p>
               )}
+              {allUpdates.length > 0 && catalog.ready && (
+                <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-sm">
+                  <p>
+                    <span className="font-medium">{allUpdates.length} installed {allUpdates.length === 1 ? "item has" : "items have"} an update available.</span>{" "}
+                    <span className="text-muted-foreground">Select them to review what would change before applying.</span>
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={allUpdatesSelected}
+                    onClick={() => { replaceSelection(allUpdates, "add"); setStatus(String(SecurityCatalogInstallState.UPDATE_AVAILABLE)); }}
+                  >
+                    {allUpdatesSelected ? "All updates selected" : `Select all ${allUpdates.length} ${allUpdates.length === 1 ? "update" : "updates"}`}
+                  </Button>
+                </div>
+              )}
               <div className="flex flex-col gap-2 sm:flex-row">
                 <div className="relative min-w-0 flex-1">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -304,17 +377,84 @@ export function SecurityCatalogDialog({
                   <option value="all">All kinds</option>
                   {availableKinds.map((value) => <option key={value} value={value}>{kindLabel(value)}</option>)}
                 </select>
+                <select
+                  aria-label="Install status"
+                  value={status}
+                  onChange={(event) => setStatus(event.target.value)}
+                  className="min-h-11 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="all">All statuses</option>
+                  {availableStatuses.map((value) => (
+                    <option key={value} value={value}>
+                      {installStateLabels[value]} ({statusCounts.get(value) ?? 0})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {catalog.entries.length === 0 ? (
                 <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">The shipped catalog has no items.</p>
               ) : visibleEntries.length === 0 ? (
-                <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No catalog items match this search and kind.</p>
+                <div className="space-y-3 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  <p>No catalog items match this search, kind, and status.</p>
+                  <Button size="sm" variant="outline" onClick={() => { setQuery(""); setKind("all"); setStatus("all"); }}>Clear filters</Button>
+                </div>
               ) : (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {visibleEntries.length} of {catalog.entries.length} items
-                  </p>
+                  <div
+                    role="toolbar"
+                    aria-label="Selection"
+                    className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border/70 bg-muted/20 px-3 py-2"
+                  >
+                    <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm font-medium">
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-primary"
+                        aria-label={filtersActive ? "Select all visible" : "Select all"}
+                        checked={allVisibleSelected}
+                        ref={(node) => { if (node) node.indeterminate = someVisibleSelected; }}
+                        disabled={bulkSelectable.length === 0}
+                        onChange={toggleSelectAllVisible}
+                      />
+                      {filtersActive ? "Select all visible" : "Select all"}
+                      <span className="font-normal text-muted-foreground">({bulkSelectable.length})</span>
+                    </label>
+                    <span className="hidden h-4 w-px bg-border sm:block" aria-hidden />
+                    <span className="text-xs text-muted-foreground">Quick select:</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      disabled={visibleUpdates.length === 0}
+                      onClick={() => replaceSelection(visibleUpdates, "add")}
+                    >
+                      Updates available ({visibleUpdates.length})
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      disabled={visibleNotInstalled.length === 0}
+                      onClick={() => replaceSelection(visibleNotInstalled, "add")}
+                    >
+                      Not installed ({visibleNotInstalled.length})
+                    </Button>
+                    <span className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>{visibleEntries.length} of {catalog.entries.length} items · {selected.size} selected</span>
+                      {selected.size > 0 && (
+                        <Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => replaceSelection([], "only")}>
+                          Clear selection
+                        </Button>
+                      )}
+                    </span>
+                  </div>
+                  {bulkSelectable.length < visibleEntries.length && (
+                    <p className="text-xs text-muted-foreground">
+                      Items marked “Not ready” are skipped by bulk selection; they can still be selected individually.
+                    </p>
+                  )}
                 <ul className="divide-y overflow-hidden rounded-lg border" aria-label="Shipped security catalog">
                   {visibleEntries.map((entry) => {
                     const resource = entry.resource;

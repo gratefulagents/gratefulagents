@@ -706,11 +706,7 @@ export function SecurityScanConfigList() {
         <div className="flex items-center gap-2">
           <ProgramTargetImportDialog
             programs={programs}
-            existingNames={new Set(
-              configs
-                .filter((config) => config.namespace === personalNamespace)
-                .map((config) => config.name),
-            )}
+            existingConfigs={configs.filter((config) => config.namespace === personalNamespace)}
             trigger={<Button ref={importTriggerRef} variant="outline" size="sm">Import scan targets</Button>}
             onTargetSelected={setSelectedProgramScanTarget}
             onImported={() => void fetchConfigs()}

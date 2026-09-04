@@ -1,4 +1,4 @@
-import { create } from "@bufbuild/protobuf";
+import { clone, create } from "@bufbuild/protobuf";
 
 import { buildCronRequest, emptyDefaults } from "@/components/run-defaults/helpers";
 import { resolvedTriggerPolicies } from "@/components/TriggerDefaultsDialog";
@@ -8,10 +8,13 @@ import {
   AgentRunDefaultsSchema,
   CreateSecurityScanRequestSchema,
   SecurityScanConfigSpecSchema,
+  UpdateSecurityScanRequestSchema,
   type AgentRunDefaults,
   type CreateSecurityScanRequest,
   type ModelDefaults,
+  type SecurityScanConfig,
   type TriggerPolicies,
+  type UpdateSecurityScanRequest,
 } from "@/rpc/platform/service_pb";
 
 export type ImportedScanOptions = {
@@ -89,5 +92,85 @@ export function buildImportedScanCreateRequest(
     spec,
     useSavedCredentials: true,
     policies: options.policies ?? resolvedTriggerPolicies(undefined),
+  });
+}
+
+/**
+ * ProgramTargetImportStatus classifies a program scan target against the
+ * caller's existing configurations: `new` has no configuration yet,
+ * `update-available` has one whose program-defined target fields drifted from
+ * the program, and `up-to-date` already matches.
+ */
+export type ProgramTargetImportStatus = "new" | "update-available" | "up-to-date";
+
+function sameParameterValues(
+  left: Record<string, string>,
+  right: Record<string, string>,
+): boolean {
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) return false;
+  return leftKeys.every((key) => right[key] === left[key]);
+}
+
+/**
+ * programTargetDrift lists the human-readable target fields on which an
+ * existing configuration differs from its security-program target. Only the
+ * fields the program defines are compared; schedule, model defaults, budgets,
+ * notifications, and other operator choices are never considered drift.
+ */
+export function programTargetDrift(
+  target: ProgramScanTarget,
+  config: SecurityScanConfig,
+): string[] {
+  const spec = config.spec;
+  if (!spec) return ["configuration"];
+  const drift: string[] = [];
+  if ((spec.repoUrl ?? "") !== target.repoUrl) drift.push("repository");
+  if ((spec.targetUrl ?? "") !== target.targetUrl) drift.push("target URL");
+  if (target.repoUrl && (spec.baseBranch || "main") !== target.baseBranch) drift.push("base branch");
+  if ((spec.workflowRef ?? "") !== target.workflowRef) drift.push("workflow");
+  if ((spec.policyPackRef ?? "") !== target.policyPackRef) drift.push("policy pack");
+  if ((spec.securityProgramRef ?? "") !== target.securityProgramRef) drift.push("program");
+  if (!sameParameterValues(spec.parameterValues ?? {}, target.parameterValues)) drift.push("parameters");
+  return drift;
+}
+
+export function programTargetImportStatus(
+  target: ProgramScanTarget,
+  config: SecurityScanConfig | undefined,
+): ProgramTargetImportStatus {
+  if (!config) return "new";
+  return programTargetDrift(target, config).length > 0 ? "update-available" : "up-to-date";
+}
+
+/**
+ * buildImportedScanUpdateRequest refreshes an existing configuration from its
+ * security-program target. Only the program-defined target fields are
+ * rewritten; everything else on the configuration (schedule, run defaults,
+ * triggers, budgets, notifications, suspension, …) is carried over untouched.
+ */
+export function buildImportedScanUpdateRequest(
+  target: ProgramScanTarget,
+  config: SecurityScanConfig,
+  options: { useSavedCredentials: boolean },
+): UpdateSecurityScanRequest {
+  const spec = config.spec
+    ? clone(SecurityScanConfigSpecSchema, config.spec)
+    : create(SecurityScanConfigSpecSchema, {});
+  spec.repoUrl = target.repoUrl;
+  spec.targetUrl = target.targetUrl;
+  spec.baseBranch = target.repoUrl ? target.baseBranch : "";
+  spec.workflowRef = target.workflowRef;
+  // workflow_ref and an inline workflow are mutually exclusive; a program
+  // target always names a reusable workflow.
+  if (target.workflowRef) spec.workflow = [];
+  spec.policyPackRef = target.policyPackRef;
+  spec.securityProgramRef = target.securityProgramRef;
+  spec.parameterValues = { ...target.parameterValues };
+  return create(UpdateSecurityScanRequestSchema, {
+    namespace: config.namespace,
+    name: config.name,
+    spec,
+    useSavedCredentials: options.useSavedCredentials,
   });
 }
