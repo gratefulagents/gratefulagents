@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,7 +39,44 @@ type openAIRateLimitStatus struct {
 	Credits              *openAICreditStatus         `json:"credits"`
 	SpendControl         *openAISpendControlStatus   `json:"spend_control"`
 	AdditionalRateLimits []openAIAdditionalRateLimit `json:"additional_rate_limits"`
+	// RateLimitResetCredits is the summary ChatGPT attaches to the usage
+	// response; the detail endpoint below carries the per-credit rows.
+	RateLimitResetCredits *openAIRateLimitResetCreditsSummary `json:"rate_limit_reset_credits"`
 }
+
+type openAIRateLimitResetCreditsSummary struct {
+	AvailableCount int64 `json:"available_count"`
+}
+
+type openAIRateLimitResetCreditsDetails struct {
+	Credits        []openAIRateLimitResetCredit `json:"credits"`
+	AvailableCount int64                        `json:"available_count"`
+}
+
+type openAIRateLimitResetCredit struct {
+	ID          string  `json:"id"`
+	ResetType   string  `json:"reset_type"`
+	Status      string  `json:"status"`
+	GrantedAt   string  `json:"granted_at"`
+	ExpiresAt   *string `json:"expires_at"`
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+}
+
+type openAIConsumeRateLimitResetCreditRequest struct {
+	RedeemRequestID string `json:"redeem_request_id"`
+	CreditID        string `json:"credit_id,omitempty"`
+}
+
+type openAIConsumeRateLimitResetCreditResponse struct {
+	Code         string `json:"code"`
+	WindowsReset int64  `json:"windows_reset"`
+}
+
+const (
+	openAIRateLimitResetCreditsPath = "/wham/rate-limit-reset-credits"
+	openAIRateLimitResetConsumePath = "/wham/rate-limit-reset-credits/consume"
+)
 
 type openAIRateLimitDetails struct {
 	PrimaryWindow   *openAIRateLimitWindow `json:"primary_window"`
@@ -160,9 +198,10 @@ func (s *Server) loadOpenAIUsage(ctx context.Context, namespace string, now time
 
 	var limits openAIRateLimitStatus
 	var profile openAITokenUsageProfile
-	var limitsErr, profileErr error
+	var resetCredits openAIRateLimitResetCreditsDetails
+	var limitsErr, profileErr, resetCreditsErr error
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		limitsErr = account.getJSON(ctx, "/wham/usage", &limits)
@@ -170,6 +209,10 @@ func (s *Server) loadOpenAIUsage(ctx context.Context, namespace string, now time
 	go func() {
 		defer wg.Done()
 		profileErr = account.getJSON(ctx, "/wham/profiles/me", &profile)
+	}()
+	go func() {
+		defer wg.Done()
+		resetCreditsErr = account.getJSON(ctx, openAIRateLimitResetCreditsPath, &resetCredits)
 	}()
 	wg.Wait()
 
@@ -180,6 +223,15 @@ func (s *Server) loadOpenAIUsage(ctx context.Context, namespace string, now time
 		out.Credits = openAICreditsLabel(&limits)
 	} else {
 		out.Warnings = append(out.Warnings, "ChatGPT quota data is temporarily unavailable.")
+	}
+	// Mirror Codex CLI: prefer the detail endpoint, fall back to the summary
+	// embedded in the usage response when details are unavailable.
+	if resetCreditsErr == nil {
+		out.RateLimitResetCredits = openAIRateLimitResetCreditsFromDetails(&resetCredits)
+	} else if limitsErr == nil && limits.RateLimitResetCredits != nil {
+		out.RateLimitResetCredits = &platform.OpenAIRateLimitResetCredits{
+			AvailableCount: max(limits.RateLimitResetCredits.AvailableCount, 0),
+		}
 	}
 	if profileErr == nil {
 		out.TokenActivityAvailable = true
@@ -193,6 +245,119 @@ func (s *Server) loadOpenAIUsage(ctx context.Context, namespace string, now time
 		out.Warnings = append(out.Warnings, "ChatGPT token activity is temporarily unavailable.")
 	}
 	return out, nil
+}
+
+// ConsumeMyOpenAIRateLimitResetCredit redeems one earned ChatGPT usage limit
+// reset through the calling user's saved OpenAI OAuth credential. The
+// caller-provided idempotency key lets a retry reuse the same logical attempt
+// so a flaky network never spends two credits.
+func (s *Server) ConsumeMyOpenAIRateLimitResetCredit(ctx context.Context, req *platform.ConsumeMyOpenAIRateLimitResetCreditRequest) (*platform.ConsumeMyOpenAIRateLimitResetCreditResponse, error) {
+	if req == nil || strings.TrimSpace(req.IdempotencyKey) == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("idempotency_key must not be empty"))
+	}
+	actor, err := providerOAuthActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	namespace, err := s.ensureUserNamespace(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	secret, err := s.readSecret(ctx, namespace, userCredentialSecretName("openai"))
+	if k8serrors.IsNotFound(err) || (err == nil && len(secret.Data[userCredOAuthJSONKey]) == 0) {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("an OpenAI OAuth sign-in is required to redeem usage limit resets"))
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("read saved OpenAI credential: %w", err))
+	}
+	account, err := s.savedOpenAIAccountClient(secret)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("load saved OpenAI OAuth credential: %w", err))
+	}
+
+	var response openAIConsumeRateLimitResetCreditResponse
+	if err := account.postJSON(ctx, openAIRateLimitResetConsumePath, openAIConsumeRateLimitResetCreditRequest{
+		RedeemRequestID: strings.TrimSpace(req.IdempotencyKey),
+		CreditID:        strings.TrimSpace(req.CreditId),
+	}, &response); err != nil {
+		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("redeem ChatGPT usage limit reset: %w", err))
+	}
+	outcome, ok := openAIRateLimitResetOutcome(response.Code)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("ChatGPT returned unknown reset outcome %q", response.Code))
+	}
+	return &platform.ConsumeMyOpenAIRateLimitResetCreditResponse{
+		Outcome: outcome, WindowsReset: response.WindowsReset,
+	}, nil
+}
+
+func openAIRateLimitResetOutcome(code string) (platform.CodexRateLimitResetOutcome, bool) {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "reset":
+		return platform.CodexRateLimitResetOutcome_CODEX_RATE_LIMIT_RESET_OUTCOME_RESET, true
+	case "nothing_to_reset":
+		return platform.CodexRateLimitResetOutcome_CODEX_RATE_LIMIT_RESET_OUTCOME_NOTHING_TO_RESET, true
+	case "no_credit":
+		return platform.CodexRateLimitResetOutcome_CODEX_RATE_LIMIT_RESET_OUTCOME_NO_CREDIT, true
+	case "already_redeemed":
+		return platform.CodexRateLimitResetOutcome_CODEX_RATE_LIMIT_RESET_OUTCOME_ALREADY_REDEEMED, true
+	}
+	return platform.CodexRateLimitResetOutcome_CODEX_RATE_LIMIT_RESET_OUTCOME_UNSPECIFIED, false
+}
+
+// openAIRateLimitResetCreditsFromDetails converts the ChatGPT detail response
+// into the dashboard shape. Available credits are ordered soonest-expiring
+// first, matching Codex CLI's picker, and rows in other states are dropped.
+func openAIRateLimitResetCreditsFromDetails(details *openAIRateLimitResetCreditsDetails) *platform.OpenAIRateLimitResetCredits {
+	out := &platform.OpenAIRateLimitResetCredits{
+		AvailableCount: max(details.AvailableCount, 0), DetailsAvailable: true,
+	}
+	for _, credit := range details.Credits {
+		status := strings.ToLower(strings.TrimSpace(credit.Status))
+		if status != "available" || strings.TrimSpace(credit.ID) == "" {
+			continue
+		}
+		out.Credits = append(out.Credits, &platform.OpenAIRateLimitResetCredit{
+			Id:            strings.TrimSpace(credit.ID),
+			Status:        status,
+			GrantedAtUnix: openAIRateLimitResetTimestamp(&credit.GrantedAt),
+			ExpiresAtUnix: openAIRateLimitResetTimestamp(credit.ExpiresAt),
+			Title:         trimOptionalString(credit.Title),
+			Description:   trimOptionalString(credit.Description),
+		})
+	}
+	sort.SliceStable(out.Credits, func(i, j int) bool {
+		a, b := out.Credits[i].ExpiresAtUnix, out.Credits[j].ExpiresAtUnix
+		if a == 0 {
+			return false
+		}
+		if b == 0 {
+			return true
+		}
+		return a < b
+	})
+	if out.AvailableCount >= 0 && int64(len(out.Credits)) > out.AvailableCount {
+		out.Credits = out.Credits[:out.AvailableCount]
+	}
+	return out
+}
+
+func openAIRateLimitResetTimestamp(value *string) int64 {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return 0
+	}
+	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*value))
+	if err != nil {
+		return 0
+	}
+	return parsed.Unix()
+}
+
+func trimOptionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
 }
 
 func (s *Server) populateCopilotUsage(ctx context.Context, namespace string, out *platform.MyCopilotUsage) error {
@@ -307,9 +472,25 @@ func openAIOAuthEmail(authJSON []byte) string {
 }
 
 func (c *openAIAccountClient) getJSON(ctx context.Context, path string, out any) error {
+	return c.doJSON(ctx, http.MethodGet, path, nil, out)
+}
+
+func (c *openAIAccountClient) postJSON(ctx context.Context, path string, body any, out any) error {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	return c.doJSON(ctx, http.MethodPost, path, payload, out)
+}
+
+func (c *openAIAccountClient) doJSON(ctx context.Context, method, path string, body []byte, out any) error {
 	requestCtx, cancel := context.WithTimeout(ctx, openAIAccountTimeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, chatGPTBackendBaseURL+path, nil)
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	request, err := http.NewRequestWithContext(requestCtx, method, chatGPTBackendBaseURL+path, reader)
 	if err != nil {
 		return err
 	}
@@ -321,7 +502,10 @@ func (c *openAIAccountClient) getJSON(ctx context.Context, path string, out any)
 		request.Header.Set(name, value)
 	}
 	request.Header.Set("User-Agent", "gratefulagents")
-	// Never forward OAuth-bearing account requests through redirects. The two
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	// Never forward OAuth-bearing account requests through redirects. The
 	// account endpoints are fixed, and a redirect is safer treated as failure.
 	httpClient := *c.httpClient
 	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }

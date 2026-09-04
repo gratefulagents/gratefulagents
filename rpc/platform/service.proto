@@ -248,6 +248,12 @@ service PlatformService {
   // raw credential material never leave the server.
   rpc GetMyAnthropicUsage(GetMyAnthropicUsageRequest) returns (MyAnthropicUsage);
 
+  // ConsumeMyOpenAIRateLimitResetCredit redeems one earned ChatGPT usage
+  // limit reset (as Codex CLI's "Redeem usage limit reset") through the
+  // calling user's current OpenAI OAuth credential. Provider tokens never
+  // leave the server.
+  rpc ConsumeMyOpenAIRateLimitResetCredit(ConsumeMyOpenAIRateLimitResetCreditRequest) returns (ConsumeMyOpenAIRateLimitResetCreditResponse);
+
   // Security scanning: scans and deduplicated findings recorded by the
   // security scan feature, backed by the optional Postgres state store.
   rpc ListSecurityScans(ListSecurityScansRequest) returns (ListSecurityScansResponse);
@@ -4153,6 +4159,9 @@ message MyOpenAIUsage {
   int32 lookback_days = 14;
   int64 fetched_at_unix = 15;
   repeated string warnings = 16;
+  // rate_limit_reset_credits describes the earned usage limit resets the
+  // account can redeem. Unset when ChatGPT did not report reset data.
+  OpenAIRateLimitResetCredits rate_limit_reset_credits = 17;
 }
 
 message OpenAIUsageLimit {
@@ -4160,6 +4169,54 @@ message OpenAIUsageLimit {
   double used_percent = 2;
   int64 reset_at_unix = 3;
   string details = 4;
+}
+
+// OpenAIRateLimitResetCredits summarizes the earned rate-limit resets a
+// ChatGPT account can redeem. `credits` may be capped by the backend and only
+// carries detail rows when `details_available` is true.
+message OpenAIRateLimitResetCredits {
+  int64 available_count = 1;
+  bool details_available = 2;
+  repeated OpenAIRateLimitResetCredit credits = 3;
+}
+
+message OpenAIRateLimitResetCredit {
+  // Opaque backend identifier passed back when redeeming this credit.
+  string id = 1;
+  // Backend status such as "available", "redeeming", or "redeemed".
+  string status = 2;
+  int64 granted_at_unix = 3;
+  // Zero when the credit does not expire.
+  int64 expires_at_unix = 4;
+  string title = 5;
+  string description = 6;
+}
+
+message ConsumeMyOpenAIRateLimitResetCreditRequest {
+  // idempotency_key identifies one logical reset attempt. Reuse the same
+  // value when retrying that attempt so the backend does not spend a second
+  // credit.
+  string idempotency_key = 1;
+  // credit_id selects a specific credit from MyOpenAIUsage. When empty the
+  // backend redeems the next available credit.
+  string credit_id = 2;
+}
+
+enum CodexRateLimitResetOutcome {
+  CODEX_RATE_LIMIT_RESET_OUTCOME_UNSPECIFIED = 0;
+  // A credit was consumed and the eligible rate-limit windows were reset.
+  CODEX_RATE_LIMIT_RESET_OUTCOME_RESET = 1;
+  // No current rate-limit window is eligible for a reset.
+  CODEX_RATE_LIMIT_RESET_OUTCOME_NOTHING_TO_RESET = 2;
+  // The account has no earned reset credits available.
+  CODEX_RATE_LIMIT_RESET_OUTCOME_NO_CREDIT = 3;
+  // The same idempotency key already completed a reset successfully.
+  CODEX_RATE_LIMIT_RESET_OUTCOME_ALREADY_REDEEMED = 4;
+}
+
+message ConsumeMyOpenAIRateLimitResetCreditResponse {
+  CodexRateLimitResetOutcome outcome = 1;
+  int64 windows_reset = 2;
 }
 
 message GetMyCopilotUsageRequest {}

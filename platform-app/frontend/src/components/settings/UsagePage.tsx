@@ -8,6 +8,7 @@ import {
   Gauge,
   KeyRound,
   RefreshCw,
+  RotateCcw,
   Sparkles,
   WalletCards,
 } from "lucide-react";
@@ -16,17 +17,20 @@ import { SettingsSection } from "@/components/settings-section";
 import { SettingsSubPage } from "@/components/settings/SettingsSubPage";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { client } from "@/lib/client";
 import { cn } from "@/lib/utils";
-import type {
-  AnthropicUsageLimit,
-  CopilotUsageQuota,
-  MyAnthropicUsage,
-  MyCopilotUsage,
-  MyOpenAIUsage,
-  OpenAIUsageLimit,
+import {
+  type AnthropicUsageLimit,
+  type CopilotUsageQuota,
+  type MyAnthropicUsage,
+  type MyCopilotUsage,
+  type MyOpenAIUsage,
+  type OpenAIRateLimitResetCredits,
+  CodexRateLimitResetOutcome,
+  type OpenAIUsageLimit,
 } from "@/rpc/platform/service_pb";
 
 const CHATGPT_USAGE_URL = "https://chatgpt.com/codex/settings/usage";
@@ -47,8 +51,14 @@ export default function UsagePage() {
   const requestedProviders = React.useRef(new Set<UsageProvider>());
   const mounted = React.useRef(true);
 
-  React.useEffect(() => () => {
-    mounted.current = false;
+  React.useEffect(() => {
+    // Re-arm on every mount: StrictMode (and Fast Refresh) runs the cleanup
+    // and then remounts with the same ref, which would otherwise leave the
+    // flag false forever and discard every resolved usage response.
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
   }, []);
 
   const loadProvider = React.useCallback(async (provider: UsageProvider, refresh = false) => {
@@ -129,6 +139,11 @@ export default function UsagePage() {
             <>
               <OpenAIAccountSummary usage={openAI.data} refreshing={refreshing} onRefresh={() => void refresh()} />
               <OpenAIAllowanceWindows limits={openAI.data.limits} available={openAI.data.accountStatusAvailable} />
+              <OpenAIResetCredits
+                resets={openAI.data.rateLimitResetCredits}
+                accountStatusAvailable={openAI.data.accountStatusAvailable}
+                onUsageChanged={() => void refresh()}
+              />
               <TokenActivity usage={openAI.data} />
               <UsageWarnings warnings={openAI.data.warnings} />
             </>
@@ -299,6 +314,163 @@ function OpenAIAllowanceWindows({ limits, available }: { limits: OpenAIUsageLimi
       ) : (
         <QuotaList limits={limits} />
       )}
+    </SettingsSection>
+  );
+}
+
+/**
+ * One redeemable reset, mirroring Codex CLI's "Redeem usage limit reset"
+ * picker: a detail row per known credit, or a single generic "Full reset"
+ * when the backend only reported a count.
+ */
+interface ResetOption {
+  creditId: string | undefined;
+  name: string;
+  detail: string | undefined;
+  description: string;
+}
+
+const DEFAULT_RESET_TITLE = "Full reset";
+const DEFAULT_RESET_DESCRIPTION = "Reset your current usage limits.";
+
+function resetOptions(resets: OpenAIRateLimitResetCredits): ResetOption[] {
+  const options = resets.credits
+    .filter((credit) => credit.status === "available")
+    .map<ResetOption>((credit) => ({
+      creditId: credit.id,
+      name: credit.title.trim() || DEFAULT_RESET_TITLE,
+      detail: credit.expiresAtUnix > 0n ? `Expires ${formatExpiry(credit.expiresAtUnix)}.` : "Does not expire.",
+      description: credit.description.trim() || DEFAULT_RESET_DESCRIPTION,
+    }));
+  if (options.length === 0 && resets.availableCount > 0n) {
+    options.push({ creditId: undefined, name: DEFAULT_RESET_TITLE, detail: undefined, description: DEFAULT_RESET_DESCRIPTION });
+  }
+  return options;
+}
+
+type ResetNotice = { tone: "success" | "info" | "error"; message: string };
+
+/** One logical reset attempt. The idempotency key is reused across retries so a flaky request never spends two credits. */
+type PendingReset = ResetOption & { idempotencyKey: string };
+
+function resetOutcomeNotice(outcome: CodexRateLimitResetOutcome, targeted: boolean): ResetNotice {
+  switch (outcome) {
+    case CodexRateLimitResetOutcome.RESET:
+    case CodexRateLimitResetOutcome.ALREADY_REDEEMED:
+      return { tone: "success", message: "Your usage limits were reset." };
+    case CodexRateLimitResetOutcome.NOTHING_TO_RESET:
+      return { tone: "info", message: "Your usage does not need a reset right now." };
+    case CodexRateLimitResetOutcome.NO_CREDIT:
+      return {
+        tone: "info",
+        message: targeted
+          ? "That reset is no longer available. Refresh to see your current resets."
+          : "No usage limit resets are available.",
+      };
+    default:
+      return { tone: "error", message: "ChatGPT returned an unexpected reset result." };
+  }
+}
+
+function OpenAIResetCredits({
+  resets,
+  accountStatusAvailable,
+  onUsageChanged,
+}: {
+  resets: OpenAIRateLimitResetCredits | undefined;
+  accountStatusAvailable: boolean;
+  onUsageChanged: () => void;
+}) {
+  const [pending, setPending] = React.useState<PendingReset | null>(null);
+  const [notice, setNotice] = React.useState<ResetNotice | null>(null);
+  const options = resets ? resetOptions(resets) : [];
+  const availableCount = resets ? Number(resets.availableCount) : 0;
+
+  const confirm = async () => {
+    if (!pending) return;
+    const response = await client.consumeMyOpenAIRateLimitResetCredit({
+      idempotencyKey: pending.idempotencyKey,
+      creditId: pending.creditId ?? "",
+    });
+    setNotice(resetOutcomeNotice(response.outcome, pending.creditId !== undefined));
+    // Every outcome other than "nothing to reset" changes what ChatGPT will
+    // report next, so re-read usage to show the fresh windows and credits.
+    if (response.outcome !== CodexRateLimitResetOutcome.NOTHING_TO_RESET) onUsageChanged();
+  };
+
+  return (
+    <SettingsSection
+      icon={<RotateCcw />}
+      title="Usage limit resets"
+      description="Redeem an earned reset to clear your current ChatGPT Codex allowance windows — the same reset Codex CLI offers under Usage."
+    >
+      <div className="space-y-3">
+        {!resets ? (
+          <UnavailableCopy>
+            {accountStatusAvailable
+              ? "ChatGPT did not report usage limit resets for this account."
+              : "Usage limit resets are unavailable while ChatGPT quota data cannot be loaded."}
+          </UnavailableCopy>
+        ) : options.length === 0 ? (
+          <UnavailableCopy>No usage limit resets available.</UnavailableCopy>
+        ) : (
+          <>
+            <p className="text-[12px] text-muted-foreground" role="status">
+              You have {availableCount} {availableCount === 1 ? "reset" : "resets"} available.
+            </p>
+            <div className="divide-y divide-border/60 rounded-lg border border-border/70">
+              {options.map((option, index) => (
+                <div key={option.creditId ?? `reset-${index}`} className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-3">
+                  <div className="min-w-0">
+                    <div className="text-[12.5px] font-medium">{option.name}</div>
+                    <div className="mt-0.5 text-[10.5px] text-muted-foreground">
+                      {option.detail ? `${option.detail} ` : ""}{option.description}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setNotice(null);
+                      setPending({ ...option, idempotencyKey: crypto.randomUUID() });
+                    }}
+                  >
+                    Use reset
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {notice && (
+          <div
+            role="status"
+            className={cn(
+              "rounded-lg border px-3 py-2 text-[12px]",
+              notice.tone === "success" && "border-emerald-500/40 bg-emerald-500/10 text-foreground",
+              notice.tone === "info" && "border-border/70 bg-muted/25 text-muted-foreground",
+              notice.tone === "error" && "border-destructive/40 bg-destructive/10 text-destructive",
+            )}
+          >
+            {notice.message}
+          </div>
+        )}
+      </div>
+      <ConfirmDialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (!open) setPending(null);
+        }}
+        title="Use this reset?"
+        description={
+          pending
+            ? `${pending.name}${pending.detail ? ` · ${pending.detail}` : ""} ${pending.description} This uses one earned reset and cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Yes, use reset"
+        cancelLabel="No, go back"
+        onConfirm={confirm}
+      />
     </SettingsSection>
   );
 }
@@ -613,4 +785,8 @@ function formatDuration(value: bigint | undefined): string {
 
 function formatTimestamp(value: bigint): string {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(Number(value) * 1000));
+}
+
+function formatExpiry(value: bigint): string {
+  return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(Number(value) * 1000));
 }
