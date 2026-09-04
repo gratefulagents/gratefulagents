@@ -266,6 +266,8 @@ func (b *workspaceSlackBackend) buildMember(parentCtx context.Context, agent *tr
 		SessionIdle:  sessionIdle,
 		BatchWindow:  b.cfg.BatchWindow,
 		OwnerUserID:  userID,
+		Commanders:   agent.Spec.Commanders,
+		TeamID:       b.teamID,
 	})
 	member := &workspaceMember{
 		namespace:  agent.Namespace,
@@ -437,6 +439,22 @@ func (b *workspaceSlackBackend) handleAssistantContextChanged(thread slackevents
 		return
 	}
 	member.orch.setAssistantContext(thread.ChannelID, thread.ThreadTimeStamp, thread.Context.ChannelID)
+}
+
+// handleSessionStopped routes a stop-button click to the agent owned by the
+// clicking user, or to the single member agent they may command.
+func (b *workspaceSlackBackend) handleSessionStopped(ctx context.Context, e *slackSessionStoppedEvent) {
+	if e == nil {
+		return
+	}
+	member := b.memberByUser(e.User)
+	if member == nil {
+		member = b.memberForCommander(e.User)
+	}
+	if member == nil || member.orch == nil {
+		return
+	}
+	member.orch.handleSessionStopped(member.ctx, e)
 }
 
 func (b *workspaceSlackBackend) handleAppHome(ctx context.Context, userID string) {

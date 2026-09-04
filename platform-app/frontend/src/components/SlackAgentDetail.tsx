@@ -432,7 +432,7 @@ export function SlackAgentDetail() {
           {!agent.workspaceRefName && (
           <DetailSection
             title="Slack app manifest"
-            description="Everything the connector needs — Socket Mode, the assistant pane, the App Home tab, and Block Kit interactivity. Create the app from this manifest, then paste its tokens into the agent configuration."
+            description="Everything the connector needs — Socket Mode, the agent Messages tab with sessions and the stop button, the App Home tab, and Block Kit interactivity. Create the app from this manifest (or re-apply it to an existing app to pick up new events), then paste its tokens into the agent configuration."
             aside={
               <div className="flex items-center gap-1.5">
                 <Button

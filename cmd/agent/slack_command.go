@@ -97,6 +97,17 @@ type slackOrchestrator struct {
 	dmMu           sync.RWMutex
 	botDMChannelID string
 
+	// commanders lists the Slack users besides the owner who may command (and
+	// therefore stop) this agent. teamID is the Slack workspace the bot belongs
+	// to; streamed channel replies must name the recipient's team.
+	commanders []string
+	teamID     string
+
+	// stopSignals holds, per run with a turn in flight, the channel closed when
+	// the user presses Slack's native stop button (see registerStop).
+	stopMu      sync.Mutex
+	stopSignals map[string]chan struct{}
+
 	// turnMu serializes every input for a run through reply/draft completion.
 	// Conversation queues serialize submission, while regeneration uses this
 	// same gate so it cannot capture another turn's assistant output.
@@ -147,6 +158,7 @@ func newSlackOrchestrator(
 		TokensSecret: strings.TrimSpace(agent.Spec.TokensSecret),
 		SessionIdle:  cfg.SessionIdle,
 		BatchWindow:  cfg.BatchWindow,
+		Commanders:   cfg.Commanders,
 	}), nil
 }
 
@@ -225,6 +237,11 @@ type slackOrchestratorParams struct {
 	BatchWindow    time.Duration
 	OwnerUserID    string
 	BotDMChannelID string
+	// Commanders are the extra Slack users allowed to command the agent.
+	Commanders []string
+	// TeamID is the Slack workspace ID of the bot (recipient_team_id for
+	// streamed channel replies).
+	TeamID string
 }
 
 // newSlackOrchestratorFromDeps builds an orchestrator for one SlackAgent on top
@@ -256,6 +273,8 @@ func newSlackOrchestratorFromDeps(
 		tokensSecret:   strings.TrimSpace(p.TokensSecret),
 		ownerUserID:    p.OwnerUserID,
 		botDMChannelID: p.BotDMChannelID,
+		commanders:     p.Commanders,
+		teamID:         strings.TrimSpace(p.TeamID),
 		turnGates:      map[string]*sync.Mutex{},
 		queries:        deps.queries,
 		sessionIdle:    sessionIdle,
@@ -366,9 +385,15 @@ func (o *slackOrchestrator) handleCommand(ctx context.Context, d internalslack.D
 	}
 	o.recordConversationActivity(ctx, d, runName, slackKindCommand)
 
-	// Best-effort feedback: an assistant-pane "is thinking…" status (auto-clears
-	// when the first reply posts) plus an :eyes: reaction for channel mentions.
-	_ = o.web.SetAssistantStatus(ctx, d.ChannelID, d.ThreadTS, "is thinking…")
+	// Best-effort feedback: the thread's agent session goes to "processing"
+	// (Slack's working indicator plus its native stop button; the first turn
+	// also titles the session), and the triggering message gets an :eyes:
+	// reaction so channel readers see the mention was picked up.
+	if reused {
+		o.setSession(ctx, d.ChannelID, d.ThreadTS, internalslack.SessionProcessing)
+	} else {
+		o.setSessionWithTitle(ctx, d.ChannelID, d.ThreadTS, internalslack.SessionProcessing, sessionTitleFor(d), d.UserID)
+	}
 	if d.MessageTS != "" {
 		_ = o.web.AddReactionAsBot(ctx, d.ChannelID, d.MessageTS, "eyes")
 	}
@@ -598,6 +623,10 @@ func (o *slackOrchestrator) streamReplies(ctx context.Context, w replyWatch) {
 	defer ticker.Stop()
 	deadline := time.Now().Add(20 * time.Minute)
 	deadlineNotified := false
+	keepalive := time.Now().Add(slackSessionKeepalive)
+
+	stopped := o.registerStop(w.runName)
+	defer o.releaseStop(w.runName)
 
 	lastPosted := w.baseline
 
@@ -605,12 +634,19 @@ func (o *slackOrchestrator) streamReplies(ctx context.Context, w replyWatch) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-stopped:
+			// The user pressed Slack's stop button; the turn was interrupted.
+			_, _ = o.web.PostMessageAsBot(ctx, w.channelID, slackStoppedMessage, w.threadTS)
+			o.setSession(ctx, w.channelID, w.threadTS, internalslack.SessionActive)
+			o.resolveTurnReaction(ctx, w.channelID, w.messageTS, "octagonal_sign")
+			return
 		case <-ticker.C:
 		}
 
 		run := &platformv1alpha1.AgentRun{}
 		if err := o.crdClient.Get(ctx, client.ObjectKey{Namespace: o.namespace, Name: w.runName}, run); err != nil {
 			if apierrors.IsNotFound(err) {
+				o.setSession(ctx, w.channelID, w.threadTS, internalslack.SessionActive)
 				o.resolveTurnReaction(ctx, w.channelID, w.messageTS, "x")
 				return
 			}
@@ -620,13 +656,22 @@ func (o *slackOrchestrator) streamReplies(ctx context.Context, w replyWatch) {
 		// Delivering the turn's reply means the turn is complete — stop here.
 		if w.gate {
 			if text := o.collectNewAssistantText(ctx, w.runName, &lastPosted); text != "" {
-				if !o.proposeChannelReply(ctx, w, text) {
+				if o.proposeChannelReply(ctx, w, text) {
+					// Held for the owner: the session waits on a human.
+					o.setSession(ctx, w.channelID, w.threadTS, internalslack.SessionSuspended)
+				} else {
+					o.setSession(ctx, w.channelID, w.threadTS, internalslack.SessionActive)
 					o.resolveTurnReaction(ctx, w.channelID, w.messageTS, "x")
 				}
 				return
 			}
-		} else if posted := o.postNewAssistantMessages(ctx, w.runName, w.channelID, w.threadTS, &lastPosted); posted > 0 {
-			o.resolveTurnReaction(ctx, w.channelID, w.messageTS, "white_check_mark")
+		} else if texts := o.collectNewAssistantMessages(ctx, w.runName, &lastPosted); len(texts) > 0 {
+			// deliverReply leaves the session active whether or not it succeeds.
+			if o.deliverReply(ctx, w, texts) {
+				o.resolveTurnReaction(ctx, w.channelID, w.messageTS, "white_check_mark")
+			} else {
+				o.resolveTurnReaction(ctx, w.channelID, w.messageTS, "x")
+			}
 			return
 		}
 
@@ -638,10 +683,17 @@ func (o *slackOrchestrator) streamReplies(ctx context.Context, w replyWatch) {
 				// may contain source, credentials, or internal infrastructure data.
 				_, _ = o.web.PostMessageAsBot(ctx, w.channelID, slackRunFailureMessage(run, isPublicSurface(w.channelType)), w.threadTS)
 			}
+			o.setSession(ctx, w.channelID, w.threadTS, internalslack.SessionActive)
 			o.resolveTurnReaction(ctx, w.channelID, w.messageTS, "x")
 			return
 		}
 
+		if now := time.Now(); now.After(keepalive) {
+			// Re-assert processing so Slack's one-hour session timeout does not
+			// drop the working indicator (and stop button) mid-run.
+			o.setSession(ctx, w.channelID, w.threadTS, internalslack.SessionProcessing)
+			keepalive = now.Add(slackSessionKeepalive)
+		}
 		if !deadlineNotified && time.Now().After(deadline) {
 			stillWorking := ":hourglass: Still working — I'll keep watching and post the reply when it is ready."
 			_, _ = o.web.PostMessageAsBot(ctx, w.channelID, stillWorking, w.threadTS)
@@ -661,65 +713,11 @@ func (o *slackOrchestrator) resolveTurnReaction(ctx context.Context, channelID, 
 	_ = o.web.AddReactionAsBot(ctx, channelID, messageTS, outcome)
 }
 
-// postNewAssistantMessages posts assistant messages newer than *lastPosted and
-// advances the cursor. Returns how many were posted.
-func (o *slackOrchestrator) postNewAssistantMessages(
-	ctx context.Context,
-	runName, channelID, threadTS string,
-	lastPosted *int64,
-) int {
-	sess, err := o.store.GetSessionByRun(ctx, runName, o.namespace)
-	if err != nil {
-		return 0
-	}
-	msgs, err := o.store.GetMessages(ctx, sess.ID)
-	if err != nil {
-		return 0
-	}
-	posted := 0
-	for _, m := range msgs {
-		if m.Role != roleAssistant || m.ID <= *lastPosted {
-			continue
-		}
-		text := strings.TrimSpace(m.Content)
-		if text == "" {
-			*lastPosted = m.ID
-			continue
-		}
-		// Agent output is markdown; convert so Slack renders it properly.
-		if _, perr := o.web.PostMessageAsBot(ctx, channelID, internalslack.ToMrkdwn(text), threadTS); perr != nil {
-			log.Printf("slack connector %s: posting reply for %s: %v", o.agentName, runName, perr)
-			break
-		}
-		*lastPosted = m.ID
-		posted++
-	}
-	return posted
-}
-
 // collectNewAssistantText gathers assistant messages newer than *cursor (joined
 // oldest-first) and advances the cursor past them. Used by gated turns, where
 // the reply is held for approval as one draft instead of being posted.
 func (o *slackOrchestrator) collectNewAssistantText(ctx context.Context, runName string, cursor *int64) string {
-	sess, err := o.store.GetSessionByRun(ctx, runName, o.namespace)
-	if err != nil {
-		return ""
-	}
-	msgs, err := o.store.GetMessages(ctx, sess.ID)
-	if err != nil {
-		return ""
-	}
-	var parts []string
-	for _, m := range msgs {
-		if m.Role != roleAssistant || m.ID <= *cursor {
-			continue
-		}
-		*cursor = m.ID
-		if text := strings.TrimSpace(m.Content); text != "" {
-			parts = append(parts, text)
-		}
-	}
-	return strings.Join(parts, "\n\n")
+	return strings.Join(o.collectNewAssistantMessages(ctx, runName, cursor), "\n\n")
 }
 
 // proposeChannelReply holds a public-surface reply for the owner's approval: it

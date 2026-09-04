@@ -13,7 +13,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	slackgo "github.com/slack-go/slack"
 )
@@ -40,18 +42,52 @@ type Identity struct {
 type Client struct {
 	bot  *slackgo.Client
 	user *slackgo.Client
+
+	// botToken, apiURL and httpClient back the few Web API methods slack-go has
+	// no wrapper for yet (the Agent Sessions API), which are posted as JSON.
+	botToken   string
+	apiURL     string
+	httpClient *http.Client
+}
+
+// Option customizes a Client. Options exist for tests (pointing the client at
+// a local Slack stand-in); production callers use the defaults.
+type Option func(*Client)
+
+// WithAPIURL overrides the Slack Web API base URL (default slackgo.APIURL).
+// The value must end with a slash.
+func WithAPIURL(u string) Option {
+	return func(c *Client) {
+		if strings.TrimSpace(u) != "" {
+			c.apiURL = u
+		}
+	}
+}
+
+// WithHTTPClient overrides the HTTP client used for Web API calls.
+func WithHTTPClient(h *http.Client) Option {
+	return func(c *Client) {
+		if h != nil {
+			c.httpClient = h
+		}
+	}
 }
 
 // New builds a Client from the provided tokens. At least a bot token is
 // required; the user token is optional and only needed for the slack_search
 // tool (Slack permits search.messages with user tokens only).
-func New(tokens Tokens) (*Client, error) {
-	c := &Client{}
+func New(tokens Tokens, opts ...Option) (*Client, error) {
+	c := &Client{apiURL: slackgo.APIURL, httpClient: &http.Client{Timeout: 30 * time.Second}}
+	for _, opt := range opts {
+		opt(c)
+	}
+	sgOpts := []slackgo.Option{slackgo.OptionAPIURL(c.apiURL), slackgo.OptionHTTPClient(c.httpClient)}
 	if t := strings.TrimSpace(tokens.BotToken); t != "" {
-		c.bot = slackgo.New(t)
+		c.botToken = t
+		c.bot = slackgo.New(t, sgOpts...)
 	}
 	if t := strings.TrimSpace(tokens.UserToken); t != "" {
-		c.user = slackgo.New(t)
+		c.user = slackgo.New(t, sgOpts...)
 	}
 	if c.bot == nil && c.user == nil {
 		return nil, errors.New("slack: at least one of bot-token or user-token is required")
@@ -112,14 +148,34 @@ func authTest(ctx context.Context, api *slackgo.Client) (Identity, error) {
 	}, nil
 }
 
-// PostMessageAsBot posts a message as the bot. When threadTS is non-empty the
-// message is posted in that thread.
+// PostMessageAsBot posts a mrkdwn-formatted message as the bot. When threadTS
+// is non-empty the message is posted in that thread.
 func (c *Client) PostMessageAsBot(ctx context.Context, channelID, text, threadTS string) (ts string, err error) {
 	api, err := c.requireBot()
 	if err != nil {
 		return "", err
 	}
 	return postMessage(ctx, api, channelID, text, threadTS)
+}
+
+// PostMarkdownAsBot posts standard markdown (the agent's native output) as the
+// bot via chat.postMessage's markdown_text field, so Slack renders it without
+// a lossy client-side mrkdwn conversion. Text beyond Slack's 12,000-character
+// limit is truncated.
+func (c *Client) PostMarkdownAsBot(ctx context.Context, channelID, markdown, threadTS string) (ts string, err error) {
+	api, err := c.requireBot()
+	if err != nil {
+		return "", err
+	}
+	opts := []slackgo.MsgOption{slackgo.MsgOptionMarkdownText(TruncateMarkdown(markdown))}
+	if strings.TrimSpace(threadTS) != "" {
+		opts = append(opts, slackgo.MsgOptionTS(threadTS))
+	}
+	_, ts, err = api.PostMessageContext(ctx, channelID, opts...)
+	if err != nil {
+		return "", fmt.Errorf("slack chat.postMessage (markdown): %w", err)
+	}
+	return ts, nil
 }
 
 // PostMessageAsBotBlocks posts Block Kit blocks as the bot (e.g. approval
@@ -223,23 +279,9 @@ type AssistantPrompt struct {
 	Message string
 }
 
-// SetAssistantStatus sets the assistant pane's "is thinking…" status for a
-// thread. The status auto-clears when the next message is posted. Requires the
-// assistant:write scope; best-effort for non-assistant threads.
-func (c *Client) SetAssistantStatus(ctx context.Context, channelID, threadTS, status string) error {
-	api, err := c.requireBot()
-	if err != nil {
-		return err
-	}
-	return api.SetAssistantThreadsStatusContext(ctx, slackgo.AssistantThreadsSetStatusParameters{
-		ChannelID: channelID,
-		ThreadTS:  threadTS,
-		Status:    status,
-	})
-}
-
 // SetAssistantSuggestedPrompts shows up to four clickable prompt chips in the
-// assistant pane.
+// legacy assistant pane (assistant_view apps). Agent view apps pin prompts in
+// the manifest instead.
 func (c *Client) SetAssistantSuggestedPrompts(ctx context.Context, channelID, threadTS, title string, prompts []AssistantPrompt) error {
 	api, err := c.requireBot()
 	if err != nil {
@@ -254,18 +296,4 @@ func (c *Client) SetAssistantSuggestedPrompts(ctx context.Context, channelID, th
 		params.AddPrompt(p.Title, p.Message)
 	}
 	return api.SetAssistantThreadsSuggestedPromptsContext(ctx, params)
-}
-
-// SetAssistantTitle sets the assistant thread's title (shown in the user's DM
-// history with the app).
-func (c *Client) SetAssistantTitle(ctx context.Context, channelID, threadTS, title string) error {
-	api, err := c.requireBot()
-	if err != nil {
-		return err
-	}
-	return api.SetAssistantThreadsTitleContext(ctx, slackgo.AssistantThreadsSetTitleParameters{
-		ChannelID: channelID,
-		ThreadTS:  threadTS,
-		Title:     title,
-	})
 }

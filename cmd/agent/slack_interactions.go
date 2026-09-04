@@ -35,6 +35,11 @@ func (o *slackOrchestrator) handleBlockAction(ctx context.Context, callback slac
 		return
 	}
 	action := actions[0]
+	if action.ActionID == internalslack.ActionReplyFeedback {
+		o.handleReplyFeedback(ctx, internalslack.ReplyFeedbackRun(action.BlockID), action.Value,
+			callback.Container.ChannelID, callback.User.ID)
+		return
+	}
 	draft, ok := o.loadDraft(ctx, action.Value, callback.User.ID)
 	if !ok {
 		return
@@ -49,6 +54,7 @@ func (o *slackOrchestrator) handleBlockAction(ctx context.Context, callback slac
 		_ = o.resolveDraft(ctx, draft.ID, slackDraftDismissed, draft.DraftText)
 		if draft.Kind == slackDraftKindChannelReply {
 			o.resolveTurnReaction(ctx, draft.ChannelID, draft.OriginMsgTs, "x")
+			o.setSession(ctx, draft.ChannelID, draft.ThreadTs, internalslack.SessionActive)
 		}
 		_ = o.web.UpdateMessageAsBot(ctx, notifyCh, notifyTS, ":wastebasket: Dismissed — nothing was posted.")
 	case internalslack.ActionDraftEdit:
@@ -100,7 +106,7 @@ func (o *slackOrchestrator) dismissLegacyDraft(ctx context.Context, draft sqlc.S
 // reply as the bot into its originating thread, resolves the draft and the
 // trigger reaction, and refreshes the approval card (via its stored notify ts,
 // since modal submissions carry no message container). The agent's reply is
-// markdown, so it is converted for Slack at post time (edits included).
+// markdown (edits included), which Slack renders natively via markdown_text.
 func (o *slackOrchestrator) claimDraftTransition(ctx context.Context, draft sqlc.SlackDraft, nextStatus string) (sqlc.SlackDraft, error) {
 	return o.queries.ClaimSlackDraft(ctx, sqlc.ClaimSlackDraftParams{
 		NextStatus: nextStatus, ID: draft.ID, Namespace: o.namespace,
@@ -111,7 +117,7 @@ func (o *slackOrchestrator) claimDraftTransition(ctx context.Context, draft sqlc
 func (o *slackOrchestrator) postApprovedChannelReply(
 	ctx context.Context, draft sqlc.SlackDraft, text string, edited bool,
 ) {
-	if _, err := o.web.PostMessageAsBot(ctx, draft.ChannelID, internalslack.ToMrkdwn(text), draft.ThreadTs); err != nil {
+	if _, err := o.web.PostMarkdownAsBot(ctx, draft.ChannelID, text, draft.ThreadTs); err != nil {
 		log.Printf("slack connector %s: posting approved channel reply: %v", o.agentName, err)
 		// Return to pending so a confirmed failed attempt can be retried. The
 		// sending claim prevents concurrent clicks from posting twice.
@@ -134,6 +140,7 @@ func (o *slackOrchestrator) postApprovedChannelReply(
 		log.Printf("slack connector %s: resolving channel reply: %v", o.agentName, err)
 	}
 	o.resolveTurnReaction(ctx, draft.ChannelID, draft.OriginMsgTs, "white_check_mark")
+	o.setSession(ctx, draft.ChannelID, draft.ThreadTs, internalslack.SessionActive)
 	suffix := ""
 	if edited {
 		suffix = " (edited)"

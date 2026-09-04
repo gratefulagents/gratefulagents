@@ -71,6 +71,15 @@ func (b *dedicatedSlackBackend) handleAssistantStarted(
 	postAssistantGreeting(ctx, b.web, b.cfg.AgentName, e, greeting)
 }
 
+// handleSessionStopped forwards Slack's stop button to the orchestrator, which
+// interrupts the thread's run.
+func (b *dedicatedSlackBackend) handleSessionStopped(ctx context.Context, e *slackSessionStoppedEvent) {
+	if b.orch == nil {
+		return
+	}
+	b.orch.handleSessionStopped(ctx, e)
+}
+
 func (b *dedicatedSlackBackend) handleAppHome(ctx context.Context, userID string) {
 	if b.orch == nil {
 		return
