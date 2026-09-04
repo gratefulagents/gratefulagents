@@ -15,7 +15,7 @@ Related pages: [Projects](../projects/projects.md), [Run defaults](../projects/r
 ## Create a Slack connection
 
 1. Open the Project's **Entry points**, select **Manage connections**, then **New connection → Slack**.
-2. Select **Copy Agent view manifest**. In [Slack app management](https://api.slack.com/apps), choose **Create New App → From a manifest** and paste the YAML. The manifest enables Slack's current Agent messaging experience, Socket Mode events, and the scopes used by the Slack tools.
+2. Select **Copy Agent view manifest**. In [Slack app management](https://api.slack.com/apps), choose **Create New App → From a manifest** and paste the YAML. The manifest enables Slack's current Agent messaging experience (agent sessions, the native stop button, streamed markdown replies), Socket Mode events, and the scopes used by the Slack tools. For an app created from an older manifest, re-apply the current YAML under **App Manifest** so it subscribes to the `agent_session_stopped` event; existing tokens stay valid.
 3. Under **Basic Information → App-Level Tokens**, generate an `xapp-` token with `connections:write`.
 4. Under **OAuth & Permissions**, install the app and copy its `xoxb-` bot token. If the agent should search the workspace or resolve the owner automatically, also copy the optional `xoxp-` user token.
 5. Enter the credentials and owner identity, then select **Create connection**.
@@ -48,6 +48,12 @@ Pasted tokens are moved into a platform-managed Secret and are never returned by
 | **Conversation memory** | No | Positive idle time in minutes before a new conversation starts a fresh run. Empty uses the 12-hour default. |
 
 The Entry point inherits the Project's repository, model/provider credentials, runtime profile, Skills, MCP policy, and custom instructions. Lifecycle (`enabled`) is controlled by the Entry-point switch. Connector images and shared-workspace topology remain operator-owned rather than per-trigger fields.
+
+## Talking to the agent
+
+Each Slack thread (or DM conversation) is an **agent session**. While the agent works, Slack shows its native working indicator and a **Stop** button; the first message titles the session in the Agent sidebar. Pressing Stop interrupts the current turn the same way the dashboard's Stop does — the conversation stays resumable, and the agent confirms with a message in the thread. Only the connection owner and the configured commanders can stop the agent.
+
+Replies stream into the thread as a single message rendered from the agent's markdown (headings, tables, code blocks, and links keep their formatting) and finish with Slack's thumbs up / thumbs down feedback buttons. Feedback is recorded on the run's activity timeline in the dashboard. When a channel reply is held for owner approval, the session shows as waiting until the owner approves, edits, or dismisses it. Long runs post a "still working" note after 20 minutes and keep the session in the working state until they finish.
 
 ## Status and lifecycle
 

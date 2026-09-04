@@ -63,13 +63,16 @@ func TestAssistantMethodsRequireBotToken(t *testing.T) {
 		t.Fatalf("New() error: %v", err)
 	}
 	ctx := context.Background()
-	if err := c.SetAssistantStatus(ctx, "C1", "1.1", "thinking"); err == nil {
-		t.Error("SetAssistantStatus without bot token should error")
+	if err := c.SetSessionStatus(ctx, SessionParams{ChannelID: "C1", ThreadTS: "1.1", Status: SessionProcessing}); err == nil {
+		t.Error("SetSessionStatus without bot token should error")
 	}
 	if err := c.SetAssistantSuggestedPrompts(ctx, "C1", "1.1", "t", []AssistantPrompt{{Title: "a", Message: "b"}}); err == nil {
 		t.Error("SetAssistantSuggestedPrompts without bot token should error")
 	}
-	if err := c.SetAssistantTitle(ctx, "C1", "1.1", "Title"); err == nil {
-		t.Error("SetAssistantTitle without bot token should error")
+	if err := c.RenameSession(ctx, "C1", "1.1", "Title"); err == nil {
+		t.Error("RenameSession without bot token should error")
+	}
+	if _, err := c.StartStream(ctx, StreamTarget{ChannelID: "C1", ThreadTS: "1.1"}, "hi"); err == nil {
+		t.Error("StartStream without bot token should error")
 	}
 }

@@ -2,6 +2,7 @@ package slack
 
 import (
 	"fmt"
+	"strings"
 
 	slackgo "github.com/slack-go/slack"
 )
@@ -27,6 +28,48 @@ const (
 	BlockDraftFeedbackInput = "draft_feedback_input"
 	ActionDraftInputValue   = "value"
 )
+
+// ActionReplyFeedback is the action ID of the thumbs up/down feedback buttons
+// attached to a finished streamed reply. The interaction's value is
+// ReplyFeedbackPositive or ReplyFeedbackNegative; the run the reply came from
+// is carried in the block ID (see ReplyFeedbackRun).
+const ActionReplyFeedback = "slack_reply_feedback"
+
+// Feedback button values.
+const (
+	ReplyFeedbackPositive = "positive"
+	ReplyFeedbackNegative = "negative"
+)
+
+// replyFeedbackBlockPrefix namespaces the feedback block ID so the run name can
+// be recovered from the interaction payload.
+const replyFeedbackBlockPrefix = "reply_feedback:"
+
+// BuildReplyFeedbackBlocks renders Slack's native feedback buttons (a
+// context_actions block) for a reply produced by runName.
+func BuildReplyFeedbackBlocks(runName string) []slackgo.Block {
+	positive := slackgo.NewFeedbackButton(
+		slackgo.NewTextBlockObject(slackgo.PlainTextType, "Good response", false, false), ReplyFeedbackPositive,
+	).WithAccessibilityLabel("Mark this response as good")
+	negative := slackgo.NewFeedbackButton(
+		slackgo.NewTextBlockObject(slackgo.PlainTextType, "Bad response", false, false), ReplyFeedbackNegative,
+	).WithAccessibilityLabel("Mark this response as bad")
+	return []slackgo.Block{
+		slackgo.NewContextActionsBlock(
+			replyFeedbackBlockPrefix+runName,
+			slackgo.NewFeedbackButtonsBlockElement(ActionReplyFeedback, positive, negative),
+		),
+	}
+}
+
+// ReplyFeedbackRun extracts the run name from a feedback block ID, or "" when
+// the block ID is not a feedback block.
+func ReplyFeedbackRun(blockID string) string {
+	if !strings.HasPrefix(blockID, replyFeedbackBlockPrefix) {
+		return ""
+	}
+	return strings.TrimPrefix(blockID, replyFeedbackBlockPrefix)
+}
 
 // truncateForBlock keeps section text within Slack's 3000-char block limit.
 func truncateForBlock(s string) string {

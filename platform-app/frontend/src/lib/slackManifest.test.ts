@@ -10,6 +10,7 @@ describe("buildSlackManifest", () => {
     expect(manifest).not.toContain("assistant_view:");
     expect(manifest).toContain("      - app_home_opened");
     expect(manifest).toContain("      - app_context_changed");
+    expect(manifest).toContain("      - agent_session_stopped");
     expect(manifest).toContain("      - message.im");
     expect(manifest).not.toContain("assistant_thread_started");
     expect(manifest).not.toContain("assistant_thread_context_changed");

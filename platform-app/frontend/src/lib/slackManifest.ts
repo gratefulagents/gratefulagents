@@ -4,7 +4,12 @@
  *
  * Create the app from the output at https://api.slack.com/apps → Create New App
  * → From a manifest. It sets every scope, event, and feature the connector uses
- * (Socket Mode, the agent Messages tab, the App Home tab, Block Kit interactivity).
+ * (Socket Mode, the agent Messages tab, agent sessions with Slack's native stop
+ * button, streamed markdown replies, the App Home tab, Block Kit interactivity).
+ *
+ * Existing apps created from an older manifest keep working; re-applying the
+ * manifest (App settings → App Manifest) adds the `agent_session_stopped`
+ * subscription that enables the stop button.
  */
 export function buildSlackManifest(appName: string): string {
   const name = ((appName || "").trim() || "My Agent").slice(0, 35);
@@ -57,6 +62,7 @@ oauth_config:
 settings:
   event_subscriptions:
     bot_events:
+      - agent_session_stopped
       - app_mention
       - app_context_changed
       - app_home_opened

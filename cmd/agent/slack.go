@@ -15,10 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	internalslack "github.com/gratefulagents/gratefulagents/internal/slack"
 	slackgo "github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
+
+	internalslack "github.com/gratefulagents/gratefulagents/internal/slack"
 )
 
 // slackConnectorConfig is resolved from the connector pod's environment. The
@@ -55,10 +56,29 @@ type slackAppContextChangedEvent struct {
 	Type string `json:"type"`
 }
 
+// slackSessionStoppedEvent is the agent_session_stopped Events API payload: a
+// user clicked the native stop button on an agent session while the app had
+// it in the processing state. slack-go has no typed equivalent yet.
+type slackSessionStoppedEvent struct {
+	Type      string   `json:"type"`
+	Channel   string   `json:"channel"`
+	ThreadTS  string   `json:"thread_ts"`
+	User      string   `json:"user"`
+	EventTS   string   `json:"event_ts"`
+	StreamTSs []string `json:"streaming_message_ts"`
+}
+
+// slackSessionStoppedEventType is the Events API type name of the stop event.
+const slackSessionStoppedEventType = "agent_session_stopped"
+
 func init() {
 	eventType := slackevents.EventsAPIType("app_context_changed")
 	if _, supported := slackevents.EventsAPIInnerEventMapping[eventType]; !supported {
 		slackevents.EventsAPIInnerEventMapping[eventType] = slackAppContextChangedEvent{}
+	}
+	stopType := slackevents.EventsAPIType(slackSessionStoppedEventType)
+	if _, supported := slackevents.EventsAPIInnerEventMapping[stopType]; !supported {
+		slackevents.EventsAPIInnerEventMapping[stopType] = slackSessionStoppedEvent{}
 	}
 }
 
@@ -217,6 +237,7 @@ func runSlack() error {
 		log.Printf("WARN: slack connector %s: command handling disabled: %v", cfg.AgentName, oerr)
 	} else {
 		orch.ownerUserID = backend.ownerUserID
+		orch.teamID = backend.teamID
 		orch.setBotDMChannelID(backend.botDMChannelID)
 		backend.orch = orch
 		startSlackEventPruner(ctx, orch.queries)
@@ -254,6 +275,9 @@ type slackBackend interface {
 	handleAssistantStarted(ctx context.Context, e *slackevents.AssistantThreadStartedEvent)
 	// handleAssistantContextChanged tracks the channel a user is viewing.
 	handleAssistantContextChanged(thread slackevents.AssistantThread)
+	// handleSessionStopped stops the work behind an agent session after the
+	// user clicked Slack's native stop button.
+	handleSessionStopped(ctx context.Context, e *slackSessionStoppedEvent)
 	// handleAppHome refreshes the App Home tab for the given user.
 	handleAppHome(ctx context.Context, userID string)
 	// allowTeam reports whether events from this Slack team may be processed.
@@ -458,6 +482,9 @@ func (c *slackConnector) handleEventsAPI(ctx context.Context, evt socketmode.Eve
 	case *slackAppContextChangedEvent:
 		// Subscribing enables app_context on message.im events. We consume that
 		// point-in-time context below instead of retaining these ambient updates.
+		return
+	case *slackSessionStoppedEvent:
+		c.backend.handleSessionStopped(ctx, inner)
 		return
 	}
 	msg, ok := inboundFromInnerEvent(apiEvent.InnerEvent.Data)
