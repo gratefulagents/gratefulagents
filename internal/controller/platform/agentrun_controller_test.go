@@ -534,6 +534,33 @@ func TestRunPastTimeoutRestartsWindowOnWake(t *testing.T) {
 	}
 }
 
+func TestEffectiveSkillRefsUsesOnlySelectionsAndModeDefaults(t *testing.T) {
+	cases := []struct {
+		name string
+		run  []platformv1alpha1.NamedRef
+		mode []platformv1alpha1.NamedRef
+		want []platformv1alpha1.NamedRef
+	}{
+		{name: "no selection enables no skills"},
+		{name: "project selection", run: []platformv1alpha1.NamedRef{{Name: "frontend-design"}}, want: []platformv1alpha1.NamedRef{{Name: "frontend-design"}}},
+		{name: "mode defaults", mode: []platformv1alpha1.NamedRef{{Name: "frontend-design"}}, want: []platformv1alpha1.NamedRef{{Name: "frontend-design"}}},
+		{name: "trim and deduplicate", run: []platformv1alpha1.NamedRef{{Name: " frontend-design "}, {Name: ""}}, mode: []platformv1alpha1.NamedRef{{Name: "frontend-design"}, {Name: "astro"}}, want: []platformv1alpha1.NamedRef{{Name: "frontend-design"}, {Name: "astro"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			run := &platformv1alpha1.AgentRun{Spec: platformv1alpha1.AgentRunSpec{SkillRefs: tc.run}}
+			mode := &platformv1alpha1.ModeTemplateSpec{DefaultSkillRefs: tc.mode}
+			applySpecDefaults(run, mode, nil)
+			if !namedRefsEqual(run.Spec.SkillRefs, tc.want) {
+				t.Fatalf("skills = %v, want %v", run.Spec.SkillRefs, tc.want)
+			}
+			if needsSpecDefaults(run, mode, nil) {
+				t.Fatal("skill defaults should be idempotent")
+			}
+		})
+	}
+}
+
 func TestEffectiveSkillRefsExcludesStandingOverseer(t *testing.T) {
 	run := &platformv1alpha1.AgentRun{
 		ObjectMeta: metav1.ObjectMeta{
@@ -555,13 +582,9 @@ func TestEffectiveSkillRefsExcludesStandingOverseer(t *testing.T) {
 	snapshot := &platformv1alpha1.ModeTemplateSpec{
 		DefaultSkillRefs: []platformv1alpha1.NamedRef{{Name: "mode-skill"}},
 	}
-	userSkills := []platformv1alpha1.NamedRef{{Name: "user-skill"}}
 
-	if got := effectiveSkillRefs(run, snapshot, userSkills); len(got) != 0 {
+	if got := effectiveSkillRefs(run, snapshot); len(got) != 0 {
 		t.Fatalf("effectiveSkillRefs() = %v, want no skills for standing overseer", got)
-	}
-	if got, err := listUserSkillRefsForRun(context.Background(), nil, run); err != nil || len(got) != 0 {
-		t.Fatalf("listUserSkillRefsForRun() = %v, %v; want no lookup or skills for standing overseer", got, err)
 	}
 }
 
@@ -573,18 +596,14 @@ func TestSecurityScanRunDoesNotInheritNamespaceSkillCatalog(t *testing.T) {
 	snapshot := &platformv1alpha1.ModeTemplateSpec{
 		DefaultSkillRefs: []platformv1alpha1.NamedRef{{Name: "security-scan"}},
 	}
-	userSkills := []platformv1alpha1.NamedRef{{Name: "unrelated-user-skill"}}
 
-	got := effectiveSkillRefs(run, snapshot, userSkills)
+	got := effectiveSkillRefs(run, snapshot)
 	gotNames := make([]string, 0, len(got))
 	for _, ref := range got {
 		gotNames = append(gotNames, ref.Name)
 	}
 	if !slices.Equal(gotNames, []string{"task-skill", "security-scan"}) {
 		t.Fatalf("effectiveSkillRefs() = %v, want only task and mode skills", gotNames)
-	}
-	if refs, err := listUserSkillRefsForRun(context.Background(), nil, run); err != nil || len(refs) != 0 {
-		t.Fatalf("listUserSkillRefsForRun() = %v, %v; want no namespace catalog lookup", refs, err)
 	}
 }
 
@@ -673,8 +692,8 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 	for _, ref := range updated.Spec.SkillRefs {
 		gotSkillRefs = append(gotSkillRefs, ref.Name)
 	}
-	if !slices.Equal(gotSkillRefs, []string{explicitSkillName, "alpha-skill", "zeta-skill"}) {
-		t.Fatalf("Spec.SkillRefs = %v, want all user skills after explicit refs", gotSkillRefs)
+	if !slices.Equal(gotSkillRefs, []string{explicitSkillName}) {
+		t.Fatalf("Spec.SkillRefs = %v, want only explicitly selected skills", gotSkillRefs)
 	}
 	if updated.Status.Policy == nil {
 		t.Fatal("Status.Policy = nil, want resolved defaults")
