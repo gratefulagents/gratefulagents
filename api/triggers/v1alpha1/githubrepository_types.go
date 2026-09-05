@@ -13,6 +13,15 @@ import (
 
 // GitHubRepositorySpec defines the desired state of GitHubRepository.
 type GitHubRepositorySpec struct {
+	// suspend pauses all trigger activity for this repository — issue polling,
+	// run creation, maintainer supervision, and work-item command execution —
+	// while preserving the resource and all runtime state (work items, the
+	// dispatch ledger, and the standing maintainer run identity). Project
+	// triggers set this when they are disabled so re-enabling resumes with
+	// full dispatch memory instead of a destructive teardown.
+	// +optional
+	Suspend bool `json:"suspend,omitempty"`
+
 	// githubTokenSecret is the name of the K8s Secret holding the GitHub API
 	// token under the key "token". Exactly one of githubTokenSecret or
 	// githubApp must be set.
@@ -269,6 +278,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="(has(self.spec.githubTokenSecret) && self.spec.githubTokenSecret != '') != has(self.spec.githubApp)",message="exactly one of spec.githubTokenSecret or spec.githubApp must be set"
 // +kubebuilder:printcolumn:name="Owner",type=string,JSONPath=`.spec.owner`
 // +kubebuilder:printcolumn:name="Repo",type=string,JSONPath=`.spec.repo`
+// +kubebuilder:printcolumn:name="Suspended",type=boolean,JSONPath=`.spec.suspend`
 // +kubebuilder:printcolumn:name="Processed",type=integer,JSONPath=`.status.issuesProcessed`
 // +kubebuilder:printcolumn:name="LastPoll",type=date,JSONPath=`.status.lastPollTime`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`

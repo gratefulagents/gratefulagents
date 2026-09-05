@@ -61,17 +61,37 @@ func (r *ProjectReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	ready := true
 
 	for _, trigger := range project.Spec.Triggers {
-		if !projectTriggerEnabled(trigger) {
+		enabled := projectTriggerEnabled(trigger)
+		if !enabled {
 			statuses = append(statuses, projectDisabledTriggerStatus(project, trigger))
-			continue
 		}
 
 		child, err := r.compileTrigger(ctx, project, trigger)
 		if err != nil {
-			ready = false
-			statuses = append(statuses, projectCompileErrorStatus(project, trigger, err))
+			if enabled {
+				ready = false
+				statuses = append(statuses, projectCompileErrorStatus(project, trigger, err))
+				continue
+			}
+			// A disabled trigger that no longer compiles (for example because
+			// its Connection was deleted) must not tear down the suspended
+			// child and the runtime state it anchors. Keep the existing child
+			// suspended and untouched instead.
+			existing, lookupErr := r.existingGeneratedChild(ctx, project, trigger)
+			if lookupErr != nil {
+				return ctrl.Result{}, lookupErr
+			}
+			if existing != nil {
+				setGeneratedChildSuspend(existing, true)
+				desired[projectGeneratedChildKey(existing)] = existing
+			}
 			continue
 		}
+		// Disabling a project trigger suspends its generated child instead of
+		// deleting it: teardown destroys runtime state (for GitHub triggers the
+		// maintainer work items, dispatch ledger, and run bindings). Only
+		// removing the trigger from the project deletes the child.
+		setGeneratedChildSuspend(child, !enabled)
 		desired[projectGeneratedChildKey(child)] = child
 	}
 
@@ -398,6 +418,54 @@ func projectGeneratedChildKey(child client.Object) string {
 	default:
 		panic(fmt.Sprintf("unsupported generated child type %T", child))
 	}
+}
+
+// setGeneratedChildSuspend records the trigger's enabled state on the
+// generated child so disabling a trigger pauses the child controller instead
+// of deleting the child and the runtime state it anchors.
+func setGeneratedChildSuspend(child client.Object, suspended bool) {
+	switch child := child.(type) {
+	case *triggersv1alpha1.GitHubRepository:
+		child.Spec.Suspend = suspended
+	case *triggersv1alpha1.SlackAgent:
+		child.Spec.Suspend = suspended
+	case *triggersv1alpha1.Cron:
+		child.Spec.Suspend = suspended
+	case *triggersv1alpha1.LinearProject:
+		child.Spec.Suspend = suspended
+	default:
+		panic(fmt.Sprintf("unsupported generated child type %T", child))
+	}
+}
+
+// existingGeneratedChild fetches the project-owned generated child for the
+// trigger, returning nil when it does not exist or is not owned by the
+// project.
+func (r *ProjectReconciler) existingGeneratedChild(ctx context.Context, project *triggersv1alpha1.Project, trigger triggersv1alpha1.ProjectTrigger) (client.Object, error) {
+	var child client.Object
+	switch trigger.Type {
+	case triggersv1alpha1.ProjectTriggerTypeGitHub:
+		child = &triggersv1alpha1.GitHubRepository{}
+	case triggersv1alpha1.ProjectTriggerTypeSlack:
+		child = &triggersv1alpha1.SlackAgent{}
+	case triggersv1alpha1.ProjectTriggerTypeCron:
+		child = &triggersv1alpha1.Cron{}
+	case triggersv1alpha1.ProjectTriggerTypeLinear:
+		child = &triggersv1alpha1.LinearProject{}
+	default:
+		return nil, nil
+	}
+	key := client.ObjectKey{Namespace: project.Namespace, Name: projectGeneratedChildName(project.Name, trigger.Name)}
+	if err := r.Get(ctx, key, child); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if !projectOwnsGeneratedChild(project, child) {
+		return nil, nil
+	}
+	return child, nil
 }
 
 func (r *ProjectReconciler) upsertGeneratedChild(ctx context.Context, desired client.Object) error {
