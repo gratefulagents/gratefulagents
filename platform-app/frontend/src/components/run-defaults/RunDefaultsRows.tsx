@@ -511,7 +511,7 @@ export function RunDefaultsRows({
             onChange={(names) => set("mcpServerRefs", names)}
           />
         </FlowField>
-        <FlowField label="Skills" hint="Reusable agent skills attached to these runs.">
+        <FlowField label="Skills" hint="Enable only skills relevant to these runs. Installed skills are not enabled automatically; mode defaults may add skills.">
           <SkillPicker
             selected={value.skillRefs}
             onChange={(names) => set("skillRefs", names)}

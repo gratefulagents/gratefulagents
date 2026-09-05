@@ -37,6 +37,8 @@ describe("SkillsSection", () => {
 
     render(<SkillsSection />);
 
+    expect(screen.getByText(/Installing adds a skill to your library, not to every project/)).toBeTruthy();
+
     fireEvent.click(await screen.findByRole("button", { name: "New inline skill" }));
     fireEvent.change(screen.getByPlaceholderText("my-skill"), { target: { value: "test-skill" } });
     fireEvent.change(screen.getByPlaceholderText("What the skill teaches the agent — shown in pickers"), {
