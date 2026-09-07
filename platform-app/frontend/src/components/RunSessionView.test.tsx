@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 
-import { AgentRunSchema } from "@/rpc/platform/service_pb";
+import { AgentRunSchema, SubagentGraphSchema, SubagentGraphNodeSchema, type SubagentGraph } from "@/rpc/platform/service_pb";
 import { RunSessionView } from "./RunSessionView";
 
 const run = create(AgentRunSchema, {
@@ -14,6 +14,8 @@ const run = create(AgentRunSchema, {
   sandboxRef: "sandbox-1",
   sendReady: true,
 });
+
+const activity = vi.hoisted(() => ({ graph: undefined as SubagentGraph | undefined }));
 
 const runErrors = vi.hoisted(() => ({
   errors: [] as unknown[],
@@ -28,7 +30,7 @@ vi.mock("@/hooks/useAgentRun", () => ({
 vi.mock("@/hooks/useRunActivityLog", () => ({
   useRunActivityLog: () => ({
     entries: [],
-    subagentGraph: undefined,
+    subagentGraph: activity.graph,
     isComplete: true,
     hasMoreBefore: false,
     loadOlder: vi.fn(),
@@ -83,6 +85,7 @@ function renderView() {
 beforeEach(() => {
   localStorage.clear();
   runErrors.errors = [];
+  activity.graph = undefined;
   // Wide viewport so the inspector docks instead of opening as a sheet.
   window.matchMedia = vi.fn((query: string) => ({
     matches: query.includes("min-width"),
@@ -99,6 +102,40 @@ afterEach(() => {
 });
 
 describe("RunSessionView inspector", () => {
+  it("opens a dock task in the list and reselects it after switching to graph mode", () => {
+    activity.graph = create(SubagentGraphSchema, {
+      hasSubagents: true,
+      nodes: ["a", "b"].map((taskId) => create(SubagentGraphNodeSchema, {
+        id: `task:${taskId}`, taskId, kind: "subagent", label: `Task ${taskId}`,
+        status: "running", timestampUnix: 100n,
+      })),
+    });
+    renderView();
+    const dockToggle = screen.getByRole("button", { name: /2 active agents/ });
+    if (dockToggle.getAttribute("aria-expanded") !== "true") fireEvent.click(dockToggle);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      fireEvent.click(screen.getByRole("button", { name: "Open task #2 in Subagents" }));
+      expect(screen.getByRole("tab", { name: /Subagents/ }).getAttribute("aria-selected")).toBe("true");
+      expect(within(screen.getByRole("region", { name: "Subagent detail" })).getByRole("heading", { name: "Task b" })).toBeTruthy();
+      const tasks = within(screen.getByRole("region", { name: "Subagent tasks" })).getAllByRole("button");
+      expect(tasks[1].getAttribute("aria-pressed")).toBe("true");
+      fireEvent.click(tasks[0]);
+      fireEvent.click(screen.getByRole("button", { name: "View graph" }));
+      fireEvent.click(screen.getByRole("button", { name: "Hide inspector" }));
+    }
+  });
+
+  it("labels the inspector Subagents and opens the task-first view", async () => {
+    renderView();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: ".", code: "Period", metaKey: true });
+    });
+    fireEvent.click(screen.getByRole("tab", { name: /Subagents/ }));
+    expect(screen.getByText("No subagents observed")).toBeTruthy();
+    expect(screen.getByText("Tasks appear when this run delegates work to subagents.")).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: /^Agents$/ })).toBeNull();
+  });
+
   it("toggles the inspector with Mod+.", async () => {
     renderView();
     expect(screen.queryByRole("tablist", { name: "Inspector sections" })).toBeNull();

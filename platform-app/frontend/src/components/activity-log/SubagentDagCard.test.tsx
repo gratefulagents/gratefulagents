@@ -11,6 +11,7 @@ import {
   SubagentGraphSchema,
 } from "@/rpc/platform/service_pb";
 import { SubagentDagCard } from "./SubagentDagCard";
+import { SubagentContextProvider } from "./subagentContext";
 
 afterEach(() => {
   cleanup();
@@ -225,17 +226,29 @@ describe("SubagentDagCard", () => {
     expect(dockTitles).toEqual(cardTitles);
   });
 
-  it("turns the #n chip into an 'open in graph' button when a callback is wired", () => {
+  it("turns the #n chip into an 'open in Subagents' button when a callback is wired", () => {
     const onOpenGraph = vi.fn();
     render(<SubagentDagCard groups={[group(0)]} onOpenGraph={onOpenGraph} />);
     fireEvent.click(screen.getByRole("button", { name: /Delegated 1 task/ }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Open task #1 in graph" }));
-    expect(onOpenGraph).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Open task #1 in Subagents" }));
+    expect(onOpenGraph).toHaveBeenCalledExactlyOnceWith("task_0");
   });
 });
 
 describe("SubagentDagCard shared ordinals", () => {
+  it("passes the task ID through the shared transcript navigation callback", () => {
+    const onOpenGraph = vi.fn();
+    render(
+      <SubagentContextProvider onOpenGraph={onOpenGraph}>
+        <SubagentDagCard groups={[group(0), group(1)]} />
+      </SubagentContextProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Delegated 2 tasks/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Open task #2 in Subagents" }));
+    expect(onOpenGraph).toHaveBeenCalledExactlyOnceWith("task_1");
+  });
+
   it("numbers rows from the run-wide graph when provided", async () => {
     const { SubagentContextProvider } = await import("./subagentContext");
     const graph = create(SubagentGraphSchema, {

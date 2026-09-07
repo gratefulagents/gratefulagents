@@ -99,11 +99,14 @@ function renderPanel(onRunSettled?: (phase: string) => void) {
 }
 
 describe("SecurityScanRunPanel", () => {
-  it("shows diagnostics and the workflow graph for a running scan", () => {
+  it("shows diagnostics and task-first subagents for a running scan", () => {
     arrange({ graph: graphFixture() });
     renderPanel();
 
-    expect(screen.getByText("Running")).toBeTruthy();
+    expect(screen.getAllByText("Running").length).toBeGreaterThan(0);
+    expect(screen.getByRole("region", { name: "Subagent tasks" })).toBeTruthy();
+    expect(screen.queryByText("Subagent graph")).toBeNull();
+    expect(screen.getByRole("button", { name: "View graph" })).toBeTruthy();
     expect(screen.getAllByText("claude-sonnet-4-6").length).toBeGreaterThan(0);
     expect(screen.getByText("Retries").nextElementSibling?.textContent).toContain("2");
     expect(screen.getByText("$1.25")).toBeTruthy();

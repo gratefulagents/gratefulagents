@@ -10,7 +10,7 @@ import { DiffRepoSelector } from "@/components/diff/DiffRepoSelector";
 import { NewFilesBrowser } from "@/components/diff/NewFilesBrowser";
 import { MarkdownViewer } from "@/components/MarkdownViewer";
 import { PlanApprovalPanel } from "@/components/PlanApprovalPanel";
-import { SubagentGraphView } from "@/components/SubagentGraphView";
+import { SubagentsView } from "@/components/SubagentsView";
 import { EvidenceGatesCard } from "@/components/VerificationEvidenceCard";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -249,7 +249,11 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     setInspectorTab(tab);
     setInspectorOpen(true);
   }, []);
-  const openGraphTab = useCallback(() => openInspector("graph"), [openInspector]);
+  const [subagentSelection, setSubagentSelection] = useState<{ taskId: string }>();
+  const openGraphTab = useCallback((taskId?: string) => {
+    if (taskId) setSubagentSelection({ taskId });
+    openInspector("graph");
+  }, [openInspector]);
   // Panes that hold view state (graph zoom, diff scroll) mount on first visit
   // and then stay mounted, hidden, so switching tabs never resets them.
   const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<InspectorTab>>(() => new Set());
@@ -1291,7 +1295,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
 
               <ActiveSubagentsDock
                 graph={subagentGraph}
-                onOpenGraph={() => openInspector("graph")}
+                onOpenGraph={openGraphTab}
               />
 
               <RunSessionFooter
@@ -1339,7 +1343,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
               aria-hidden={activeInspectorTab !== "graph"}
               className="flex-1 min-h-0 min-w-0 overflow-hidden"
             >
-              <SubagentGraphView graph={subagentGraph} entries={activityEntries} />
+              <SubagentsView graph={subagentGraph} entries={activityEntries} selectionRequest={subagentSelection} />
             </div>
           )}
 

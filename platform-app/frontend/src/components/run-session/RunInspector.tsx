@@ -40,7 +40,7 @@ export function isInspectorTab(value: string | null): value is InspectorTab {
 export const inspectorTabMeta: Record<InspectorTab, { label: string; icon: ComponentType<{ className?: string }> }> = {
   diff: { label: "Changes", icon: FileDiff },
   pr: { label: "Pull request", icon: GitPullRequest },
-  graph: { label: "Agents", icon: Workflow },
+  graph: { label: "Subagents", icon: Workflow },
   logs: { label: "Logs", icon: SquareTerminal },
   errors: { label: "Errors", icon: CircleAlert },
   trace: { label: "Trace", icon: Activity },

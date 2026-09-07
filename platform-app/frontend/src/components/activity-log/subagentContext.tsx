@@ -14,7 +14,7 @@ import type { SubagentGraph } from "@/rpc/platform/service_pb";
 export type SubagentContextValue = {
   /** Task id → run-wide ordinal. Empty until the graph has loaded. */
   ordinalByTaskId: ReadonlyMap<string, number>;
-  onOpenGraph?: () => void;
+  onOpenGraph?: (taskId?: string) => void;
 };
 
 const EMPTY: SubagentContextValue = { ordinalByTaskId: new Map() };
@@ -27,7 +27,7 @@ export function SubagentContextProvider({
   children,
 }: {
   graph?: SubagentGraph;
-  onOpenGraph?: () => void;
+  onOpenGraph?: (taskId?: string) => void;
   children: ReactNode;
 }) {
   const value = useMemo<SubagentContextValue>(() => {

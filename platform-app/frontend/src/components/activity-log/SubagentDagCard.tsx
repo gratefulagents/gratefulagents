@@ -78,7 +78,7 @@ export function SubagentDagCard({
   /** Topological wave (dependency depth) per group, aligned with `groups`. */
   waves?: number[];
   /** Jump to the full graph tab; the `#n` chips become links when provided. */
-  onOpenGraph?: () => void;
+  onOpenGraph?: (taskId?: string) => void;
 }) {
   // The live DAG is pinned above the composer; transcript delegations stay
   // compact and provide a historical task roster on demand.
@@ -294,7 +294,7 @@ function RosterRow({
   deps: Array<{ ordinal: number; title: string }>;
   selected: boolean;
   onSelect: () => void;
-  onOpenGraph?: () => void;
+  onOpenGraph?: (taskId?: string) => void;
 }) {
   const running = isGroupRunning(group);
   const waiting = isGroupWaiting(group);
@@ -339,9 +339,9 @@ function RosterRow({
       {onOpenGraph ? (
         <button
           type="button"
-          onClick={onOpenGraph}
-          aria-label={`Open task #${ordinal} in graph`}
-          title="Open in graph"
+          onClick={() => onOpenGraph(group.taskId || undefined)}
+          aria-label={`Open task #${ordinal} in Subagents`}
+          title="Open in Subagents"
           className={cn(
             ordinalClass,
             "inline-flex min-h-6 items-center gap-0.5 rounded-sm px-0.5 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2",

@@ -203,7 +203,7 @@ export function ActiveSubagentsDock({
   onOpenGraph,
 }: {
   graph?: SubagentGraph;
-  onOpenGraph?: () => void;
+  onOpenGraph?: (taskId?: string) => void;
 }) {
   const [expanded, setExpanded] = useState(() => {
     try {
@@ -371,12 +371,12 @@ export function ActiveSubagentsDock({
               "ml-1 inline-flex min-h-6 shrink-0 items-center gap-1 rounded p-1.5 text-2xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:px-2",
               FOCUS_RING,
             )}
-            onClick={onOpenGraph}
-            aria-label="View full subagent graph"
-            title="View full subagent graph"
+            onClick={() => onOpenGraph()}
+            aria-label="View all subagents"
+            title="View all subagents"
           >
             <Maximize2 className="size-3" aria-hidden="true" />
-            <span className="hidden sm:inline">View graph</span>
+            <span className="hidden sm:inline">View subagents</span>
           </button>
         )}
       </div>
@@ -435,7 +435,7 @@ function DockTaskCard({
 }: {
   entry: RosterEntry;
   now: number;
-  onOpenGraph?: () => void;
+  onOpenGraph?: (taskId?: string) => void;
 }) {
   const { node, state, ordinal, dependsOn, dependsOnLabels } = entry;
   const color = getSubagentColor(agentType(node));
@@ -466,9 +466,9 @@ function DockTaskCard({
         {onOpenGraph ? (
           <button
             type="button"
-            onClick={onOpenGraph}
-            aria-label={`Open task #${ordinal} in graph`}
-            title="Open in graph"
+            onClick={() => onOpenGraph(node.taskId || node.id)}
+            aria-label={`Open task #${ordinal} in Subagents`}
+            title="Open in Subagents"
             className={cn(
               "inline-flex min-h-6 shrink-0 items-center gap-0.5 rounded-sm px-0.5 font-mono text-3xs font-semibold tabular-nums text-muted-foreground/90 hover:text-foreground",
               FOCUS_RING,

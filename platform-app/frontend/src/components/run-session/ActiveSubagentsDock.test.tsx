@@ -270,7 +270,7 @@ describe("ActiveSubagentsDock", () => {
     expect(status.textContent).not.toContain("A frequently changing detail");
   });
 
-  it("opens the full graph from the dock", () => {
+  it("opens all subagents without a task ID from the dock", () => {
     const onOpenGraph = vi.fn();
     render(
       <ActiveSubagentsDock
@@ -279,11 +279,11 @@ describe("ActiveSubagentsDock", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "View full subagent graph" }));
-    expect(onOpenGraph).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "View all subagents" }));
+    expect(onOpenGraph).toHaveBeenCalledExactlyOnceWith();
   });
 
-  it("opens the graph from a task's #n chip", () => {
+  it("opens the corresponding task from its #n chip", () => {
     const onOpenGraph = vi.fn();
     render(
       <ActiveSubagentsDock
@@ -293,8 +293,8 @@ describe("ActiveSubagentsDock", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /1 active agent/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Open task #1 in graph" }));
-    expect(onOpenGraph).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Open task #1 in Subagents" }));
+    expect(onOpenGraph).toHaveBeenCalledExactlyOnceWith("running");
   });
 
   it("lingers briefly with a finished line once the last agent completes", () => {

@@ -5,7 +5,7 @@ import { RotateCcw, Square, SquareArrowOutUpRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DetailSection, Fact, FactList } from "@/components/detail-page";
-import { SubagentGraphView } from "@/components/SubagentGraphView";
+import { SubagentsView } from "@/components/SubagentsView";
 import { RunUsageSummary } from "@/components/RunUsageSummary";
 import { useAgentRun } from "@/hooks/useAgentRun";
 import { useActivityLog } from "@/hooks/useActivityLog";
@@ -212,7 +212,7 @@ export function SecurityScanRunPanel({
 
         {usage?.summary && <RunUsageSummary totals={usage.summary} />}
 
-        <SubagentGraphView graph={subagentGraph} entries={entries} />
+        <SubagentsView graph={subagentGraph} entries={entries} />
       </div>
     </DetailSection>
   );

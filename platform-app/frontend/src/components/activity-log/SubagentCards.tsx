@@ -476,7 +476,7 @@ export const InlineSubagentCard = memo(function InlineSubagentCard({
  * Result pane that lazily loads the full output when the server sent a
  * truncated preview (output_truncated).
  */
-function SubagentResultSection({
+export function SubagentResultSection({
   entry,
   fallbackText,
   isError,

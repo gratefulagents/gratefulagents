@@ -6,6 +6,7 @@ import { AgentTypeChip } from "@/components/ui/agent-type-chip";
 import { LiveDot, type LiveDotTone } from "@/components/ui/live-dot";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useNow } from "@/hooks/useNow";
+import { subagentDetailEntries } from "@/lib/subagentDetailEntries";
 import { classifySubagentStatus } from "@/lib/subagentStatus";
 import { formatDuration, formatTokens } from "@/lib/activityGrouping";
 import { getSubagentColor } from "@/lib/subagentColors";
@@ -871,24 +872,7 @@ function NodeDetail({
   entries: ActivityEntry[];
   graph: SubagentGraph;
 }) {
-  const detailEntries = React.useMemo(() => {
-    // Prefer durable event-id references: with delta streaming and
-    // pagination the local entries buffer is an arbitrary slice of the run's
-    // history, so server-computed positional indices may not line up.
-    if (node.detailEntryEventIds.length > 0) {
-      const byId = new Map<bigint, ActivityEntry>();
-      for (const e of entries) {
-        if (e.eventId !== 0n) byId.set(e.eventId, e);
-      }
-      return node.detailEntryEventIds
-        .map((id) => byId.get(id))
-        .filter((e): e is ActivityEntry => e !== undefined);
-    }
-    if (!node.detailEntryIndices.length) return [];
-    return node.detailEntryIndices
-      .filter((i) => i >= 0 && i < entries.length)
-      .map((i) => entries[i]);
-  }, [node, entries]);
+  const detailEntries = React.useMemo(() => subagentDetailEntries(node, entries), [node, entries]);
   const nodesById = React.useMemo(() => {
     const out: Record<string, SubagentGraphNode> = {};
     for (const n of graph.nodes) out[n.id] = n;
