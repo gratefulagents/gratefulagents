@@ -64,6 +64,12 @@ describe("fake backend", () => {
     }
   });
 
+  it("serves branch suggestions over the generated RPC contract", async () => {
+    const response = await platform.listGitHubBranches({ repoUrl: "https://github.com/acme/repo" });
+    expect(response.branches).toEqual(["main", "develop", "release/next"]);
+    expect(response.nextPage).toBe(0);
+  });
+
   it("returns NotFound for unknown runs (useAgentRun startup grace expects it)", async () => {
     const err = await platform.getAgentRun({ namespace: "demo", name: "nope" }).catch((e) => e);
     expect(err).toBeInstanceOf(ConnectError);

@@ -10,6 +10,7 @@ import {
 } from "@/components/create-flow/create-flow";
 import { PROVIDERS, providerName } from "@/components/create-flow/providers";
 import { RepoUrlListInput } from "@/components/RepoUrlListInput";
+import { BranchPicker } from "@/components/BranchPicker";
 import { RuntimeImagePicker } from "@/components/RuntimeImagePicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -239,10 +240,12 @@ export function RunOptionsPopover({
               </FlowField>
               <div className="grid gap-4 sm:grid-cols-2">
                 <FlowField id="run-options-branch" label="Base branch">
-                  <Input
+                  <BranchPicker
                     id="run-options-branch"
+                    repoUrl={overrides.repoUrl ?? p?.repoUrl ?? ""}
+                    namespace={namespace}
                     value={overrides.baseBranch ?? p?.baseBranch ?? ""}
-                    onChange={(e) => set("baseBranch", e.target.value)}
+                    onChange={(value) => set("baseBranch", value)}
                     placeholder="Inherited from project"
                   />
                 </FlowField>

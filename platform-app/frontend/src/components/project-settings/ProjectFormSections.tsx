@@ -7,6 +7,7 @@ import { PROVIDERS, providerMeta } from "@/components/create-flow/providers";
 import { MCPServerPicker } from "@/components/MCPServerPicker";
 import { ModeTemplateSelect } from "@/components/ModeTemplateSelect";
 import { RepoUrlListInput } from "@/components/RepoUrlListInput";
+import { BranchPicker } from "@/components/BranchPicker";
 import { RuntimeImagePicker } from "@/components/RuntimeImagePicker";
 import { UserSecretKeyPicker, UserSecretPicker } from "@/components/UserSecretPicker";
 import { Input } from "@/components/ui/input";
@@ -61,10 +62,12 @@ export function RepositoryDetailsFields({ c }: Props) {
           label="Base branch"
           hint="Branch runs start from and open pull requests against."
         >
-          <Input
+          <BranchPicker
             id={`${c.idPrefix}-base-branch`}
+            repoUrl={c.form.repoUrl}
+            namespace={c.project?.namespace ?? c.credentials.namespace}
             value={c.form.baseBranch}
-            onChange={(event) => c.update("baseBranch", event.target.value)}
+            onChange={(value) => c.update("baseBranch", value)}
             placeholder="main"
           />
         </FlowField>

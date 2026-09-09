@@ -408,6 +408,9 @@ const (
 	// PlatformServiceListGitHubRepositoriesProcedure is the fully-qualified name of the
 	// PlatformService's ListGitHubRepositories RPC.
 	PlatformServiceListGitHubRepositoriesProcedure = "/platform.v1.PlatformService/ListGitHubRepositories"
+	// PlatformServiceListGitHubBranchesProcedure is the fully-qualified name of the PlatformService's
+	// ListGitHubBranches RPC.
+	PlatformServiceListGitHubBranchesProcedure = "/platform.v1.PlatformService/ListGitHubBranches"
 	// PlatformServiceGetGitHubRepositoryProcedure is the fully-qualified name of the PlatformService's
 	// GetGitHubRepository RPC.
 	PlatformServiceGetGitHubRepositoryProcedure = "/platform.v1.PlatformService/GetGitHubRepository"
@@ -956,6 +959,7 @@ type PlatformServiceClient interface {
 	RestoreProjectContentVersion(context.Context, *connect.Request[platform.RestoreProjectContentVersionRequest]) (*connect.Response[platform.ProjectContent], error)
 	DeleteProjectContent(context.Context, *connect.Request[platform.DeleteProjectContentRequest]) (*connect.Response[emptypb.Empty], error)
 	ListGitHubRepositories(context.Context, *connect.Request[platform.ListGitHubRepositoriesRequest]) (*connect.Response[platform.ListGitHubRepositoriesResponse], error)
+	ListGitHubBranches(context.Context, *connect.Request[platform.ListGitHubBranchesRequest]) (*connect.Response[platform.ListGitHubBranchesResponse], error)
 	GetGitHubRepository(context.Context, *connect.Request[platform.GetGitHubRepositoryRequest]) (*connect.Response[platform.GitHubRepository], error)
 	ListMaintainerWorkItems(context.Context, *connect.Request[platform.ListMaintainerWorkItemsRequest]) (*connect.Response[platform.ListMaintainerWorkItemsResponse], error)
 	IssueMaintainerCommand(context.Context, *connect.Request[platform.IssueMaintainerCommandRequest]) (*connect.Response[platform.IssueMaintainerCommandResponse], error)
@@ -1975,6 +1979,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("ListGitHubRepositories")),
 			connect.WithClientOptions(opts...),
 		),
+		listGitHubBranches: connect.NewClient[platform.ListGitHubBranchesRequest, platform.ListGitHubBranchesResponse](
+			httpClient,
+			baseURL+PlatformServiceListGitHubBranchesProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ListGitHubBranches")),
+			connect.WithClientOptions(opts...),
+		),
 		getGitHubRepository: connect.NewClient[platform.GetGitHubRepositoryRequest, platform.GitHubRepository](
 			httpClient,
 			baseURL+PlatformServiceGetGitHubRepositoryProcedure,
@@ -2831,6 +2841,7 @@ type platformServiceClient struct {
 	restoreProjectContentVersion           *connect.Client[platform.RestoreProjectContentVersionRequest, platform.ProjectContent]
 	deleteProjectContent                   *connect.Client[platform.DeleteProjectContentRequest, emptypb.Empty]
 	listGitHubRepositories                 *connect.Client[platform.ListGitHubRepositoriesRequest, platform.ListGitHubRepositoriesResponse]
+	listGitHubBranches                     *connect.Client[platform.ListGitHubBranchesRequest, platform.ListGitHubBranchesResponse]
 	getGitHubRepository                    *connect.Client[platform.GetGitHubRepositoryRequest, platform.GitHubRepository]
 	listMaintainerWorkItems                *connect.Client[platform.ListMaintainerWorkItemsRequest, platform.ListMaintainerWorkItemsResponse]
 	issueMaintainerCommand                 *connect.Client[platform.IssueMaintainerCommandRequest, platform.IssueMaintainerCommandResponse]
@@ -3578,6 +3589,11 @@ func (c *platformServiceClient) DeleteProjectContent(ctx context.Context, req *c
 // ListGitHubRepositories calls platform.v1.PlatformService.ListGitHubRepositories.
 func (c *platformServiceClient) ListGitHubRepositories(ctx context.Context, req *connect.Request[platform.ListGitHubRepositoriesRequest]) (*connect.Response[platform.ListGitHubRepositoriesResponse], error) {
 	return c.listGitHubRepositories.CallUnary(ctx, req)
+}
+
+// ListGitHubBranches calls platform.v1.PlatformService.ListGitHubBranches.
+func (c *platformServiceClient) ListGitHubBranches(ctx context.Context, req *connect.Request[platform.ListGitHubBranchesRequest]) (*connect.Response[platform.ListGitHubBranchesResponse], error) {
+	return c.listGitHubBranches.CallUnary(ctx, req)
 }
 
 // GetGitHubRepository calls platform.v1.PlatformService.GetGitHubRepository.
@@ -4388,6 +4404,7 @@ type PlatformServiceHandler interface {
 	RestoreProjectContentVersion(context.Context, *connect.Request[platform.RestoreProjectContentVersionRequest]) (*connect.Response[platform.ProjectContent], error)
 	DeleteProjectContent(context.Context, *connect.Request[platform.DeleteProjectContentRequest]) (*connect.Response[emptypb.Empty], error)
 	ListGitHubRepositories(context.Context, *connect.Request[platform.ListGitHubRepositoriesRequest]) (*connect.Response[platform.ListGitHubRepositoriesResponse], error)
+	ListGitHubBranches(context.Context, *connect.Request[platform.ListGitHubBranchesRequest]) (*connect.Response[platform.ListGitHubBranchesResponse], error)
 	GetGitHubRepository(context.Context, *connect.Request[platform.GetGitHubRepositoryRequest]) (*connect.Response[platform.GitHubRepository], error)
 	ListMaintainerWorkItems(context.Context, *connect.Request[platform.ListMaintainerWorkItemsRequest]) (*connect.Response[platform.ListMaintainerWorkItemsResponse], error)
 	IssueMaintainerCommand(context.Context, *connect.Request[platform.IssueMaintainerCommandRequest]) (*connect.Response[platform.IssueMaintainerCommandResponse], error)
@@ -5403,6 +5420,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("ListGitHubRepositories")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceListGitHubBranchesHandler := connect.NewUnaryHandler(
+		PlatformServiceListGitHubBranchesProcedure,
+		svc.ListGitHubBranches,
+		connect.WithSchema(platformServiceMethods.ByName("ListGitHubBranches")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceGetGitHubRepositoryHandler := connect.NewUnaryHandler(
 		PlatformServiceGetGitHubRepositoryProcedure,
 		svc.GetGitHubRepository,
@@ -6381,6 +6404,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceDeleteProjectContentHandler.ServeHTTP(w, r)
 		case PlatformServiceListGitHubRepositoriesProcedure:
 			platformServiceListGitHubRepositoriesHandler.ServeHTTP(w, r)
+		case PlatformServiceListGitHubBranchesProcedure:
+			platformServiceListGitHubBranchesHandler.ServeHTTP(w, r)
 		case PlatformServiceGetGitHubRepositoryProcedure:
 			platformServiceGetGitHubRepositoryHandler.ServeHTTP(w, r)
 		case PlatformServiceListMaintainerWorkItemsProcedure:
@@ -7130,6 +7155,10 @@ func (UnimplementedPlatformServiceHandler) DeleteProjectContent(context.Context,
 
 func (UnimplementedPlatformServiceHandler) ListGitHubRepositories(context.Context, *connect.Request[platform.ListGitHubRepositoriesRequest]) (*connect.Response[platform.ListGitHubRepositoriesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListGitHubRepositories is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ListGitHubBranches(context.Context, *connect.Request[platform.ListGitHubBranchesRequest]) (*connect.Response[platform.ListGitHubBranchesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListGitHubBranches is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) GetGitHubRepository(context.Context, *connect.Request[platform.GetGitHubRepositoryRequest]) (*connect.Response[platform.GitHubRepository], error) {

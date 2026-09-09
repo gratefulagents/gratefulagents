@@ -27,6 +27,7 @@ vi.mock("@/lib/client", () => ({
       }),
     ),
     listRuntimeImages: vi.fn().mockResolvedValue({ images: [] }),
+    listGitHubBranches: vi.fn().mockResolvedValue({ branches: ["main", "develop"], nextPage: 0 }),
     listMCPServers: vi.fn().mockResolvedValue({ servers: [] }),
     listModeTemplates: vi.fn().mockResolvedValue({ templates: [] }),
     updateProject: vi.fn(),
@@ -68,6 +69,25 @@ function renderPanel(onUpdated = vi.fn()) {
 }
 
 describe("ProjectSettingsPanel", () => {
+  it("loads branches for the edited repository and saves a free-form branch", async () => {
+    renderPanel();
+    await waitFor(() => expect(client.listMyCredentials).toHaveBeenCalledTimes(1));
+    fireEvent.focus(screen.getByLabelText("Base branch"));
+    await waitFor(() => expect(client.listGitHubBranches).toHaveBeenCalledWith(
+      { namespace: "user-alice", repoUrl: project.repoUrl, page: 0 }, expect.anything(),
+    ));
+    fireEvent.change(screen.getByLabelText("Repository URL"), { target: { value: "https://github.com/acme/other" } });
+    await waitFor(() => expect(client.listGitHubBranches).toHaveBeenLastCalledWith(
+      { namespace: "user-alice", repoUrl: "https://github.com/acme/other", page: 0 }, expect.anything(),
+    ));
+    fireEvent.change(screen.getByLabelText("Base branch"), { target: { value: "custom/release" } });
+    vi.mocked(client.updateProject).mockResolvedValueOnce(create(ProjectSchema, { ...project, baseBranch: "custom/release", repoUrl: "https://github.com/acme/other" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(client.updateProject).toHaveBeenCalledWith(expect.objectContaining({
+      repoUrl: "https://github.com/acme/other", baseBranch: "custom/release",
+    })));
+  });
+
   it("shows every section expanded with the project's values and no save bar", async () => {
     renderPanel();
     await waitFor(() => expect(client.listMyCredentials).toHaveBeenCalledTimes(1));

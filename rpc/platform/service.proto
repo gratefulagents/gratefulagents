@@ -189,6 +189,7 @@ service PlatformService {
   rpc RestoreProjectContentVersion(RestoreProjectContentVersionRequest) returns (ProjectContent);
   rpc DeleteProjectContent(DeleteProjectContentRequest) returns (google.protobuf.Empty);
   rpc ListGitHubRepositories(ListGitHubRepositoriesRequest) returns (ListGitHubRepositoriesResponse);
+  rpc ListGitHubBranches(ListGitHubBranchesRequest) returns (ListGitHubBranchesResponse);
   rpc GetGitHubRepository(GetGitHubRepositoryRequest) returns (GitHubRepository);
   rpc ListMaintainerWorkItems(ListMaintainerWorkItemsRequest) returns (ListMaintainerWorkItemsResponse);
   rpc IssueMaintainerCommand(IssueMaintainerCommandRequest) returns (IssueMaintainerCommandResponse);
@@ -6240,4 +6241,18 @@ message SecuritySubmissionPrecisionRollup {
 message GetSecuritySubmissionPrecisionRollupRequest {
   string namespace = 1;
   google.protobuf.Timestamp since = 2;
+}
+
+message ListGitHubBranchesRequest {
+  string repo_url = 1;
+  // Restrict credential lookup to visible repositories in this namespace, or all if empty.
+  string namespace = 2;
+  // GitHub page number; zero starts at page one.
+  int32 page = 3;
+}
+
+message ListGitHubBranchesResponse {
+  repeated string branches = 1;
+  // Zero when there are no more pages.
+  int32 next_page = 2;
 }
