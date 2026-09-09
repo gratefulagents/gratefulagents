@@ -34,6 +34,7 @@ export interface DesktopSession {
 }
 
 export interface WindowCapture {
+  frameId: string;
   geometry: { x: number; y: number; width: number; height: number };
   pixelWidth: number;
   pixelHeight: number;
@@ -72,3 +73,33 @@ export const resumeDesktopSession = (sessionId: string, scope: DesktopScope) =>
 export const stopDesktopSession = () => nativeCommand<void>("computer_use_session_stop");
 export const captureDesktopWindow = (sessionId: string, scope: DesktopScope) =>
   nativeCommand<WindowCapture>("computer_use_capture_window", { sessionId, scope });
+
+export type DesktopAction =
+  | { kind: "observe"; question?: string }
+  | { kind: "click"; x: number; y: number }
+  | { kind: "scroll"; deltaX: number; deltaY: number }
+  | { kind: "type"; text: string }
+  | { kind: "key"; key: string }
+  | { kind: "activate" };
+
+export interface DesktopRequest {
+  requestId: string;
+  frameId?: string;
+  action: DesktopAction;
+}
+
+export interface DesktopOutcome {
+  requestId: string;
+  status: "completed" | "failed" | "denied";
+  message: string;
+  capture?: WindowCapture;
+}
+
+export const queueDesktopRequest = (sessionId: string, scope: DesktopScope, request: DesktopRequest) =>
+  nativeCommand<void>("computer_use_queue_request", { sessionId, scope, request });
+export const armDesktopRequest = (sessionId: string, scope: DesktopScope, requestId: string) =>
+  nativeCommand<{ permit: string }>("computer_use_arm_request", { sessionId, scope, requestId });
+export const approveDesktopRequest = (sessionId: string, scope: DesktopScope, requestId: string, permit: string) =>
+  nativeCommand<DesktopOutcome>("computer_use_approve_request", { sessionId, scope, requestId, permit });
+export const cancelDesktopRequest = (sessionId: string, scope: DesktopScope, requestId: string) =>
+  nativeCommand<void>("computer_use_cancel_request", { sessionId, scope, requestId });

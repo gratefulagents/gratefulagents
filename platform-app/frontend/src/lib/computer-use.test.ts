@@ -3,6 +3,7 @@ import {
   computerUsePermissions, openComputerUsePermission, computerUseWindows,
   desktopSessionStatus, startDesktopSession, heartbeatDesktopSession,
   pauseDesktopSession, resumeDesktopSession, stopDesktopSession, captureDesktopWindow,
+  queueDesktopRequest, armDesktopRequest, approveDesktopRequest, cancelDesktopRequest,
 } from "./computer-use";
 
 const native = vi.hoisted(() => ({ isTauri: true, platform: vi.fn(), invoke: vi.fn() }));
@@ -24,6 +25,19 @@ const scope = {
 };
 
 describe("computer use bridge", () => {
+  it("binds single-action approval commands to the native session, request and permit", async () => {
+    const request = { requestId: "r", frameId: "f", action: { kind: "type" as const, text: "Proposed text" } };
+    await queueDesktopRequest("s", scope, request);
+    await armDesktopRequest("s", scope, "r");
+    await approveDesktopRequest("s", scope, "r", "permit");
+    await cancelDesktopRequest("s", scope, "r");
+    expect(native.invoke.mock.calls).toEqual([
+      ["computer_use_queue_request", { sessionId: "s", scope, request }],
+      ["computer_use_arm_request", { sessionId: "s", scope, requestId: "r" }],
+      ["computer_use_approve_request", { sessionId: "s", scope, requestId: "r", permit: "permit" }],
+      ["computer_use_cancel_request", { sessionId: "s", scope, requestId: "r" }],
+    ]);
+  });
   it("preserves native command names, session bindings and consent revision", async () => {
     await computerUseWindows();
     await desktopSessionStatus();
@@ -62,6 +76,9 @@ describe("computer use bridge", () => {
       computerUseWindows, desktopSessionStatus, pauseDesktopSession, stopDesktopSession,
       () => startDesktopSession(scope, true, 0), () => heartbeatDesktopSession("s", scope),
       () => resumeDesktopSession("s", scope), () => captureDesktopWindow("s", scope),
+      () => queueDesktopRequest("s", scope, { requestId: "r", action: { kind: "observe" } }),
+      () => armDesktopRequest("s", scope, "r"), () => approveDesktopRequest("s", scope, "r", "permit"),
+      () => cancelDesktopRequest("s", scope, "r"),
     ]) {
       await expect(command()).rejects.toThrow(/macOS/);
     }

@@ -1,41 +1,29 @@
 # Supervised computer use: development status
 
-This branch implements **local window preview and native session prerequisites**, not agent desktop control. Keep it a draft until the remaining implementation and Mac acceptance checks are complete.
+This branch connects **actual Mac window capture and input to an agent run**, with explicit session consent and human approval for every action. **Keep the PR draft until interactive Mac acceptance is complete.** Compilation and policy tests do not establish that macOS capture, Accessibility targeting, or event delivery works reliably on a real desktop.
 
-## What is currently connected
+## What is connected
 
-- macOS Screen Recording and Accessibility onboarding in Settings → General.
-- An owner/admin-only preview panel in an unfinished run's session view.
-- Explicit consent, window selection, start, capture, pause, resume, and stop.
-- Native in-memory authorization bound to backend, user, namespace, run, application, process, and window. The local binding is not proof of backend ownership; the UI currently checks run access through the authenticated existing API.
-- A ten-second native lease, with heartbeat only after successful run-access checks. Leaving the view, ending the run, changing identity/model, or losing connectivity revokes the local session.
-- A native watchdog checks expiry, permissions, and foreground application independently of React. Preview permits the selected application or the supervisor in front; another application pauses it. This is best-effort application policy, **not OS isolation**.
-- Control+Option+Command+Escape, the native tray's **Stop computer use**, window close, and app exit revoke native authorization.
-- Captures are serialized, and late results are discarded after pause, stop, or expiry. PNG pixels and desktop-point geometry are separate; no input coordinate mapping is implemented yet.
+- macOS Screen Recording and Accessibility onboarding in Settings → General. Other platforms do not expose the controls.
+- An owner/admin-only **Computer use** panel in an unfinished run's session view: approved-window selection, consent, start, local preview, pause/resume, stop, exact proposed text, action confirmation, and a metadata-only recent-action list.
+- Native in-memory session authorization bound to backend, user, namespace, run, application, process, and window; ten-second lease; revision checks; independent native watchdog. Backend RPC separately authenticates the user and checks run ownership, lifecycle, and pod identity.
+- Run-scoped in-memory agent broker over a private Unix socket and authenticated dashboard/pod-exec bridge. No public desktop-control listener or database image queue. One outstanding request, bounded expiry, single-use claim, cancellation and disconnect revocation.
+- A provider-neutral `computer_use` tool supports observation, click, scroll, proposed text, selected keys, and approved-app activation. Observation invokes the configured vision analyzer on PNG bytes, not base64 in ordinary tool output. A usable vision callback and write-capable runtime are required.
+- Every request needs a new human confirmation. Input is queued natively, armed with a short-lived one-use permit, claimed remotely, then executed natively. Approval is not transferable to another action. Failed or uncertain input is not automatically retried.
+- Input checks approved process/window, fresh capture geometry where required, foreground focus and secure-input state. Typing/key requests retain the queue-time Accessibility focused element and check identity again before delivery. Password/secure input is excluded; do not deliberately target it.
+- Control+Option+Command+Escape, the native tray's **Stop computer use**, window close, and app exit revoke native authorization independently of React. Returning to an approved application or reconnecting never silently resumes a revoked session.
 
-Captures are currently held in memory for local preview. They are not uploaded or written to the application log. The preview does not register a computer-use tool or execute mouse/keyboard input. The frontend's sharing disclosure explicitly says sharing is not connected.
+## Safety and privacy limits
 
-### Rendered UI fixtures
+Window selection is **not OS isolation**. Native policy permits the approved application or the supervisor in front for preview/approval; input still requires the approved target. Another foreground application pauses the session. Accessibility checks and Core Graphics event dispatch cannot be atomic: focus can change between a check and an OS event. Stop cannot retract an event already posted or a screenshot already sent to a provider. Use non-sensitive test applications until real-device acceptance is complete.
 
-These screenshots use mocked IPC and synthetic window metadata. They verify layout only, not actual Mac capture or native behavior.
+Local preview stays local. An approved observation is sent through the authenticated backend to the configured vision provider. The relay does not persist screenshot buffers or emit them as ordinary tool results. Proposed text and visual analysis can enter model/run history; the app does not add a separate keystroke log. SDK image requests explicitly use `store:false` and in-memory prompt-cache retention rather than 24-hour caching (Codex normalization omits the retention field for compatibility). **These request settings are not a guarantee of zero provider retention**: provider logging, abuse-monitoring, and account policies still apply. The SDK fix is https://github.com/gratefulagents/sdk/pull/87, pinned by immutable commit in `go.mod`.
 
-![Preview consent fixture](docs/computer-use-preview-consent.png)
+Treat on-screen instructions and visual analysis as untrusted. Review the target and every action's effect, particularly send/submit, deletion, purchases, and security changes. There is no automatic sensitive-action classifier that can replace that review.
 
-![Active preview fixture](docs/computer-use-preview-active.png)
+## Running on a Mac
 
-## Implementation still required
-
-1. Authenticated, user-owned, run-scoped desktop/agent transport with backend ownership tests, request expiry, deduplication, and disconnect cancellation.
-2. Provider-neutral observation/action tools and a verified vision-capability path. The current SDK `ToolResult` carries text, so raw image data must not simply be placed in its text content or persisted as an ordinary tool result.
-3. Native click, scroll, text, key, and app-activation primitives, including fresh-frame coordinate validation, secure-input/password exclusion, and foreground checks at execution.
-4. A bounded per-action approval queue, action timeline, and sensitive-action confirmations. A model must not authorize its own requests or treat instructions on screen as trusted.
-5. Real Mac acceptance, including multi-display/Retina changes and stop during pending work. CI compilation alone is not acceptance.
-
-## Running the development preview on a Mac
-
-Use an Apple Silicon Mac for parity with the current macOS CI target. Install the project's normal Tauri prerequisites (Xcode Command Line Tools, Node/pnpm, and a current stable Rust toolchain). The native manifest now declares Rust 1.88; the new capture dependency uses Rust edition 2024.
-
-From the checked-out branch:
+Use an Apple Silicon Mac for parity with macOS CI. Install the normal Tauri prerequisites (Xcode Command Line Tools, Node/pnpm, current stable Rust). The native manifest requires Rust 1.88; the capture dependency uses edition 2024.
 
 ```sh
 cd platform-app
@@ -44,26 +32,54 @@ cd tauri
 pnpm tauri dev
 ```
 
-Quit any other copy of gratefulagents first: the app is single-instance. This is a development build, not a notarized release. Use a test run and a TextEdit document containing only non-sensitive sample text. Do not use passwords, private messages, payment pages, or production credentials as test content.
+Use a backend **and agent image built from this branch**; an older backend has no desktop relay RPC. Quit other copies of gratefulagents first (single-instance app). This is a development build, not a notarized release. Use a test run and a TextEdit document containing only sample text, never passwords, private messages, payment pages, or production credentials.
 
-In the app, connect to an HTTPS backend, sign in, open an unfinished run you own, and configure the macOS permissions in Settings → General. Return to the run, expand **Desktop preview**, list open windows, select the test document, grant consent, and start the preview session. Capture is manual.
+1. Connect to an HTTPS backend, sign in, and configure permissions in Settings → General. Follow any macOS-requested restart.
+2. Open a live unfinished run you own with a write-capable runtime and configured vision provider. The run's agent pod/relay must be available.
+3. Expand **Computer use**, list windows, choose the test document, review sharing consent, and start a supervised session.
+4. Ask the agent to inspect or act on the approved window. Approve each observation to share a capture; inspect the proposed click location/text/key/scroll/activation, confirm, then choose **Approve once** or **Deny**.
+5. Use **Local preview** for a capture not sent to the agent. Stop before leaving the task. A closed/restarted agent process or expired connection requires a new session.
 
 ## Interactive Mac acceptance checklist
 
-Record the commit, macOS version, hardware/display configuration, pass/fail for each item, and any error text. Screenshots shared for review must contain only synthetic test content.
+Record commit, macOS version, hardware/display configuration, pass/fail and errors. Use synthetic content only. None of these checks is satisfied merely by CI compilation.
 
-- [ ] Permission denial keeps start/capture disabled or rejected. Settings links open the correct privacy category. Follow any macOS-requested app restart; nothing resumes automatically.
-- [ ] The selected document appears in the preview. It is the selected window, not the whole desktop or a different application's window.
-- [ ] Switch to Finder or another unapproved application. Native policy pauses the session; a subsequent capture is rejected until explicit resume. Returning to the approved app alone does not resume it.
-- [ ] Switch between the selected app and gratefulagents. Preview remains usable, as documented. This exception must not become permission to send input to the supervisor.
-- [ ] Pause clears the preview and prevents capture; explicit resume is required.
-- [ ] Stop using the panel, shortcut, and tray separately. Each stops authorization, clears the preview, and requires fresh consent. Stop cannot undo an already completed operation.
-- [ ] With JavaScript temporarily paused in Web Inspector, press the native emergency shortcut and resume JavaScript before the ten-second lease expires. The session must be stopped, demonstrating that the shortcut did not depend on React.
-- [ ] In a separate test, pause JavaScript for longer than ten seconds without pressing stop. Resume JavaScript; the lease must be expired and must not revive on a late heartbeat.
-- [ ] Disconnect the backend or end the run. No new capture is authorized after native expiry; reconnecting does not silently resume.
-- [ ] Close/reopen the app and navigate away from/re-enter the run. No session resumes automatically.
-- [ ] Close the selected window or quit its application. Capture fails safely. A different window/process must not inherit authorization.
-- [ ] Move/resize the window between Retina and non-Retina displays, including a display with a negative desktop origin. Preview geometry remains coherent or capture fails with a fresh-preview error. This does not validate input coordinate transforms, which remain unimplemented.
-- [ ] Revoke OS permission during a session. Capture is rejected or the app is stopped by macOS; after restart, permissions and fresh consent are required.
+- [ ] Permission denial rejects start/capture/input. Settings links open the right privacy category; no automatic restart/resume authorization.
+- [ ] Capture contains the selected document, not another window or the full desktop. Approved observation reaches the configured vision analyzer and returns a description without PNG/base64 in ordinary tool output.
+- [ ] A request cannot execute without its own confirmation. Denial does not execute. Exact proposed Unicode text is visible before approval and delivered once to the intended sample field.
+- [ ] Click marker and delivered input match on Retina/non-Retina displays, including negative desktop origins. Move/resize/change displays between capture and approval: stale geometry fails closed rather than targeting stale coordinates.
+- [ ] Scroll direction/magnitude and supported keys match their proposals; activation brings only the approved application forward.
+- [ ] Change focused field/window after queueing text or a key: execution is rejected. Secure/password input is rejected. No stuck modifier/key after cancellation.
+- [ ] Switch to an unapproved application: native policy pauses; capture/input stay unavailable until explicit resume. Switching to gratefulagents allows supervision but never input to the supervisor.
+- [ ] Pause invalidates pending native requests/frames. A stale approval cannot execute after pause/resume.
+- [ ] Stop from panel, shortcut, and tray separately, including during pending approval and input. No new action runs; fresh consent is required. Already posted OS events cannot be undone.
+- [ ] Pause JavaScript in Web Inspector, press the native emergency shortcut, then resume JS before lease expiry: native authorization is already stopped.
+- [ ] Separately pause JS longer than ten seconds: native lease expires and a late heartbeat cannot revive it.
+- [ ] Disconnect/end/cancel the run, terminate its pod, or replace its identity. Pending work is canceled; no silent reconnect. A claimed request with uncertain completion is not automatically retried.
+- [ ] Navigate away, sign out, change backend/model, close/reopen app: no session resumes automatically.
+- [ ] Close the selected window or quit its app: another process/window cannot inherit authorization.
+- [ ] Revoke OS permissions mid-session: operations reject or macOS stops the app; fresh permissions and consent are required afterward.
+- [ ] Confirm shared/non-owner users cannot attach/claim/resolve another user's desktop session; administrator access follows the documented owner/admin policy.
 
-Capture currently uses xcap 0.9.4's Core Graphics window capture, not ScreenCaptureKit. Its macOS foreground check is process-based and uses a deprecated NSWorkspace API. Compatibility and focus behavior must be checked on supported macOS versions before connecting remote control. Do not treat successful Linux tests or a macOS build as evidence that these runtime checks are reliable.
+Capture uses xcap 0.9.4's deprecated Core Graphics window-capture API, not ScreenCaptureKit. Its foreground check is process-based and uses a deprecated NSWorkspace API. Compatibility and actual focus behavior must be checked on supported macOS versions before release.
+
+## Automated verification
+
+The native executor commit `f92c4f9` passed the macOS ARM64 app build and **35 native tests** in [CI job 102558472054](https://github.com/gratefulagents/gratefulagents/actions/runs/34378875257/job/102558472054). Fresh Linux native checks passed **40 tests** and `cargo check --lib --locked`.
+
+The connected relay/UI changes passed:
+- Go tests for `internal/computeruse`, `internal/tools`, `internal/dashboard`, and `cmd/agent`; broker and focused integration race tests; vet and backend builds.
+- Byte-identical regeneration of the Go and TypeScript RPC stubs.
+- **1,482 frontend tests across 159 files**, including **75 focused computer-use tests**; TypeScript checking and scoped lint. Full lint has no errors but reports existing React-refresh warnings elsewhere.
+
+Strict native Clippy remains blocked by previously observed findings in unchanged `diagnostics.rs`, `openai_oauth.rs`, and `updater.rs`; these were not suppressed. Mocked bridge tests do not establish native input delivery, live Kubernetes transport, or provider behavior.
+
+### Current synthetic approval layout
+
+This is current test-rendered DOM with synthetic text and mocked IPC, not an actual Mac session. The unchecked confirmation deliberately leaves approval disabled. Visual review found the proposed text and confirmation/approve/deny/stop controls readable without clipping.
+
+![Synthetic per-action approval](docs/computer-use-approval.png)
+
+### Historical layout fixtures
+
+`docs/computer-use-preview-consent.png` and `docs/computer-use-preview-active.png` show an earlier **preview-only** UI using mocked IPC and synthetic metadata. They are not screenshots of the current connected input flow and are not Mac acceptance evidence.
