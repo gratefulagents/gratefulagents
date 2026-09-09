@@ -10,6 +10,27 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let summon = Shortcut::new(Some(Modifiers::ALT), Code::Space);
     let gs = app.global_shortcut();
 
+    #[cfg(target_os = "macos")]
+    {
+        let emergency_stop = Shortcut::new(
+            Some(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER),
+            Code::Escape,
+        );
+        match gs.on_shortcut(emergency_stop, |app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                crate::computer_use_session::stop(app, "Native emergency stop");
+            }
+        }) {
+            Ok(()) => app
+                .state::<crate::computer_use_session::ComputerUseSession>()
+                .shortcut_ready
+                .store(true, std::sync::atomic::Ordering::SeqCst),
+            Err(error) => {
+                log::warn!("computer use disabled: emergency stop registration failed: {error}")
+            }
+        }
+    }
+
     if let Err(err) = gs.on_shortcut(summon, move |app, _shortcut, event| {
         if event.state != ShortcutState::Pressed {
             return;

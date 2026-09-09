@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { SettingsSection } from "@/components/settings-section";
+import { ComputerUseSettings } from "@/components/ComputerUseSettings";
 import {
   Avatar,
   AvatarFallback,
@@ -56,6 +57,8 @@ export function SettingsScreen() {
       <AppearanceSettings />
 
       <AccountSettings />
+
+      <ComputerUseSettings />
 
       <DiagnosticsSettings />
     </div>

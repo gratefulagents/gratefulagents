@@ -16,6 +16,14 @@ func runCLI(args []string, stderr io.Writer) int {
 		return 1
 	}
 
+	if args[1] == "desktop-bridge" {
+		if len(args) != 2 || runDesktopBridge(os.Stdin, os.Stdout) != nil {
+			_, _ = fmt.Fprintln(stderr, "desktop bridge unavailable")
+			return 1
+		}
+		return 0
+	}
+
 	// Make the injected toolkit usable on arbitrary runtime images before any
 	// subprocess is spawned (PATH assembly, sandbox propagation, CA bundle).
 	setupToolkitEnv()
