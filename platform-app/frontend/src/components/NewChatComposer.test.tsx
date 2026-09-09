@@ -37,6 +37,7 @@ vi.mock("@/lib/client", () => ({
   client: {
     listMyCredentials: vi.fn(),
     listAvailableModels: vi.fn(),
+    listGitHubBranches: vi.fn().mockResolvedValue({ branches: ["main", "develop"], nextPage: 0 }),
     listProjects: vi.fn(),
     createProject: vi.fn(),
     createAgentRun: vi.fn(),
@@ -374,6 +375,14 @@ describe("NewChatComposer", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Model/ }));
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "claude-opus" } });
     fireEvent.click(screen.getByRole("button", { name: /^Repository/ }));
+    fireEvent.focus(screen.getByLabelText("Base branch"));
+    await waitFor(() => expect(client.listGitHubBranches).toHaveBeenCalledWith(
+      { namespace: "team", repoUrl: "https://github.com/acme/repo", page: 0 }, expect.anything(),
+    ));
+    fireEvent.change(screen.getByLabelText("Repository URL"), { target: { value: "https://github.com/acme/other" } });
+    await waitFor(() => expect(client.listGitHubBranches).toHaveBeenLastCalledWith(
+      { namespace: "team", repoUrl: "https://github.com/acme/other", page: 0 }, expect.anything(),
+    ));
     fireEvent.change(screen.getByLabelText("Base branch"), { target: { value: "feature" } });
 
     fireEvent.click(screen.getByRole("button", { name: /^Overseer/ }));
@@ -397,11 +406,11 @@ describe("NewChatComposer", () => {
       userRequest: "Ship it",
       model: "anthropic/claude-opus",
       baseBranch: "feature",
+      repoUrl: "https://github.com/acme/other",
       source: { kind: "Project", name: "briefs" },
       overseer: expect.objectContaining({ modeRefName: "review", intervalMinutes: 30, maxInterventions: 0 }),
     });
     // Untouched repository fields stay inherited rather than echoing cached values.
-    expect(request.repoUrl).toBeUndefined();
     expect(request.additionalRepoUrls).toBeUndefined();
   });
 

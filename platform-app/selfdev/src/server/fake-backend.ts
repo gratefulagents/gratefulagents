@@ -41,6 +41,7 @@ import {
   ListBugReportsResponseSchema,
   ListCronsResponseSchema,
   ListGitHubRepositoriesResponseSchema,
+  ListGitHubBranchesResponseSchema,
   ListLinearProjectsResponseSchema,
   ListMaintainerWorkItemsResponseSchema,
   ListNotificationsResponseSchema,
@@ -645,6 +646,8 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
     },
     listGitHubRepositories: async () =>
       create(ListGitHubRepositoriesResponseSchema, { repositories: s.githubRepositories }),
+    listGitHubBranches: async () =>
+      create(ListGitHubBranchesResponseSchema, { branches: ["main", "develop", "release/next"] }),
     getGitHubRepository: async (req: { namespace: string; name: string }) => {
       const r = s.githubRepositories.find((x) => x.namespace === req.namespace && x.name === req.name);
       if (!r) throw notFound(`github repository ${req.namespace}/${req.name}`);
