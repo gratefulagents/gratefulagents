@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ComputerUsePanel } from "./ComputerUsePanel";
 import type { DesktopScope, DesktopSession, DesktopRequest, WindowCapture } from "@/lib/computer-use";
+import { getComputerUseApprovalMode, setComputerUseApprovalMode } from "@/lib/computer-use-preferences";
 
 const m = vi.hoisted(() => ({
   isTauri: true, user: "user-1", getRun: vi.fn(), permissions: vi.fn(), windows: vi.fn(),
@@ -33,6 +34,7 @@ let remotePending: DesktopRequest | null;
 
 beforeEach(() => {
   vi.resetAllMocks();
+  setComputerUseApprovalMode("manual");
   m.isTauri = true;
   m.user = "user-1";
   remotePending = null;
@@ -65,7 +67,7 @@ afterEach(cleanup);
 
 async function panel(enabled = true) {
   const view = render(<ComputerUsePanel namespace="default" name="run-1" enabled={enabled} model="test-model" />);
-  await screen.findByText("Computer use — stopped");
+  await screen.findByRole("status", { name: "Session stopped" });
   view.container.querySelector("details")?.setAttribute("open", "");
   return view;
 }
@@ -80,7 +82,7 @@ async function selectAndConsent() {
 async function startSession() {
   await selectAndConsent();
   fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
-  await screen.findByText("Computer use — active");
+  await screen.findByRole("status", { name: "Session active" });
   await waitFor(() => expect(m.heartbeat).toHaveBeenCalled());
 }
 
@@ -143,7 +145,7 @@ describe("run-bound desktop preview", () => {
     fireEvent.click(screen.getByRole("button", { name: "Local preview" }));
     await screen.findByRole("img");
     fireEvent.click(screen.getByRole("button", { name: "Stop computer use" }));
-    await screen.findByText("Computer use — stopped");
+    await screen.findByRole("status", { name: "Session stopped" });
     expect(screen.queryByRole("img")).toBeNull();
     expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
   });
@@ -156,7 +158,7 @@ describe("run-bound desktop preview", () => {
     fireEvent.click(screen.getByRole("button", { name: "Local preview" }));
     await waitFor(() => expect(m.capture).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Stop computer use" }));
-    await screen.findByText("Computer use — stopped");
+    await screen.findByRole("status", { name: "Session stopped" });
     await act(async () => complete(image));
     expect(screen.queryByRole("img")).toBeNull();
   });
@@ -167,11 +169,11 @@ describe("run-bound desktop preview", () => {
     fireEvent.click(screen.getByRole("button", { name: "Local preview" }));
     await screen.findByRole("img");
     fireEvent.click(screen.getByRole("button", { name: "Pause" }));
-    await screen.findByText("Computer use — paused");
+    await screen.findByRole("status", { name: "Session paused" });
     expect(screen.queryByRole("img")).toBeNull();
     expect(m.resume).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Resume" }));
-    await screen.findByText("Computer use — active");
+    await screen.findByRole("status", { name: "Session active" });
     expect(m.resume).toHaveBeenCalledWith("session-1", native.scope);
   });
 
@@ -188,7 +190,7 @@ describe("run-bound desktop preview", () => {
     m.stop.mockRejectedValue(new Error("IPC failed"));
     fireEvent.click(screen.getByRole("button", { name: "Stop computer use" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Cannot confirm native stop");
-    expect(screen.queryByText("Computer use — stopped")).toBeNull();
+    expect(screen.queryByRole("status", { name: "Session stopped" })).toBeNull();
   });
 
   it("requires per-action consent, claims after native validation, and arms only for execution", async () => {
@@ -206,10 +208,10 @@ describe("run-bound desktop preview", () => {
     await startSession();
     await screen.findByText("Agent requests: type");
     expect(screen.getByLabelText("Proposed text").textContent).toBe("Draft text <not markup>");
-    expect((screen.getByRole("button", { name: "Approve once" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Allow once" }) as HTMLButtonElement).disabled).toBe(true);
     expect(m.queue).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     await screen.findByText("type — completed");
     expect(events).toEqual(["queue", "claim", "arm", "approve", "resolve"]);
     expect(m.approve).toHaveBeenCalledWith("session-1", native.scope, "request-1", "permit-1");
@@ -240,10 +242,10 @@ describe("run-bound desktop preview", () => {
     await panel();
     await startSession();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     await waitFor(() => expect(m.relay).toHaveBeenCalledWith("session-1", native.scope, "claim", "request-1"));
     fireEvent.click(screen.getByRole("button", { name: "Stop computer use" }));
-    await screen.findByText("Computer use — stopped");
+    await screen.findByRole("status", { name: "Session stopped" });
     await act(async () => complete());
     expect(m.arm).not.toHaveBeenCalled();
     expect(m.approve).not.toHaveBeenCalled();
@@ -255,7 +257,7 @@ describe("run-bound desktop preview", () => {
     await panel();
     await startSession();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     await screen.findByText("click — failed");
     expect(m.approve).not.toHaveBeenCalled();
     expect(m.queue).toHaveBeenCalledTimes(1);
@@ -271,9 +273,9 @@ describe("run-bound desktop preview", () => {
     await panel();
     await startSession();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     expect((await screen.findByRole("alert")).textContent).toContain("may already have happened");
-    await screen.findByText("Computer use — stopped");
+    await screen.findByRole("status", { name: "Session stopped" });
     expect(m.approve).toHaveBeenCalledTimes(1);
   });
 
@@ -284,7 +286,7 @@ describe("run-bound desktop preview", () => {
     await startSession();
     expect(m.approve).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     await screen.findByText("observe — completed");
     expect(m.relay).toHaveBeenCalledWith("session-1", native.scope, "resolve", "request-1", expect.objectContaining({ capture: image }));
     expect(screen.getByRole("img").getAttribute("src")).toBe(image.dataUrl);
@@ -305,11 +307,11 @@ describe("run-bound desktop preview", () => {
     await panel();
     await startSession();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     await screen.findByText("key — completed");
     remotePending = { requestId: "request-2", frameId: "frame-1", action: { kind: "key", key: "Enter" } };
     await screen.findByText("Press Enter.", {}, { timeout: 3000 });
-    expect((screen.getByRole("button", { name: "Approve once" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Allow once" }) as HTMLButtonElement).disabled).toBe(true);
     expect(m.approve).toHaveBeenCalledTimes(1);
   });
 
@@ -326,15 +328,15 @@ describe("run-bound desktop preview", () => {
     if (change === "enabled") {
       // Losing ownership or finishing the run revokes the session and hides the controls.
       await waitFor(() => expect(m.stop).toHaveBeenCalled());
-      await waitFor(() => expect(screen.queryByText(/Computer use —/)).toBeNull());
+      await waitFor(() => expect(screen.queryByRole("status", { name: /^Session / })).toBeNull());
       expect(screen.queryByRole("img")).toBeNull();
       return;
     }
-    await screen.findByText("Computer use — stopped");
+    await screen.findByRole("status", { name: "Session stopped" });
     expect(screen.queryByRole("img")).toBeNull();
     expect(screen.queryByRole("region", { name: "Action awaiting approval" })).toBeNull();
     expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
-    expect((screen.getByRole("combobox") as HTMLSelectElement).value).toBe("");
+    expect((screen.getByRole("combobox", { name: "Approved window" }) as HTMLSelectElement).value).toBe("");
     expect(m.stop).toHaveBeenCalled();
   });
 
@@ -348,8 +350,8 @@ describe("run-bound desktop preview", () => {
     await panel();
     await startSession();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
-    await screen.findByText("Computer use — stopped");
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    await screen.findByRole("status", { name: "Session stopped" });
     expect(m.relay.mock.calls.filter((call) => call[2] === "claim")).toHaveLength(1);
     expect(m.approve).not.toHaveBeenCalled();
   });
@@ -371,7 +373,7 @@ describe("run-bound desktop preview", () => {
     await screen.findByText("Press Enter.");
     await waitFor(() => expect(m.relay).toHaveBeenCalledWith("session-1", native.scope, "poll"));
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     await screen.findByText("key — completed");
     await act(async () => complete());
     expect(screen.queryByText("Press Enter.")).toBeNull();
@@ -385,10 +387,10 @@ describe("run-bound desktop preview", () => {
     m.stop.mockImplementationOnce(() => new Promise<void>((resolve) => { complete = resolve; }));
     fireEvent.click(screen.getByRole("button", { name: "Stop computer use" }));
     fireEvent.click(screen.getByRole("button", { name: "Stop computer use" }));
-    await screen.findByText("Computer use — stopped");
+    await screen.findByRole("status", { name: "Session stopped" });
     await startSession();
     await act(async () => complete());
-    expect(screen.getByText("Computer use — active")).toBeDefined();
+    expect(screen.getByRole("status", { name: "Session active" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Local preview" }).hasAttribute("disabled")).toBe(false);
   });
 
@@ -407,7 +409,7 @@ describe("run-bound desktop preview", () => {
     fireEvent.click(screen.getByRole("checkbox"));
     expect(screen.getByRole("button", { name: "Start supervised session" }).hasAttribute("disabled")).toBe(true);
     await act(async () => complete());
-    expect(screen.queryByText("Computer use — active")).toBeNull();
+    expect(screen.queryByRole("status", { name: "Session active" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Retry native stop" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Retry native stop" })).toBeNull());
   });
@@ -422,10 +424,10 @@ describe("run-bound desktop preview", () => {
     await panel();
     await startSession();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     await waitFor(() => expect(m[stage]).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Stop computer use" }));
-    await screen.findByText("Computer use — stopped");
+    await screen.findByRole("status", { name: "Session stopped" });
     await act(async () => complete());
     expect(m.relay.mock.calls.filter((call) => call[2] === "resolve")).toHaveLength(0);
     expect(screen.queryByRole("img")).toBeNull();
@@ -440,7 +442,7 @@ describe("run-bound desktop preview", () => {
     remotePending = { ...remotePending, action: { kind: "key", key: "Enter" } };
     await screen.findByText("Press Enter.", {}, { timeout: 3000 });
     expect((screen.getByRole("checkbox", { name: /I reviewed/ }) as HTMLInputElement).checked).toBe(false);
-    expect(screen.getByRole("button", { name: "Approve once" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Allow once" }).hasAttribute("disabled")).toBe(true);
     expect(m.approve).not.toHaveBeenCalled();
   });
 
@@ -452,7 +454,7 @@ describe("run-bound desktop preview", () => {
     fireEvent.click(screen.getByRole("button", { name: "Local preview" }));
     await waitFor(() => expect(m.capture).toHaveBeenCalled());
     native = { ...native, phase: "paused", revision: native.revision + 1 };
-    await screen.findByText("Computer use — paused", {}, { timeout: 3000 });
+    await screen.findByRole("status", { name: "Session paused" }, { timeout: 3000 });
     await act(async () => complete());
     expect(screen.queryByRole("img")).toBeNull();
   });
@@ -500,7 +502,7 @@ describe("run-bound desktop preview", () => {
     await act(async () => complete());
     await waitFor(() => expect(m.stop).toHaveBeenCalledTimes(2));
     expect(m.relay).not.toHaveBeenCalledWith("session-1", expect.anything(), "attach");
-    expect(screen.queryByText("Computer use — active")).toBeNull();
+    expect(screen.queryByRole("status", { name: "Session active" })).toBeNull();
   });
 
   it("reports an arming failure as failed without executing or stopping the session", async () => {
@@ -509,13 +511,13 @@ describe("run-bound desktop preview", () => {
     await panel();
     await startSession();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     await screen.findByText("key — failed");
     expect(m.approve).not.toHaveBeenCalled();
     expect(m.cancel).toHaveBeenCalledWith("session-1", native.scope, "request-1");
     expect(m.relay).toHaveBeenCalledWith("session-1", native.scope, "resolve", "request-1", expect.objectContaining({ status: "failed" }));
     expect(m.stop).not.toHaveBeenCalled();
-    expect(screen.getByText("Computer use — active")).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Session active" })).toBeTruthy();
   });
 
   it("does not forward a completed observation that has no capture", async () => {
@@ -524,9 +526,138 @@ describe("run-bound desktop preview", () => {
     await panel();
     await startSession();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     await screen.findByText("observe — failed");
     expect(m.relay).toHaveBeenCalledWith("session-1", native.scope, "resolve", "request-1", expect.objectContaining({ status: "failed" }));
     expect(m.stop).not.toHaveBeenCalled();
+  });
+
+  describe("approval modes", () => {
+    it("skips approvals entirely in auto mode, still going through validation, claim, arm and permit", async () => {
+      setComputerUseApprovalMode("auto");
+      remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "key", key: "Enter" } };
+      const events: string[] = [];
+      m.queue.mockImplementation(async () => { events.push("queue"); });
+      m.arm.mockImplementation(async () => { events.push("arm"); return { permit: "permit-1" }; });
+      m.approve.mockImplementation(async () => { events.push("approve"); return { requestId: "request-1", status: "completed", message: "Completed" }; });
+      m.relay.mockImplementation(async (_id: string, _scope: DesktopScope, operation: string) => {
+        if (["claim", "resolve"].includes(operation)) events.push(operation);
+        if (operation === "claim") remotePending = null;
+        return { active: true, visionAvailable: true, pending: remotePending ?? undefined };
+      });
+      await panel();
+      expect(screen.getAllByText("Skip approvals").length).toBeGreaterThan(0);
+      await startSession();
+      await screen.findByText("key — completed");
+      expect(events).toEqual(["queue", "claim", "arm", "approve", "resolve"]);
+      expect(m.approve).toHaveBeenCalledWith("session-1", native.scope, "request-1", "permit-1");
+      expect(screen.getByText("Pressed Enter")).toBeTruthy();
+      expect(screen.queryByRole("checkbox", { name: /I reviewed/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
+    });
+
+    it("assisted mode auto-approves read-only observations but asks before input", async () => {
+      setComputerUseApprovalMode("assisted");
+      remotePending = { requestId: "request-1", action: { kind: "observe", question: "What is shown?" } };
+      m.approve.mockResolvedValue({ requestId: "request-1", status: "completed", message: "Completed", capture: image });
+      await panel();
+      await startSession();
+      await screen.findByText("observe — completed");
+      expect(m.approve).toHaveBeenCalledTimes(1);
+      remotePending = { requestId: "request-2", frameId: "frame-1", action: { kind: "type", text: "hello" } };
+      await screen.findByText("Agent requests: type", {}, { timeout: 3000 });
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+      expect(m.approve).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: "Allow once" }).hasAttribute("disabled")).toBe(true);
+      expect(screen.getByText("Enters input")).toBeTruthy();
+    });
+
+    it("does not auto-approve while paused, and resumes approving after resume", async () => {
+      setComputerUseApprovalMode("auto");
+      await panel();
+      await startSession();
+      fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+      await screen.findByRole("status", { name: "Session paused" });
+      remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "key", key: "Enter" } };
+      await screen.findByText("Agent requests: key", {}, { timeout: 3000 });
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+      expect(m.queue).not.toHaveBeenCalled();
+      expect(m.approve).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+      await screen.findByText("key — completed", {}, { timeout: 3000 });
+      expect(m.approve).toHaveBeenCalledTimes(1);
+    });
+
+    it("switching back to manual from the panel restores per-action confirmation", async () => {
+      setComputerUseApprovalMode("auto");
+      await panel();
+      await startSession();
+      fireEvent.click(screen.getByRole("button", { name: "Switch to manual" }));
+      remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "key", key: "Enter" } };
+      await screen.findByText("Agent requests: key", {}, { timeout: 3000 });
+      expect(screen.getByRole("button", { name: "Allow once" }).hasAttribute("disabled")).toBe(true);
+      expect(screen.getByRole("checkbox", { name: /I reviewed/ })).toBeTruthy();
+      expect(m.approve).not.toHaveBeenCalled();
+    });
+
+    it("stepping up to skip-all from the panel requires confirmation", async () => {
+      await panel();
+      await startSession();
+      fireEvent.change(screen.getByRole("combobox", { name: "Approval mode" }), { target: { value: "auto" } });
+      await screen.findByRole("dialog");
+      expect(getComputerUseApprovalMode()).toBe("manual");
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(getComputerUseApprovalMode()).toBe("manual");
+      expect(screen.getByRole("status", { name: "Session active" })).toBeTruthy();
+      expect(m.stop).not.toHaveBeenCalled();
+    });
+
+    it("never auto-approves in manual mode", async () => {
+      remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "observe" } };
+      await panel();
+      await startSession();
+      await screen.findByText("Agent requests: observe");
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+      expect(m.queue).not.toHaveBeenCalled();
+      expect(m.approve).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("session allowances", () => {
+    it("allows a kind for the rest of the session after one reviewed approval, and resets on stop", async () => {
+      remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "key", key: "Tab" } };
+      await panel();
+      await startSession();
+      fireEvent.click(await screen.findByRole("checkbox", { name: /I reviewed/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Allow for this session" }));
+      await screen.findByText("key — completed");
+      expect(screen.getByText("Allowed for this session:")).toBeTruthy();
+      remotePending = { requestId: "request-2", frameId: "frame-1", action: { kind: "key", key: "Enter" } };
+      await screen.findByText("Pressed Enter", {}, { timeout: 3000 });
+      expect(m.approve).toHaveBeenCalledTimes(2);
+      // A different kind still asks.
+      remotePending = { requestId: "request-3", frameId: "frame-1", action: { kind: "click", x: 1, y: 1 } };
+      await screen.findByText("Agent requests: click", {}, { timeout: 3000 });
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+      expect(m.approve).toHaveBeenCalledTimes(2);
+      fireEvent.click(screen.getByRole("button", { name: "Stop computer use" }));
+      await screen.findByRole("status", { name: "Session stopped" });
+      expect(screen.queryByText("Allowed for this session:")).toBeNull();
+    });
+
+    it("can be reset mid-session", async () => {
+      remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "key", key: "Tab" } };
+      await panel();
+      await startSession();
+      fireEvent.click(await screen.findByRole("checkbox", { name: /I reviewed/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Allow for this session" }));
+      await screen.findByText("key — completed");
+      fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+      remotePending = { requestId: "request-2", frameId: "frame-1", action: { kind: "key", key: "Enter" } };
+      await screen.findByText("Agent requests: key", {}, { timeout: 3000 });
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+      expect(m.approve).toHaveBeenCalledTimes(1);
+    });
   });
 });
