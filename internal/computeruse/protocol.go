@@ -21,11 +21,38 @@ const (
 	MaxScreenshot  = 8 << 20
 	Lease          = 10 * time.Second
 	RequestTimeout = 120 * time.Second
-	ClaimTimeout   = 5 * time.Second
+	// ClaimTimeout bounds the time between a desktop claiming a request and
+	// resolving it. Observation must fit a native capture plus the PNG upload;
+	// typing must fit per-character native delivery; other input is quick.
+	ClaimTimeout        = 15 * time.Second
+	ObserveClaimTimeout = 30 * time.Second
+	TypeClaimTimeout    = 60 * time.Second
 )
 
 var ErrRejected = errors.New("computer use request rejected")
 var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
+
+// ClaimTimeoutFor returns how long a claimed request of this kind may stay unresolved.
+func ClaimTimeoutFor(a Action) time.Duration {
+	switch a.Kind {
+	case "observe":
+		return ObserveClaimTimeout
+	case "type":
+		return TypeClaimTimeout
+	}
+	return ClaimTimeout
+}
+
+// visibleText reports whether every rune is printable so the supervisor
+// approves exactly the text that will be typed: control, format (zero-width
+// space, BOM, bidi overrides and isolates), line/paragraph separators,
+// private-use, and unassigned code points are rejected. Zero-width joiner and
+// non-joiner stay allowed because emoji sequences and several scripts need them.
+func visibleText(s string) bool {
+	return utf8.ValidString(s) && !strings.ContainsFunc(s, func(r rune) bool {
+		return !unicode.IsGraphic(r) && r != '\u200c' && r != '\u200d'
+	})
+}
 
 type Action struct {
 	Kind     string   `json:"kind"`
@@ -148,7 +175,7 @@ func (a Action) Validate() error {
 			return ErrRejected
 		}
 	case "type":
-		if a.Text == "" || len(a.Text) > 4000 || !utf8.ValidString(a.Text) || len(utf16.Encode([]rune(a.Text))) > 1000 || strings.ContainsFunc(a.Text, unicode.IsControl) {
+		if a.Text == "" || len(a.Text) > 4000 || !visibleText(a.Text) || len(utf16.Encode([]rune(a.Text))) > 1000 {
 			return ErrRejected
 		}
 		fallthrough

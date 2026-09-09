@@ -38,6 +38,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
   const requestVersion = useRef(0);
   const revoked = useRef(true);
   const localSession = useRef<DesktopSession | null>(null);
+  const pendingRef = useRef<DesktopRequest | null>(null);
   const inFlight = useRef<string | null>(null);
   const sessionId = session?.sessionId;
   const sessionScope = session?.scope;
@@ -54,6 +55,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     setBusy(true);
     setStopRequired(true);
     setPreview(null);
+    pendingRef.current = null;
     setPending(null);
     setConfirmed(false);
     setConsent(false);
@@ -88,7 +90,9 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
   }, []);
 
   useEffect(() => () => {
-    if (isTauri) void disconnect();
+    // Only a session that this panel actually holds needs native revocation;
+    // stopping without one would surface a misleading emergency-stop alert.
+    if (isTauri && localSession.current) void disconnect();
     setWindows([]);
     setSelected("");
     setActivity([]);
@@ -111,6 +115,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
         if (!valid()) return;
         if (backendBaseUrl() !== scope.backend) throw new Error("Desktop backend changed");
         if (!relay.active || !relay.visionAvailable) throw new Error(relay.reason || "Desktop agent connection ended");
+        // The native lease is renewed only after the backend confirmed the run.
         await heartbeatDesktopSession(sessionId, scope);
         if (!valid()) return;
         const status = await desktopSessionStatus();
@@ -128,11 +133,12 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
           setSession(localSession.current);
         }
         if (!inFlight.current && version === requestVersion.current) {
-          setPending((old) => {
-            if (JSON.stringify(old) === JSON.stringify(relay.pending ?? null)) return old;
+          const next = relay.pending ?? null;
+          if (JSON.stringify(pendingRef.current) !== JSON.stringify(next)) {
+            pendingRef.current = next;
+            setPending(next);
             setConfirmed(false);
-            return relay.pending ?? null;
-          });
+          }
         }
         timer = setTimeout(() => void poll(), 1500);
       } catch (cause) {
@@ -173,7 +179,12 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
       backend, user, namespace, run: name, application: target.application,
       windowId: target.windowId, processId: target.processId,
     }, consent, observed.revision);
-    if (current !== generation.current) return;
+    if (current !== generation.current) {
+      // The panel was invalidated while native start was in flight: nothing
+      // else holds this session, so revoke it rather than leaking it.
+      await stopDesktopSession().catch(() => {});
+      return;
+    }
     localSession.current = started;
     try {
       if (!started.sessionId || !started.scope) throw new Error("Native session did not start");
@@ -184,13 +195,18 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
       }
       if (!relay.active) throw new Error("The agent is not available for computer use");
       if (!relay.visionAvailable) throw new Error("This run has no supported vision analyzer. Select a vision-capable provider/model before connecting.");
+      // The attach round trip consumed part of the ten-second native lease;
+      // renew it now that the backend confirmed so the first poll has full margin.
+      await heartbeatDesktopSession(started.sessionId, started.scope);
+      if (current !== generation.current) return;
       const status = await desktopSessionStatus();
       if (current !== generation.current) return;
       if (status.sessionId !== started.sessionId || status.phase !== "active") throw new Error("Native authorization ended while connecting");
       revoked.current = false;
       localSession.current = { ...status, scope: started.scope };
       setSession(localSession.current);
-      setPending(relay.pending ?? null);
+      pendingRef.current = relay.pending ?? null;
+      setPending(pendingRef.current);
       setActivity([]);
       setPreview(null);
       setConfirmed(false);
@@ -222,47 +238,54 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     inFlight.current = request.requestId;
     requestVersion.current++;
     setConfirmed(false);
-    let claimed = false;
     let mayHaveExecuted = false;
     try {
       let outcome: DesktopOutcome;
       if (allow) {
-        try {
-          await queueDesktopRequest(id, scope, request);
+        // Native validation (queue) runs before the claim so a local rejection
+        // can be reported without ever authorizing input. Arming comes after the
+        // claim round trip so the short-lived permit covers only native execution.
+        let localFailure: unknown = null;
+        let permit: string | null = null;
+        try { await queueDesktopRequest(id, scope, request); }
+        catch (cause) { localFailure = cause; }
+        if (!valid()) return;
+        const relay = await exchangeDesktopRelay(id, scope, "claim", request.requestId);
+        if (!valid()) return;
+        if (!relay.active) throw new Error("The remote request expired");
+        if (localFailure === null) {
+          if (!relay.visionAvailable) throw new Error("The remote request expired or vision is unavailable");
+          try { permit = (await armDesktopRequest(id, scope, request.requestId)).permit; }
+          catch (cause) { localFailure = cause; }
           if (!valid()) return;
-          const { permit } = await armDesktopRequest(id, scope, request.requestId);
-          if (!valid()) return;
-          claimed = true;
-          const relay = await exchangeDesktopRelay(id, scope, "claim", request.requestId);
-          if (!valid()) return;
-          if (!relay.active || !relay.visionAvailable) throw new Error("The remote request expired or vision is unavailable");
+        }
+        if (permit === null) {
+          // Report local validation failure without ever authorizing an input.
+          outcome = { requestId: request.requestId, status: "failed", message: "Native validation rejected the request; obtain a fresh observation and human approval." };
+          setError(String(localFailure));
+          await cancelDesktopRequest(id, scope, request.requestId).catch(() => {});
+        } else {
           mayHaveExecuted = true;
           outcome = await approveDesktopRequest(id, scope, request.requestId, permit);
-        } catch (cause) {
-          if (!valid()) return;
-          if (claimed) throw cause;
-          // Report local validation failure without ever authorizing an input.
-          const relay = await exchangeDesktopRelay(id, scope, "claim", request.requestId);
-          if (!valid()) return;
-          if (!relay.active) throw new Error("The remote request expired");
-          outcome = { requestId: request.requestId, status: "failed", message: "Native validation rejected the request; obtain a fresh observation and human approval." };
-          setError(String(cause));
-          await cancelDesktopRequest(id, scope, request.requestId).catch(() => {});
         }
       } else {
         await exchangeDesktopRelay(id, scope, "claim", request.requestId);
-        claimed = true;
         outcome = { requestId: request.requestId, status: "denied", message: "Denied by supervisor" };
       }
       if (!valid()) return;
       if (outcome.requestId !== request.requestId || (outcome.capture && request.action.kind !== "observe")) {
         throw new Error("Unexpected native response; stopped without sharing it");
       }
+      if (request.action.kind === "observe" && outcome.status === "completed" && !outcome.capture) {
+        // The broker rejects a completed observation without its capture.
+        outcome = { ...outcome, status: "failed", message: "Native capture returned no image" };
+      }
       if (outcome.capture) setPreview(outcome.capture);
       await exchangeDesktopRelay(id, scope, "resolve", request.requestId, outcome);
       if (!valid()) return;
       setActivity((old) => [{ id: request.requestId, kind: request.action.kind, status: outcome.status }, ...old].slice(0, 20));
       if (outcome.status === "failed") setError(`${outcome.message} The action may be partially applied. Do not retry automatically.`);
+      pendingRef.current = null;
       setPending(null);
     } catch {
       if (valid()) await disconnect(mayHaveExecuted
@@ -277,6 +300,9 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
   }
 
   if (!isTauri || !user || (!supported && !error)) return null;
+  // Viewers and finished runs get no controls unless a session or a pending
+  // native stop still needs the operator's attention.
+  if (!enabled && !session && !stopRequired && !busy) return null;
   const click = pending?.action.kind === "click" && preview && pending.frameId === preview.frameId &&
     pending.action.x < preview.pixelWidth && pending.action.y < preview.pixelHeight ? pending.action : null;
   return (

@@ -144,7 +144,7 @@ impl QueuedRequest {
                 if !text.is_empty()
                     && text.len() <= 4000
                     && text.encode_utf16().count() <= 1000
-                    && !text.chars().any(char::is_control) =>
+                    && !text.chars().any(hidden_character) =>
             {
                 Ok(())
             }
@@ -174,6 +174,42 @@ fn key_code(key: &str) -> Option<(u16, u64)> {
         "Shift+Tab" => (48, 1 << 17),
         _ => return None,
     })
+}
+
+// Code points that render invisibly or reorder visible text would let the
+// delivered keystrokes differ from what the supervisor reviewed: controls,
+// Unicode format characters (zero-width space, BOM, bidi overrides/isolates,
+// tags), line/paragraph separators, private-use planes and noncharacters.
+// Zero-width joiner/non-joiner (U+200C/U+200D) and variation selectors stay
+// allowed because emoji sequences and several scripts need them.
+pub fn hidden_character(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{00AD}'
+                | '\u{0600}'..='\u{0605}'
+                | '\u{061C}'
+                | '\u{06DD}'
+                | '\u{070F}'
+                | '\u{0890}'..='\u{0891}'
+                | '\u{08E2}'
+                | '\u{180E}'
+                | '\u{200B}'
+                | '\u{200E}'..='\u{200F}'
+                | '\u{2028}'..='\u{202E}'
+                | '\u{2060}'..='\u{206F}'
+                | '\u{E000}'..='\u{F8FF}'
+                | '\u{FDD0}'..='\u{FDEF}'
+                | '\u{FEFF}'
+                | '\u{FFF0}'..='\u{FFFF}'
+                | '\u{110BD}'
+                | '\u{110CD}'
+                | '\u{13430}'..='\u{1343F}'
+                | '\u{1BCA0}'..='\u{1BCA3}'
+                | '\u{1D173}'..='\u{1D17A}'
+                | '\u{E0000}'..='\u{E0FFF}'
+                | '\u{F0000}'..='\u{10FFFF}'
+        )
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -655,6 +691,16 @@ pub mod macos {
         drop(release);
         check()
     }
+    fn physical_input_released() -> Result<(), String> {
+        if unsafe { CGEventSourceFlagsState(0) }
+            & ((1 << 17) | (1 << 18) | (1 << 19) | (1 << 20) | (1 << 23))
+            != 0
+            || (0..3).any(|button| unsafe { CGEventSourceButtonState(0, button) })
+        {
+            return Err("Release physical modifiers and mouse buttons first".into());
+        }
+        Ok(())
+    }
     pub fn execute(
         scope: &SessionScope,
         action: &Action,
@@ -688,13 +734,7 @@ pub mod macos {
             {
                 return Err("Required OS permission was revoked".into());
             }
-            if unsafe { CGEventSourceFlagsState(0) }
-                & ((1 << 17) | (1 << 18) | (1 << 19) | (1 << 20) | (1 << 23))
-                != 0
-                || (0..3).any(|button| unsafe { CGEventSourceButtonState(0, button) })
-            {
-                return Err("Release physical modifiers and mouse buttons first".into());
-            }
+            physical_input_released()?;
             if super::super::computer_use_capture::target_geometry(scope)? != geometry
                 || displays()? != display
             {
@@ -765,7 +805,25 @@ pub mod macos {
                 guard()
             }
             Action::Type { text } => {
-                for character in text.chars() {
+                // The full guard enumerates windows and displays and round-trips
+                // through Accessibility; running it twice per character cannot
+                // finish realistic text inside the permit. Every key pair still
+                // re-checks cancellation, deadline, revision, permissions, physical
+                // modifiers and the retained focused element; the full guard runs
+                // again periodically and after the last character.
+                let key_guard = || {
+                    check()?;
+                    if !unsafe { CGPreflightPostEventAccess() } {
+                        return Err("macOS input permission is unavailable".into());
+                    }
+                    physical_input_released()?;
+                    verify_focus(action, focus)?;
+                    check()
+                };
+                for (index, character) in text.chars().enumerate() {
+                    if index > 0 && index % 16 == 0 {
+                        guard()?;
+                    }
                     let mut units = [0; 2];
                     let units = character.encode_utf16(&mut units);
                     let down =
@@ -778,9 +836,9 @@ pub mod macos {
                         CGEventKeyboardSetUnicodeString(down.0, units.len(), units.as_ptr());
                         CGEventKeyboardSetUnicodeString(up.0, units.len(), units.as_ptr());
                     }
-                    pair(scope, down, up, &guard)?;
+                    pair(scope, down, up, &key_guard)?;
                 }
-                Ok(())
+                guard()
             }
             Action::Key { key } => {
                 let (code, flags) = key_code(key).ok_or("Unsupported key")?;
@@ -917,6 +975,38 @@ mod tests {
         .unwrap();
         assert!(scroll.validate().is_ok());
         assert!(key_code("Shift+Tab").is_some());
+    }
+    #[test]
+    fn proposed_text_must_render_exactly_as_typed() {
+        let request = |text: &str| QueuedRequest {
+            request_id: "a".into(),
+            frame_id: Some("f".into()),
+            action: Action::Type { text: text.into() },
+        };
+        for visible in [
+            "plain text",
+            "non-breaking\u{00A0}space",
+            "family \u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+            "zwnj a\u{200C}b",
+            "heart \u{2764}\u{FE0F}",
+        ] {
+            assert!(request(visible).validate().is_ok(), "{visible:?}");
+        }
+        for hidden in [
+            "zero\u{200B}width",
+            "\u{FEFF}bom",
+            "abc\u{202E}fed",
+            "a\u{2066}b\u{2069}",
+            "line\u{2028}separator",
+            "para\u{2029}graph",
+            "soft\u{00AD}hyphen",
+            "private\u{E000}use",
+            "tag\u{E0041}",
+            "plane16\u{100000}",
+            "del\u{7F}",
+        ] {
+            assert!(request(hidden).validate().is_err(), "{hidden:?}");
+        }
     }
     #[test]
     fn maps_downsampled_pixels_to_negative_desktop_points() {

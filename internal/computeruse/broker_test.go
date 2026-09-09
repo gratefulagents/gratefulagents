@@ -99,7 +99,7 @@ func TestClaimResolveReplay(t *testing.T) {
 	b.mu.Lock()
 	until := b.pending.deadline
 	b.mu.Unlock()
-	if time.Until(until) > ClaimTimeout {
+	if time.Until(until) > TypeClaimTimeout {
 		t.Fatal("unbounded claim")
 	}
 	e.Operation = "resolve"

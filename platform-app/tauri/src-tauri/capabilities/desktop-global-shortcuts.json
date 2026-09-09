@@ -4,9 +4,5 @@
   "description": "Desktop-only global shortcut permissions for Operator",
   "windows": ["main"],
   "platforms": ["macOS", "windows", "linux"],
-  "permissions": [
-    "global-shortcut:allow-is-registered",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister"
-  ]
+  "permissions": ["global-shortcut:allow-is-registered"]
 }

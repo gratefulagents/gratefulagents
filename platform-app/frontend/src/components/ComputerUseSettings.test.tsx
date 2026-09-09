@@ -21,7 +21,7 @@ describe("computer use permission setup", () => {
   it("checks permissions without prompting or implying control is enabled", async () => {
     render(<ComputerUseSettings />);
     expect(await screen.findAllByText("Not granted")).toHaveLength(2);
-    expect(screen.getByText(/Desktop control is not available yet/)).toBeTruthy();
+    expect(screen.getByText(/does not capture your screen/)).toBeTruthy();
     expect(openComputerUsePermission).not.toHaveBeenCalled();
   });
 

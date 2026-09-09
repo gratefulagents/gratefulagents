@@ -86,7 +86,8 @@ func (s *Server) ExchangeComputerUse(ctx context.Context, req *platform.Exchange
 	if podName == "" || run.UID == "" || s.clientset == nil || s.restConfig == nil {
 		return nil, computerUseError(connect.CodeFailedPrecondition)
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// Resolving an observation streams up to MaxScreenshot through pod exec.
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	pod, err := s.clientset.CoreV1().Pods(run.Namespace).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil || !isPodOwnedByAgentRun(pod, run) {

@@ -133,7 +133,8 @@ describe("run-bound desktop preview", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Disconnected");
     await waitFor(() => expect(m.stop).toHaveBeenCalled());
-    expect(m.heartbeat).not.toHaveBeenCalled();
+    // Exactly one renewal, after the backend confirmed attach; none after the failure.
+    expect(m.heartbeat).toHaveBeenCalledTimes(1);
   });
 
   it("clears preview and requires fresh consent after stop", async () => {
@@ -190,7 +191,7 @@ describe("run-bound desktop preview", () => {
     expect(screen.queryByText("Computer use — stopped")).toBeNull();
   });
 
-  it("requires per-action consent and claims only after arming the native deadline", async () => {
+  it("requires per-action consent, claims after native validation, and arms only for execution", async () => {
     remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "type", text: "Draft text <not markup>" } };
     const events: string[] = [];
     m.queue.mockImplementation(async () => { events.push("queue"); });
@@ -210,7 +211,7 @@ describe("run-bound desktop preview", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
     fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
     await screen.findByText("type — completed");
-    expect(events).toEqual(["queue", "arm", "claim", "approve", "resolve"]);
+    expect(events).toEqual(["queue", "claim", "arm", "approve", "resolve"]);
     expect(m.approve).toHaveBeenCalledWith("session-1", native.scope, "request-1", "permit-1");
     expect(screen.getByRole("list", { name: "Recent computer actions" }).textContent).not.toContain("Draft text");
   });
@@ -240,10 +241,11 @@ describe("run-bound desktop preview", () => {
     await startSession();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
     fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
-    await waitFor(() => expect(m.arm).toHaveBeenCalled());
+    await waitFor(() => expect(m.relay).toHaveBeenCalledWith("session-1", native.scope, "claim", "request-1"));
     fireEvent.click(screen.getByRole("button", { name: "Stop computer use" }));
     await screen.findByText("Computer use — stopped");
     await act(async () => complete());
+    expect(m.arm).not.toHaveBeenCalled();
     expect(m.approve).not.toHaveBeenCalled();
   });
 
@@ -321,6 +323,13 @@ describe("run-bound desktop preview", () => {
     if (change === "user") m.user = "user-2";
     view.rerender(<ComputerUsePanel namespace="default" name={change === "run" ? "run-2" : "run-1"}
       enabled={change !== "enabled"} model={change === "model" ? "other-model" : "test-model"} />);
+    if (change === "enabled") {
+      // Losing ownership or finishing the run revokes the session and hides the controls.
+      await waitFor(() => expect(m.stop).toHaveBeenCalled());
+      await waitFor(() => expect(screen.queryByText(/Computer use —/)).toBeNull());
+      expect(screen.queryByRole("img")).toBeNull();
+      return;
+    }
     await screen.findByText("Computer use — stopped");
     expect(screen.queryByRole("img")).toBeNull();
     expect(screen.queryByRole("region", { name: "Action awaiting approval" })).toBeNull();
@@ -453,5 +462,71 @@ describe("run-bound desktop preview", () => {
     const view = render(<ComputerUsePanel namespace="default" name="run-1" enabled model="test" />);
     expect(view.container.textContent).toBe("");
     expect(m.permissions).not.toHaveBeenCalled();
+  });
+
+  it("never issues a native stop or shows an emergency-stop alert without a session", async () => {
+    m.permissions.mockResolvedValue({ supported: false, screenRecording: false, accessibility: false });
+    m.stop.mockRejectedValue(new Error("Computer use requires the macOS desktop app"));
+    const view = render(<ComputerUsePanel namespace="default" name="run-1" enabled model="test-model" />);
+    await waitFor(() => expect(m.permissions).toHaveBeenCalled());
+    view.rerender(<ComputerUsePanel namespace="default" name="run-1" enabled={false} model="test-model" />);
+    view.rerender(<ComputerUsePanel namespace="default" name="run-1" enabled={false} model="other-model" />);
+    await act(async () => {});
+    expect(m.stop).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(view.container.textContent).toBe("");
+  });
+
+  it("hides controls from non-owners and finished runs without a session", async () => {
+    const view = render(<ComputerUsePanel namespace="default" name="run-1" enabled={false} model="test-model" />);
+    await waitFor(() => expect(m.permissions).toHaveBeenCalled());
+    expect(view.container.textContent).toBe("");
+  });
+
+  it("revokes a native session that started after the panel was invalidated", async () => {
+    await panel();
+    await selectAndConsent();
+    let complete: () => void = () => {};
+    m.start.mockImplementationOnce((scope: DesktopScope) => new Promise((resolve) => {
+      complete = () => {
+        native = { revision: 0, phase: "active", sessionId: "session-1", scope, reason: "" };
+        resolve(native);
+      };
+    }));
+    fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
+    await waitFor(() => expect(m.start).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Cancel connection" }));
+    await waitFor(() => expect(m.stop).toHaveBeenCalledTimes(1));
+    await act(async () => complete());
+    await waitFor(() => expect(m.stop).toHaveBeenCalledTimes(2));
+    expect(m.relay).not.toHaveBeenCalledWith("session-1", expect.anything(), "attach");
+    expect(screen.queryByText("Computer use — active")).toBeNull();
+  });
+
+  it("reports an arming failure as failed without executing or stopping the session", async () => {
+    remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "key", key: "Enter" } };
+    m.arm.mockRejectedValue(new Error("Frame is stale"));
+    await panel();
+    await startSession();
+    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    await screen.findByText("key — failed");
+    expect(m.approve).not.toHaveBeenCalled();
+    expect(m.cancel).toHaveBeenCalledWith("session-1", native.scope, "request-1");
+    expect(m.relay).toHaveBeenCalledWith("session-1", native.scope, "resolve", "request-1", expect.objectContaining({ status: "failed" }));
+    expect(m.stop).not.toHaveBeenCalled();
+    expect(screen.getByText("Computer use — active")).toBeTruthy();
+  });
+
+  it("does not forward a completed observation that has no capture", async () => {
+    remotePending = { requestId: "request-1", action: { kind: "observe", question: "What is shown?" } };
+    m.approve.mockResolvedValue({ requestId: "request-1", status: "completed", message: "Completed" });
+    await panel();
+    await startSession();
+    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve once" }));
+    await screen.findByText("observe — failed");
+    expect(m.relay).toHaveBeenCalledWith("session-1", native.scope, "resolve", "request-1", expect.objectContaining({ status: "failed" }));
+    expect(m.stop).not.toHaveBeenCalled();
   });
 });

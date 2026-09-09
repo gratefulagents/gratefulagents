@@ -107,10 +107,14 @@ pub fn run() {
     builder
         .on_window_event(|window, event| {
             drag_drop::on_window_event(window, event);
-            if matches!(
-                event,
-                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
-            ) {
+            // Only the supervisor window revokes desktop authorization; auxiliary
+            // windows (OAuth, dialogs) closing must not stop a supervised session.
+            if window.label() == "main"
+                && matches!(
+                    event,
+                    tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+                )
+            {
                 computer_use_session::stop(window.app_handle(), "Desktop window closed");
             }
         })

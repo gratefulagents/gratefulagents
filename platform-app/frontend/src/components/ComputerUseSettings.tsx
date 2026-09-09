@@ -59,8 +59,9 @@ export function ComputerUseSettings() {
     >
       <div className="space-y-3 text-sm">
         <p className="text-muted-foreground">
-          Desktop control is not available yet. This setup does not capture your screen,
-          send screen content, or authorize an agent to control your Mac.
+          Granting these permissions does not capture your screen, send screen content, or
+          authorize an agent to control your Mac. Supervised sessions start only from a run
+          you own, and every action there still needs your explicit approval.
         </p>
         {error && <p role="alert">Could not check or update permissions: {error}</p>}
         {!permissions && !error && <p role="status">Checking permissions…</p>}
