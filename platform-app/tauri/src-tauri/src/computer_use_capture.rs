@@ -20,6 +20,9 @@ pub struct WindowGeometry {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowCapture {
+    pub frame_id: String,
+    #[serde(skip)]
+    pub displays: Vec<super::computer_use_input::DisplayGeometry>,
     pub geometry: WindowGeometry,
     pub pixel_width: u32,
     pub pixel_height: u32,
@@ -83,31 +86,60 @@ pub fn validate_focus(scope: &super::computer_use_session::SessionScope) -> Resu
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+pub fn output_dimensions(width: u32, height: u32) -> Result<(u32, u32), String> {
+    if width == 0
+        || height == 0
+        || width > 8192
+        || height > 8192
+        || u64::from(width) * u64::from(height) > 16_777_216
+    {
+        return Err("Window is too large or empty for bounded capture".into());
+    }
+    let scale = (1920.0 / f64::from(width))
+        .min(1080.0 / f64::from(height))
+        .min(1.0);
+    Ok((
+        (f64::from(width) * scale).floor().max(1.0) as u32,
+        (f64::from(height) * scale).floor().max(1.0) as u32,
+    ))
+}
+
+#[cfg(target_os = "macos")]
+pub fn target_geometry(
+    scope: &super::computer_use_session::SessionScope,
+) -> Result<WindowGeometry, String> {
+    let selected = window(scope)?;
+    let geometry = WindowGeometry {
+        x: selected.x().map_err(|e| e.to_string())?,
+        y: selected.y().map_err(|e| e.to_string())?,
+        width: selected.width().map_err(|e| e.to_string())?,
+        height: selected.height().map_err(|e| e.to_string())?,
+    };
+    output_dimensions(geometry.width, geometry.height)?;
+    Ok(geometry)
+}
+
 pub fn capture(scope: &super::computer_use_session::SessionScope) -> Result<WindowCapture, String> {
     #[cfg(target_os = "macos")]
     {
         use base64::Engine;
         use std::io::Cursor;
 
-        fn geometry(window: &xcap::Window) -> Result<WindowGeometry, String> {
-            Ok(WindowGeometry {
-                x: window.x().map_err(|error| error.to_string())?,
-                y: window.y().map_err(|error| error.to_string())?,
-                width: window.width().map_err(|error| error.to_string())?,
-                height: window.height().map_err(|error| error.to_string())?,
-            })
-        }
-
+        use super::computer_use_input::macos;
         validate_focus(scope)?;
-        let selected = window(scope)?;
-        let before = geometry(&selected)?;
-        let image = selected
-            .capture_image()
-            .map_err(|error| error.to_string())?;
-        let after = geometry(&window(scope)?)?;
+        macos::secure(scope)?;
+        let before = target_geometry(scope)?;
+        let display_before = macos::displays()?;
+        let image = macos::capture_image(scope, &before)?;
+        let after = target_geometry(scope)?;
+        let displays = macos::displays()?;
         validate_focus(scope)?;
-        if before != after || image.width() == 0 || image.height() == 0 {
-            return Err("The window changed during capture; request a fresh preview".into());
+        macos::secure(scope)?;
+        if before != after || display_before != displays {
+            return Err(
+                "The window/display changed during capture; request a fresh preview".into(),
+            );
         }
         let pixel_width = image.width();
         let pixel_height = image.height();
@@ -116,7 +148,13 @@ pub fn capture(scope: &super::computer_use_session::SessionScope) -> Result<Wind
             .write_to(&mut png, image::ImageFormat::Png)
             .map_err(|error| error.to_string())?;
         validate_focus(scope)?;
+        macos::secure(scope)?;
+        if target_geometry(scope)? != after || macos::displays()? != displays {
+            return Err("Window/display changed before capture delivery".into());
+        }
         Ok(WindowCapture {
+            frame_id: super::computer_use_session::random_id()?,
+            displays,
             geometry: after,
             pixel_width,
             pixel_height,
@@ -166,6 +204,37 @@ pub fn computer_use_windows() -> Result<Vec<WindowTarget>, String> {
 #[cfg(all(test, not(target_os = "macos")))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_wire_shape_excludes_native_display_metadata() {
+        let capture = WindowCapture {
+            frame_id: "frame".into(),
+            geometry: WindowGeometry {
+                x: -1,
+                y: 2,
+                width: 3,
+                height: 4,
+            },
+            pixel_width: 3,
+            pixel_height: 4,
+            data_url: "data:image/png;base64,".into(),
+            displays: vec![],
+        };
+        let json = serde_json::to_value(capture).unwrap();
+        assert_eq!(json["frameId"], "frame");
+        assert_eq!(json["pixelWidth"], 3);
+        assert!(json.get("displays").is_none());
+        assert_eq!(json.as_object().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn bounded_capture_dimensions() {
+        assert_eq!(output_dimensions(3840, 2160).unwrap(), (1920, 1080));
+        assert_eq!(output_dimensions(100, 100).unwrap(), (100, 100));
+        assert!(output_dimensions(0, 100).is_err());
+        assert!(output_dimensions(u32::MAX, 2).is_err());
+        assert!(output_dimensions(8192, 8192).is_err());
+    }
 
     #[test]
     fn unsupported_platform_cannot_list_or_capture_windows() {
