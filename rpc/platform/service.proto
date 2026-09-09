@@ -464,6 +464,7 @@ service PlatformService {
   // when no project has bug_squasher enabled); the report auto-resolves when
   // the fix pull request merges.
   rpc UpdateBugReportStatus(UpdateBugReportStatusRequest) returns (BugReport);
+  rpc ExchangeComputerUse(ExchangeComputerUseRequest) returns (ExchangeComputerUseResponse);
 }
 
 message ListAgentRunsRequest {
@@ -6240,4 +6241,17 @@ message SecuritySubmissionPrecisionRollup {
 message GetSecuritySubmissionPrecisionRollupRequest {
   string namespace = 1;
   google.protobuf.Timestamp since = 2;
+}
+
+message ExchangeComputerUseRequest {
+  string namespace = 1;
+  string name = 2;
+  string session_id = 3;
+  string operation = 4;
+  string request_id = 5;
+  string outcome_json = 6;
+}
+
+message ExchangeComputerUseResponse {
+  string response_json = 1;
 }

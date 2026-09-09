@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/computeruse"
 	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/internal/store/contentblob"
@@ -199,6 +200,8 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	}()
 
 	toolRegistry := tools.NewRegistry(cfg.RepoDir, registryOpts...)
+	desktopBroker := computeruse.FromContext(ctx)
+	desktopTool := tools.RegisterComputerUseTool(toolRegistry, desktopBroker)
 	defer func() {
 		for _, closer := range toolRegistry.Closers() {
 			_ = closer.Close()
@@ -506,6 +509,12 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		return runResult{Status: "failed", Error: fmt.Sprintf("build runtime: %v", err)}
 	}
 	defer closeRuntimeClosers(runtimeBundle.Closers)
+	if desktopBroker != nil {
+		// Publish only after the SDK has finished injecting its vision callback.
+		available := desktopTool.VisionAvailable() && toolRegistry.Get("computer_use") != nil && cfg.PermissionMode.AllowsWriteTools()
+		desktopBroker.SetVisionAvailable(func() bool { return available })
+		defer desktopBroker.SetVisionAvailable(nil)
+	}
 
 	runner := runtimeBundle.Runner
 	baseAgent := runtimeBundle.Agent
