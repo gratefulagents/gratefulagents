@@ -61,6 +61,12 @@ export async function openComputerUsePermission(permission: ComputerUsePermissio
   await nativeCommand("computer_use_open_permission", { permission });
 }
 
+// Relaunches the desktop app so freshly granted OS permissions apply; the
+// native side revokes any supervised session first.
+export async function relaunchComputerUse(): Promise<void> {
+  await nativeCommand("computer_use_relaunch");
+}
+
 export const computerUseWindows = () => nativeCommand<WindowTarget[]>("computer_use_windows");
 export const desktopSessionStatus = () => nativeCommand<DesktopSession>("computer_use_session_status");
 export const startDesktopSession = (scope: DesktopScope, consentToScreenSharing: boolean, expectedRevision: number) =>

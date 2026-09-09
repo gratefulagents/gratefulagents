@@ -196,6 +196,7 @@ pub fn run() {
             platform_info,
             computer_use::computer_use_permissions,
             computer_use::computer_use_open_permission,
+            computer_use::computer_use_relaunch,
             computer_use_capture::computer_use_windows,
             computer_use_session::computer_use_capture_window,
             computer_use_session::computer_use_queue_request,

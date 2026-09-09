@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ComputerUseSettings } from "./ComputerUseSettings";
-import { computerUsePermissions, openComputerUsePermission } from "@/lib/computer-use";
+import { computerUsePermissions, openComputerUsePermission, relaunchComputerUse } from "@/lib/computer-use";
 
 vi.mock("@/lib/computer-use", () => ({
   computerUsePermissions: vi.fn(),
   openComputerUsePermission: vi.fn(),
+  relaunchComputerUse: vi.fn(),
 }));
 
 const denied = { supported: true, screenRecording: false, accessibility: false };
@@ -14,6 +15,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(computerUsePermissions).mockResolvedValue(denied);
   vi.mocked(openComputerUsePermission).mockResolvedValue();
+  vi.mocked(relaunchComputerUse).mockResolvedValue();
 });
 afterEach(cleanup);
 
@@ -23,6 +25,30 @@ describe("computer use permission setup", () => {
     expect(await screen.findAllByText("Not granted")).toHaveLength(2);
     expect(screen.getByText(/does not capture your screen/)).toBeTruthy();
     expect(openComputerUsePermission).not.toHaveBeenCalled();
+    expect(relaunchComputerUse).not.toHaveBeenCalled();
+    expect(screen.getByRole("note").textContent).toContain("different build");
+  });
+
+  it("polls OS status while visible and relaunches only on request", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<ComputerUseSettings />);
+      await vi.waitFor(() => expect(computerUsePermissions).toHaveBeenCalledTimes(1));
+      vi.mocked(computerUsePermissions).mockResolvedValue({ supported: true, screenRecording: true, accessibility: true });
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(computerUsePermissions).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() => expect(screen.getAllByText("Granted")).toHaveLength(2));
+      expect(screen.queryByRole("note")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Relaunch gratefulagents" })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("offers a relaunch while a permission is missing", async () => {
+    render(<ComputerUseSettings />);
+    fireEvent.click(await screen.findByRole("button", { name: "Relaunch gratefulagents" }));
+    await waitFor(() => expect(relaunchComputerUse).toHaveBeenCalledTimes(1));
   });
 
   it.each([

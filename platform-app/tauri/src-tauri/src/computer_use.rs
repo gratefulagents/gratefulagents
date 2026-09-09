@@ -8,6 +8,35 @@ pub struct ComputerUsePermissions {
 
 #[cfg(target_os = "macos")]
 mod macos {
+    use std::ffi::c_void;
+
+    #[repr(C)]
+    #[allow(dead_code)]
+    pub struct DictionaryCallBacks {
+        version: isize,
+        retain: *const c_void,
+        release: *const c_void,
+        copy_description: *const c_void,
+        equal: *const c_void,
+        hash: *const c_void,
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        pub static kCFBooleanTrue: *const c_void;
+        pub static kCFTypeDictionaryKeyCallBacks: DictionaryCallBacks;
+        pub static kCFTypeDictionaryValueCallBacks: DictionaryCallBacks;
+        pub fn CFDictionaryCreate(
+            allocator: *const c_void,
+            keys: *const *const c_void,
+            values: *const *const c_void,
+            count: isize,
+            key_callbacks: *const DictionaryCallBacks,
+            value_callbacks: *const DictionaryCallBacks,
+        ) -> *const c_void;
+        pub fn CFRelease(value: *const c_void);
+    }
+
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
         pub fn CGPreflightScreenCaptureAccess() -> bool;
@@ -16,7 +45,34 @@ mod macos {
 
     #[link(name = "ApplicationServices", kind = "framework")]
     extern "C" {
+        pub static kAXTrustedCheckOptionPrompt: *const c_void;
         pub fn AXIsProcessTrusted() -> bool;
+        pub fn AXIsProcessTrustedWithOptions(options: *const c_void) -> bool;
+    }
+
+    /// Registers this exact running binary in System Settings → Accessibility
+    /// (macOS lists it, unchecked, and shows its own prompt). Without this the
+    /// user must locate the binary manually, and an entry for a differently
+    /// signed build is silently ignored by `AXIsProcessTrusted`.
+    pub fn request_accessibility() -> bool {
+        unsafe {
+            let keys = [kAXTrustedCheckOptionPrompt];
+            let values = [kCFBooleanTrue];
+            let options = CFDictionaryCreate(
+                std::ptr::null(),
+                keys.as_ptr(),
+                values.as_ptr(),
+                1,
+                &kCFTypeDictionaryKeyCallBacks,
+                &kCFTypeDictionaryValueCallBacks,
+            );
+            if options.is_null() {
+                return AXIsProcessTrusted();
+            }
+            let trusted = AXIsProcessTrustedWithOptions(options);
+            CFRelease(options);
+            trusted
+        }
     }
 }
 
@@ -58,10 +114,13 @@ pub fn computer_use_open_permission(
 
         let url = match permission {
             ComputerUsePermission::ScreenRecording => {
+                // Adds this binary to the Screen Recording list. The preflight
+                // result is cached per process: a grant only shows after relaunch.
                 unsafe { macos::CGRequestScreenCaptureAccess() };
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
             }
             ComputerUsePermission::Accessibility => {
+                macos::request_accessibility();
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
             }
         };
@@ -74,6 +133,14 @@ pub fn computer_use_open_permission(
         let _ = (app, permission);
         Err("Computer use requires the macOS desktop app".into())
     }
+}
+
+/// Screen Recording (and, for re-signed builds, Accessibility) grants take
+/// effect only in a fresh process; the supervisor offers an explicit relaunch.
+#[tauri::command]
+pub fn computer_use_relaunch(app: tauri::AppHandle) {
+    crate::computer_use_session::stop(&app, "Desktop app relaunching");
+    app.restart()
 }
 
 #[cfg(test)]

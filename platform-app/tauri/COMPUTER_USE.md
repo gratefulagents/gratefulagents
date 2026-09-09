@@ -37,6 +37,9 @@ pnpm tauri dev
 Use a backend **and agent image built from this branch**; an older backend has no desktop relay RPC. Quit other copies of gratefulagents first (single-instance app). This is a development build, not a notarized release. Use a test run and a TextEdit document containing only sample text, never passwords, private messages, payment pages, or production credentials.
 
 1. Connect to an HTTPS backend, sign in, and configure permissions in Settings → General. Follow any macOS-requested restart.
+   - The **Screen Recording settings** / **Accessibility settings** buttons register the *running* binary in the matching Privacy list (via `CGRequestScreenCaptureAccess` / `AXIsProcessTrustedWithOptions`) and open it; the section polls the OS status every two seconds.
+   - macOS caches the Screen Recording preflight per process: after enabling it, use **Relaunch gratefulagents**.
+   - Development and CI builds are ad-hoc signed (`APPLE_SIGNING_IDENTITY=-`), so every rebuild is a different binary to macOS TCC. A permission that is enabled in System Settings but still reads **Not granted** belongs to a previous build: remove gratefulagents from that list (−), press the settings button again to re-register, enable it, then relaunch. A stable signing identity avoids this.
 2. Open a live unfinished run you own with a write-capable runtime and configured vision provider. The run's agent pod/relay must be available.
 3. Expand **Computer use**, list windows, choose the test document, review sharing consent, and start a supervised session.
 4. Ask the agent to inspect or act on the approved window. Approve each observation to share a capture; inspect the proposed click location/text/key/scroll/activation, confirm, then choose **Approve once** or **Deny**.
