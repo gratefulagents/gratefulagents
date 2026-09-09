@@ -19,6 +19,7 @@ mod macos;
 mod deep_link;
 mod anthropic_oauth;
 mod copilot_oauth;
+mod computer_use;
 mod diagnostics;
 mod drag_drop;
 #[cfg(desktop)]
@@ -177,6 +178,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             platform_info,
+            computer_use::computer_use_permissions,
+            computer_use::computer_use_open_permission,
             diagnostics::open_log_directory,
             local_creds::detect_local_credentials,
             copilot_oauth::start_copilot_oauth,
