@@ -17,6 +17,7 @@ mod macos;
 
 mod anthropic_oauth;
 mod computer_use;
+mod computer_use_capture;
 mod computer_use_session;
 mod copilot_oauth;
 mod deep_link;
@@ -149,6 +150,9 @@ pub fn run() {
                 log::warn!("failed to setup global shortcut: {err}");
             }
 
+            #[cfg(target_os = "macos")]
+            computer_use_session::watch(handle.clone());
+
             // Deep-link handler.
             deep_link::setup(&handle);
 
@@ -187,6 +191,8 @@ pub fn run() {
             platform_info,
             computer_use::computer_use_permissions,
             computer_use::computer_use_open_permission,
+            computer_use_capture::computer_use_windows,
+            computer_use_session::computer_use_capture_window,
             computer_use_session::computer_use_session_start,
             computer_use_session::computer_use_session_status,
             computer_use_session::computer_use_session_heartbeat,

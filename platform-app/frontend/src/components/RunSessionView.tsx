@@ -10,6 +10,7 @@ import { DiffRepoSelector } from "@/components/diff/DiffRepoSelector";
 import { NewFilesBrowser } from "@/components/diff/NewFilesBrowser";
 import { MarkdownViewer } from "@/components/MarkdownViewer";
 import { PlanApprovalPanel } from "@/components/PlanApprovalPanel";
+import { ComputerUsePanel } from "@/components/ComputerUsePanel";
 import { SubagentGraphView } from "@/components/SubagentGraphView";
 import { EvidenceGatesCard } from "@/components/VerificationEvidenceCard";
 import { Button } from "@/components/ui/button";
@@ -1219,6 +1220,9 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
                   />
                 </div>
               )}
+
+              <ComputerUsePanel key={`${namespace}/${name}/${run.model}`} namespace={namespace} name={name}
+                enabled={isOwnerOrAdmin && !isTerminal} model={run.model} />
 
               {showPlanningBanner && (
                 <div className="flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground md:px-4">

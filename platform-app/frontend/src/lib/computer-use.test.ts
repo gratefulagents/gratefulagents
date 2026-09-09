@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { computerUsePermissions, openComputerUsePermission } from "./computer-use";
+import {
+  computerUsePermissions, openComputerUsePermission, computerUseWindows,
+  desktopSessionStatus, startDesktopSession, heartbeatDesktopSession,
+  pauseDesktopSession, resumeDesktopSession, stopDesktopSession, captureDesktopWindow,
+} from "./computer-use";
 
 const native = vi.hoisted(() => ({ isTauri: true, platform: vi.fn(), invoke: vi.fn() }));
 vi.mock("./platform", () => ({
@@ -14,7 +18,32 @@ beforeEach(() => {
   native.platform.mockResolvedValue("macos");
 });
 
+const scope = {
+  backend: "https://operator.example", user: "user-1", namespace: "default", run: "run-1",
+  application: "TextEdit", windowId: 42, processId: 99,
+};
+
 describe("computer use bridge", () => {
+  it("preserves native command names, session bindings and consent revision", async () => {
+    await computerUseWindows();
+    await desktopSessionStatus();
+    await startDesktopSession(scope, true, 7);
+    await heartbeatDesktopSession("session-1", scope);
+    await pauseDesktopSession();
+    await resumeDesktopSession("session-1", scope);
+    await captureDesktopWindow("session-1", scope);
+    await stopDesktopSession();
+    expect(native.invoke.mock.calls).toEqual([
+      ["computer_use_windows", undefined],
+      ["computer_use_session_status", undefined],
+      ["computer_use_session_start", { scope, consentToScreenSharing: true, expectedRevision: 7 }],
+      ["computer_use_session_heartbeat", { sessionId: "session-1", scope }],
+      ["computer_use_session_pause", undefined],
+      ["computer_use_session_resume", { sessionId: "session-1", scope }],
+      ["computer_use_capture_window", { sessionId: "session-1", scope }],
+      ["computer_use_session_stop", undefined],
+    ]);
+  });
   it("gets native macOS permissions", async () => {
     const result = { supported: true, screenRecording: true, accessibility: false };
     native.invoke.mockResolvedValue(result);
@@ -29,6 +58,13 @@ describe("computer use bridge", () => {
       supported: false, screenRecording: false, accessibility: false,
     });
     await expect(openComputerUsePermission("accessibility")).rejects.toThrow(/macOS/);
+    for (const command of [
+      computerUseWindows, desktopSessionStatus, pauseDesktopSession, stopDesktopSession,
+      () => startDesktopSession(scope, true, 0), () => heartbeatDesktopSession("s", scope),
+      () => resumeDesktopSession("s", scope), () => captureDesktopWindow("s", scope),
+    ]) {
+      await expect(command()).rejects.toThrow(/macOS/);
+    }
     expect(native.invoke).not.toHaveBeenCalled();
   });
 

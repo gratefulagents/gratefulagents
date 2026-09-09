@@ -14,6 +14,8 @@ pub struct SessionScope {
     pub namespace: String,
     pub run: String,
     pub application: String,
+    pub window_id: u32,
+    pub process_id: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
@@ -27,6 +29,7 @@ pub enum SessionPhase {
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStatus {
+    pub revision: u64,
     pub phase: SessionPhase,
     pub session_id: Option<String>,
     pub scope: Option<SessionScope>,
@@ -42,11 +45,19 @@ struct Session {
 
 #[derive(Default)]
 struct SessionPolicy {
+    revision: u64,
     session: Option<Session>,
     reason: String,
 }
 
 impl SessionPolicy {
+    fn require_revision(&self, expected: u64) -> Result<(), String> {
+        if self.revision != expected {
+            return Err("Desktop authorization changed; request fresh consent".into());
+        }
+        Ok(())
+    }
+
     fn expire(&mut self, now: Instant) {
         if self
             .session
@@ -58,6 +69,7 @@ impl SessionPolicy {
     }
 
     fn stop(&mut self, reason: &str) {
+        self.revision = self.revision.wrapping_add(1);
         self.session = None;
         self.reason = reason.to_owned();
     }
@@ -66,6 +78,9 @@ impl SessionPolicy {
         self.expire(now);
         if self.session.is_some() {
             return Err("Stop the current session before starting another".into());
+        }
+        if scope.backend.len() > 2048 {
+            return Err("Invalid backend origin".into());
         }
         let backend = url::Url::parse(&scope.backend).map_err(|_| "Invalid backend origin")?;
         if backend.scheme() != "https"
@@ -120,6 +135,7 @@ impl SessionPolicy {
 
     fn pause(&mut self, reason: &str) {
         if let Some(session) = &mut self.session {
+            self.revision = self.revision.wrapping_add(1);
             session.paused = true;
             self.reason = reason.to_owned();
         }
@@ -134,6 +150,7 @@ impl SessionPolicy {
     fn status(&mut self, now: Instant) -> SessionStatus {
         self.expire(now);
         SessionStatus {
+            revision: self.revision,
             phase: match &self.session {
                 None => SessionPhase::Stopped,
                 Some(session) if session.paused => SessionPhase::Paused,
@@ -150,6 +167,7 @@ impl SessionPolicy {
 pub struct ComputerUseSession {
     policy: Mutex<SessionPolicy>,
     pub shortcut_ready: AtomicBool,
+    capture_busy: AtomicBool,
 }
 
 pub fn stop<R: Runtime>(app: &AppHandle<R>, reason: &str) {
@@ -183,11 +201,13 @@ pub fn computer_use_session_start(
     state: tauri::State<'_, ComputerUseSession>,
     scope: SessionScope,
     consent_to_screen_sharing: bool,
+    expected_revision: u64,
 ) -> Result<SessionStatus, String> {
     require_permissions(&state)?;
     if !consent_to_screen_sharing {
         return Err("Explicit consent to share screen content is required".into());
     }
+    super::computer_use_capture::validate_target(&scope)?;
     let mut bytes = [0u8; 32];
     getrandom::fill(&mut bytes).map_err(|error| error.to_string())?;
     let id: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -196,22 +216,66 @@ pub fn computer_use_session_start(
         .lock()
         .map_err(|_| "Desktop session state unavailable")?;
     let now = Instant::now();
+    policy.expire(now);
+    policy.require_revision(expected_revision)?;
     policy.start(id, scope, now)?;
     Ok(policy.status(now))
+}
+
+fn inspect_session(state: &ComputerUseSession) -> Result<SessionStatus, String> {
+    let observed = state
+        .policy
+        .lock()
+        .map_err(|_| "Desktop session state unavailable")?
+        .status(Instant::now());
+    if observed.phase != SessionPhase::Active {
+        return Ok(observed);
+    }
+    let permissions_available = require_permissions(state).is_ok();
+    let focus_available = permissions_available
+        && observed
+            .scope
+            .as_ref()
+            .is_some_and(|scope| super::computer_use_capture::validate_focus(scope).is_ok());
+    let mut policy = state
+        .policy
+        .lock()
+        .map_err(|_| "Desktop session state unavailable")?;
+    if policy.revision == observed.revision {
+        if !permissions_available {
+            policy.pause("Required OS permission or emergency stop is unavailable");
+        } else if !focus_available {
+            policy.pause("Focus left the approved application and supervisor");
+        }
+    }
+    Ok(policy.status(Instant::now()))
+}
+
+#[cfg(target_os = "macos")]
+pub fn watch<R: Runtime>(app: AppHandle<R>) {
+    std::thread::spawn(move || {
+        let mut last_revision = None;
+        loop {
+            let state = app.state::<ComputerUseSession>();
+            match inspect_session(&state) {
+                Ok(status) => {
+                    if last_revision != Some(status.revision) {
+                        last_revision = Some(status.revision);
+                        let _ = app.emit("computer-use://status", status);
+                    }
+                }
+                Err(_) => stop(&app, "Desktop supervision is unavailable"),
+            }
+            std::thread::sleep(Duration::from_millis(500));
+        }
+    });
 }
 
 #[tauri::command]
 pub fn computer_use_session_status(
     state: tauri::State<'_, ComputerUseSession>,
 ) -> Result<SessionStatus, String> {
-    let mut policy = state
-        .policy
-        .lock()
-        .map_err(|_| "Desktop session state unavailable")?;
-    if policy.session.is_some() && require_permissions(&state).is_err() {
-        policy.pause("Required OS permission or emergency stop is unavailable");
-    }
-    Ok(policy.status(Instant::now()))
+    inspect_session(&state)
 }
 
 #[tauri::command]
@@ -247,6 +311,7 @@ pub fn computer_use_session_resume(
     scope: SessionScope,
 ) -> Result<SessionStatus, String> {
     require_permissions(&state)?;
+    super::computer_use_capture::validate_target(&scope)?;
     let mut policy = state
         .policy
         .lock()
@@ -261,6 +326,73 @@ pub fn computer_use_session_stop(app: AppHandle) {
     stop(&app, "Stopped by supervisor");
 }
 
+#[tauri::command]
+pub async fn computer_use_capture_window(
+    app: AppHandle,
+    session_id: String,
+    scope: SessionScope,
+) -> Result<super::computer_use_capture::WindowCapture, String> {
+    let requested_revision = {
+        let state = app.state::<ComputerUseSession>();
+        require_permissions(&state)?;
+        let mut policy = state
+            .policy
+            .lock()
+            .map_err(|_| "Desktop session state unavailable")?;
+        if policy.bound(&session_id, &scope, Instant::now())?.paused {
+            return Err("Resume the desktop session before capturing".into());
+        }
+        policy.revision
+    };
+    let capture_scope = scope.clone();
+    let capture_session = session_id.clone();
+    let capture_app = app.clone();
+    let captured = tauri::async_runtime::spawn_blocking(move || {
+        let state = capture_app.state::<ComputerUseSession>();
+        if state.capture_busy.swap(true, Ordering::SeqCst) {
+            return Ok(None);
+        }
+        struct CapturePermit<'a>(&'a AtomicBool);
+        impl Drop for CapturePermit<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::SeqCst);
+            }
+        }
+        let _permit = CapturePermit(&state.capture_busy);
+        require_permissions(&state)?;
+        {
+            let mut policy = state
+                .policy
+                .lock()
+                .map_err(|_| "Desktop session state unavailable")?;
+            if policy
+                .bound(&capture_session, &capture_scope, Instant::now())?
+                .paused
+            {
+                return Err("Desktop session paused before capture started".into());
+            }
+            policy.require_revision(requested_revision)?;
+        }
+        super::computer_use_capture::capture(&capture_scope).map(Some)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let state = app.state::<ComputerUseSession>();
+    require_permissions(&state)?;
+    let mut policy = state
+        .policy
+        .lock()
+        .map_err(|_| "Desktop session state unavailable")?;
+    if policy.bound(&session_id, &scope, Instant::now())?.paused {
+        return Err("Capture discarded because the desktop session was paused".into());
+    }
+    policy.require_revision(requested_revision)?;
+    if captured.is_err() {
+        policy.pause("Capture failed; verify the selected window before resuming");
+    }
+    captured?.ok_or_else(|| "A window capture is already in progress".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,6 +404,8 @@ mod tests {
             namespace: "default".into(),
             run: "run-1".into(),
             application: "com.apple.TextEdit".into(),
+            window_id: 42,
+            process_id: 99,
         }
     }
 
@@ -281,6 +415,72 @@ mod tests {
             SessionPolicy::default().status(Instant::now()).phase,
             SessionPhase::Stopped
         );
+    }
+
+    #[test]
+    fn inspection_expires_session_without_a_frontend_heartbeat() {
+        let state = ComputerUseSession::default();
+        state
+            .policy
+            .lock()
+            .unwrap()
+            .start("s".into(), scope(), Instant::now() - LEASE)
+            .unwrap();
+        let status = inspect_session(&state).unwrap();
+        assert_eq!(status.phase, SessionPhase::Stopped);
+        assert_eq!(status.reason, "Desktop connection expired");
+        assert!(status.session_id.is_none());
+    }
+
+    #[test]
+    fn inspection_does_not_reauthorize_a_paused_session() {
+        let state = ComputerUseSession::default();
+        {
+            let mut policy = state.policy.lock().unwrap();
+            policy.start("s".into(), scope(), Instant::now()).unwrap();
+            policy.pause("supervisor paused");
+        }
+        let status = inspect_session(&state).unwrap();
+        assert_eq!(status.phase, SessionPhase::Paused);
+        assert_eq!(status.reason, "supervisor paused");
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn inspection_pauses_when_native_permissions_are_unavailable() {
+        let state = ComputerUseSession::default();
+        state
+            .policy
+            .lock()
+            .unwrap()
+            .start("s".into(), scope(), Instant::now())
+            .unwrap();
+        let status = inspect_session(&state).unwrap();
+        assert_eq!(status.phase, SessionPhase::Paused);
+        assert_eq!(
+            status.reason,
+            "Required OS permission or emergency stop is unavailable"
+        );
+    }
+
+    #[test]
+    fn stop_invalidates_queued_start_revision_even_without_an_active_session() {
+        let mut policy = SessionPolicy::default();
+        let consent_revision = policy.revision;
+        policy.stop("emergency stop");
+        assert!(policy.require_revision(consent_revision).is_err());
+    }
+
+    #[test]
+    fn pause_then_resume_does_not_reauthorize_an_in_flight_capture() {
+        let now = Instant::now();
+        let mut policy = SessionPolicy::default();
+        policy.start("s".into(), scope(), now).unwrap();
+        let capture_revision = policy.revision;
+        policy.pause("supervisor paused");
+        policy.resume("s", &scope(), now).unwrap();
+        assert_eq!(policy.status(now).phase, SessionPhase::Active);
+        assert!(policy.require_revision(capture_revision).is_err());
     }
 
     #[test]
@@ -332,14 +532,16 @@ mod tests {
         let now = Instant::now();
         let mut policy = SessionPolicy::default();
         policy.start("s".into(), scope(), now).unwrap();
-        for field in 0..5 {
+        for field in 0..7 {
             let mut changed = scope();
             match field {
                 0 => changed.backend = "https://other.example".into(),
                 1 => changed.user = "other".into(),
                 2 => changed.namespace = "other".into(),
                 3 => changed.run = "other".into(),
-                _ => changed.application = "other".into(),
+                4 => changed.application = "other".into(),
+                5 => changed.window_id += 1,
+                _ => changed.process_id += 1,
             }
             assert!(policy.heartbeat("s", &changed, now).is_err());
             assert!(policy.resume("s", &changed, now).is_err());
