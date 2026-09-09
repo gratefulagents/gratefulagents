@@ -1,9 +1,9 @@
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComputerUsePermissions {
-    supported: bool,
-    screen_recording: bool,
-    accessibility: bool,
+    pub supported: bool,
+    pub screen_recording: bool,
+    pub accessibility: bool,
 }
 
 #[cfg(target_os = "macos")]

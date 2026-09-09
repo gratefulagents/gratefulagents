@@ -10,16 +10,16 @@
 //
 // Keep this file thin. Feature wiring lives in sibling modules.
 
-#[cfg(desktop)]
 use tauri::Manager;
 
 #[cfg(target_os = "macos")]
 mod macos;
 
-mod deep_link;
 mod anthropic_oauth;
-mod copilot_oauth;
 mod computer_use;
+mod computer_use_session;
+mod copilot_oauth;
+mod deep_link;
 mod diagnostics;
 mod drag_drop;
 #[cfg(desktop)]
@@ -75,6 +75,7 @@ pub fn run() {
     builder = builder
         .manage(anthropic_oauth::AnthropicOAuthState::default())
         .manage(openai_oauth::OpenAIOAuthState::default())
+        .manage(computer_use_session::ComputerUseSession::default())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_shell::init())
@@ -104,6 +105,12 @@ pub fn run() {
     builder
         .on_window_event(|window, event| {
             drag_drop::on_window_event(window, event);
+            if matches!(
+                event,
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+            ) {
+                computer_use_session::stop(window.app_handle(), "Desktop window closed");
+            }
         })
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -180,6 +187,12 @@ pub fn run() {
             platform_info,
             computer_use::computer_use_permissions,
             computer_use::computer_use_open_permission,
+            computer_use_session::computer_use_session_start,
+            computer_use_session::computer_use_session_status,
+            computer_use_session::computer_use_session_heartbeat,
+            computer_use_session::computer_use_session_pause,
+            computer_use_session::computer_use_session_resume,
+            computer_use_session::computer_use_session_stop,
             diagnostics::open_log_directory,
             local_creds::detect_local_credentials,
             copilot_oauth::start_copilot_oauth,
@@ -197,6 +210,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running gratefulagents")
         .run(|_app, _event| {
+            if matches!(
+                _event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                computer_use_session::stop(_app, "Desktop app exiting");
+            }
             // Re-activation (dock icon click, notification click, …) on macOS
             // arrives as a Reopen event — surface the main window.
             #[cfg(target_os = "macos")]

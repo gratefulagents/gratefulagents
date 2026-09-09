@@ -12,6 +12,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  macos-native-tests:
+    name: macOS native tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: platform-app/package.json
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: platform-app/pnpm-lock.yaml
+
+      - name: Build desktop frontend
+        working-directory: platform-app
+        run: pnpm install --frozen-lockfile && pnpm build:tauri
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Test native shell
+        working-directory: platform-app/tauri/src-tauri
+        run: cargo +stable test --locked --lib
+
   go-lint:
     name: Go lint
     runs-on: ubuntu-24.04
