@@ -11,6 +11,20 @@ export interface DesktopRelayStatus {
 
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const keys = new Set(["Enter", "Tab", "Shift+Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
+// Proposed text must render exactly as it will be typed: control characters,
+// invisible format characters (zero-width space, BOM, bidi overrides/isolates),
+// line/paragraph separators, private-use and unassigned code points are
+// rejected. Zero-width joiner/non-joiner (U+200C/U+200D) stay allowed for emoji
+// sequences and scripts that need them; native validation is the final authority.
+const hiddenText = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}]/u;
+const joiner = /[\u200c\u200d]/g;
+export function hasHiddenText(text: string): boolean {
+  return hiddenText.test(text.replace(joiner, ""));
+}
+
+// The claim RPC only marks a request as taken; resolve carries the outcome,
+// including a PNG capture for observations, so it may take longer.
+const relayTimeouts = { attach: 4000, poll: 4000, stop: 4000, claim: 6000, resolve: 20_000 } as const;
 
 // The relay is not an instruction source. Reject malformed actions before
 // presenting them; native validation remains the execution authority.
@@ -47,7 +61,7 @@ export function parseDesktopRelay(raw: string): DesktopRelayStatus {
         if (![action.deltaX, action.deltaY].every((n) => Number.isInteger(n) && Math.abs(n) <= 1000) || (!action.deltaX && !action.deltaY)) throw new Error("Invalid scroll request");
         break;
       case "type":
-        if (typeof action.text !== "string" || !action.text.length || action.text.length > 1000 || /\p{Cc}/u.test(action.text)) throw new Error("Invalid proposed text");
+        if (typeof action.text !== "string" || !action.text.length || action.text.length > 1000 || hasHiddenText(action.text)) throw new Error("Invalid proposed text");
         break;
       case "key":
         if (!keys.has(action.key)) throw new Error("Unsupported key combination");
@@ -67,7 +81,7 @@ export async function exchangeDesktopRelay(
   const response = await client.exchangeComputerUse({
     namespace: scope.namespace, name: scope.run, sessionId, operation, requestId,
     outcomeJson: outcome ? JSON.stringify(outcome) : "",
-  }, { timeoutMs: 4000 });
+  }, { timeoutMs: relayTimeouts[operation] });
   if (scope.backend !== backendBaseUrl()) throw new Error("Desktop backend changed; grant fresh consent");
   return parseDesktopRelay(response.responseJson);
 }

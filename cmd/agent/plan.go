@@ -180,10 +180,7 @@ func runChat() error {
 	}
 	ctx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stopSignals()
-	ctx, closeDesktop, err := startDesktopBroker(ctx, cfg)
-	if err != nil {
-		return err
-	}
+	ctx, closeDesktop := startDesktopBroker(ctx, cfg)
 	defer closeDesktop()
 
 	k8sClient, err := agentplatform.BuildK8sClient()

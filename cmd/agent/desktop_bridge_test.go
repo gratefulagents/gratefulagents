@@ -18,10 +18,7 @@ func TestDesktopBridgeRoundTrip(t *testing.T) {
 	t.Setenv("PLANTASK_UID", uid)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ctx, closeBroker, err := startDesktopBroker(ctx, runConfig{Namespace: "ns", TaskName: "run", TaskUID: uid})
-	if err != nil {
-		t.Fatal(err)
-	}
+	ctx, closeBroker := startDesktopBroker(ctx, runConfig{Namespace: "ns", TaskName: "run", TaskUID: uid})
 	defer closeBroker()
 	path, err := computeruse.SocketPath(uid)
 	if err != nil {
@@ -68,5 +65,16 @@ func TestDesktopBridgeBoundsAndSafePath(t *testing.T) {
 	t.Setenv("PLANTASK_UID", "")
 	if _, err := computeruse.SocketPath(""); err == nil {
 		t.Fatal("accepted missing run UID")
+	}
+}
+
+func TestDesktopBrokerFailureDoesNotAbortRun(t *testing.T) {
+	ctx := context.Background()
+	// An empty UID cannot produce a socket path; the run must still proceed
+	// without a broker rather than failing to start.
+	got, closeBroker := startDesktopBroker(ctx, runConfig{Namespace: "ns", TaskName: "run"})
+	defer closeBroker()
+	if computeruse.FromContext(got) != nil {
+		t.Fatal("expected no broker when the relay cannot listen")
 	}
 }

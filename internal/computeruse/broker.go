@@ -173,7 +173,7 @@ func (b *Broker) Exchange(e Exchange) (Response, error) {
 			return Response{}, ErrRejected
 		}
 		p.claimed = true
-		p.deadline = minTime(p.deadline, time.Now().Add(ClaimTimeout))
+		p.deadline = minTime(p.deadline, time.Now().Add(ClaimTimeoutFor(p.request.Action)))
 	case "resolve":
 		p := b.pending
 		if p == nil || p.request.RequestID != e.RequestID || !p.claimed {

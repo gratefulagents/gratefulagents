@@ -5,7 +5,19 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestClaimTimeoutFor(t *testing.T) {
+	for kind, want := range map[string]time.Duration{"observe": ObserveClaimTimeout, "type": TypeClaimTimeout, "click": ClaimTimeout, "scroll": ClaimTimeout, "key": ClaimTimeout, "activate": ClaimTimeout} {
+		if got := ClaimTimeoutFor(Action{Kind: kind}); got != want {
+			t.Errorf("%s: %v, want %v", kind, got, want)
+		}
+	}
+	if ObserveClaimTimeout >= RequestTimeout || TypeClaimTimeout >= RequestTimeout || ClaimTimeout >= ObserveClaimTimeout {
+		t.Fatal("claim timeouts must stay bounded below the request timeout")
+	}
+}
 
 func TestProposedTextValidation(t *testing.T) {
 	for _, tc := range []struct {
@@ -26,7 +38,20 @@ func TestProposedTextValidation(t *testing.T) {
 		{"mixed-over", "abc" + strings.Repeat("😀", 499), false},
 		{"invalid-utf8", "\xff", false},
 		{"wire-sized", strings.Repeat("a", 4001), false},
-		{"format-character-native-allows", "a\u200db", true},
+		{"nbsp", "a\u00a0b", true},
+		{"ideographic-space", "a\u3000b", true},
+		{"zero-width-joiner", "a\u200db", true},
+		{"zero-width-non-joiner", "a\u200cb", true},
+		{"emoji-zwj-sequence", "\U0001F468\u200d\U0001F469\u200d\U0001F467", true},
+		{"zero-width-space", "a\u200bb", false},
+		{"bom", "\ufeffa", false},
+		{"rtl-override", "abc\u202efed", false},
+		{"isolate", "a\u2067b\u2069", false},
+		{"line-separator", "a\u2028b", false},
+		{"paragraph-separator", "a\u2029b", false},
+		{"soft-hyphen", "a\u00adb", false},
+		{"private-use", "a\ue000b", false},
+		{"unassigned", "a\U000E0080b", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := (Action{Kind: "type", Text: tc.text}).Validate(); (got == nil) != tc.valid {

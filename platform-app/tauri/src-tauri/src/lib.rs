@@ -107,10 +107,14 @@ pub fn run() {
     builder
         .on_window_event(|window, event| {
             drag_drop::on_window_event(window, event);
-            if matches!(
-                event,
-                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
-            ) {
+            // Only the supervisor window revokes desktop authorization; auxiliary
+            // windows (OAuth, dialogs) closing must not stop a supervised session.
+            if window.label() == "main"
+                && matches!(
+                    event,
+                    tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+                )
+            {
                 computer_use_session::stop(window.app_handle(), "Desktop window closed");
             }
         })
@@ -192,6 +196,7 @@ pub fn run() {
             platform_info,
             computer_use::computer_use_permissions,
             computer_use::computer_use_open_permission,
+            computer_use::computer_use_relaunch,
             computer_use_capture::computer_use_windows,
             computer_use_session::computer_use_capture_window,
             computer_use_session::computer_use_queue_request,

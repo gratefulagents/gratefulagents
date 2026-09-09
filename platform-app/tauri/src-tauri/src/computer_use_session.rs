@@ -9,10 +9,22 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 const QUEUE_TTL: Duration = Duration::from_secs(120);
 const EXECUTION_TTL: Duration = Duration::from_secs(5);
+// Typing delivers each character as its own checked key pair, so the permit
+// grows with the proposed text; the result stays well below QUEUE_TTL.
+const TYPE_UNIT_TTL: Duration = Duration::from_millis(40);
 const MAX_REQUEST_IDS: usize = 1024;
 const MAX_FRAMES: usize = 4;
 
 const LEASE: Duration = Duration::from_secs(10);
+
+fn execution_ttl(action: &Action) -> Duration {
+    match action {
+        Action::Type { text } => {
+            EXECUTION_TTL + TYPE_UNIT_TTL * text.encode_utf16().count().min(1000) as u32
+        }
+        _ => EXECUTION_TTL,
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -280,7 +292,8 @@ impl SessionPolicy {
             session.fresh_frame(frame_id, now)?;
         }
         let pending = session.pending.as_mut().unwrap();
-        pending.armed = Some((permit.clone(), (now + EXECUTION_TTL).min(pending.deadline)));
+        let ttl = execution_ttl(&pending.request.action);
+        pending.armed = Some((permit.clone(), (now + ttl).min(pending.deadline)));
         Ok(permit)
     }
 
@@ -750,18 +763,19 @@ pub async fn computer_use_approve_request(
     request_id: String,
     permit: String,
 ) -> Result<RequestOutcome, String> {
-    let execution = {
-        let state = app.state::<ComputerUseSession>();
-        let mut policy = state
-            .policy
-            .lock()
-            .map_err(|_| "Desktop session state unavailable")?;
-        policy.consume(&session_id, &scope, &request_id, &permit, Instant::now())?
-    };
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<ComputerUseSession>();
+        // Serialize with local preview/capture before consuming the single-use
+        // permit: a busy executor must not destroy the request or pause the session.
+        let busy = state.acquire()?;
+        let execution = {
+            let mut policy = state
+                .policy
+                .lock()
+                .map_err(|_| "Desktop session state unavailable")?;
+            policy.consume(&session_id, &scope, &request_id, &permit, Instant::now())?
+        };
         let run = || -> Result<Option<WindowCapture>, String> {
-            let _busy = state.acquire()?;
             let check = || {
                 check_execution(
                     &state,
@@ -801,6 +815,7 @@ pub async fn computer_use_approve_request(
             }
         };
         let mut result = run();
+        drop(busy);
         let mut policy = state
             .policy
             .lock()
@@ -978,6 +993,59 @@ mod tests {
             .is_err());
         assert!(p
             .queue("s", &scope(), request("r"), now + QUEUE_TTL)
+            .is_err());
+    }
+
+    #[test]
+    fn typing_permit_scales_with_text_but_stays_bounded() {
+        let now = Instant::now();
+        let typed = |units: usize| QueuedRequest {
+            request_id: "t".into(),
+            frame_id: None,
+            action: Action::Type {
+                text: "a".repeat(units),
+            },
+        };
+        assert_eq!(
+            execution_ttl(&Action::Observe { question: None }),
+            EXECUTION_TTL
+        );
+        assert_eq!(
+            execution_ttl(&Action::Key {
+                key: "Enter".into()
+            }),
+            EXECUTION_TTL
+        );
+        let short = execution_ttl(&typed(1).action);
+        let long = execution_ttl(&typed(1000).action);
+        assert!(short > EXECUTION_TTL && short < EXECUTION_TTL + Duration::from_secs(1));
+        assert!(long > short && long < QUEUE_TTL / 2);
+        assert_eq!(execution_ttl(&typed(5000).action), long);
+
+        let mut p = policy(now);
+        p.queue("s", &scope(), typed(200), now).unwrap();
+        p.arm("s", &scope(), "t", "secret".into(), now).unwrap();
+        // A 200-unit permit outlives the fixed window but still expires.
+        assert!(p
+            .consume(
+                "s",
+                &scope(),
+                "t",
+                "secret",
+                now + EXECUTION_TTL + Duration::from_secs(1)
+            )
+            .is_ok());
+        let mut p = policy(now);
+        p.queue("s", &scope(), typed(200), now).unwrap();
+        p.arm("s", &scope(), "t", "secret".into(), now).unwrap();
+        assert!(p
+            .consume(
+                "s",
+                &scope(),
+                "t",
+                "secret",
+                now + execution_ttl(&typed(200).action)
+            )
             .is_err());
     }
 
