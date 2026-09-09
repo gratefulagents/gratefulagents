@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ComputerUseSettings } from "./ComputerUseSettings";
 import { computerUsePermissions, openComputerUsePermission, relaunchComputerUse } from "@/lib/computer-use";
+import { getComputerUseApprovalMode, setComputerUseApprovalMode } from "@/lib/computer-use-preferences";
 
 vi.mock("@/lib/computer-use", () => ({
   computerUsePermissions: vi.fn(),
@@ -13,6 +14,7 @@ const denied = { supported: true, screenRecording: false, accessibility: false }
 
 beforeEach(() => {
   vi.resetAllMocks();
+  setComputerUseApprovalMode("manual");
   vi.mocked(computerUsePermissions).mockResolvedValue(denied);
   vi.mocked(openComputerUsePermission).mockResolvedValue();
   vi.mocked(relaunchComputerUse).mockResolvedValue();
@@ -100,5 +102,48 @@ describe("computer use permission setup", () => {
     vi.mocked(computerUsePermissions).mockClear();
     fireEvent.focus(window);
     expect(computerUsePermissions).not.toHaveBeenCalled();
+  });
+
+  describe("approval mode", () => {
+    it("defaults to manual and requires confirmation before skipping all approvals", async () => {
+      render(<ComputerUseSettings />);
+      const group = await screen.findByRole("radiogroup", { name: "Approval mode" });
+      expect(screen.getByRole("radio", { name: /Manually approve/ }).getAttribute("aria-checked")).toBe("true");
+      fireEvent.click(screen.getByRole("radio", { name: /Skip all approvals/ }));
+      expect(getComputerUseApprovalMode()).toBe("manual");
+      const dialog = await screen.findByRole("dialog");
+      expect(dialog.textContent).toContain("Skip all approvals?");
+      expect(dialog.textContent).toContain("remain responsible");
+      fireEvent.click(screen.getByRole("button", { name: "Skip all approvals" }));
+      await waitFor(() => expect(getComputerUseApprovalMode()).toBe("auto"));
+      await waitFor(() => expect(screen.getByRole("radio", { name: /Skip all approvals/ }).getAttribute("aria-checked")).toBe("true"));
+      expect(group.textContent).toContain("Skip all approvals");
+      expect(screen.getByText(/can send, submit, delete, or purchase/)).toBeTruthy();
+    });
+
+    it("cancelling the confirmation leaves the mode unchanged", async () => {
+      render(<ComputerUseSettings />);
+      fireEvent.click(await screen.findByRole("radio", { name: /Skip all approvals/ }));
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(getComputerUseApprovalMode()).toBe("manual");
+    });
+
+    it("switches to assisted, and back down, without confirmation", async () => {
+      setComputerUseApprovalMode("auto");
+      render(<ComputerUseSettings />);
+      fireEvent.click(await screen.findByRole("radio", { name: /Automatically approve read-only/ }));
+      await waitFor(() => expect(getComputerUseApprovalMode()).toBe("assisted"));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      fireEvent.click(screen.getByRole("radio", { name: /Manually approve/ }));
+      await waitFor(() => expect(getComputerUseApprovalMode()).toBe("manual"));
+    });
+
+    it("is hidden on unsupported platforms", async () => {
+      vi.mocked(computerUsePermissions).mockResolvedValue({ ...denied, supported: false });
+      render(<ComputerUseSettings />);
+      await screen.findByText(/unavailable on this platform/);
+      expect(screen.queryByRole("radiogroup")).toBeNull();
+    });
   });
 });

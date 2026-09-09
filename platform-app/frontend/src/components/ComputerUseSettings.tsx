@@ -1,7 +1,17 @@
 import { useEffect, useState } from "react";
-import { Monitor } from "lucide-react";
+import {
+  Accessibility,
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  ExternalLink,
+  Monitor,
+  RotateCcw,
+  ScanEye,
+} from "lucide-react";
 import { SettingsSection } from "@/components/settings-section";
 import { Button } from "@/components/ui/button";
+import { ApprovalModeControl } from "@/components/ComputerUseApprovalMode";
 import {
   computerUsePermissions,
   openComputerUsePermission,
@@ -9,12 +19,16 @@ import {
   type ComputerUsePermission,
   type ComputerUsePermissions,
 } from "@/lib/computer-use";
+import { useComputerUseApprovalMode } from "@/lib/computer-use-preferences";
+import { toneSoft } from "@/lib/status";
+import { cn } from "@/lib/utils";
 
 export function ComputerUseSettings() {
   const [permissions, setPermissions] = useState<ComputerUsePermissions | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [requested, setRequested] = useState(false);
+  const mode = useComputerUseApprovalMode();
 
   useEffect(() => {
     let active = true;
@@ -69,39 +83,61 @@ export function ComputerUseSettings() {
     }
   }
 
+  const missing = !!permissions?.supported && (!permissions.screenRecording || !permissions.accessibility);
+
   return (
     <SettingsSection
       icon={<Monitor />}
       title="Computer use"
-      description="macOS permission setup for supervised desktop sessions."
+      description="Let an agent observe and act in one approved Mac window while you supervise."
     >
-      <div className="space-y-3 text-sm">
-        <p className="text-muted-foreground">
+      <div className="space-y-4 text-sm">
+        <p className="text-[12px] leading-relaxed text-muted-foreground">
           Granting these permissions does not capture your screen, send screen content, or
           authorize an agent to control your Mac. Supervised sessions start only from a run
-          you own, and every action there still needs your explicit approval.
+          you own, and in the default Manual mode every action still needs your explicit approval.
         </p>
-        {error && <p role="alert">Could not check or update permissions: {error}</p>}
-        {!permissions && !error && <p role="status">Checking permissions…</p>}
-        {permissions && !permissions.supported && (
-          <p>Permission setup requires the macOS desktop app; it is unavailable on this platform.</p>
+
+        {error && (
+          <p role="alert" className={cn("rounded-md px-3 py-2 text-[12px]", toneSoft.danger)}>
+            Could not check or update permissions: {error}
+          </p>
         )}
+        {!permissions && !error && <p role="status" className="text-[12px] text-muted-foreground">Checking permissions…</p>}
+        {permissions && !permissions.supported && (
+          <p className="text-[12px] text-muted-foreground">
+            Permission setup requires the macOS desktop app; it is unavailable on this platform.
+          </p>
+        )}
+
         {permissions?.supported && (
-          <>
-            <dl className="grid grid-cols-2 gap-2">
-              <dt>Screen Recording</dt>
-              <dd>{permissions.screenRecording ? "Granted" : "Not granted"}</dd>
-              <dt>Accessibility</dt>
-              <dd>{permissions.accessibility ? "Granted" : "Not granted"}</dd>
+          <div className="space-y-3">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">macOS permissions</h3>
+            <dl className="grid gap-2 sm:grid-cols-2">
+              <PermissionRow
+                icon={<ScanEye />}
+                name="Screen Recording"
+                detail="Allows capturing the approved window."
+                granted={permissions.screenRecording}
+                disabled={busy}
+                onOpen={() => void openPermission("screen_recording")}
+              />
+              <PermissionRow
+                icon={<Accessibility />}
+                name="Accessibility"
+                detail="Allows clicks, scrolling, and typing."
+                granted={permissions.accessibility}
+                disabled={busy}
+                onOpen={() => void openPermission("accessibility")}
+              />
             </dl>
-            <p className="text-muted-foreground">
-              Screen Recording allows screen capture. Accessibility allows input control.
-              Each button below registers this app in the matching macOS Privacy list and opens it;
+            <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+              Each button registers this app in the matching macOS Privacy list and opens it;
               turn gratefulagents on there. You can revoke either permission there at any time.
               These OS permissions are separate from consent to an individual session.
             </p>
-            {(!permissions.screenRecording || !permissions.accessibility) && (
-              <p className="text-muted-foreground" role="note">
+            {missing && (
+              <p className={cn("rounded-md px-3 py-2 text-[11.5px] leading-relaxed", toneSoft.warning)} role="note">
                 macOS applies a Screen Recording grant only after the app relaunches. If a permission is
                 enabled in System Settings but still shows Not granted here, macOS is holding the grant for a
                 different build of the app (development and unsigned builds are re-signed every time they are
@@ -109,24 +145,69 @@ export function ComputerUseSettings() {
                 then relaunch.
               </p>
             )}
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" disabled={busy}
-                onClick={() => void openPermission("screen_recording")}>
-                Screen Recording settings
+            {(requested || missing) && (
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => void relaunch()}>
+                <RotateCcw data-icon="inline-start" />
+                Relaunch gratefulagents
               </Button>
-              <Button variant="outline" size="sm" disabled={busy}
-                onClick={() => void openPermission("accessibility")}>
-                Accessibility settings
-              </Button>
-              {(requested || !permissions.screenRecording || !permissions.accessibility) && (
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => void relaunch()}>
-                  Relaunch gratefulagents
-                </Button>
-              )}
-            </div>
-          </>
+            )}
+          </div>
         )}
+
+        {permissions?.supported && <div className="space-y-3 border-t pt-4">
+          <div>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Approval mode</h3>
+            <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
+              How much a supervised session asks before acting. You can also change this from the Computer use panel while a session is running.
+            </p>
+          </div>
+          <ApprovalModeControl />
+          {mode === "auto" && (
+            <p className={cn("flex items-start gap-1.5 rounded-md px-3 py-2 text-[11.5px] leading-relaxed", toneSoft.warning)} role="note">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                Skip all approvals is on: the agent can send, submit, delete, or purchase on your behalf in the approved window,
+                and on-screen instructions may steer it. Only use with non-sensitive windows and stay at the keyboard.
+              </span>
+            </p>
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            Stored on this Mac only. Emergency stop: Control+Option+Command+Escape or the native tray.
+          </p>
+        </div>}
       </div>
+
     </SettingsSection>
+  );
+}
+
+function PermissionRow({ icon, name, detail, granted, disabled, onOpen }: {
+  icon: React.ReactNode;
+  name: string;
+  detail: string;
+  granted: boolean;
+  disabled: boolean;
+  onOpen: () => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-lg border p-3">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-muted/60 text-muted-foreground ring-1 ring-inset ring-border/60 [&_svg]:size-3.5">
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <dt className="text-[13px] font-medium">{name}</dt>
+          <dd className="text-[11.5px] text-muted-foreground">{detail}</dd>
+          <dd className={cn("mt-1.5 inline-flex h-5 items-center gap-1 rounded-full px-2 text-[11px] font-medium", granted ? toneSoft.success : toneSoft.neutral)}>
+            {granted ? <CheckCircle2 className="size-3" /> : <Circle className="size-3" />}
+            {granted ? "Granted" : "Not granted"}
+          </dd>
+        </div>
+      </div>
+      <Button variant="outline" size="sm" disabled={disabled} onClick={onOpen} aria-label={`${name} settings`}>
+        <ExternalLink data-icon="inline-start" />
+        Open
+      </Button>
+    </div>
   );
 }
