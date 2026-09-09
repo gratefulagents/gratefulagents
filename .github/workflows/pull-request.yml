@@ -244,3 +244,7 @@ jobs:
           VITE_APP_VERSION: 0.1.0-pr
           VITE_BUILD_COMMIT: ${{ github.sha }}
         run: pnpm tauri build --target aarch64-apple-darwin --bundles app --ci
+
+      - name: Test native shell
+        working-directory: platform-app/tauri/src-tauri
+        run: cargo test --locked --lib --target aarch64-apple-darwin

@@ -25,6 +25,9 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             "tray-show" => show_main(app),
             "tray-new-run" => relay(app, "new-run"),
             "tray-settings" => relay(app, "settings"),
+            "tray-stop-computer-use" => {
+                crate::computer_use_session::stop(app, "Stopped from native tray")
+            }
             "tray-quit" => app.exit(0),
             _ => {}
         })
@@ -47,14 +50,18 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let show = MenuItemBuilder::with_id("tray-show", "Show gratefulagents").build(app)?;
     let new_run = MenuItemBuilder::with_id("tray-new-run", "New Run").build(app)?;
     let settings = MenuItemBuilder::with_id("tray-settings", "Settings…").build(app)?;
+    #[cfg(target_os = "macos")]
+    let stop_computer_use =
+        MenuItemBuilder::with_id("tray-stop-computer-use", "Stop computer use").build(app)?;
     let quit = MenuItemBuilder::with_id("tray-quit", "Quit gratefulagents").build(app)?;
     // A menu item may only have one parent — build one separator per slot.
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
 
-    MenuBuilder::new(app)
-        .items(&[&show, &sep1, &new_run, &settings, &sep2, &quit])
-        .build()
+    let builder = MenuBuilder::new(app).items(&[&show, &sep1, &new_run, &settings]);
+    #[cfg(target_os = "macos")]
+    let builder = builder.item(&stop_computer_use);
+    builder.items(&[&sep2, &quit]).build()
 }
 
 fn show_main<R: Runtime>(app: &AppHandle<R>) {

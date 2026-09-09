@@ -770,6 +770,9 @@ const (
 	// PlatformServiceUpdateBugReportStatusProcedure is the fully-qualified name of the
 	// PlatformService's UpdateBugReportStatus RPC.
 	PlatformServiceUpdateBugReportStatusProcedure = "/platform.v1.PlatformService/UpdateBugReportStatus"
+	// PlatformServiceExchangeComputerUseProcedure is the fully-qualified name of the PlatformService's
+	// ExchangeComputerUse RPC.
+	PlatformServiceExchangeComputerUseProcedure = "/platform.v1.PlatformService/ExchangeComputerUse"
 )
 
 // PlatformServiceClient is a client for the platform.v1.PlatformService service.
@@ -1212,6 +1215,7 @@ type PlatformServiceClient interface {
 	// when no project has bug_squasher enabled); the report auto-resolves when
 	// the fix pull request merges.
 	UpdateBugReportStatus(context.Context, *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error)
+	ExchangeComputerUse(context.Context, *connect.Request[platform.ExchangeComputerUseRequest]) (*connect.Response[platform.ExchangeComputerUseResponse], error)
 }
 
 // NewPlatformServiceClient constructs a client for the platform.v1.PlatformService service. By
@@ -2701,6 +2705,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("UpdateBugReportStatus")),
 			connect.WithClientOptions(opts...),
 		),
+		exchangeComputerUse: connect.NewClient[platform.ExchangeComputerUseRequest, platform.ExchangeComputerUseResponse](
+			httpClient,
+			baseURL+PlatformServiceExchangeComputerUseProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("ExchangeComputerUse")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -2952,6 +2962,7 @@ type platformServiceClient struct {
 	applySecurityCatalogInstall            *connect.Client[platform.SecurityCatalogInstallRequest, platform.SecurityCatalogInstallResponse]
 	listBugReports                         *connect.Client[platform.ListBugReportsRequest, platform.ListBugReportsResponse]
 	updateBugReportStatus                  *connect.Client[platform.UpdateBugReportStatusRequest, platform.BugReport]
+	exchangeComputerUse                    *connect.Client[platform.ExchangeComputerUseRequest, platform.ExchangeComputerUseResponse]
 }
 
 // ListAgentRuns calls platform.v1.PlatformService.ListAgentRuns.
@@ -4204,6 +4215,11 @@ func (c *platformServiceClient) UpdateBugReportStatus(ctx context.Context, req *
 	return c.updateBugReportStatus.CallUnary(ctx, req)
 }
 
+// ExchangeComputerUse calls platform.v1.PlatformService.ExchangeComputerUse.
+func (c *platformServiceClient) ExchangeComputerUse(ctx context.Context, req *connect.Request[platform.ExchangeComputerUseRequest]) (*connect.Response[platform.ExchangeComputerUseResponse], error) {
+	return c.exchangeComputerUse.CallUnary(ctx, req)
+}
+
 // PlatformServiceHandler is an implementation of the platform.v1.PlatformService service.
 type PlatformServiceHandler interface {
 	ListAgentRuns(context.Context, *connect.Request[platform.ListAgentRunsRequest]) (*connect.Response[platform.ListAgentRunsResponse], error)
@@ -4644,6 +4660,7 @@ type PlatformServiceHandler interface {
 	// when no project has bug_squasher enabled); the report auto-resolves when
 	// the fix pull request merges.
 	UpdateBugReportStatus(context.Context, *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error)
+	ExchangeComputerUse(context.Context, *connect.Request[platform.ExchangeComputerUseRequest]) (*connect.Response[platform.ExchangeComputerUseResponse], error)
 }
 
 // NewPlatformServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -6129,6 +6146,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("UpdateBugReportStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceExchangeComputerUseHandler := connect.NewUnaryHandler(
+		PlatformServiceExchangeComputerUseProcedure,
+		svc.ExchangeComputerUse,
+		connect.WithSchema(platformServiceMethods.ByName("ExchangeComputerUse")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/platform.v1.PlatformService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PlatformServiceListAgentRunsProcedure:
@@ -6623,6 +6646,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceListBugReportsHandler.ServeHTTP(w, r)
 		case PlatformServiceUpdateBugReportStatusProcedure:
 			platformServiceUpdateBugReportStatusHandler.ServeHTTP(w, r)
+		case PlatformServiceExchangeComputerUseProcedure:
+			platformServiceExchangeComputerUseHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -7614,4 +7639,8 @@ func (UnimplementedPlatformServiceHandler) ListBugReports(context.Context, *conn
 
 func (UnimplementedPlatformServiceHandler) UpdateBugReportStatus(context.Context, *connect.Request[platform.UpdateBugReportStatusRequest]) (*connect.Response[platform.BugReport], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateBugReportStatus is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) ExchangeComputerUse(context.Context, *connect.Request[platform.ExchangeComputerUseRequest]) (*connect.Response[platform.ExchangeComputerUseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ExchangeComputerUse is not implemented"))
 }
