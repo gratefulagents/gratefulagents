@@ -2,7 +2,10 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gratefulagents/sdk/pkg/agentsdk"
@@ -367,5 +370,24 @@ func TestNewRegistry_WithAsyncShellToolsRegistersBackgroundJobs(t *testing.T) {
 	readOnly := NewRegistry("/tmp/test", WithAsyncShellTools(), WithPermissionMode(policy.PermissionModeReadOnly))
 	if readOnly.Get("BashStart") != nil {
 		t.Fatal("read-only registries must not register BashStart")
+	}
+}
+
+func TestAnalyzeImageReturnsNativeAttachment(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte{0x89, 'P', 'N', 'G'}
+	if err := os.WriteFile(filepath.Join(dir, "pixel.png"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry(dir, WithVisionTools(func(context.Context, []byte, string, string) (string, error) {
+		t.Fatal("AnalyzeImage must not call a text analyzer")
+		return "", nil
+	}))
+	result, err := registry.Get("AnalyzeImage").Execute(context.Background(), json.RawMessage(`{"image_path":"pixel.png","prompt":"inspect"}`), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError || len(result.Images) != 1 || result.Images[0].Data != base64.StdEncoding.EncodeToString(data) || result.Images[0].MediaType != "image/png" {
+		t.Fatalf("result = %+v", result)
 	}
 }
