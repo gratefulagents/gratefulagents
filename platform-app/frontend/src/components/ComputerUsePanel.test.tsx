@@ -12,7 +12,8 @@ const m = vi.hoisted(() => ({
 vi.mock("@/contexts/AuthContext", () => ({ useOptionalAuth: () => ({ user: { id: m.user } }) }));
 vi.mock("@/lib/platform", () => ({ get isTauri() { return m.isTauri; }, backendBaseUrl: () => "https://operator.example" }));
 vi.mock("@/lib/client", () => ({ client: { getAgentRun: m.getRun } }));
-vi.mock("@/lib/computer-use", () => ({
+vi.mock("@/lib/computer-use", async (importOriginal) => ({
+  hotkeyGlyphs: (await importOriginal<typeof import("@/lib/computer-use")>()).hotkeyGlyphs,
   computerUsePermissions: m.permissions, computerUseWindows: m.windows,
   startDesktopSession: m.start, desktopSessionStatus: m.status,
   heartbeatDesktopSession: m.heartbeat, pauseDesktopSession: m.pause,
@@ -343,6 +344,67 @@ describe("run-bound desktop preview", () => {
     await screen.findByText("observe — completed");
     expect(m.relay).toHaveBeenCalledWith("session-1", native.scope, "resolve", "request-1", expect.objectContaining({ capture: image }));
     expect(screen.getByRole("img").getAttribute("src")).toBe(image.dataUrl);
+  });
+
+  // Each proposal is shown after an approved observation so the preview frame
+  // matches the request frame and pointer markers can be checked.
+  async function proposeAfterPreview(action: DesktopRequest["action"], frameId = "frame-1") {
+    remotePending = { requestId: "request-1", action: { kind: "observe" } };
+    m.approve.mockResolvedValue({ requestId: "request-1", status: "completed", message: "Captured", capture: image });
+    await panel();
+    await startSession();
+    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    await screen.findByText("observe — completed");
+    remotePending = { requestId: "request-2", frameId, action };
+    await screen.findByText(`Agent requests: ${action.kind}`, {}, { timeout: 3000 });
+  }
+
+  it("describes click variants and marks the proposed click in the preview", async () => {
+    await proposeAfterPreview({ kind: "click", x: 800, y: 600, button: "right", count: 2 });
+    expect(screen.getByText("Double right-click pixel (800, 600) in frame frame-1.")).toBeTruthy();
+    expect(screen.getByLabelText("Proposed click location").getAttribute("style")).toContain("left: 50%");
+    expect(screen.getByText("Enters input")).toBeTruthy();
+  });
+
+  it("describes hover as read-only with a dashed pointer marker", async () => {
+    await proposeAfterPreview({ kind: "move", x: 400, y: 300 });
+    expect(screen.getByText("Move the pointer to pixel (400, 300) without clicking (hover).")).toBeTruthy();
+    expect(screen.getByLabelText("Proposed pointer location").getAttribute("style")).toContain("left: 25%");
+    expect(screen.getByText("Read-only")).toBeTruthy();
+  });
+
+  it("describes a drag with start and destination markers only when the whole path is in frame", async () => {
+    await proposeAfterPreview({ kind: "drag", x: 0, y: 0, toX: 1200, toY: 600 });
+    expect(screen.getByText("Press the left button at (0, 0), drag to (1200, 600), and release.")).toBeTruthy();
+    expect(screen.getByLabelText("Proposed drag start").getAttribute("style")).toContain("left: 0%");
+    expect(screen.getByLabelText("Proposed drag destination").getAttribute("style")).toContain("left: 75%");
+    expect(screen.getByText("Enters input")).toBeTruthy();
+  });
+
+  it("draws no drag markers when the destination lies outside the previewed frame", async () => {
+    await proposeAfterPreview({ kind: "drag", x: 0, y: 0, toX: 1600, toY: 1200 });
+    expect(screen.queryByLabelText("Proposed drag start")).toBeNull();
+    expect(screen.queryByLabelText("Proposed drag destination")).toBeNull();
+  });
+
+  it("describes a positioned scroll and marks where it is aimed", async () => {
+    await proposeAfterPreview({ kind: "scroll", deltaX: 0, deltaY: 300, x: 160, y: 120 });
+    expect(screen.getByText(/with the pointer at \(160, 120\)/)).toBeTruthy();
+    expect(screen.getByLabelText("Proposed scroll location").getAttribute("style")).toContain("left: 10%");
+    expect(screen.getByText("Read-only")).toBeTruthy();
+  });
+
+  it("renders hotkeys as text plus Mac glyphs", async () => {
+    await proposeAfterPreview({ kind: "key", key: "Shift+Cmd+Z" });
+    expect(screen.getByText("Press Shift+Cmd+Z.")).toBeTruthy();
+    expect(screen.getAllByText(/^[⇧⌘Z]$/).map((node) => node.textContent)).toEqual(["⇧", "⌘", "Z"]);
+  });
+
+  it("never draws a marker for a proposal bound to a different frame", async () => {
+    await proposeAfterPreview({ kind: "click", x: 10, y: 10 }, "frame-0");
+    expect(screen.getByText("Click pixel (10, 10) in frame frame-0.")).toBeTruthy();
+    expect(screen.queryByLabelText("Proposed click location")).toBeNull();
   });
 
   it("fails closed when the configured vision analyzer is unavailable", async () => {

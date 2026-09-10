@@ -223,3 +223,68 @@ func assertWorkflowObservation(t *testing.T, result Result, frame, analysis, act
 		t.Fatal("screenshot leaked into ordinary tool result")
 	}
 }
+
+// The extended action surface (click variants, hover, drag, positioned scroll,
+// hotkeys) must reach the desktop with its fields intact and without the
+// model's verification question, which belongs to the follow-up observation.
+func TestComputerUseExtendedActionsReachDesktop(t *testing.T) {
+	for _, tc := range []struct{ name, raw, wantKind, wantJSON string }{
+		{"right-click", `{"kind":"click","x":10,"y":20,"button":"right","question":"Did the context menu open?"}`, "click", `"button":"right"`},
+		{"triple-click", `{"kind":"click","x":10,"y":20,"count":3}`, "click", `"count":3`},
+		{"hover", `{"kind":"move","x":5,"y":6}`, "move", `"x":5,"y":6`},
+		{"drag", `{"kind":"drag","x":1,"y":2,"toX":30,"toY":40}`, "drag", `"toX":30,"toY":40`},
+		{"scroll-at", `{"kind":"scroll","deltaX":0,"deltaY":120,"x":7,"y":8}`, "scroll", `"x":7,"y":8`},
+		{"hotkey", `{"kind":"key","key":"Cmd+Shift+Z","question":"Was the edit redone?"}`, "key", `"key":"Cmd+Shift+Z"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newDesktopWorkflowHarness(t)
+			var seenPrompt string
+			h.tool.vision.AnalyzeFn = func(_ context.Context, _ []byte, _, prompt string) (string, error) {
+				seenPrompt = prompt
+				return "Visible result", nil
+			}
+			done := h.start(`{"frameId":"before-input","action":` + tc.raw + `}`)
+			request := h.next(tc.wantKind)
+			wire, _ := json.Marshal(request.Action)
+			if !bytes.Contains(wire, []byte(tc.wantJSON)) || bytes.Contains(wire, []byte("question")) || request.FrameID != "before-input" {
+				t.Fatalf("desktop request lost fields or carried the question: %s", wire)
+			}
+			h.complete(request, "completed", nil)
+			observation := h.next("observe")
+			h.complete(observation, "completed", syntheticDesktopCapture(t, "after-input", true))
+			result := h.result(done)
+			if result.IsError || !bytes.Contains([]byte(result.Content), []byte(`"actionStatus":"completed"`)) {
+				t.Fatalf("unexpected result: %+v", result)
+			}
+			var in struct {
+				Action struct{ Question string }
+			}
+			_ = json.Unmarshal([]byte(tc.raw), &in)
+			if in.Action.Question != "" && !bytes.Contains([]byte(seenPrompt), []byte(in.Action.Question)) {
+				t.Fatalf("follow-up observation ignored the verification question: %q", seenPrompt)
+			}
+		})
+	}
+}
+
+// wait pauses agent-side, never queues a desktop request during the pause,
+// then requests an ordinary approved observation.
+func TestComputerUseWaitThenObserve(t *testing.T) {
+	h := newDesktopWorkflowHarness(t)
+	started := time.Now()
+	done := h.start(`{"action":{"kind":"wait","seconds":1,"question":"Has the spinner gone?"}}`)
+	deadline := started.Add(700 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if h.relay("poll", "", nil).Pending != nil {
+			t.Fatal("wait queued a desktop request before the pause elapsed")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	observation := h.next("observe")
+	if time.Since(started) < time.Second || observation.FrameID != "" || !bytes.Contains([]byte(observation.Action.Question), []byte("Has the spinner gone?")) {
+		t.Fatalf("wait did not pause before a fresh observation: %+v after %v", observation, time.Since(started))
+	}
+	h.complete(observation, "completed", syntheticDesktopCapture(t, "after-wait", false))
+	result := h.result(done)
+	assertWorkflowObservation(t, result, "after-wait", "The synthetic field is empty", "")
+}

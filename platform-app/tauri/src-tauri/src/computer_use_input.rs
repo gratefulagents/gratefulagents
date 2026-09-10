@@ -89,12 +89,71 @@ fn verify_focus(action: &Action, focus: Option<&FocusTarget>) -> Result<(), Stri
     deny_unknown_fields
 )]
 pub enum Action {
-    Observe { question: Option<String> },
-    Click { x: f64, y: f64 },
-    Scroll { delta_x: f64, delta_y: f64 },
-    Type { text: String },
-    Key { key: String },
+    Observe {
+        question: Option<String>,
+    },
+    Click {
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        button: Option<MouseButton>,
+        #[serde(default)]
+        count: Option<u8>,
+    },
+    Move {
+        x: f64,
+        y: f64,
+    },
+    Drag {
+        x: f64,
+        y: f64,
+        to_x: f64,
+        to_y: f64,
+    },
+    Scroll {
+        delta_x: f64,
+        delta_y: f64,
+        #[serde(default)]
+        x: Option<f64>,
+        #[serde(default)]
+        y: Option<f64>,
+    },
+    Type {
+        text: String,
+    },
+    Key {
+        key: String,
+    },
     Activate {},
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MouseButton {
+    Left,
+    Right,
+    Middle,
+}
+
+impl Action {
+    /// Frame pixel coordinates that must map inside the captured frame before
+    /// the request is queued and again before execution.
+    pub fn points(&self) -> Vec<(f64, f64)> {
+        match self {
+            Action::Click { x, y, .. } | Action::Move { x, y } => vec![(*x, *y)],
+            Action::Drag { x, y, to_x, to_y } => vec![(*x, *y), (*to_x, *to_y)],
+            Action::Scroll {
+                x: Some(x),
+                y: Some(y),
+                ..
+            } => vec![(*x, *y)],
+            _ => Vec::new(),
+        }
+    }
+}
+
+fn pixel(n: f64) -> bool {
+    n.is_finite() && n >= 0.0
 }
 
 #[derive(Clone, PartialEq, serde::Deserialize)]
@@ -120,23 +179,38 @@ impl QueuedRequest {
             Action::Observe { question } if question.as_ref().is_none_or(|q| q.len() <= 4096) => {
                 Ok(())
             }
-            Action::Click { x, y }
-                if x.is_finite()
-                    && y.is_finite()
-                    && *x >= 0.0
-                    && *y >= 0.0
+            Action::Click { x, y, count, .. }
+                if pixel(*x)
+                    && pixel(*y)
+                    && count.is_none_or(|c| (1..=3).contains(&c))
                     && self.frame_id.is_some() =>
             {
                 Ok(())
             }
-            Action::Scroll { delta_x, delta_y }
-                if delta_x.is_finite()
-                    && delta_y.is_finite()
-                    && delta_x.fract() == 0.0
-                    && delta_y.fract() == 0.0
-                    && delta_x.abs() <= 1000.0
-                    && delta_y.abs() <= 1000.0
-                    && (*delta_x != 0.0 || *delta_y != 0.0) =>
+            Action::Move { x, y } if pixel(*x) && pixel(*y) && self.frame_id.is_some() => Ok(()),
+            Action::Drag { x, y, to_x, to_y }
+                if [*x, *y, *to_x, *to_y].iter().all(|n| pixel(*n))
+                    && (x != to_x || y != to_y)
+                    && self.frame_id.is_some() =>
+            {
+                Ok(())
+            }
+            Action::Scroll {
+                delta_x,
+                delta_y,
+                x,
+                y,
+            } if delta_x.is_finite()
+                && delta_y.is_finite()
+                && delta_x.fract() == 0.0
+                && delta_y.fract() == 0.0
+                && delta_x.abs() <= 1000.0
+                && delta_y.abs() <= 1000.0
+                && (*delta_x != 0.0 || *delta_y != 0.0)
+                && x.is_some() == y.is_some()
+                && x.is_none_or(pixel)
+                && y.is_none_or(pixel)
+                && (x.is_none() || self.frame_id.is_some()) =>
             {
                 Ok(())
             }
@@ -148,32 +222,170 @@ impl QueuedRequest {
             {
                 Ok(())
             }
-            Action::Key { key } if key_code(key).is_some() => Ok(()),
+            Action::Key { key } if parse_hotkey(key).is_some() => Ok(()),
             Action::Activate {} => Ok(()),
             _ => Err("Unsupported or out-of-bounds desktop action".into()),
         }
     }
 }
 
-// Virtual key codes are layout-independent only for these navigation/editing keys.
-fn key_code(key: &str) -> Option<(u16, u64)> {
+/// A validated key press: the layout-independent virtual key code, Core
+/// Graphics modifier flags, and the character an ANSI keyboard would produce
+/// (set on the event so menu key equivalents match on non-ANSI layouts).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hotkey {
+    pub code: u16,
+    pub flags: u64,
+    pub character: Option<char>,
+    pub control: bool,
+    pub option: bool,
+    pub shift: bool,
+    pub cmd: bool,
+}
+
+const FLAG_SHIFT: u64 = 1 << 17;
+const FLAG_CONTROL: u64 = 1 << 18;
+const FLAG_OPTION: u64 = 1 << 19;
+const FLAG_CMD: u64 = 1 << 20;
+
+// Virtual key codes are layout-independent only for these navigation/editing
+// keys; letters and digits use ANSI positions and also carry their character.
+fn named_key_code(key: &str) -> Option<u16> {
     Some(match key {
-        "Enter" => (36, 0),
-        "Tab" => (48, 0),
-        "Escape" => (53, 0),
-        "Backspace" => (51, 0),
-        "Delete" => (117, 0),
-        "ArrowLeft" => (123, 0),
-        "ArrowRight" => (124, 0),
-        "ArrowDown" => (125, 0),
-        "ArrowUp" => (126, 0),
-        "Home" => (115, 0),
-        "End" => (119, 0),
-        "PageUp" => (116, 0),
-        "PageDown" => (121, 0),
-        "Shift+Tab" => (48, 1 << 17),
+        "Enter" => 36,
+        "Tab" => 48,
+        "Space" => 49,
+        "Escape" => 53,
+        "Backspace" => 51,
+        "Delete" => 117,
+        "ArrowLeft" => 123,
+        "ArrowRight" => 124,
+        "ArrowDown" => 125,
+        "ArrowUp" => 126,
+        "Home" => 115,
+        "End" => 119,
+        "PageUp" => 116,
+        "PageDown" => 121,
         _ => return None,
     })
+}
+
+fn ansi_key_code(character: char) -> Option<u16> {
+    Some(match character {
+        'A' => 0,
+        'S' => 1,
+        'D' => 2,
+        'F' => 3,
+        'H' => 4,
+        'G' => 5,
+        'Z' => 6,
+        'X' => 7,
+        'C' => 8,
+        'V' => 9,
+        'B' => 11,
+        'Q' => 12,
+        'W' => 13,
+        'E' => 14,
+        'R' => 15,
+        'Y' => 16,
+        'T' => 17,
+        '1' => 18,
+        '2' => 19,
+        '3' => 20,
+        '4' => 21,
+        '6' => 22,
+        '5' => 23,
+        '9' => 25,
+        '7' => 26,
+        '8' => 28,
+        '0' => 29,
+        'O' => 31,
+        'U' => 32,
+        'I' => 34,
+        'P' => 35,
+        'L' => 37,
+        'J' => 38,
+        'K' => 40,
+        'N' => 45,
+        'M' => 46,
+        _ => return None,
+    })
+}
+
+/// Parses "Mod+...+Key" with Control/Ctrl, Option/Alt, Shift and
+/// Cmd/Command/Meta in any order, mirroring the agent-side and relay
+/// validators. Letters and digits need Control, Option or Cmd so a key press
+/// cannot become a text channel that bypasses proposed-text review.
+/// Combinations that quit, close, hide or minimize the approved window, switch
+/// applications or spaces, open Spotlight, take screenshots, force quit,
+/// toggle fullscreen, show the Dock, or match the emergency stop are rejected.
+pub fn parse_hotkey(key: &str) -> Option<Hotkey> {
+    if key.is_empty() || key.len() > 40 {
+        return None;
+    }
+    let mut hotkey = Hotkey {
+        code: 0,
+        flags: 0,
+        character: None,
+        control: false,
+        option: false,
+        shift: false,
+        cmd: false,
+    };
+    let parts: Vec<&str> = key.split('+').collect();
+    let mut base = "";
+    for (index, part) in parts.iter().enumerate() {
+        if index + 1 == parts.len() {
+            base = part;
+            break;
+        }
+        let modifier = match *part {
+            "Control" | "Ctrl" => &mut hotkey.control,
+            "Option" | "Alt" => &mut hotkey.option,
+            "Shift" => &mut hotkey.shift,
+            "Cmd" | "Command" | "Meta" => &mut hotkey.cmd,
+            _ => return None,
+        };
+        if *modifier {
+            return None;
+        }
+        *modifier = true;
+    }
+    let mut chars = base.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) if c.is_ascii_alphanumeric() => {
+            if !hotkey.control && !hotkey.option && !hotkey.cmd {
+                return None;
+            }
+            let upper = c.to_ascii_uppercase();
+            hotkey.code = ansi_key_code(upper)?;
+            hotkey.character = Some(if hotkey.shift {
+                upper
+            } else {
+                upper.to_ascii_lowercase()
+            });
+        }
+        _ => hotkey.code = named_key_code(base)?,
+    }
+    let arrow = base.starts_with("Arrow");
+    let upper = hotkey.character.map(|c| c.to_ascii_uppercase());
+    let denied = if hotkey.cmd {
+        matches!(upper, Some('Q' | 'W' | 'H' | 'M'))
+            || matches!(base, "Tab" | "Space" | "Escape")
+            || (hotkey.shift && matches!(upper, Some('3' | '4' | '5' | '6')))
+            || (hotkey.option && upper == Some('D'))
+            || (hotkey.control && upper == Some('F'))
+    } else {
+        false
+    } || (hotkey.control && (arrow || base == "Space"));
+    if denied {
+        return None;
+    }
+    hotkey.flags = (if hotkey.shift { FLAG_SHIFT } else { 0 })
+        | (if hotkey.control { FLAG_CONTROL } else { 0 })
+        | (if hotkey.option { FLAG_OPTION } else { 0 })
+        | (if hotkey.cmd { FLAG_CMD } else { 0 });
+    Some(hotkey)
 }
 
 // Code points that render invisibly or reorder visible text would let the
@@ -260,6 +472,15 @@ impl Frame {
         Ok(())
     }
 
+    /// Maps every coordinate the action targets, failing if any is outside the frame.
+    pub fn points(&self, action: &Action) -> Result<Vec<(f64, f64)>, String> {
+        action
+            .points()
+            .into_iter()
+            .map(|(x, y)| self.point(x, y))
+            .collect()
+    }
+
     pub fn point(&self, x: f64, y: f64) -> Result<(f64, f64), String> {
         if !x.is_finite()
             || !y.is_finite()
@@ -272,7 +493,7 @@ impl Frame {
             || x >= f64::from(self.pixel_width)
             || y >= f64::from(self.pixel_height)
         {
-            return Err("Click is outside the captured image".into());
+            return Err("Pointer target is outside the captured image".into());
         }
         Ok((
             f64::from(self.geometry.x)
@@ -667,12 +888,14 @@ pub mod macos {
         })
     }
     struct Release {
-        event: Owned,
+        event: Option<Owned>,
         pid: i32,
     }
     impl Drop for Release {
         fn drop(&mut self) {
-            unsafe { CGEventPostToPid(self.pid, self.event.0) };
+            if let Some(event) = self.event.take() {
+                unsafe { CGEventPostToPid(self.pid, event.0) };
+            }
         }
     }
     fn pair(
@@ -683,7 +906,7 @@ pub mod macos {
     ) -> Result<(), String> {
         check()?;
         let release = Release {
-            event: up,
+            event: Some(up),
             pid: scope.process_id as i32,
         };
         unsafe { CGEventPostToPid(release.pid, down.0) };
@@ -691,12 +914,46 @@ pub mod macos {
         drop(release);
         check()
     }
-    fn physical_input_released() -> Result<(), String> {
+    // Core Graphics mouse event types and button numbers.
+    const MOUSE_MOVED: u32 = 5;
+    const LEFT_DRAGGED: u32 = 6;
+    fn mouse_types(button: MouseButton) -> (u32, u32, u32) {
+        match button {
+            MouseButton::Left => (1, 2, 0),
+            MouseButton::Right => (3, 4, 1),
+            MouseButton::Middle => (25, 26, 2),
+        }
+    }
+    fn mouse_event(
+        kind: u32,
+        point: Point,
+        button: u32,
+        click_state: i64,
+    ) -> Result<Owned, String> {
+        let event =
+            Owned::new(unsafe { CGEventCreateMouseEvent(ptr::null(), kind, point, button) })?;
+        unsafe {
+            CGEventSetFlags(event.0, 0);
+            if click_state > 0 {
+                // kCGMouseEventClickState: 2 and 3 make the target treat the
+                // sequence as a double or triple click.
+                CGEventSetIntegerValueField(event.0, 1, click_state);
+            }
+        }
+        Ok(event)
+    }
+    fn physical_modifiers_released() -> Result<(), String> {
         if unsafe { CGEventSourceFlagsState(0) }
             & ((1 << 17) | (1 << 18) | (1 << 19) | (1 << 20) | (1 << 23))
             != 0
-            || (0..3).any(|button| unsafe { CGEventSourceButtonState(0, button) })
         {
+            return Err("Release physical modifiers first".into());
+        }
+        Ok(())
+    }
+    fn physical_input_released() -> Result<(), String> {
+        physical_modifiers_released()?;
+        if (0..3).any(|button| unsafe { CGEventSourceButtonState(0, button) }) {
             return Err("Release physical modifiers and mouse buttons first".into());
         }
         Ok(())
@@ -722,7 +979,9 @@ pub mod macos {
         super::super::computer_use_capture::validate_focus(scope)?;
         check()?;
         activate(scope)?;
-        let guard = || {
+        // While a synthetic drag holds the left button, the session button
+        // state may report it as pressed; that guard checks modifiers only.
+        let guard_with = |buttons_released: bool| {
             check()?;
             if let Some(frame) = frame {
                 frame.validate_snapshot(&geometry, &display, Instant::now())?;
@@ -734,7 +993,11 @@ pub mod macos {
             {
                 return Err("Required OS permission was revoked".into());
             }
-            physical_input_released()?;
+            if buttons_released {
+                physical_input_released()?;
+            } else {
+                physical_modifiers_released()?;
+            }
             if super::super::computer_use_capture::target_geometry(scope)? != geometry
                 || displays()? != display
             {
@@ -745,6 +1008,7 @@ pub mod macos {
             verify_focus(action, focus)?;
             check()
         };
+        let guard = || guard_with(true);
         // Activation is asynchronous. Fail closed if it has not settled within the permit.
         for _ in 0..10 {
             check()?;
@@ -756,7 +1020,13 @@ pub mod macos {
         guard()?;
         match action {
             Action::Activate {} => Ok(()),
-            Action::Click { x, y } => {
+            Action::Click {
+                x,
+                y,
+                button,
+                count,
+                ..
+            } => {
                 let (x, y) = frame
                     .ok_or("Click requires a captured frame")?
                     .point(*x, *y)?;
@@ -766,21 +1036,77 @@ pub mod macos {
                     destination(scope, point)?;
                     check()
                 };
-                let down = Owned::new(unsafe {
-                    CGEventCreateMouseEvent(ptr::null(), 1, Point { x, y }, 0)
-                })?;
-                let up = Owned::new(unsafe {
-                    CGEventCreateMouseEvent(ptr::null(), 2, Point { x, y }, 0)
-                })?;
-                unsafe {
-                    CGEventSetFlags(down.0, 0);
-                    CGEventSetFlags(up.0, 0);
-                    CGEventSetIntegerValueField(down.0, 1, 1);
-                    CGEventSetIntegerValueField(up.0, 1, 1);
+                let (down_kind, up_kind, number) = mouse_types(button.unwrap_or(MouseButton::Left));
+                let count = count.unwrap_or(1).clamp(1, 3);
+                for state in 1..=i64::from(count) {
+                    if state > 1 {
+                        std::thread::sleep(Duration::from_millis(30));
+                    }
+                    let down = mouse_event(down_kind, point, number, state)?;
+                    let up = mouse_event(up_kind, point, number, state)?;
+                    pair(scope, down, up, &click_guard)?;
                 }
-                pair(scope, down, up, &click_guard)
+                Ok(())
             }
-            Action::Scroll { delta_x, delta_y } => {
+            Action::Move { x, y } => {
+                let (x, y) = frame
+                    .ok_or("Pointer move requires a captured frame")?
+                    .point(*x, *y)?;
+                let point = Point { x, y };
+                let event = mouse_event(MOUSE_MOVED, point, 0, 0)?;
+                guard()?;
+                destination(scope, point)?;
+                check()?;
+                unsafe { CGEventPostToPid(scope.process_id as i32, event.0) };
+                guard()
+            }
+            Action::Drag { x, y, to_x, to_y } => {
+                let frame = frame.ok_or("Drag requires a captured frame")?;
+                let (sx, sy) = frame.point(*x, *y)?;
+                let (ex, ey) = frame.point(*to_x, *to_y)?;
+                let start = Point { x: sx, y: sy };
+                let end = Point { x: ex, y: ey };
+                guard()?;
+                destination(scope, start)?;
+                destination(scope, end)?;
+                check()?;
+                let (down_kind, up_kind, number) = mouse_types(MouseButton::Left);
+                let down = mouse_event(down_kind, start, number, 1)?;
+                // Until the destination is reached, stop or a failed guard
+                // releases the button where it was pressed, which undoes most
+                // drags instead of dropping at an unreviewed position.
+                let mut release = Release {
+                    event: Some(mouse_event(up_kind, start, number, 1)?),
+                    pid: scope.process_id as i32,
+                };
+                unsafe { CGEventPostToPid(release.pid, down.0) };
+                const STEPS: u32 = 12;
+                for step in 1..=STEPS {
+                    check()?;
+                    physical_modifiers_released()?;
+                    let t = f64::from(step) / f64::from(STEPS);
+                    let point = Point {
+                        x: sx + (ex - sx) * t,
+                        y: sy + (ey - sy) * t,
+                    };
+                    let dragged = mouse_event(LEFT_DRAGGED, point, number, 1)?;
+                    unsafe { CGEventPostToPid(release.pid, dragged.0) };
+                    std::thread::sleep(Duration::from_millis(12));
+                }
+                guard_with(false)?;
+                destination(scope, end)?;
+                check()?;
+                let up = mouse_event(up_kind, end, number, 1)?;
+                unsafe { CGEventPostToPid(release.pid, up.0) };
+                release.event = None;
+                guard()
+            }
+            Action::Scroll {
+                delta_x,
+                delta_y,
+                x,
+                y,
+            } => {
                 let event = Owned::new(unsafe {
                     CGEventCreateScrollWheelEvent(
                         ptr::null(),
@@ -790,9 +1116,17 @@ pub mod macos {
                         -*delta_x as i32,
                     )
                 })?;
-                let point = Point {
-                    x: f64::from(geometry.x) + f64::from(geometry.width) / 2.0,
-                    y: f64::from(geometry.y) + f64::from(geometry.height) / 2.0,
+                let point = match (x, y) {
+                    (Some(x), Some(y)) => {
+                        let (x, y) = frame
+                            .ok_or("Positioned scroll requires a captured frame")?
+                            .point(*x, *y)?;
+                        Point { x, y }
+                    }
+                    _ => Point {
+                        x: f64::from(geometry.x) + f64::from(geometry.width) / 2.0,
+                        y: f64::from(geometry.y) + f64::from(geometry.height) / 2.0,
+                    },
                 };
                 unsafe {
                     CGEventSetLocation(event.0, point);
@@ -841,14 +1175,24 @@ pub mod macos {
                 guard()
             }
             Action::Key { key } => {
-                let (code, flags) = key_code(key).ok_or("Unsupported key")?;
-                let down =
-                    Owned::new(unsafe { CGEventCreateKeyboardEvent(ptr::null(), code, true) })?;
-                let up =
-                    Owned::new(unsafe { CGEventCreateKeyboardEvent(ptr::null(), code, false) })?;
+                let hotkey = parse_hotkey(key).ok_or("Unsupported key")?;
+                let down = Owned::new(unsafe {
+                    CGEventCreateKeyboardEvent(ptr::null(), hotkey.code, true)
+                })?;
+                let up = Owned::new(unsafe {
+                    CGEventCreateKeyboardEvent(ptr::null(), hotkey.code, false)
+                })?;
                 unsafe {
-                    CGEventSetFlags(down.0, flags);
+                    CGEventSetFlags(down.0, hotkey.flags);
                     CGEventSetFlags(up.0, 0);
+                    if let Some(character) = hotkey.character {
+                        // Carry the ANSI character so menu key equivalents match
+                        // on keyboard layouts where this position differs.
+                        let mut units = [0; 2];
+                        let units = character.encode_utf16(&mut units);
+                        CGEventKeyboardSetUnicodeString(down.0, units.len(), units.as_ptr());
+                        CGEventKeyboardSetUnicodeString(up.0, units.len(), units.as_ptr());
+                    }
                 }
                 pair(scope, down, up, &guard)
             }
@@ -949,16 +1293,61 @@ mod tests {
             Action::Click {
                 x: f64::NAN,
                 y: 0.0,
+                button: None,
+                count: None,
+            },
+            Action::Click {
+                x: 1.0,
+                y: 1.0,
+                button: Some(MouseButton::Right),
+                count: Some(4),
+            },
+            Action::Click {
+                x: 1.0,
+                y: 1.0,
+                button: None,
+                count: Some(0),
+            },
+            Action::Move { x: -1.0, y: 0.0 },
+            Action::Drag {
+                x: 1.0,
+                y: 1.0,
+                to_x: 1.0,
+                to_y: 1.0,
+            },
+            Action::Drag {
+                x: 1.0,
+                y: 1.0,
+                to_x: f64::INFINITY,
+                to_y: 1.0,
             },
             Action::Scroll {
                 delta_x: 1001.0,
                 delta_y: 0.0,
+                x: None,
+                y: None,
+            },
+            Action::Scroll {
+                delta_x: 0.0,
+                delta_y: 10.0,
+                x: Some(1.0),
+                y: None,
+            },
+            Action::Scroll {
+                delta_x: 0.0,
+                delta_y: 10.0,
+                x: Some(-1.0),
+                y: Some(1.0),
             },
             Action::Type {
                 text: "a\nb".into(),
             },
             Action::Key {
                 key: "Meta+Space".into(),
+            },
+            Action::Key { key: "A".into() },
+            Action::Key {
+                key: "Cmd+Q".into(),
             },
         ] {
             assert!(QueuedRequest {
@@ -974,7 +1363,192 @@ mod tests {
         )
         .unwrap();
         assert!(scroll.validate().is_ok());
-        assert!(key_code("Shift+Tab").is_some());
+        assert!(parse_hotkey("Shift+Tab").is_some());
+        for bad in [
+            r#"{"requestId":"a","frameId":"f","action":{"kind":"wait","seconds":1}}"#,
+            r#"{"requestId":"a","frameId":"f","action":{"kind":"click","x":1,"y":1,"count":1.5}}"#,
+            r#"{"requestId":"a","frameId":"f","action":{"kind":"click","x":1,"y":1,"button":"back"}}"#,
+            r#"{"requestId":"a","frameId":"f","action":{"kind":"click","x":1,"y":1,"question":"q"}}"#,
+            r#"{"requestId":"a","frameId":"f","action":{"kind":"drag","x":1,"y":1,"toX":2}}"#,
+        ] {
+            assert!(serde_json::from_str::<QueuedRequest>(bad).is_err(), "{bad}");
+        }
+        for (raw, frame_required) in [
+            (
+                r#"{"kind":"click","x":1,"y":1,"button":"right","count":2}"#,
+                true,
+            ),
+            (r#"{"kind":"click","x":1,"y":1,"button":"middle"}"#, true),
+            (r#"{"kind":"move","x":1,"y":1}"#, true),
+            (r#"{"kind":"drag","x":1,"y":1,"toX":30,"toY":40}"#, true),
+            (
+                r#"{"kind":"scroll","deltaX":0,"deltaY":100,"x":5,"y":6}"#,
+                true,
+            ),
+            (r#"{"kind":"scroll","deltaX":0,"deltaY":100}"#, false),
+            (r#"{"kind":"key","key":"Cmd+Shift+Z"}"#, false),
+        ] {
+            let with_frame: QueuedRequest = serde_json::from_str(&format!(
+                r#"{{"requestId":"a","frameId":"f","action":{raw}}}"#
+            ))
+            .unwrap();
+            assert!(with_frame.validate().is_ok(), "{raw}");
+            let without_frame: QueuedRequest =
+                serde_json::from_str(&format!(r#"{{"requestId":"a","action":{raw}}}"#)).unwrap();
+            assert_eq!(without_frame.validate().is_err(), frame_required, "{raw}");
+        }
+    }
+
+    #[test]
+    fn hotkeys_follow_the_shared_grammar_and_deny_list() {
+        for key in [
+            "Enter",
+            "Space",
+            "Shift+Tab",
+            "Shift+Enter",
+            "Cmd+A",
+            "Cmd+Shift+Z",
+            "Shift+Cmd+z",
+            "Option+ArrowLeft",
+            "Ctrl+A",
+            "Alt+Backspace",
+            "Command+S",
+            "Cmd+1",
+            "Cmd+Shift+7",
+        ] {
+            assert!(parse_hotkey(key).is_some(), "{key}");
+        }
+        for key in [
+            "a",
+            "A",
+            "1",
+            "Shift+A",
+            "Shift+1",
+            "Cmd+Cmd+A",
+            "Cmd+",
+            "+A",
+            "Cmd+Shift",
+            "Cmd+AB",
+            "Cmd+F1",
+            "Cmd+,",
+            "Cmd+`",
+            "Meta+Space",
+            "Fn+A",
+            "cmd+a",
+            "",
+            "Cmd+Q",
+            "Cmd+Shift+Q",
+            "Control+Cmd+Q",
+            "Cmd+W",
+            "Cmd+Shift+W",
+            "Cmd+H",
+            "Cmd+Option+H",
+            "Cmd+M",
+            "Cmd+Tab",
+            "Cmd+Shift+Tab",
+            "Cmd+Space",
+            "Cmd+Option+Escape",
+            "Control+Option+Cmd+Escape",
+            "Cmd+Shift+3",
+            "Cmd+Shift+4",
+            "Cmd+Shift+5",
+            "Cmd+Shift+6",
+            "Cmd+Option+D",
+            "Control+Cmd+F",
+            "Control+ArrowLeft",
+            "Control+Shift+ArrowUp",
+            "Control+Space",
+        ] {
+            assert!(parse_hotkey(key).is_none(), "{key}");
+        }
+        let redo = parse_hotkey("Shift+Cmd+z").unwrap();
+        assert_eq!(redo.code, 6);
+        assert_eq!(redo.flags, FLAG_SHIFT | FLAG_CMD);
+        assert_eq!(redo.character, Some('Z'));
+        let select_all = parse_hotkey("Cmd+A").unwrap();
+        assert_eq!(
+            (select_all.code, select_all.flags, select_all.character),
+            (0, FLAG_CMD, Some('a'))
+        );
+        let back_tab = parse_hotkey("Shift+Tab").unwrap();
+        assert_eq!(
+            (back_tab.code, back_tab.flags, back_tab.character),
+            (48, FLAG_SHIFT, None)
+        );
+        let word_left = parse_hotkey("Alt+ArrowLeft").unwrap();
+        assert_eq!((word_left.code, word_left.flags), (123, FLAG_OPTION));
+        assert_eq!(parse_hotkey("Ctrl+A").unwrap().flags, FLAG_CONTROL);
+    }
+
+    #[test]
+    fn pointer_actions_map_every_target_into_the_frame() {
+        let frame = Frame {
+            id: "f".into(),
+            geometry: WindowGeometry {
+                x: 100,
+                y: 200,
+                width: 400,
+                height: 300,
+            },
+            pixel_width: 800,
+            pixel_height: 600,
+            displays: vec![],
+            created: Instant::now(),
+        };
+        assert_eq!(
+            frame
+                .points(&Action::Drag {
+                    x: 0.0,
+                    y: 0.0,
+                    to_x: 400.0,
+                    to_y: 300.0,
+                })
+                .unwrap(),
+            vec![(100.0, 200.0), (300.0, 350.0)]
+        );
+        assert!(frame
+            .points(&Action::Drag {
+                x: 0.0,
+                y: 0.0,
+                to_x: 800.0,
+                to_y: 0.0,
+            })
+            .is_err());
+        assert_eq!(
+            frame
+                .points(&Action::Scroll {
+                    delta_x: 0.0,
+                    delta_y: 5.0,
+                    x: Some(799.0),
+                    y: Some(599.0),
+                })
+                .unwrap(),
+            vec![(499.5, 499.5)]
+        );
+        assert!(frame
+            .points(&Action::Scroll {
+                delta_x: 0.0,
+                delta_y: 5.0,
+                x: None,
+                y: None,
+            })
+            .unwrap()
+            .is_empty());
+        assert!(frame.points(&Action::Move { x: 800.0, y: 0.0 }).is_err());
+        assert!(frame
+            .points(&Action::Click {
+                x: 10.0,
+                y: 10.0,
+                button: Some(MouseButton::Middle),
+                count: Some(2),
+            })
+            .is_ok());
+        assert!(frame
+            .points(&Action::Key {
+                key: "Enter".into(),
+            })
+            .unwrap()
+            .is_empty());
     }
     #[test]
     fn proposed_text_must_render_exactly_as_typed() {

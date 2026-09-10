@@ -4,6 +4,7 @@ import {
   desktopSessionStatus, startDesktopSession, heartbeatDesktopSession,
   pauseDesktopSession, resumeDesktopSession, stopDesktopSession, captureDesktopWindow,
   queueDesktopRequest, armDesktopRequest, approveDesktopRequest, cancelDesktopRequest,
+  hotkeyGlyphs, parseHotkey,
 } from "./computer-use";
 
 const native = vi.hoisted(() => ({ isTauri: true, platform: vi.fn(), invoke: vi.fn() }));
@@ -95,5 +96,31 @@ describe("computer use bridge", () => {
   it("propagates IPC errors instead of reporting permissions as granted", async () => {
     native.invoke.mockRejectedValue(new Error("IPC failed"));
     await expect(computerUsePermissions()).rejects.toThrow("IPC failed");
+  });
+});
+
+describe("hotkey grammar", () => {
+  it("accepts named keys and modifier combinations in any order, canonicalizing letters", () => {
+    expect(parseHotkey("Enter")).toEqual({ control: false, option: false, shift: false, cmd: false, key: "Enter" });
+    expect(parseHotkey("Shift+Cmd+z")).toEqual({ control: false, option: false, shift: true, cmd: true, key: "Z" });
+    expect(parseHotkey("Ctrl+Alt+Delete")).toEqual({ control: true, option: true, shift: false, cmd: false, key: "Delete" });
+    expect(parseHotkey("Command+1")).toMatchObject({ cmd: true, key: "1" });
+  });
+
+  it.each(["A", "1", "Shift+A", "Cmd+Cmd+A", "Cmd+", "+A", "Cmd+AB", "Cmd+,", "cmd+a", "Fn+A", "Cmd+F1", "", "x".repeat(41)])(
+    "rejects bare text keys and malformed combinations %#", (key) => expect(parseHotkey(key)).toBeNull(),
+  );
+
+  it.each(["Cmd+Q", "Cmd+Shift+Q", "Control+Cmd+Q", "Cmd+W", "Cmd+H", "Cmd+M", "Cmd+Tab", "Cmd+Shift+Tab", "Cmd+Space", "Cmd+Option+Escape",
+    "Control+Option+Cmd+Escape", "Cmd+Shift+3", "Cmd+Shift+5", "Cmd+Option+D", "Control+Cmd+F", "Control+ArrowUp", "Control+Shift+ArrowLeft", "Control+Space"])(
+    "denies combinations that leave the approved window or stop the session: %s", (key) => expect(parseHotkey(key)).toBeNull(),
+  );
+
+  it("renders Mac glyphs in the conventional modifier order", () => {
+    expect(hotkeyGlyphs("Shift+Cmd+z")).toEqual(["⇧", "⌘", "Z"]);
+    expect(hotkeyGlyphs("Cmd+Shift+Option+ArrowLeft")).toEqual(["⌥", "⇧", "⌘", "←"]);
+    expect(hotkeyGlyphs("Cmd+Control+A")).toEqual(["⌃", "⌘", "A"]);
+    expect(hotkeyGlyphs("Enter")).toEqual(["↩"]);
+    expect(hotkeyGlyphs("Cmd+Q")).toEqual(["Cmd+Q"]);
   });
 });

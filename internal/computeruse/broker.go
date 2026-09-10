@@ -204,7 +204,8 @@ func minTime(a, b time.Time) time.Time {
 }
 
 func (b *Broker) Request(ctx context.Context, action Action, frameID string) (Outcome, error) {
-	if action.Validate() != nil || (frameID != "" && !identifier.MatchString(frameID)) {
+	// wait is an agent-side pause, never a desktop request.
+	if action.Kind == "wait" || action.Validate() != nil || (frameID != "" && !identifier.MatchString(frameID)) {
 		return Outcome{}, ErrRejected
 	}
 	if ctx.Value(sessionContextKey{}) == nil {

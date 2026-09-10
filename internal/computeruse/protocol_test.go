@@ -107,15 +107,23 @@ func TestPendingProposedTextRoundTrip(t *testing.T) {
 }
 
 func TestNativeKeyAndScrollValidation(t *testing.T) {
-	for _, key := range []string{"Tab", "Shift+Tab"} {
+	for _, key := range []string{"Tab", "Shift+Tab", "Shift+Enter", "Space", "Cmd+A", "Cmd+Shift+Z", "Shift+Cmd+z", "Option+ArrowLeft", "Ctrl+A", "Alt+Backspace", "Command+S", "Cmd+1", "Cmd+Shift+7"} {
 		if (Action{Kind: "key", Key: key}).Validate() != nil {
 			t.Errorf("rejected %s", key)
 		}
 	}
-	for _, key := range []string{"Shift+Enter", "Ctrl+Tab", "Cmd+A", "a"} {
+	for _, key := range []string{
+		"a", "A", "1", "Shift+A", "Shift+1", // bare letters/digits would bypass proposed-text review
+		"Cmd+Cmd+A", "Cmd+", "+A", "Cmd+Shift", "Cmd+AB", "Cmd+F1", "Cmd+,", "Cmd+`", "Meta+Space", "Fn+A", "cmd+a",
+		"Cmd+Q", "Cmd+Shift+Q", "Control+Cmd+Q", "Cmd+W", "Cmd+Shift+W", "Cmd+H", "Cmd+Option+H", "Cmd+M", "Cmd+Tab", "Cmd+Shift+Tab", "Cmd+Space", "Cmd+Option+Escape", "Control+Option+Cmd+Escape",
+		"Cmd+Shift+3", "Cmd+Shift+4", "Cmd+Shift+5", "Cmd+Shift+6", "Cmd+Option+D", "Control+Cmd+F", "Control+ArrowLeft", "Control+Shift+ArrowUp", "Control+Space",
+	} {
 		if (Action{Kind: "key", Key: key}).Validate() == nil {
 			t.Errorf("accepted %s", key)
 		}
+	}
+	if h, err := ParseHotkey("Shift+Cmd+z"); err != nil || h.String() != "Shift+Cmd+Z" || !h.Shift || !h.Cmd || h.Control || h.Option {
+		t.Fatalf("hotkey did not canonicalize: %+v %v", h, err)
 	}
 	for _, tc := range []struct {
 		x, y  float64
@@ -134,5 +142,73 @@ func TestNativeKeyAndScrollValidation(t *testing.T) {
 		if a.Validate() == nil {
 			t.Error("accepted missing scroll axis")
 		}
+	}
+}
+
+func TestPointerActionValidation(t *testing.T) {
+	n, z, big := 10.0, 0.0, 100001.0
+	one, two, three, four := 1, 2, 3, 4
+	for _, tc := range []struct {
+		name  string
+		a     Action
+		valid bool
+	}{
+		{"left-click", Action{Kind: "click", X: &n, Y: &n}, true},
+		{"right-click", Action{Kind: "click", X: &n, Y: &n, Button: "right"}, true},
+		{"middle-click", Action{Kind: "click", X: &n, Y: &n, Button: "middle", Count: &one}, true},
+		{"double-click", Action{Kind: "click", X: &n, Y: &n, Count: &two}, true},
+		{"triple-click", Action{Kind: "click", X: &n, Y: &n, Button: "left", Count: &three}, true},
+		{"quadruple-click", Action{Kind: "click", X: &n, Y: &n, Count: &four}, false},
+		{"zero-click", Action{Kind: "click", X: &n, Y: &n, Count: new(int)}, false},
+		{"unknown-button", Action{Kind: "click", X: &n, Y: &n, Button: "back"}, false},
+		{"click-missing-y", Action{Kind: "click", X: &n}, false},
+		{"click-out-of-range", Action{Kind: "click", X: &big, Y: &n}, false},
+		{"click-with-question", Action{Kind: "click", X: &n, Y: &n, Question: "done?"}, false},
+		{"move", Action{Kind: "move", X: &n, Y: &n}, true},
+		{"move-with-button", Action{Kind: "move", X: &n, Y: &n, Button: "left"}, false},
+		{"move-missing-point", Action{Kind: "move"}, false},
+		{"drag", Action{Kind: "drag", X: &n, Y: &n, ToX: &z, ToY: &n}, true},
+		{"drag-same-point", Action{Kind: "drag", X: &n, Y: &n, ToX: &n, ToY: &n}, false},
+		{"drag-missing-destination", Action{Kind: "drag", X: &n, Y: &n}, false},
+		{"drag-half-destination", Action{Kind: "drag", X: &n, Y: &n, ToX: &z}, false},
+		{"scroll-at-point", Action{Kind: "scroll", DeltaX: &z, DeltaY: &n, X: &n, Y: &n}, true},
+		{"scroll-half-point", Action{Kind: "scroll", DeltaX: &z, DeltaY: &n, X: &n}, false},
+		{"scroll-with-destination", Action{Kind: "scroll", DeltaX: &z, DeltaY: &n, ToX: &n, ToY: &n}, false},
+		{"wait", Action{Kind: "wait", Seconds: &one}, true},
+		{"wait-max", Action{Kind: "wait", Seconds: func() *int { s := 10; return &s }()}, true},
+		{"wait-too-long", Action{Kind: "wait", Seconds: func() *int { s := 11; return &s }()}, false},
+		{"wait-zero", Action{Kind: "wait", Seconds: new(int)}, false},
+		{"wait-missing", Action{Kind: "wait"}, false},
+		{"wait-with-point", Action{Kind: "wait", Seconds: &one, X: &n, Y: &n}, false},
+		{"seconds-on-observe", Action{Kind: "observe", Seconds: &one}, false},
+		{"destination-on-click", Action{Kind: "click", X: &n, Y: &n, ToX: &z, ToY: &z}, false},
+		{"key-with-point", Action{Kind: "key", Key: "Enter", X: &n, Y: &n}, false},
+		{"activate-with-point", Action{Kind: "activate", X: &n, Y: &n}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.a.Validate(); (got == nil) != tc.valid {
+				t.Fatalf("valid=%v: %v", tc.valid, got)
+			}
+		})
+	}
+	for _, kind := range []string{"observe", "wait"} {
+		if (Action{Kind: kind}).IsInput() {
+			t.Errorf("%s reported as input", kind)
+		}
+	}
+	for _, kind := range []string{"click", "move", "drag", "scroll", "key", "type", "activate"} {
+		if !(Action{Kind: kind}).IsInput() {
+			t.Errorf("%s not reported as input", kind)
+		}
+	}
+	one = 1
+	raw, _ := json.Marshal(Response{Active: true, Pending: &Request{RequestID: "r", Action: Action{Kind: "wait", Seconds: &one}}})
+	var got Response
+	if Decode(strings.NewReader(string(raw)), &got) != nil || got.Validate() == nil {
+		t.Fatal("accepted a pending wait on the wire")
+	}
+	var count Action
+	if json.Unmarshal([]byte(`{"kind":"click","x":1,"y":1,"count":1.5}`), &count) == nil {
+		t.Fatal("accepted fractional click count")
 	}
 }

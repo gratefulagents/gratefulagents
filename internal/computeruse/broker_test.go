@@ -320,3 +320,15 @@ func TestSessionContextSurvivesResolveNotInvalidation(t *testing.T) {
 		})
 	}
 }
+
+func TestWaitNeverReachesDesktop(t *testing.T) {
+	b, e := attached(t)
+	seconds := 1
+	if _, err := b.Request(context.Background(), Action{Kind: "wait", Seconds: &seconds}, ""); err == nil {
+		t.Fatal("broker accepted an agent-side wait as a desktop request")
+	}
+	e.Operation = "poll"
+	if r, err := b.Exchange(e); err != nil || r.Pending != nil {
+		t.Fatalf("wait left a pending request: %+v %v", r, err)
+	}
+}

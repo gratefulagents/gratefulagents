@@ -253,10 +253,9 @@ impl SessionPolicy {
         }
         let session = self.active(id, scope, now)?;
         if let Some(frame_id) = &request.frame_id {
-            let frame = session.fresh_frame(frame_id, now)?;
-            if let Action::Click { x, y } = &request.action {
-                frame.point(*x, *y)?;
-            }
+            session
+                .fresh_frame(frame_id, now)?
+                .points(&request.action)?;
         }
         session.seen.insert(request.request_id.clone());
         session.pending = Some(Pending {
@@ -1128,7 +1127,12 @@ mod tests {
         let click = QueuedRequest {
             request_id: "click".into(),
             frame_id: Some("1".into()),
-            action: Action::Click { x: 100.0, y: 50.0 },
+            action: Action::Click {
+                x: 100.0,
+                y: 50.0,
+                button: None,
+                count: None,
+            },
         };
         p.queue("s", &scope(), click, now).unwrap();
         p.arm("s", &scope(), "click", "permit".into(), now).unwrap();

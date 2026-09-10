@@ -66,7 +66,10 @@ func TestComputerUsePolicyAndVisionInjection(t *testing.T) {
 						MaxLength int
 						Pattern   string
 					}
-					Key struct{ Enum []string }
+					Kind   struct{ Enum []string }
+					Key    struct{ Pattern, Description string }
+					Button struct{ Enum []string }
+					Count  struct{ Minimum, Maximum int }
 				}
 			}
 		}
@@ -78,8 +81,20 @@ func TestComputerUsePolicyAndVisionInjection(t *testing.T) {
 	if text.Type != "string" || text.MinLength != 1 || text.MaxLength != 1000 || text.Pattern == "" {
 		t.Fatalf("missing proposed text schema bounds: %+v", text)
 	}
-	if !strings.Contains(strings.Join(schema.Properties.Action.Properties.Key.Enum, ","), "Shift+Tab") {
-		t.Fatal("schema missing Shift+Tab")
+	action := schema.Properties.Action.Properties
+	if kinds := strings.Join(action.Kind.Enum, ","); kinds != "observe,click,move,drag,scroll,type,key,activate,wait" {
+		t.Fatalf("unexpected action kinds: %s", kinds)
+	}
+	if action.Key.Pattern == "" || !strings.Contains(action.Key.Description, "Cmd+A") || !strings.Contains(action.Key.Description, "Shift+Tab") {
+		t.Fatalf("schema missing hotkey guidance: %+v", action.Key)
+	}
+	if strings.Join(action.Button.Enum, ",") != "left,right,middle" || action.Count.Minimum != 1 || action.Count.Maximum != 3 {
+		t.Fatal("schema missing click button/count bounds")
+	}
+	for _, guidance := range []string{"double/triple click", "drag from x,y to toX,toY", "wait seconds (1-10)", "letters/digits need Control, Option, or Cmd", "follow-up observation should verify"} {
+		if !strings.Contains(tool.Description(), guidance) {
+			t.Errorf("description missing %q", guidance)
+		}
 	}
 }
 
@@ -277,7 +292,18 @@ func TestComputerUseRejectsInvalidNativeActions(t *testing.T) {
 		`{"kind":"type","text":""}`,
 		`{"kind":"type","text":"` + strings.Repeat("😀", 501) + `"}`,
 		`{"kind":"type","text":"PRIVATE\u0085"}`,
-		`{"kind":"key","key":"Shift+Enter"}`,
+		`{"kind":"key","key":"Cmd+Q"}`,
+		`{"kind":"key","key":"A"}`,
+		`{"kind":"key","key":"Cmd+Tab"}`,
+		`{"kind":"click","x":1,"y":1,"button":"back"}`,
+		`{"kind":"click","x":1,"y":1,"count":4}`,
+		`{"kind":"drag","x":1,"y":1,"toX":1,"toY":1}`,
+		`{"kind":"drag","x":1,"y":1}`,
+		`{"kind":"move","x":1}`,
+		`{"kind":"wait","seconds":0}`,
+		`{"kind":"wait","seconds":11}`,
+		`{"kind":"wait"}`,
+		`{"kind":"click","x":1,"y":1,"question":"` + strings.Repeat("q", 2049) + `"}`,
 		`{"kind":"scroll","deltaX":1}`,
 		`{"kind":"scroll","deltaY":1}`,
 		`{"kind":"scroll","deltaX":0,"deltaY":0}`,

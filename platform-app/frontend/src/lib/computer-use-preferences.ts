@@ -33,7 +33,7 @@ export const APPROVAL_MODE_META: Record<ComputerUseApprovalMode, {
   assisted: {
     label: "Automatically approve read-only",
     short: "Assisted",
-    description: "Screen observations, scrolling, and bringing the app forward run automatically. Clicks, typing, and key presses still ask you first.",
+    description: "Screen observations, scrolling, pointer hovering, and bringing the app forward run automatically. Clicks, drags, typing, and key presses still ask you first.",
   },
   auto: {
     label: "Skip all approvals",
@@ -43,7 +43,7 @@ export const APPROVAL_MODE_META: Record<ComputerUseApprovalMode, {
 };
 
 /** Actions that never enter input; assisted mode approves these automatically. */
-const READ_ONLY_KINDS: ReadonlySet<DesktopAction["kind"]> = new Set(["observe", "scroll", "activate"]);
+const READ_ONLY_KINDS: ReadonlySet<DesktopAction["kind"]> = new Set(["observe", "scroll", "move", "activate"]);
 
 export function isReadOnlyAction(kind: DesktopAction["kind"]): boolean {
   return READ_ONLY_KINDS.has(kind);
