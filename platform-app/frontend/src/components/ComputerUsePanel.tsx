@@ -77,6 +77,8 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
   const [supported, setSupported] = useState(false);
   const [windows, setWindows] = useState<WindowTarget[]>([]);
   const [selected, setSelected] = useState("");
+  const [windowSearch, setWindowSearch] = useState("");
+  const panelRef = useRef<HTMLDetailsElement>(null);
   const [consent, setConsent] = useState(false);
   const [session, setSession] = useState<DesktopSession | null>(null);
   const [preview, setPreview] = useState<WindowCapture | null>(null);
@@ -96,6 +98,12 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
   const localSession = useRef<DesktopSession | null>(null);
   const pendingRef = useRef<DesktopRequest | null>(null);
   const inFlight = useRef<string | null>(null);
+  useEffect(() => {
+    if (panelRef.current && (pending || session?.phase === "paused" || error)) {
+      panelRef.current.open = true;
+    }
+  }, [pending, session?.phase, error]);
+
   const sessionId = session?.sessionId;
   const sessionScope = session?.scope;
   const invalidate = useCallback(() => {
@@ -152,6 +160,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     if (isTauri && localSession.current) void disconnect();
     setWindows([]);
     setSelected("");
+    setWindowSearch("");
     setActivity([]);
   }, [namespace, name, user, enabled, model, disconnect]);
 
@@ -394,9 +403,11 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     ? `${ACTION_META[pending.action.kind].label} is allowed for this session` : APPROVAL_MODE_META[approvalMode].label;
   const skipAll = approvalMode === "auto";
   const allowedList = [...sessionAllowed].map((kind) => ACTION_META[kind].label);
+  const matchingWindows = windows.filter((window) =>
+    `${window.application} ${window.title}`.toLocaleLowerCase().includes(windowSearch.trim().toLocaleLowerCase()));
 
   return (
-    <details className="group/cu border-t text-sm">
+    <details ref={panelRef} className="group/cu border-t text-sm">
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2 select-none hover:bg-muted/40 md:px-4 [&::-webkit-details-marker]:hidden">
         <span className="grid size-6 shrink-0 place-items-center rounded-md bg-muted/60 text-muted-foreground ring-1 ring-inset ring-border/60 [&_svg]:size-3.5">
           <Monitor />
@@ -417,6 +428,12 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
           <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium", toneSoft.info)}>
             Needs your approval
           </span>
+        )}
+        {session && (
+          <Button size="xs" variant="destructive" className="ml-auto"
+            onClick={(event) => { event.preventDefault(); void disconnect(); }}>
+            <Square data-icon="inline-start" /> Stop computer use
+          </Button>
         )}
         <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-open/cu:rotate-180" />
       </summary>
@@ -454,18 +471,31 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
                   onClick={() => void operate(async () => {
                     const current = generation.current;
                     const available = await computerUseWindows();
-                    if (current === generation.current) { setWindows(available); setSelected(""); }
+                    if (current === generation.current) {
+                      setWindows(available);
+                      const previous = windows.find((window) => String(window.windowId) === selected);
+                      if (!previous || !available.some((window) => window.windowId === previous.windowId &&
+                          window.processId === previous.processId && window.application === previous.application)) {
+                        setSelected("");
+                        setConsent(false);
+                      }
+                    }
                   })}>
                   <RefreshCw data-icon="inline-start" />
                   List open windows
                 </Button>
               </div>
+              {!!windows.length && <input type="search" aria-label="Search apps and windows"
+                placeholder="Search apps and windows…" value={windowSearch}
+                className="mb-2 block h-8 w-full rounded-md border bg-background px-2 text-sm"
+                onChange={(event) => setWindowSearch(event.target.value)} />}
               <select aria-label="Approved window"
                 className="block h-8 w-full rounded-md border bg-background px-2 text-sm disabled:opacity-50"
-                value={selected} disabled={busy || !enabled || !windows.length} onChange={(event) => setSelected(event.target.value)}>
+                value={selected} disabled={busy || !enabled || !windows.length} onChange={(event) => { setSelected(event.target.value); setConsent(false); }}>
                 <option value="">{windows.length ? "Select a window" : "List open windows first"}</option>
-                {windows.map((window) => <option key={window.windowId} value={window.windowId}>{window.application} — {window.title}</option>)}
+                {windows.filter((window) => matchingWindows.includes(window) || String(window.windowId) === selected).map((window) => <option key={window.windowId} value={window.windowId}>{window.application} — {window.title}</option>)}
               </select>
+              {!!windows.length && !matchingWindows.length && <p role="status" className="mt-1.5 text-xs text-muted-foreground">No matching windows. Open the app on your Mac, then refresh the window list.</p>}
               <p className="mt-1.5 text-[11px] text-muted-foreground">The agent can only see and act inside this one window. Prefer a test document with no private data.</p>
             </div>
 
@@ -534,10 +564,6 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
               })}>
                 {session.phase === "paused" ? <Play data-icon="inline-start" /> : <Pause data-icon="inline-start" />}
                 {session.phase === "paused" ? "Resume" : "Pause"}
-              </Button>
-              <Button size="sm" variant="destructive" onClick={() => void disconnect()}>
-                <Square data-icon="inline-start" />
-                Stop computer use
               </Button>
             </div>
           </div>

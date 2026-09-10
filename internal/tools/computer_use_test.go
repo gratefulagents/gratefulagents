@@ -223,7 +223,7 @@ func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
 			}
 			select {
 			case result := <-done:
-				want := `{"status":"completed"}`
+				want := `{"status":"completed","verified":false,"nextStep":"Observe the approved window to verify the effect before reporting success or taking another action."}`
 				if tc.status != "completed" {
 					want = "Desktop action " + tc.status + computerUseNoRetry
 				}
@@ -423,5 +423,17 @@ func TestComputerUseClaimedCancellationWarnsAgainstRetry(t *testing.T) {
 	e.Operation, e.RequestID = "poll", ""
 	if r, err := b.Exchange(e); err != nil || r.Active {
 		t.Fatalf("canceled claim remained active: %+v %v", r, err)
+	}
+}
+
+func TestComputerUseWorkflowDescription(t *testing.T) {
+	description := (&ComputerUseTool{}).Description()
+	for _, requirement := range []string{"not a headless Browser session", "locally selected mode", "observe again to verify", "not that the task succeeded"} {
+		if !strings.Contains(description, requirement) {
+			t.Errorf("missing workflow guidance: %s", requirement)
+		}
+	}
+	if strings.Contains(description, "Every action requires local human approval") {
+		t.Fatal("description contradicts session approval modes")
 	}
 }

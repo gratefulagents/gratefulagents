@@ -87,6 +87,47 @@ async function startSession() {
 }
 
 describe("run-bound desktop preview", () => {
+  it("filters windows by app or title without silently changing the approved target", async () => {
+    m.windows.mockResolvedValue([target, { ...target, windowId: 43, application: "Firefox", title: "Google" }]);
+    await panel();
+    await selectAndConsent();
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "firefox" } });
+    expect(screen.getByRole("option", { name: "Firefox — Google" })).toBeTruthy();
+    expect((screen.getByRole("combobox", { name: "Approved window" }) as HTMLSelectElement).value).toBe("42");
+    fireEvent.change(screen.getByRole("combobox", { name: "Approved window" }), { target: { value: "43" } });
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } });
+    expect(screen.getByText(/No matching windows/)).toBeTruthy();
+  });
+
+  it("preserves selection on refresh but revokes consent if the target process changes", async () => {
+    await panel();
+    await selectAndConsent();
+    fireEvent.click(screen.getByRole("button", { name: "List open windows" }));
+    await waitFor(() => expect(m.windows).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start supervised session" }).hasAttribute("disabled")).toBe(false));
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+    m.windows.mockResolvedValue([{ ...target, processId: 100 }]);
+    fireEvent.click(screen.getByRole("button", { name: "List open windows" }));
+    await waitFor(() => expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false));
+    expect((screen.getByRole("combobox", { name: "Approved window" }) as HTMLSelectElement).value).toBe("");
+  });
+
+  it("reveals approval requests and keeps stop available when collapsed", async () => {
+    remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "click", x: 10, y: 20 } };
+    const view = await panel();
+    view.container.querySelector("details")?.removeAttribute("open");
+    await startSession();
+    await screen.findByText("Agent requests: click");
+    expect(view.container.querySelector("details")?.open).toBe(true);
+    view.container.querySelector("details")?.removeAttribute("open");
+    const stop = screen.getByRole("button", { name: "Stop computer use" });
+    expect(stop.closest("summary")).not.toBeNull();
+    fireEvent.click(stop);
+    await screen.findByRole("status", { name: "Session stopped" });
+    expect(m.approve).not.toHaveBeenCalled();
+  });
+
   it("requires window selection and explicit consent, without capturing automatically", async () => {
     await panel();
     expect((screen.getByRole("button", { name: "Start supervised session" }) as HTMLButtonElement).disabled).toBe(true);

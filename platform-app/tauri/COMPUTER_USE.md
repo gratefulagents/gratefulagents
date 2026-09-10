@@ -15,6 +15,16 @@ This branch connects **actual Mac window capture and input to an agent run**, wi
 - Control+Option+Command+Escape, the native tray's **Stop computer use**, window close, and app exit revoke native authorization independently of React. Returning to an approved application or reconnecting never silently resumes a revoked session.
 - The webview holds no `global-shortcut` register/unregister permission, so page script cannot remove the native emergency-stop shortcut. Only the main supervisor window's close revokes authorization; auxiliary windows (OAuth) closing do not.
 
+## Workflow handoff
+
+The window picker supports searching by app or window title. Refreshing keeps the chosen target and consent only while its window, process and application identity still match; selecting a different target requires new sharing consent. Search never silently switches the selected target. Incoming requests, pauses and errors reveal the panel, and Stop computer use remains available in its collapsed header.
+
+The agent tool distinguishes the connected local app from a headless browser. Successful input returns `verified: false` with an instruction to observe the result before continuing or reporting success. This is agent guidance, not an automatic visual success detector or a new native enforcement boundary. Existing single-window authorization and approval modes are unchanged.
+
+These improvements take inspiration from [Cua](https://github.com/trycua/cua)'s app-oriented workflow and [Agent S](https://github.com/simular-ai/Agent-S)'s observation/action loop; neither framework is added as a dependency. Cross-platform drivers, application launch/switching outside the approved window, and automatic post-action capture are not implemented here.
+
+![Synthetic workflow setup rendered from the component with mocked native IPC, not Mac acceptance evidence](docs/computer-use-workflow.png)
+
 ## Safety and privacy limits
 
 Window selection is **not OS isolation**. Native policy permits the approved application or the supervisor in front for preview/approval; input still requires the approved target. Another foreground application pauses the session. Accessibility checks and Core Graphics event dispatch cannot be atomic: focus can change between a check and an OS event. Stop cannot retract an event already posted or a screenshot already sent to a provider. Use non-sensitive test applications until real-device acceptance is complete.
