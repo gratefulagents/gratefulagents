@@ -15,7 +15,11 @@ export interface WindowTarget {
   title: string;
 }
 
+export type DesktopMode = "selected_window" | "agent_choice";
+export interface WindowMetadata { ref: string; application: string; title: string }
+
 export interface DesktopScope {
+  mode?: DesktopMode;
   backend: string;
   user: string;
   namespace: string;
@@ -26,6 +30,8 @@ export interface DesktopScope {
 }
 
 export interface DesktopSession {
+  targetRevision?: number;
+  target?: WindowMetadata | null;
   revision: number;
   phase: "stopped" | "active" | "paused";
   sessionId: string | null;
@@ -69,8 +75,16 @@ export async function relaunchComputerUse(): Promise<void> {
 
 export const computerUseWindows = () => nativeCommand<WindowTarget[]>("computer_use_windows");
 export const desktopSessionStatus = () => nativeCommand<DesktopSession>("computer_use_session_status");
-export const startDesktopSession = (scope: DesktopScope, consentToScreenSharing: boolean, expectedRevision: number) =>
-  nativeCommand<DesktopSession>("computer_use_session_start", { scope, consentToScreenSharing, expectedRevision });
+export const startDesktopSession = async (scope: DesktopScope, consentToScreenSharing: boolean, expectedRevision: number) => {
+  try {
+    return await nativeCommand<DesktopSession>("computer_use_session_start", { scope, consentToScreenSharing, expectedRevision });
+  } catch (error) {
+    if (scope.mode === "agent_choice" && /unknown field|unknown variant/i.test(String(error))) {
+      throw new Error("Agent-choice protocol is unsupported by this desktop app; update it and reconnect with fresh consent");
+    }
+    throw error;
+  }
+};
 export const heartbeatDesktopSession = (sessionId: string, scope: DesktopScope) =>
   nativeCommand<void>("computer_use_session_heartbeat", { sessionId, scope });
 export const pauseDesktopSession = () => nativeCommand<void>("computer_use_session_pause");
@@ -83,6 +97,8 @@ export const captureDesktopWindow = (sessionId: string, scope: DesktopScope) =>
 export type MouseButton = "left" | "right" | "middle";
 
 export type DesktopAction =
+  | { kind: "list_windows" }
+  | { kind: "select_window"; targetRef: string }
   | { kind: "observe"; question?: string }
   | { kind: "click"; x: number; y: number; button?: MouseButton; count?: 1 | 2 | 3 }
   | { kind: "move"; x: number; y: number }
@@ -171,12 +187,16 @@ export function hotkeyGlyphs(raw: string): string[] {
 }
 
 export interface DesktopRequest {
+  targetRevision?: number;
   requestId: string;
   frameId?: string;
   action: DesktopAction;
 }
 
 export interface DesktopOutcome {
+  targetRevision?: number;
+  windows?: WindowMetadata[];
+  target?: WindowMetadata;
   requestId: string;
   status: "completed" | "failed" | "denied";
   message: string;

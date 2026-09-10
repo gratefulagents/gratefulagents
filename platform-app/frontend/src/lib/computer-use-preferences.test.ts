@@ -29,6 +29,10 @@ describe("computer use approval mode preference", () => {
       expect(modeAutoApproves("manual", kind)).toBe(false);
       expect(modeAutoApproves("auto", kind)).toBe(true);
     }
+    expect(modeAutoApproves("assisted", "list_windows")).toBe(true);
+    expect(modeAutoApproves("assisted", "select_window")).toBe(false);
+    expect(modeAutoApproves("manual", "select_window")).toBe(false);
+    expect(modeAutoApproves("auto", "select_window")).toBe(true);
     expect(modeAutoApproves("assisted", "observe")).toBe(true);
     expect(modeAutoApproves("assisted", "scroll")).toBe(true);
     expect(modeAutoApproves("assisted", "activate")).toBe(true);

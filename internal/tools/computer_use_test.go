@@ -82,7 +82,7 @@ func TestComputerUsePolicyAndVisionInjection(t *testing.T) {
 		t.Fatalf("missing proposed text schema bounds: %+v", text)
 	}
 	action := schema.Properties.Action.Properties
-	if kinds := strings.Join(action.Kind.Enum, ","); kinds != "observe,click,move,drag,scroll,type,key,activate,open_url,wait" {
+	if kinds := strings.Join(action.Kind.Enum, ","); kinds != "list_windows,select_window,observe,click,move,drag,scroll,type,key,activate,open_url,wait" {
 		t.Fatalf("unexpected action kinds: %s", kinds)
 	}
 	if action.Key.Pattern == "" || !strings.Contains(action.Key.Description, "Cmd+A") || !strings.Contains(action.Key.Description, "Shift+Tab") {

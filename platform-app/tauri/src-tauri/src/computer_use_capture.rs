@@ -260,6 +260,7 @@ mod tests {
     #[test]
     fn unsupported_platform_cannot_list_or_capture_windows() {
         let scope = super::super::computer_use_session::SessionScope {
+            mode: super::super::computer_use_session::SessionMode::SelectedWindow,
             backend: "https://operator.example".into(),
             user: "u".into(),
             namespace: "default".into(),
