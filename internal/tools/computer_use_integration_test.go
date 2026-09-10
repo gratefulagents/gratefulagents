@@ -235,6 +235,7 @@ func TestComputerUseExtendedActionsReachDesktop(t *testing.T) {
 		{"drag", `{"kind":"drag","x":1,"y":2,"toX":30,"toY":40}`, "drag", `"toX":30,"toY":40`},
 		{"scroll-at", `{"kind":"scroll","deltaX":0,"deltaY":120,"x":7,"y":8}`, "scroll", `"x":7,"y":8`},
 		{"hotkey", `{"kind":"key","key":"Cmd+Shift+Z","question":"Was the edit redone?"}`, "key", `"key":"Cmd+Shift+Z"`},
+		{"open-url", `{"kind":"open_url","url":"https://www.google.com/search?q=gratefulagents","question":"Did the results page load?"}`, "open_url", `"url":"https://www.google.com/search?q=gratefulagents"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newDesktopWorkflowHarness(t)
@@ -264,6 +265,25 @@ func TestComputerUseExtendedActionsReachDesktop(t *testing.T) {
 				t.Fatalf("follow-up observation ignored the verification question: %q", seenPrompt)
 			}
 		})
+	}
+}
+
+// open_url needs no prior observation: a browser task can start from a URL.
+func TestComputerUseOpenURLNeedsNoFrame(t *testing.T) {
+	h := newDesktopWorkflowHarness(t)
+	done := h.start(`{"action":{"kind":"open_url","url":"https://example.com/"}}`)
+	request := h.next("open_url")
+	if request.FrameID != "" || request.Action.URL != "https://example.com/" {
+		t.Fatalf("unexpected open_url request: %+v", request)
+	}
+	h.complete(request, "failed", nil)
+	// The native reason reaches the agent so it can pick a different approach.
+	result := h.result(done)
+	if !result.IsError || !bytes.Contains([]byte(result.Content), []byte("Desktop action failed")) {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if h.relay("poll", "", nil).Pending != nil {
+		t.Fatal("failed open_url queued a retry")
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"image/png"
 	"io"
 	"math"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -68,10 +69,35 @@ type Action struct {
 	Button string `json:"button,omitempty"`
 	Count  *int   `json:"count,omitempty"`
 	// Seconds is the agent-side wait before a fresh observation; never sent to the desktop.
-	Seconds  *int   `json:"seconds,omitempty"`
-	Key      string `json:"key,omitempty"`
-	Text     string `json:"text,omitempty"`
+	Seconds *int   `json:"seconds,omitempty"`
+	Key     string `json:"key,omitempty"`
+	Text    string `json:"text,omitempty"`
+	// URL is an absolute http(s) address for open_url, loaded by the approved
+	// browser in the background.
+	URL      string `json:"url,omitempty"`
 	Question string `json:"question,omitempty"`
+}
+
+// NeedsFrame reports whether the action targets coordinates or focus from a
+// prior observation and therefore requires its frameId.
+func (a Action) NeedsFrame() bool {
+	switch a.Kind {
+	case "observe", "wait", "open_url":
+		return false
+	}
+	return true
+}
+
+// WebURL accepts absolute http(s) URLs with a host and without credentials.
+func WebURL(raw string) (*url.URL, error) {
+	if raw == "" || len(raw) > 2048 || strings.ContainsFunc(raw, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) {
+		return nil, ErrRejected
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil {
+		return nil, ErrRejected
+	}
+	return u, nil
 }
 
 // IsInput reports whether the action delivers OS events to the approved window.
@@ -262,7 +288,8 @@ func (a Action) Validate() error {
 	}
 	// Fields that belong to exactly one kind.
 	if (a.Kind != "click" && (a.Button != "" || a.Count != nil)) || (a.Kind != "drag" && (a.ToX != nil || a.ToY != nil)) ||
-		(a.Kind != "wait" && a.Seconds != nil) || (a.Kind != "key" && a.Key != "") || (a.Kind != "scroll" && (a.DeltaX != nil || a.DeltaY != nil)) {
+		(a.Kind != "wait" && a.Seconds != nil) || (a.Kind != "key" && a.Key != "") || (a.Kind != "scroll" && (a.DeltaX != nil || a.DeltaY != nil)) ||
+		(a.Kind != "open_url" && a.URL != "") {
 		return ErrRejected
 	}
 	point := a.X != nil && a.Y != nil
@@ -319,6 +346,13 @@ func (a Action) Validate() error {
 	case "activate":
 		if point {
 			return ErrRejected
+		}
+	case "open_url":
+		if point {
+			return ErrRejected
+		}
+		if _, err := WebURL(a.URL); err != nil {
+			return err
 		}
 	default:
 		return ErrRejected

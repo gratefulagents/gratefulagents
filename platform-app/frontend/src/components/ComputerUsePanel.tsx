@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  AlertTriangle, AppWindow, ChevronDown, Eye, Keyboard, Monitor, MousePointer2, MousePointerClick,
+  AlertTriangle, AppWindow, ChevronDown, Eye, Globe, Keyboard, Monitor, MousePointer2, MousePointerClick,
   Move, MoveVertical, Pause, Play, RefreshCw, ShieldAlert, Square, Type as TypeIcon, Zap,
 } from "lucide-react";
 import { ApprovalModeBadge, ApprovalModeControl } from "@/components/ComputerUseApprovalMode";
@@ -28,7 +28,7 @@ import {
 } from "@/lib/computer-use-preferences";
 
 type ActionKind = DesktopAction["kind"];
-type Activity = { id: string; kind: ActionKind; status: string; summary: string; at: number; auto: boolean };
+type Activity = { id: string; kind: ActionKind; status: string; summary: string; detail?: string; at: number; auto: boolean };
 
 const ACTION_META: Record<ActionKind, { label: string; icon: ReactNode }> = {
   observe: { label: "Observe", icon: <Eye /> },
@@ -39,6 +39,7 @@ const ACTION_META: Record<ActionKind, { label: string; icon: ReactNode }> = {
   type: { label: "Type text", icon: <TypeIcon /> },
   key: { label: "Key press", icon: <Keyboard /> },
   activate: { label: "Activate app", icon: <AppWindow /> },
+  open_url: { label: "Open URL", icon: <Globe /> },
 };
 
 const PHASE_TONE: Record<DesktopSession["phase"], StatusTone> = { stopped: "neutral", active: "running", paused: "warning" };
@@ -69,6 +70,7 @@ function describeAction(request: DesktopRequest): ReactNode {
     case "scroll": return <>Scroll horizontally {action.deltaX}, vertically {action.deltaY} pixels (positive: right/down){action.x !== undefined ? <> with the pointer at ({action.x}, {action.y})</> : null}.</>;
     case "key": return <><span>Press {action.key}.</span> <HotkeyKeys value={action.key} /></>;
     case "activate": return <>Bring the approved application to the foreground.</>;
+    case "open_url": return <>Open <span className="break-all font-mono">{action.url}</span> in the approved browser without bringing it forward.</>;
     case "type": return null;
   }
 }
@@ -85,6 +87,7 @@ function summarizeAction(action: DesktopAction): string {
     case "type": return `Typed ${action.text.length} character${action.text.length === 1 ? "" : "s"}`;
     case "key": return `Pressed ${action.key}`;
     case "activate": return "Brought the approved app forward";
+    case "open_url": return `Opened ${action.url.length > 80 ? `${action.url.slice(0, 77)}…` : action.url}`;
   }
 }
 
@@ -367,7 +370,8 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
         }
         if (permit === null) {
           // Report local validation failure without ever authorizing an input.
-          outcome = { requestId: request.requestId, status: "failed", message: "Native validation rejected the request; obtain a fresh observation and human approval." };
+          // The native reason is forwarded so the agent can adapt instead of asking the user to look.
+          outcome = { requestId: request.requestId, status: "failed", message: `Native validation rejected the request: ${String(localFailure).slice(0, 1024)}. Obtain a fresh observation and human approval.` };
           setError(String(localFailure));
           await cancelDesktopRequest(id, scope, request.requestId).catch(() => {});
         } else {
@@ -394,6 +398,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
         summary: outcome.status === "completed" ? summarizeAction(request.action)
           : outcome.status === "denied" ? `Denied ${ACTION_META[request.action.kind].label.toLowerCase()}`
           : `${ACTION_META[request.action.kind].label} failed`,
+        detail: outcome.status === "failed" ? outcome.message : undefined,
       }, ...old].slice(0, 20));
       if (outcome.status === "failed") setError(`${outcome.message} The action may be partially applied. Do not retry automatically.`);
       pendingRef.current = null;
@@ -717,10 +722,13 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
                 return (
                   <li key={entry.id} className="flex items-center gap-2 px-2.5 py-1.5">
                     <span className={cn("grid size-5 shrink-0 place-items-center [&_svg]:size-3.5", toneText[tone])}>{ACTION_META[entry.kind].icon}</span>
-                    <span className="min-w-0 flex-1 truncate">
-                      <span className="sr-only">{entry.kind} — {entry.status}</span>
-                      {entry.summary}
-                      {entry.auto && <span className="ml-1.5 text-muted-foreground">· auto-approved</span>}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">
+                        <span className="sr-only">{entry.kind} — {entry.status}</span>
+                        {entry.summary}
+                        {entry.auto && <span className="ml-1.5 text-muted-foreground">· auto-approved</span>}
+                      </span>
+                      {entry.detail && <span className="block truncate text-[11px] text-muted-foreground" title={entry.detail}>{entry.detail}</span>}
                     </span>
                     <time className="shrink-0 font-mono text-[10.5px] text-muted-foreground" dateTime={new Date(entry.at).toISOString()}>{timeFormat.format(entry.at)}</time>
                     <span className={cn("inline-flex h-4.5 shrink-0 items-center rounded-full px-1.5 text-[10.5px] font-medium", toneSoft[tone])}>{entry.status}</span>

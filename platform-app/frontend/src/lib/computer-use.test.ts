@@ -4,7 +4,7 @@ import {
   desktopSessionStatus, startDesktopSession, heartbeatDesktopSession,
   pauseDesktopSession, resumeDesktopSession, stopDesktopSession, captureDesktopWindow,
   queueDesktopRequest, armDesktopRequest, approveDesktopRequest, cancelDesktopRequest,
-  hotkeyGlyphs, parseHotkey,
+  hotkeyGlyphs, isWebUrl, parseHotkey,
 } from "./computer-use";
 
 const native = vi.hoisted(() => ({ isTauri: true, platform: vi.fn(), invoke: vi.fn() }));
@@ -123,4 +123,14 @@ describe("hotkey grammar", () => {
     expect(hotkeyGlyphs("Enter")).toEqual(["↩"]);
     expect(hotkeyGlyphs("Cmd+Q")).toEqual(["Cmd+Q"]);
   });
+});
+
+describe("web URL guard", () => {
+  it.each(["https://www.google.com", "http://localhost:8080/x", "https://example.com/a%20b?q=1#f"])("accepts %s", (url) => {
+    expect(isWebUrl(url)).toBe(true);
+  });
+  it.each(["", "google.com", "file:///etc/passwd", "javascript:alert(1)", "ftp://example.com", "https://", "https://user:pw@example.com",
+    "https://user@example.com", "https://example.com/a b", "https://example.com/\n", `https://example.com/${"a".repeat(2048)}`, 42, null])(
+    "rejects %s", (url) => expect(isWebUrl(url)).toBe(false),
+  );
 });
