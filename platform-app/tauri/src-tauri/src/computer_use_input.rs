@@ -684,20 +684,7 @@ pub mod macos {
         fn CGDisplayPixelsWide(id: u32) -> usize;
         fn CGDisplayPixelsHigh(id: u32) -> usize;
         fn CGDisplayRotation(id: u32) -> f64;
-        fn CGWindowListCreateImage(rect: Rect, option: u32, window: u32, flags: u32) -> Ref;
-        fn CGImageGetWidth(image: Ref) -> usize;
-        fn CGImageGetHeight(image: Ref) -> usize;
-        fn CGColorSpaceCreateDeviceRGB() -> Ref;
-        fn CGBitmapContextCreate(
-            data: *mut c_void,
-            width: usize,
-            height: usize,
-            bits: usize,
-            row: usize,
-            space: Ref,
-            flags: u32,
-        ) -> Ref;
-        fn CGContextDrawImage(context: Ref, rect: Rect, image: Ref);
+
     }
 
     struct Owned(Ref);
@@ -898,62 +885,6 @@ pub mod macos {
         result.sort_by_key(|d| d.id);
         Ok(result)
     }
-    pub fn capture_image(
-        scope: &SessionScope,
-        geometry: &WindowGeometry,
-    ) -> Result<image::RgbaImage, String> {
-        let (width, height) =
-            super::super::computer_use_capture::output_dimensions(geometry.width, geometry.height)?;
-        let rect = Rect {
-            origin: Point {
-                x: geometry.x.into(),
-                y: geometry.y.into(),
-            },
-            size: Size {
-                width: geometry.width.into(),
-                height: geometry.height.into(),
-            },
-        };
-        // Nominal resolution plus explicit bounds avoids Retina-sized/shadow allocations.
-        let image = Owned::new(unsafe {
-            CGWindowListCreateImage(rect, 1 << 3, scope.window_id, (1 << 0) | (1 << 4))
-        })?;
-        if unsafe { CGImageGetWidth(image.0) } != geometry.width as usize
-            || unsafe { CGImageGetHeight(image.0) } != geometry.height as usize
-        {
-            return Err("Unexpected native capture dimensions".into());
-        }
-        let space = Owned::new(unsafe { CGColorSpaceCreateDeviceRGB() })?;
-        let mut pixels = vec![0u8; width as usize * height as usize * 4];
-        let context = Owned::new(unsafe {
-            CGBitmapContextCreate(
-                pixels.as_mut_ptr().cast(),
-                width as usize,
-                height as usize,
-                8,
-                width as usize * 4,
-                space.0,
-                1,
-            )
-        })?;
-        unsafe {
-            CGContextDrawImage(
-                context.0,
-                Rect {
-                    origin: Point::default(),
-                    size: Size {
-                        width: width.into(),
-                        height: height.into(),
-                    },
-                },
-                image.0,
-            )
-        };
-        drop(context);
-        image::RgbaImage::from_raw(width, height, pixels)
-            .ok_or_else(|| "Invalid image dimensions".into())
-    }
-
     fn window_geometry_matches(window: Ref, geometry: &WindowGeometry) -> bool {
         let (Ok(position), Ok(size)) = (attr(window, "AXPosition"), attr(window, "AXSize")) else {
             return false;
@@ -977,12 +908,9 @@ pub mod macos {
         if !window_geometry_matches(focused_window.0, geometry) {
             return Err("Focused window geometry differs from the approved window".into());
         }
-        // AX has no public window-ID accessor. Require the application's frontmost CG window to be the approved ID as well.
-        let first = xcap::Window::all()
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|w| w.pid().ok() == Some(scope.process_id));
-        if first.and_then(|w| w.id().ok()) != Some(scope.window_id) {
+        // AX has no public window-ID accessor; require the approved ID to be
+        // the process's frontmost window as well as matching AX geometry.
+        if !super::super::computer_use_capture::available_target(scope)?.frontmost {
             return Err("Approved window is not the frontmost application window".into());
         }
         Ok(())
@@ -1217,9 +1145,12 @@ pub mod macos {
             if let Some(frame) = frame {
                 frame.validate_snapshot(&geometry, &display, Instant::now())?;
             }
+            if scope.mode == super::super::computer_use_session::SessionMode::AgentChoice {
+                super::super::computer_use::require_agent_permission()?;
+            }
             let permissions = super::super::computer_use::computer_use_permissions();
             if !permissions.accessibility
-                || !permissions.screen_recording
+                || !permissions.supported
                 || !unsafe { CGPreflightPostEventAccess() }
             {
                 return Err("Required OS permission was revoked".into());

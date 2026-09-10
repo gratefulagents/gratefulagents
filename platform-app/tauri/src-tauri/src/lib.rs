@@ -19,6 +19,7 @@ mod anthropic_oauth;
 mod computer_use;
 mod computer_use_capture;
 mod computer_use_input;
+mod computer_use_picker;
 mod computer_use_session;
 mod copilot_oauth;
 mod deep_link;
@@ -197,7 +198,7 @@ pub fn run() {
             computer_use::computer_use_permissions,
             computer_use::computer_use_open_permission,
             computer_use::computer_use_relaunch,
-            computer_use_capture::computer_use_windows,
+            computer_use_session::computer_use_pick_window,
             computer_use_session::computer_use_capture_window,
             computer_use_session::computer_use_queue_request,
             computer_use_session::computer_use_arm_request,

@@ -2,13 +2,14 @@ import { isTauri, platform } from "./platform";
 
 export interface ComputerUsePermissions {
   supported: boolean;
-  screenRecording: boolean;
   accessibility: boolean;
+  agentScreenRecording?: boolean;
 }
 
-export type ComputerUsePermission = "screen_recording" | "accessibility";
+export type ComputerUsePermission = "accessibility" | "agent_screen_recording";
 
 export interface WindowTarget {
+  selectionId: string;
   windowId: number;
   processId: number;
   application: string;
@@ -57,7 +58,7 @@ async function nativeCommand<T>(command: string, args?: Record<string, unknown>)
 
 export async function computerUsePermissions(): Promise<ComputerUsePermissions> {
   if (!isTauri || (await platform()) !== "macos") {
-    return { supported: false, screenRecording: false, accessibility: false };
+    return { supported: false, accessibility: false };
   }
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<ComputerUsePermissions>("computer_use_permissions");
@@ -73,11 +74,12 @@ export async function relaunchComputerUse(): Promise<void> {
   await nativeCommand("computer_use_relaunch");
 }
 
-export const computerUseWindows = () => nativeCommand<WindowTarget[]>("computer_use_windows");
+export const pickComputerUseWindow = (expectedRevision: number) =>
+  nativeCommand<WindowTarget | null>("computer_use_pick_window", { expectedRevision });
 export const desktopSessionStatus = () => nativeCommand<DesktopSession>("computer_use_session_status");
-export const startDesktopSession = async (scope: DesktopScope, consentToScreenSharing: boolean, expectedRevision: number) => {
+export const startDesktopSession = async (scope: DesktopScope, consentToScreenSharing: boolean, expectedRevision: number, selectionId: string) => {
   try {
-    return await nativeCommand<DesktopSession>("computer_use_session_start", { scope, consentToScreenSharing, expectedRevision });
+    return await nativeCommand<DesktopSession>("computer_use_session_start", { scope, consentToScreenSharing, expectedRevision, selectionId });
   } catch (error) {
     if (scope.mode === "agent_choice" && /unknown field|unknown variant/i.test(String(error))) {
       throw new Error("Agent-choice protocol is unsupported by this desktop app; update it and reconnect with fresh consent");
@@ -85,6 +87,7 @@ export const startDesktopSession = async (scope: DesktopScope, consentToScreenSh
     throw error;
   }
 };
+
 export const heartbeatDesktopSession = (sessionId: string, scope: DesktopScope) =>
   nativeCommand<void>("computer_use_session_heartbeat", { sessionId, scope });
 export const pauseDesktopSession = () => nativeCommand<void>("computer_use_session_pause");

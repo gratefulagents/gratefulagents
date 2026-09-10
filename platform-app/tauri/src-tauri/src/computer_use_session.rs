@@ -181,6 +181,7 @@ impl SessionPolicy {
             session.invalidate();
         }
         self.session = None;
+        super::computer_use_picker::clear();
         self.reason = reason.to_owned();
     }
 
@@ -528,6 +529,7 @@ pub struct ComputerUseSession {
     policy: Mutex<SessionPolicy>,
     pub shortcut_ready: AtomicBool,
     capture_busy: AtomicBool,
+    picker_busy: AtomicBool,
 }
 
 pub fn stop<R: Runtime>(app: &AppHandle<R>, reason: &str) {
@@ -545,15 +547,54 @@ pub fn stop<R: Runtime>(app: &AppHandle<R>, reason: &str) {
 fn require_permissions(state: &ComputerUseSession) -> Result<(), String> {
     let permissions = crate::computer_use::computer_use_permissions();
     if !permissions.supported {
-        return Err("Computer use requires the macOS desktop app".into());
+        return Err("Computer use requires the macOS desktop app on macOS 15.2 or later".into());
     }
     if !state.shortcut_ready.load(Ordering::SeqCst) {
         return Err("The native emergency stop shortcut is unavailable".into());
     }
-    if !permissions.screen_recording || !permissions.accessibility {
-        return Err("Screen Recording and Accessibility permissions are required".into());
+    if !permissions.accessibility {
+        return Err("Accessibility permission is required".into());
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn computer_use_pick_window(
+    app: AppHandle,
+    expected_revision: u64,
+) -> Result<Option<super::computer_use_capture::WindowTarget>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<ComputerUseSession>();
+        require_permissions(&state)?;
+        if state.picker_busy.swap(true, Ordering::SeqCst) {
+            return Err("The macOS window picker is already open".into());
+        }
+        let _busy = Busy(&state.picker_busy);
+        let mut policy = state
+            .policy
+            .lock()
+            .map_err(|_| "Desktop session state unavailable")?;
+        policy.expire(Instant::now());
+        policy.require_revision(expected_revision)?;
+        if policy.session.is_some() {
+            return Err("Stop the current session before selecting another window".into());
+        }
+        super::computer_use_picker::clear();
+        let picking = super::computer_use_picker::begin()?;
+        drop(policy);
+        let picked = picking.wait()?;
+        let policy = state
+            .policy
+            .lock()
+            .map_err(|_| "Desktop session state unavailable")?;
+        policy.require_revision(expected_revision)?;
+        if policy.session.is_some() {
+            return Err("Desktop authorization changed".into());
+        }
+        Ok(picked.install())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -561,15 +602,14 @@ pub fn computer_use_session_start(
     state: tauri::State<'_, ComputerUseSession>,
     scope: SessionScope,
     consent_to_screen_sharing: bool,
+    selection_id: String,
     expected_revision: u64,
 ) -> Result<SessionStatus, String> {
     require_permissions(&state)?;
     if !consent_to_screen_sharing {
         return Err("Explicit consent to share screen content is required".into());
     }
-    if scope.mode == SessionMode::SelectedWindow {
-        super::computer_use_capture::validate_target(&scope)?;
-    }
+
     let id = random_id()?;
     let mut policy = state
         .policy
@@ -578,6 +618,12 @@ pub fn computer_use_session_start(
     let now = Instant::now();
     policy.expire(now);
     policy.require_revision(expected_revision)?;
+    if scope.mode == SessionMode::SelectedWindow {
+        super::computer_use_picker::bind(&selection_id, &scope)?;
+    } else {
+        super::computer_use::require_agent_permission()?;
+        super::computer_use_picker::clear();
+    }
     policy.start(id, scope, now)?;
     Ok(policy.status(now))
 }
@@ -591,7 +637,11 @@ fn inspect_session(state: &ComputerUseSession) -> Result<SessionStatus, String> 
     if observed.phase != SessionPhase::Active {
         return Ok(observed);
     }
-    let permissions_available = require_permissions(state).is_ok();
+    let permissions_available = require_permissions(state).is_ok()
+        && observed.scope.as_ref().is_none_or(|scope| {
+            scope.mode != SessionMode::AgentChoice
+                || super::computer_use::require_agent_permission().is_ok()
+        });
     // Background delivery: the session stays active while the approved window
     // exists and is not minimized, even when another application is in front.
     let window_available = permissions_available
@@ -602,11 +652,16 @@ fn inspect_session(state: &ComputerUseSession) -> Result<SessionStatus, String> 
                     .lock()
                     .ok()
                     .and_then(|p| {
-                        p.session
-                            .as_ref()
-                            .and_then(|s| s.target.as_ref().map(|t| t.identity.clone()))
+                        p.session.as_ref().and_then(|s| {
+                            s.target
+                                .as_ref()
+                                .map(|t| (t.identity.clone(), t.scope.clone()))
+                        })
                     })
-                    .is_none_or(|t| t.verify().is_ok())
+                    .is_none_or(|(identity, target)| {
+                        identity.verify().is_ok()
+                            && super::computer_use_picker::target(&target).is_ok()
+                    })
             } else {
                 super::computer_use_capture::validate_visible(scope).is_ok()
             }
@@ -687,6 +742,8 @@ pub fn computer_use_session_resume(
     require_permissions(&state)?;
     if scope.mode == SessionMode::SelectedWindow {
         super::computer_use_capture::validate_target(&scope)?;
+    } else {
+        super::computer_use::require_agent_permission()?;
     }
     let mut policy = state
         .policy
@@ -798,6 +855,11 @@ fn check_execution(
     execution: Option<&Execution>,
 ) -> Result<(), String> {
     require_permissions(state)?;
+    if scope.mode == SessionMode::SelectedWindow {
+        super::computer_use_capture::validate_target(scope)?;
+    } else {
+        super::computer_use::require_agent_permission()?;
+    }
     let now = Instant::now();
     if execution.is_some_and(|e| e.canceled.load(Ordering::SeqCst) || now >= e.deadline) {
         return Err("Desktop execution canceled or expired".into());
@@ -812,6 +874,8 @@ fn check_execution(
     drop(policy);
     if let Some(identity) = identity {
         identity.verify()?;
+        let target_scope = current_target(state, id, scope)?;
+        super::computer_use_picker::target(&target_scope)?;
     }
     Ok(())
 }
@@ -1045,7 +1109,7 @@ fn discover_targets(scope: &SessionScope) -> Result<HashMap<String, TargetBindin
     #[cfg(target_os = "macos")]
     {
         let mut candidates = HashMap::new();
-        for window in super::computer_use_capture::computer_use_windows()?
+        for window in super::computer_use_picker::agent_windows()?
             .into_iter()
             .take(128)
         {
@@ -1104,6 +1168,7 @@ fn execute_target_request(
         let candidates = if matches!(execution.request.action, Action::ListWindows {}) {
             discover_targets(scope)?
         } else {
+            super::computer_use_picker::agent_windows()?;
             HashMap::new()
         };
         let mut policy = state
@@ -1127,7 +1192,11 @@ fn execute_target_request(
                         target.identity.verify()?;
                         super::computer_use_capture::validate_visible(&target.scope)?;
                         require_permissions(state)?;
-                        if Instant::now() >= execution.deadline {
+                        super::computer_use_picker::select_agent_target(&target.scope)?;
+                        target.identity.verify()?;
+                        if execution.canceled.load(Ordering::SeqCst)
+                            || Instant::now() >= execution.deadline
+                        {
                             return Err("Target request expired".into());
                         }
                         Ok(())

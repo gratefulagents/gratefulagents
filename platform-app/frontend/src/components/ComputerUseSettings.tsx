@@ -7,7 +7,6 @@ import {
   ExternalLink,
   Monitor,
   RotateCcw,
-  ScanEye,
 } from "lucide-react";
 import { SettingsSection } from "@/components/settings-section";
 import { Button } from "@/components/ui/button";
@@ -83,7 +82,7 @@ export function ComputerUseSettings() {
     }
   }
 
-  const missing = !!permissions?.supported && (!permissions.screenRecording || !permissions.accessibility);
+  const missing = !!permissions?.supported && !permissions.accessibility;
 
   return (
     <SettingsSection
@@ -93,7 +92,7 @@ export function ComputerUseSettings() {
     >
       <div className="space-y-4 text-sm">
         <p className="text-[12px] leading-relaxed text-muted-foreground">
-          Granting these permissions does not capture your screen, send screen content, or
+          Granting Accessibility permission does not capture your screen, send screen content, or
           authorize an agent to control your Mac. Supervised sessions start only from a run
           you own, and in the default Manual mode every action still needs your explicit approval.
         </p>
@@ -106,22 +105,14 @@ export function ComputerUseSettings() {
         {!permissions && !error && <p role="status" className="text-[12px] text-muted-foreground">Checking permissions…</p>}
         {permissions && !permissions.supported && (
           <p className="text-[12px] text-muted-foreground">
-            Permission setup requires the macOS desktop app; it is unavailable on this platform.
+            Computer use requires the macOS desktop app on macOS 15.2 or later; it is unavailable on this platform. The rest of the app is unchanged.
           </p>
         )}
 
         {permissions?.supported && (
           <div className="space-y-3">
             <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">macOS permissions</h3>
-            <dl className="grid gap-2 sm:grid-cols-2">
-              <PermissionRow
-                icon={<ScanEye />}
-                name="Screen Recording"
-                detail="Allows capturing the approved window."
-                granted={permissions.screenRecording}
-                disabled={busy}
-                onOpen={() => void openPermission("screen_recording")}
-              />
+            <dl className="grid gap-2">
               <PermissionRow
                 icon={<Accessibility />}
                 name="Accessibility"
@@ -132,13 +123,13 @@ export function ComputerUseSettings() {
               />
             </dl>
             <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-              Each button registers this app in the matching macOS Privacy list and opens it;
-              turn gratefulagents on there. You can revoke either permission there at any time.
-              These OS permissions are separate from consent to an individual session.
+              Choose a single window using the native macOS sharing picker in a run's Computer use panel.
+              No broad Screen Recording permission is requested. Stop sharing from macOS or the supervisor to revoke access;
+              a new window always requires fresh selection and consent. Accessibility is separate and can be revoked in System Settings.
             </p>
             {missing && (
               <p className={cn("rounded-md px-3 py-2 text-[11.5px] leading-relaxed", toneSoft.warning)} role="note">
-                macOS applies a Screen Recording grant only after the app relaunches. If a permission is
+                If Accessibility is
                 enabled in System Settings but still shows Not granted here, macOS is holding the grant for a
                 different build of the app (development and unsigned builds are re-signed every time they are
                 built): remove gratefulagents from that list with −, click the button again to re-add it, enable it,

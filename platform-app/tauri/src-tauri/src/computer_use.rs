@@ -2,8 +2,8 @@
 #[serde(rename_all = "camelCase")]
 pub struct ComputerUsePermissions {
     pub supported: bool,
-    pub screen_recording: bool,
     pub accessibility: bool,
+    pub agent_screen_recording: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -37,16 +37,12 @@ mod macos {
         pub fn CFRelease(value: *const c_void);
     }
 
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        pub fn CGPreflightScreenCaptureAccess() -> bool;
-        pub fn CGRequestScreenCaptureAccess() -> bool;
-    }
-
     #[link(name = "ApplicationServices", kind = "framework")]
     extern "C" {
         pub static kAXTrustedCheckOptionPrompt: *const c_void;
         pub fn AXIsProcessTrusted() -> bool;
+        pub fn CGPreflightScreenCaptureAccess() -> bool;
+        pub fn CGRequestScreenCaptureAccess() -> bool;
         pub fn AXIsProcessTrustedWithOptions(options: *const c_void) -> bool;
     }
 
@@ -81,26 +77,33 @@ pub fn computer_use_permissions() -> ComputerUsePermissions {
     #[cfg(target_os = "macos")]
     {
         ComputerUsePermissions {
-            supported: true,
-            screen_recording: unsafe { macos::CGPreflightScreenCaptureAccess() },
+            supported: super::computer_use_picker::supported(),
             accessibility: unsafe { macos::AXIsProcessTrusted() },
+            agent_screen_recording: unsafe { macos::CGPreflightScreenCaptureAccess() },
         }
     }
     #[cfg(not(target_os = "macos"))]
     {
         ComputerUsePermissions {
             supported: false,
-            screen_recording: false,
             accessibility: false,
+            agent_screen_recording: false,
         }
     }
+}
+
+pub fn require_agent_permission() -> Result<(), String> {
+    if !computer_use_permissions().agent_screen_recording {
+        return Err("Agent chooses windows requires separate macOS Screen Recording permission; enable it in the connection panel and reconnect".into());
+    }
+    Ok(())
 }
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ComputerUsePermission {
-    ScreenRecording,
     Accessibility,
+    AgentScreenRecording,
 }
 
 #[tauri::command]
@@ -113,10 +116,10 @@ pub fn computer_use_open_permission(
         use tauri_plugin_opener::OpenerExt;
 
         let url = match permission {
-            ComputerUsePermission::ScreenRecording => {
-                // Adds this binary to the Screen Recording list. The preflight
-                // result is cached per process: a grant only shows after relaunch.
-                unsafe { macos::CGRequestScreenCaptureAccess() };
+            ComputerUsePermission::AgentScreenRecording => {
+                unsafe {
+                    macos::CGRequestScreenCaptureAccess();
+                }
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
             }
             ComputerUsePermission::Accessibility => {
@@ -135,8 +138,7 @@ pub fn computer_use_open_permission(
     }
 }
 
-/// Screen Recording (and, for re-signed builds, Accessibility) grants take
-/// effect only in a fresh process; the supervisor offers an explicit relaunch.
+/// Re-signed builds may need a fresh process for Accessibility grants.
 #[tauri::command]
 pub fn computer_use_relaunch(app: tauri::AppHandle) {
     crate::computer_use_session::stop(&app, "Desktop app relaunching");
@@ -149,8 +151,11 @@ mod tests {
 
     #[test]
     fn permission_targets_are_closed() {
-        assert!(serde_json::from_str::<ComputerUsePermission>("\"screen_recording\"").is_ok());
+        assert!(serde_json::from_str::<ComputerUsePermission>("\"screen_recording\"").is_err());
         assert!(serde_json::from_str::<ComputerUsePermission>("\"accessibility\"").is_ok());
+        assert!(
+            serde_json::from_str::<ComputerUsePermission>("\"agent_screen_recording\"").is_ok()
+        );
         assert!(serde_json::from_str::<ComputerUsePermission>("\"https://example.com\"").is_err());
     }
 
@@ -159,7 +164,8 @@ mod tests {
     fn unsupported_platform_never_reports_permission() {
         let status = computer_use_permissions();
         assert!(!status.supported);
-        assert!(!status.screen_recording);
         assert!(!status.accessibility);
+        assert!(!status.agent_screen_recording);
+        assert!(require_agent_permission().is_err());
     }
 }

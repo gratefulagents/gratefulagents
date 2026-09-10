@@ -1,13 +1,14 @@
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowTarget {
+    pub selection_id: String,
     pub window_id: u32,
     pub process_id: u32,
     pub application: String,
     pub title: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowGeometry {
     // Core Graphics bounds use desktop points, not the PNG's Retina pixel coordinates.
@@ -29,81 +30,33 @@ pub struct WindowCapture {
     pub data_url: String,
 }
 
-#[cfg(target_os = "macos")]
-fn window(scope: &super::computer_use_session::SessionScope) -> Result<xcap::Window, String> {
-    if scope.process_id == std::process::id() {
-        return Err("The supervisor application cannot be a computer-use target".into());
+pub fn available_target(
+    scope: &super::computer_use_session::SessionScope,
+) -> Result<super::computer_use_picker::Snapshot, String> {
+    if scope.mode == super::computer_use_session::SessionMode::AgentChoice {
+        super::computer_use_picker::agent_target(scope)
+    } else {
+        super::computer_use_picker::target(scope)
     }
-    let window = xcap::Window::all()
-        .map_err(|error| error.to_string())?
-        .into_iter()
-        .find(|window| window.id().ok() == Some(scope.window_id))
-        .ok_or("The selected window is no longer available")?;
-    if window.pid().map_err(|error| error.to_string())? != scope.process_id
-        || window.app_name().map_err(|error| error.to_string())? != scope.application
-    {
-        return Err("The selected window no longer belongs to the approved application".into());
-    }
-    Ok(window)
 }
 
 pub fn validate_target(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        window(scope).map(|_| ())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = scope;
-        Err("Window capture requires macOS".into())
-    }
+    available_target(scope).map(|_| ())
 }
 
 /// The approved window still exists, belongs to the approved process, and is
 /// not minimized. Capture and pointer input work for a window behind other
 /// windows, so this — not focus — is the availability condition.
 pub fn validate_visible(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        if window(scope)?
-            .is_minimized()
-            .map_err(|error| error.to_string())?
-        {
-            return Err("The approved window is minimized".into());
-        }
-        Ok(())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = scope;
-        Err("Window capture requires macOS".into())
-    }
+    validate_target(scope)
 }
 
+#[cfg(any(target_os = "macos", test))]
 pub fn validate_focus(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        if window(scope)?
-            .is_focused()
-            .map_err(|error| error.to_string())?
-        {
-            return Ok(());
-        }
-        let supervisor = xcap::Window::all()
-            .map_err(|error| error.to_string())?
-            .into_iter()
-            .find(|window| window.pid().ok() == Some(std::process::id()));
-        if let Some(supervisor) = supervisor {
-            if supervisor.is_focused().map_err(|error| error.to_string())? {
-                return Ok(());
-            }
-        }
+    if available_target(scope)?.focus_allowed {
+        Ok(())
+    } else {
         Err("Focus left the approved application and supervisor".into())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = scope;
-        Err("Window capture requires macOS".into())
     }
 }
 
@@ -130,13 +83,7 @@ pub fn output_dimensions(width: u32, height: u32) -> Result<(u32, u32), String> 
 pub fn target_geometry(
     scope: &super::computer_use_session::SessionScope,
 ) -> Result<WindowGeometry, String> {
-    let selected = window(scope)?;
-    let geometry = WindowGeometry {
-        x: selected.x().map_err(|e| e.to_string())?,
-        y: selected.y().map_err(|e| e.to_string())?,
-        width: selected.width().map_err(|e| e.to_string())?,
-        height: selected.height().map_err(|e| e.to_string())?,
-    };
+    let geometry = available_target(scope)?.geometry;
     output_dimensions(geometry.width, geometry.height)?;
     Ok(geometry)
 }
@@ -144,15 +91,13 @@ pub fn target_geometry(
 pub fn capture(scope: &super::computer_use_session::SessionScope) -> Result<WindowCapture, String> {
     #[cfg(target_os = "macos")]
     {
-        use base64::Engine;
-        use std::io::Cursor;
-
         use super::computer_use_input::macos;
         validate_visible(scope)?;
         macos::secure(scope)?;
         let before = target_geometry(scope)?;
         let display_before = macos::displays()?;
-        let image = macos::capture_image(scope, &before)?;
+        let (pixel_width, pixel_height) = output_dimensions(before.width, before.height)?;
+        let data_url = super::computer_use_picker::capture(scope, pixel_width, pixel_height)?;
         let after = target_geometry(scope)?;
         let displays = macos::displays()?;
         validate_visible(scope)?;
@@ -162,12 +107,6 @@ pub fn capture(scope: &super::computer_use_session::SessionScope) -> Result<Wind
                 "The window/display changed during capture; request a fresh preview".into(),
             );
         }
-        let pixel_width = image.width();
-        let pixel_height = image.height();
-        let mut png = Cursor::new(Vec::new());
-        image::DynamicImage::ImageRgba8(image)
-            .write_to(&mut png, image::ImageFormat::Png)
-            .map_err(|error| error.to_string())?;
         validate_visible(scope)?;
         macos::secure(scope)?;
         if target_geometry(scope)? != after || macos::displays()? != displays {
@@ -179,45 +118,12 @@ pub fn capture(scope: &super::computer_use_session::SessionScope) -> Result<Wind
             geometry: after,
             pixel_width,
             pixel_height,
-            data_url: format!(
-                "data:image/png;base64,{}",
-                base64::engine::general_purpose::STANDARD.encode(png.into_inner())
-            ),
+            data_url,
         })
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = scope;
-        Err("Window capture requires macOS".into())
-    }
-}
-
-#[tauri::command]
-pub fn computer_use_windows() -> Result<Vec<WindowTarget>, String> {
-    if !super::computer_use::computer_use_permissions().screen_recording {
-        return Err("macOS Screen Recording permission is required to select a window".into());
-    }
-    #[cfg(target_os = "macos")]
-    {
-        Ok(xcap::Window::all()
-            .map_err(|error| error.to_string())?
-            .into_iter()
-            .filter_map(|window| {
-                let process_id = window.pid().ok()?;
-                if process_id == std::process::id() {
-                    return None;
-                }
-                Some(WindowTarget {
-                    window_id: window.id().ok()?,
-                    process_id,
-                    application: window.app_name().ok()?,
-                    title: window.title().ok()?,
-                })
-            })
-            .collect())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
         Err("Window capture requires macOS".into())
     }
 }
@@ -269,7 +175,7 @@ mod tests {
             window_id: 1,
             process_id: 2,
         };
-        assert!(computer_use_windows().is_err());
+        assert!(super::super::computer_use_picker::begin().is_err());
         assert!(validate_target(&scope).is_err());
         assert!(validate_focus(&scope).is_err());
         assert!(validate_visible(&scope).is_err());

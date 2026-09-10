@@ -13,6 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+cc = "1"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
@@ -49,8 +50,6 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 objc2 = "0.6.4"
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSTextCheckingClient"] }
 window-vibrancy = "0.6"
-xcap = "=0.9.4"
-image = { version = "0.25", default-features = false, features = ["png"] }
 
 [features]
 # default = ["custom-protocol"]
