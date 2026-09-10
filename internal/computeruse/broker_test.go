@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"image"
 	"image/png"
 	"strings"
@@ -345,8 +346,8 @@ func TestAgentChoiceAuthorizationAndTargetRevisions(t *testing.T) {
 		if kind == "select_window" {
 			a.TargetRef = strings.Repeat("a", 64)
 		}
-		if _, err := b.Request(context.Background(), a, ""); err == nil {
-			t.Fatal("restricted discovery accepted")
+		if _, err := b.Request(context.Background(), a, ""); !errors.Is(err, ErrDiscoveryUnavailable) {
+			t.Fatalf("restricted discovery accepted: %v", err)
 		}
 	}
 	legacy.Operation = "stop"
@@ -359,8 +360,11 @@ func TestAgentChoiceAuthorizationAndTargetRevisions(t *testing.T) {
 	if r, err := b.Exchange(e); err != nil || r.Mode != "agent_choice" || !r.Active {
 		t.Fatalf("agent attach: %+v %v", r, err)
 	}
-	if _, err := b.Request(context.Background(), Action{Kind: "observe"}, ""); err == nil {
-		t.Fatal("observed without a target")
+	if _, err := b.Request(context.Background(), Action{Kind: "observe"}, ""); !errors.Is(err, ErrNoTarget) || !errors.Is(err, ErrRejected) {
+		t.Fatalf("observed without a target: %v", err)
+	}
+	if _, err := b.Request(context.Background(), Action{Kind: "select_window", TargetRef: strings.Repeat("a", 64)}, ""); !errors.Is(err, ErrUnknownTarget) {
+		t.Fatalf("selected an unlisted target: %v", err)
 	}
 	run := func(action Action, frame string, out Outcome, bad *Outcome) {
 		t.Helper()
@@ -410,8 +414,11 @@ func TestAgentChoiceAuthorizationAndTargetRevisions(t *testing.T) {
 	second := WindowTarget{Ref: strings.Repeat("b", 64), Application: "Test Two", Title: "Other"}
 	run(Action{Kind: "list_windows"}, "", Outcome{Status: "completed", Windows: []WindowTarget{first, second}}, nil)
 	run(Action{Kind: "select_window", TargetRef: first.Ref}, "", Outcome{Status: "completed", TargetRevision: 1, Target: &first}, &Outcome{Status: "completed", TargetRevision: 0, Target: &first})
-	if _, err := b.Request(context.Background(), Action{Kind: "key", Key: "Enter"}, "old-frame"); err == nil {
-		t.Fatal("input accepted before observation")
+	if _, err := b.Request(context.Background(), Action{Kind: "key", Key: "Enter"}, "old-frame"); !errors.Is(err, ErrStaleFrame) {
+		t.Fatalf("input accepted before observation: %v", err)
+	}
+	if _, err := b.Request(context.Background(), Action{Kind: "open_url", URL: "https://example.com"}, ""); !errors.Is(err, ErrOpenURLUnavailable) {
+		t.Fatalf("open_url in agent-choice: %v", err)
 	}
 	b.mu.Lock()
 	b.frameID = "first-frame"

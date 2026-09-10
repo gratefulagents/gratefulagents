@@ -144,3 +144,53 @@ func TestRegisterLoadSkillToolSkipsRunsWithoutSkills(t *testing.T) {
 		t.Fatal("load_skill registered without enabled skills")
 	}
 }
+
+func TestRegisterLoadSkillToolOffersInstalledCompanionSkills(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+	companion := &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: ComputerUseSkillName, Namespace: "ns"},
+		Spec: platformv1alpha1.SkillSpec{
+			Description: "How to operate the user's Mac through computer_use.",
+			Source:      platformv1alpha1.SkillSource{Inline: &platformv1alpha1.SkillInlineSource{Instructions: "observe, then act."}},
+		},
+	}
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(companion).Build()
+
+	// No skillRefs on the run: the companion alone makes load_skill available.
+	registry := NewRegistry(t.TempDir())
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Namespace: "ns"}}
+	tool := RegisterLoadSkillTool(context.Background(), registry, k8sClient, run, ComputerUseSkillName, "not-installed", " ")
+	if tool == nil || registry.Get("load_skill") == nil {
+		t.Fatal("companion skill did not register load_skill")
+	}
+	description := tool.Description()
+	if !strings.Contains(description, ComputerUseSkillName+": How to operate") {
+		t.Fatalf("companion summary missing from description: %s", description)
+	}
+	if strings.Contains(description, "not-installed") {
+		t.Fatalf("uninstalled companion advertised: %s", description)
+	}
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"computer-use"}`), "call-1")
+	if err != nil || result.IsError {
+		t.Fatalf("Execute() = %+v, %v", result, err)
+	}
+	if !strings.Contains(tool.LoadedInstructions(), "observe, then act.") {
+		t.Fatalf("companion instructions not loaded: %q", tool.LoadedInstructions())
+	}
+
+	// A companion whose Skill is absent must not create the tool on its own.
+	registry = NewRegistry(t.TempDir())
+	if tool := RegisterLoadSkillTool(context.Background(), registry, k8sClient, run, "not-installed"); tool != nil || registry.Get("load_skill") != nil {
+		t.Fatal("load_skill registered for an uninstalled companion")
+	}
+
+	// Explicit refs and companions merge without duplicates.
+	run.Spec.SkillRefs = []platformv1alpha1.NamedRef{{Name: ComputerUseSkillName}}
+	tool = RegisterLoadSkillTool(context.Background(), NewRegistry(t.TempDir()), k8sClient, run, ComputerUseSkillName)
+	if got := strings.Count(tool.Description(), "\n- "+ComputerUseSkillName); got != 1 {
+		t.Fatalf("companion listed %d times, want 1: %s", got, tool.Description())
+	}
+}

@@ -21,8 +21,13 @@ const (
 // RegisterLoadSkillTool registers progressive skill loading for the skills
 // enabled on a run. Skill summaries are advertised in the tool description;
 // full instructions enter model context only when the model calls load_skill.
-func RegisterLoadSkillTool(ctx context.Context, registry *Registry, k8sClient client.Client, run *platformv1alpha1.AgentRun) *LoadSkillTool {
-	if registry == nil || k8sClient == nil || run == nil || len(run.Spec.SkillRefs) == 0 {
+//
+// implicit names are tool-companion skills (for example the computer-use
+// guide when the computer_use tool is registered). They are offered without
+// being listed in spec.skillRefs, but only when the Skill resource exists in
+// the run's namespace, so an uninstalled companion never appears in the menu.
+func RegisterLoadSkillTool(ctx context.Context, registry *Registry, k8sClient client.Client, run *platformv1alpha1.AgentRun, implicit ...string) *LoadSkillTool {
+	if registry == nil || k8sClient == nil || run == nil {
 		return nil
 	}
 
@@ -31,6 +36,22 @@ func RegisterLoadSkillTool(ctx context.Context, registry *Registry, k8sClient cl
 		if name := strings.TrimSpace(ref.Name); name != "" {
 			allowed[name] = struct{}{}
 		}
+	}
+	summaries := make(map[string]string, len(allowed)+len(implicit))
+	for _, name := range implicit {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := allowed[name]; ok {
+			continue
+		}
+		skill := &platformv1alpha1.Skill{}
+		if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: name}, skill); err != nil {
+			continue
+		}
+		allowed[name] = struct{}{}
+		summaries[name] = skillDescription(skill)
 	}
 	if len(allowed) == 0 {
 		return nil
@@ -42,8 +63,10 @@ func RegisterLoadSkillTool(ctx context.Context, registry *Registry, k8sClient cl
 	}
 	sort.Strings(names)
 
-	summaries := make(map[string]string, len(names))
 	for _, name := range names {
+		if _, ok := summaries[name]; ok {
+			continue
+		}
 		skill := &platformv1alpha1.Skill{}
 		if err := k8sClient.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: name}, skill); err == nil {
 			summaries[name] = skillDescription(skill)

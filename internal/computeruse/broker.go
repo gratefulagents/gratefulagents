@@ -278,33 +278,37 @@ func (b *Broker) Request(ctx context.Context, action Action, frameID string) (Ou
 	}
 	b.mu.Lock()
 	b.expire()
-	if !b.sessionValid(ctx) || b.pending != nil {
+	if !b.sessionValid(ctx) {
 		b.mu.Unlock()
 		return Outcome{}, ErrRejected
+	}
+	if b.pending != nil {
+		b.mu.Unlock()
+		return Outcome{}, ErrBusy
 	}
 	discovery := action.Kind == "list_windows" || action.Kind == "select_window"
 	if discovery && (b.mode != "agent_choice" || frameID != "") {
 		b.mu.Unlock()
-		return Outcome{}, ErrRejected
+		return Outcome{}, ErrDiscoveryUnavailable
 	}
 	if b.mode == "agent_choice" {
 		if action.Kind == "select_window" {
 			if _, ok := b.windows[action.TargetRef]; !ok {
 				b.mu.Unlock()
-				return Outcome{}, ErrRejected
+				return Outcome{}, ErrUnknownTarget
 			}
 		}
 		if !discovery && b.target == nil {
 			b.mu.Unlock()
-			return Outcome{}, ErrRejected
-		}
-		if action.IsInput() && (frameID == "" || frameID != b.frameID) {
-			b.mu.Unlock()
-			return Outcome{}, ErrRejected
+			return Outcome{}, ErrNoTarget
 		}
 		if action.Kind == "open_url" {
 			b.mu.Unlock()
-			return Outcome{}, ErrRejected
+			return Outcome{}, ErrOpenURLUnavailable
+		}
+		if action.IsInput() && (frameID == "" || frameID != b.frameID) {
+			b.mu.Unlock()
+			return Outcome{}, ErrStaleFrame
 		}
 	}
 	p := &pending{request: Request{TargetRevision: b.targetRevision, RequestID: uuid.NewString(), FrameID: frameID, Action: action}, ctx: ctx, deadline: time.Now().Add(RequestTimeout), result: make(chan delivery, 1)}
