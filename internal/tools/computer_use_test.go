@@ -229,46 +229,7 @@ func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
 				t.Fatal(err)
 			}
 			if tc.status == "completed" {
-				var observation *computeruse.Request
-				deadline := time.Now().Add(time.Second)
-				for time.Now().Before(deadline) {
-					e.Operation, e.RequestID, e.Outcome = "poll", "", nil
-					response, err := b.Exchange(e)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if response.Pending != nil {
-						observation = response.Pending
-						break
-					}
-					time.Sleep(time.Millisecond)
-				}
-				if observation == nil || observation.Action.Kind != "observe" || observation.FrameID != "" {
-					t.Fatalf("missing fresh post-action observation: %+v", observation)
-				}
-				select {
-				case <-done:
-					t.Fatal("returned before observation approval")
-				default:
-				}
-				e.Operation, e.RequestID = "claim", observation.RequestID
-				if _, err := b.Exchange(e); err != nil {
-					t.Fatal(err)
-				}
-				e.Operation = "resolve"
-				e.Outcome = &computeruse.Outcome{RequestID: observation.RequestID, Status: "completed"}
-				if tc.name == "observation-denied" {
-					e.Outcome.Status = "denied"
-				} else {
-					var pngBytes bytes.Buffer
-					if err := png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 2, 3))); err != nil {
-						t.Fatal(err)
-					}
-					e.Outcome.Capture = &computeruse.Capture{FrameID: "after-input", DataURL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBytes.Bytes()), PixelWidth: 2, PixelHeight: 3, Geometry: computeruse.Geometry{Width: 2, Height: 3}}
-				}
-				if _, err := b.Exchange(e); err != nil {
-					t.Fatal(err)
-				}
+				approvePostActionObservation(t, b, e, done, tc.name == "observation-denied")
 			}
 			select {
 			case result := <-done:
@@ -498,5 +459,49 @@ func TestComputerUseWorkflowDescription(t *testing.T) {
 	}
 	if strings.Contains(description, "Every action requires local human approval") {
 		t.Fatal("description contradicts session approval modes")
+	}
+}
+
+func approvePostActionObservation(t *testing.T, b *computeruse.Broker, e computeruse.Exchange, done <-chan Result, denied bool) {
+	t.Helper()
+	var observation *computeruse.Request
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		e.Operation, e.RequestID, e.Outcome = "poll", "", nil
+		response, err := b.Exchange(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.Pending != nil {
+			observation = response.Pending
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if observation == nil || observation.Action.Kind != "observe" || observation.FrameID != "" {
+		t.Fatalf("missing fresh post-action observation: %+v", observation)
+	}
+	select {
+	case <-done:
+		t.Fatal("returned before observation approval")
+	default:
+	}
+	e.Operation, e.RequestID = "claim", observation.RequestID
+	if _, err := b.Exchange(e); err != nil {
+		t.Fatal(err)
+	}
+	e.Operation = "resolve"
+	e.Outcome = &computeruse.Outcome{RequestID: observation.RequestID, Status: "completed"}
+	if denied {
+		e.Outcome.Status = "denied"
+	} else {
+		var pngBytes bytes.Buffer
+		if err := png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 2, 3))); err != nil {
+			t.Fatal(err)
+		}
+		e.Outcome.Capture = &computeruse.Capture{FrameID: "after-input", DataURL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBytes.Bytes()), PixelWidth: 2, PixelHeight: 3, Geometry: computeruse.Geometry{Width: 2, Height: 3}}
+	}
+	if _, err := b.Exchange(e); err != nil {
+		t.Fatal(err)
 	}
 }
