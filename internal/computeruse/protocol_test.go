@@ -234,3 +234,34 @@ func TestPointerActionValidation(t *testing.T) {
 		t.Fatal("accepted fractional click count")
 	}
 }
+
+func TestWindowDiscoveryWireBounds(t *testing.T) {
+	ref := strings.Repeat("a", 64)
+	if err := (Action{Kind: "list_windows"}).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := (Action{Kind: "select_window", TargetRef: ref}).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range []Action{{Kind: "select_window", TargetRef: "1234"}, {Kind: "observe", TargetRef: ref}, {Kind: "list_windows", Text: "hidden input"}, {Kind: "select_window", TargetRef: strings.Repeat("A", 64)}} {
+		if a.Validate() == nil {
+			t.Fatalf("accepted malformed target action: %+v", a)
+		}
+	}
+	target := WindowTarget{Ref: ref, Application: "Test", Title: "Title"}
+	good := Outcome{Status: "completed", Windows: []WindowTarget{target}}
+	if good.Validate() != nil {
+		t.Fatal("valid metadata rejected")
+	}
+	good.Windows = append(good.Windows, target)
+	if good.Validate() == nil {
+		t.Fatal("duplicate references accepted")
+	}
+	target.Title = strings.Repeat("x", 513)
+	if target.Validate() == nil {
+		t.Fatal("unbounded title accepted")
+	}
+	if (Response{Mode: "unknown"}).Validate() == nil {
+		t.Fatal("unknown mode accepted")
+	}
+}

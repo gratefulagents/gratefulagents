@@ -2,10 +2,49 @@
 
 This branch connects **actual Mac window capture and input to an agent run**, with explicit session consent and human approval for every action. **Keep the PR draft until interactive Mac acceptance is complete.** Compilation and policy tests do not establish that macOS capture, Accessibility targeting, or event delivery works reliably on a real desktop.
 
+## Agent-selected windows
+
+Choose **Selected window only** (the default) to keep the existing picker-bound session, or **Agent chooses windows** to connect without a selected window. Changing this mode clears consent; broader access is never saved or inferred from an earlier session. The agent-choice consent explicitly covers application/window names and titles shared with the configured model providers, and captures of the selected window shared with the configured vision provider. Titles and screen contents are untrusted data, not instructions. Discovery never captures or uploads every window.
+
+Built on [PR #398](https://github.com/gratefulagents/gratefulagents/pull/398): restricted sessions still require the native single-window picker selection token and capture through its retained ScreenCaptureKit filter, with no broad Screen Recording permission. Agent-choice sessions have a separate, explicit Screen Recording permission setup in the connection panel. This broader OS permission is necessary for picker-free discovery; granting it does not authorize a session, change modes, or bypass input approval. Both modes use retained single-window ScreenCaptureKit filters for capture and sharing-stop notifications. Discovery uses ScreenCaptureKit metadata only; selection refreshes that inventory before binding the chosen reference.
+
+The agent workflow is `list_windows` → `select_window` with a returned `targetRef` → `observe` → input. Discovery returns at most 32 eligible windows, bounded application/title text, and random session-scoped references—not PIDs or OS window IDs. References are replaced by a fresh listing and retired on selection, pause, or stop. The native implementation retains Accessibility window identity and process launch time, rechecks fresh window inventory, and refuses closed, minimized, reused, or changed identities. With the current input engine, eligible targets are the key window of each supported application; other windows in the same application are not advertised as safely addressable targets.
+
+Selection uses the same queue/claim/arm/single-use permit path as other actions. Manual mode asks before listing and selection. Assisted mode may list metadata automatically but asks before selection. Skip-all mode also permits selection automatically. Choosing windows does not change input approval settings. A target change clears frames, pending native work and target-specific frontend grants, increments the target revision, and requires a fresh observation before any input. The active application/title, awaiting-selection, switching and paused/unavailable states appear in the panel. A vanished target pauses rather than redirecting input; if it cannot be restored, disconnect and grant fresh consent.
+
+`open_url` is **unavailable in agent-choice sessions**: the existing command is application-wide and cannot guarantee a particular browser window. It remains unchanged in legacy selected-window sessions. Navigate through observed, approved window input instead.
+
+Compatibility uses the existing RPC envelope with an explicit `attach_agent` operation and an `agent_choice` response acknowledgement. Legacy `attach` remains restricted, with unchanged legacy request/outcome wire fields when the revision is zero. An attached session cannot escalate in place. Unknown operations/modes and a missing agent-choice acknowledgement fail closed with update/reconnect guidance. Update the desktop, backend and agent image together for agent-choice support. Authorization remains bound to backend/user/run/session/lease, separate from the mutable native target. Existing ownership, pod identity, native emergency stop, input restrictions and lease revocation checks still apply.
+
+Connection UI fixtures rendered with the production stylesheet (not macOS end-to-end evidence):
+
+![Selected-window consent](docs/computer-use-selected-window-consent.png)
+
+![Agent-choice consent without the picker](docs/computer-use-agent-choice-consent.png)
+
+### Agent-choice extension verification
+
+- Go tests, vet and builds passed for `internal/computeruse`, `internal/tools`, and `internal/dashboard`; uncached broker/tool race tests and focused dashboard relay tests passed.
+- Full frontend suite: **1,636 tests across 161 files passed**. Scoped ESLint and `pnpm run build:web` (TypeScript plus production build) passed. Selfdev: **55 tests** and typecheck passed.
+- Native Linux: `cargo +1.88.0 test --lib --locked` passed **52 tests**; `cargo check --lib --locked` and changed-file `rustfmt --check` passed. Cargo check reports three existing non-macOS dead-code warnings in the input module.
+- macOS ARM64 library/test cross-check passed against SDK 15.2 with deployment target 12.0. Strict Objective-C syntax/availability checks (`-Wall -Wextra -Werror`) passed for ARM64 and Intel. These are compilation checks, not a linked/signed app or interactive permission/input test.
+- The two consent fixtures above were refreshed after integrating the native picker base and visually inspected. Temporary fixture instrumentation was removed.
+
+### Additional interactive Mac acceptance (outstanding)
+
+- [ ] Deny broad Screen Recording and verify restricted picker capture still works. In agent-choice mode, verify denial prevents connection/discovery; enable the separate permission only after explicit consent. Revoke it mid-session and confirm input/capture/discovery stop.
+- [ ] With two harmless windows in different test applications, connect in agent-choice mode without operating the picker, list metadata, select and observe one, and enter harmless test text under the configured approval policy.
+- [ ] List again and switch to the second test application. Confirm its name/title is visible, old previews and per-target allowances disappear, old frames/queued approvals fail, and fresh observation is required before input.
+- [ ] Delay native and relay responses across selection, pause, disconnect, backend/user/run changes and emergency stop; no late result restores an old target or authorizes input.
+- [ ] Close, minimize, restart, or change the selected application's key window; no capture/input silently follows another identity. Verify recovery requires restoring the target or fresh consent.
+- [ ] Repeat in selected-window mode: listing and switching through the agent are rejected. Verify all three approval policies, lease expiry, OS permission denial and emergency stop.
+
+Linux policy tests do not validate Accessibility identity retention, macOS capture/input, or these interactive checks. Keep the PR draft until the Mac checks are recorded.
+
 ## What is connected
 
 - Computer use requires **macOS 15.2+**; the rest of the app retains its existing macOS minimum. Unsupported systems show an explanation without enabling computer use.
-- Native `SCContentSharingPicker` single-window sharing and separate Accessibility onboarding. No broad Screen Recording grant, preflight, request, or fallback.
+- Native `SCContentSharingPicker` single-window sharing and separate Accessibility onboarding. Restricted mode has no broad Screen Recording requirement or fallback; agent-choice mode separately requires it.
 - An owner/admin-only **Computer use** panel in an unfinished run's session view: approved-window selection, consent, start, local preview, pause/resume, stop, exact proposed text, action confirmation, and a metadata-only recent-action list.
 - Native in-memory session authorization bound to backend, user, namespace, run, application, process, and window; ten-second lease; revision checks; independent native watchdog. Backend RPC separately authenticates the user and checks run ownership, lifecycle, and pod identity.
 - Run-scoped in-memory agent broker over a private Unix socket and authenticated dashboard/pod-exec bridge. No public desktop-control listener or database image queue. One outstanding request, bounded expiry, single-use claim, cancellation and disconnect revocation. A claimed request must resolve within 15 s (30 s for an observation carrying its PNG, 60 s for typing); an unresolved claim drops the desktop session. If the agent pod cannot create the private socket, the run continues without the `computer_use` tool rather than failing.
@@ -145,7 +184,7 @@ go test -race -count=1 -v ./internal/tools -run '^TestComputerUse'
 
 The existing frontend CI suite separately tests local approval modes and supervision controls; the existing macOS Tauri job builds the native app and runs native shell tests. These CI tests **do not generate OS input** or automate macOS permission prompts. A real GUI smoke test still needs a logged-in Mac runner with native single-window picker consent and explicitly granted Accessibility permission. Hosted CI compilation and synthetic screenshots must not be marked as passing that native acceptance checklist.
 
-### Native picker migration verification
+### Base PR #398 native picker migration verification (before this extension)
 
 - Full frontend suite: **1,628 tests across 161 files passed**; scoped ESLint and the web production build (including TypeScript) passed.
 - Linux native policy/FFI tests: **50 passed** with `cargo test --lib --locked`.

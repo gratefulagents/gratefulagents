@@ -83,6 +83,96 @@ pub fn target(scope: &SessionScope) -> Result<Snapshot, String> {
     Ok(snapshot)
 }
 
+pub fn agent_windows() -> Result<Vec<WindowTarget>, String> {
+    super::computer_use::require_agent_permission()?;
+    #[cfg(target_os = "macos")]
+    {
+        let value =
+            native::request(|reply, context| unsafe { native::ga_agent_windows(reply, context) })?;
+        let snapshots: Vec<Snapshot> = serde_json::from_value(value).map_err(|e| e.to_string())?;
+        Ok(snapshots
+            .into_iter()
+            .map(|s| WindowTarget {
+                selection_id: String::new(),
+                window_id: s.window_id,
+                process_id: s.process_id,
+                application: s.application,
+                title: s.title,
+            })
+            .collect())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Window discovery requires macOS".into())
+    }
+}
+
+pub fn agent_target(scope: &SessionScope) -> Result<Snapshot, String> {
+    super::computer_use::require_agent_permission()?;
+    #[cfg(target_os = "macos")]
+    {
+        let value = unsafe { native::ga_agent_window_snapshot(scope.window_id) };
+        if value.is_null() {
+            return Err("Discovered window is unavailable; list windows again".into());
+        }
+        let result: Result<Snapshot, _> =
+            serde_json::from_slice(unsafe { std::ffi::CStr::from_ptr(value) }.to_bytes());
+        unsafe {
+            native::ga_window_sharing_free(value);
+        }
+        let snapshot = result.map_err(|e| e.to_string())?;
+        if snapshot.window_id != scope.window_id
+            || snapshot.process_id != scope.process_id
+            || snapshot.application != scope.application
+        {
+            return Err("Discovered window identity changed".into());
+        }
+        Ok(snapshot)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = scope;
+        Err("Window discovery requires macOS".into())
+    }
+}
+
+pub fn select_agent_target(scope: &SessionScope) -> Result<(), String> {
+    let snapshot = agent_target(scope)?;
+    #[cfg(target_os = "macos")]
+    {
+        let mut selected = SELECTION
+            .lock()
+            .map_err(|_| "Window sharing state unavailable")?;
+        let token = next_token();
+        if !unsafe { native::ga_agent_window_select(token, scope.window_id) } {
+            return Err("Discovered window was revoked or is unavailable".into());
+        }
+        *selected = Some(Selection {
+            token,
+            target: WindowTarget {
+                selection_id: String::new(),
+                window_id: snapshot.window_id,
+                process_id: snapshot.process_id,
+                application: snapshot.application,
+                title: snapshot.title,
+            },
+        });
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = snapshot;
+        Err("Window selection requires macOS".into())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn next_token() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::SeqCst)
+}
+
 #[cfg(target_os = "macos")]
 pub fn supported() -> bool {
     unsafe { native::ga_window_sharing_supported() }
@@ -148,9 +238,7 @@ pub struct Picking {
 pub fn begin() -> Result<Picking, String> {
     #[cfg(target_os = "macos")]
     {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        let token = NEXT.fetch_add(1, Ordering::SeqCst);
+        let token = next_token();
         let response = native::begin(|reply, context| unsafe {
             native::ga_window_sharing_pick(token, reply, context)
         });
@@ -223,6 +311,9 @@ mod native {
     #[cfg(target_os = "macos")]
     extern "C" {
         pub fn ga_window_sharing_supported() -> bool;
+        pub fn ga_agent_windows(reply: Reply, context: *mut c_void);
+        pub fn ga_agent_window_snapshot(window_id: u32) -> *mut c_char;
+        pub fn ga_agent_window_select(token: u64, window_id: u32) -> bool;
         pub fn ga_window_sharing_revoke(token: u64);
         pub fn ga_window_sharing_pick(token: u64, reply: Reply, context: *mut c_void);
         pub fn ga_window_sharing_snapshot(token: u64) -> *mut c_char;
@@ -323,6 +414,7 @@ mod tests {
             title: "Notes".into(),
         };
         let scope = SessionScope {
+            mode: super::super::computer_use_session::SessionMode::SelectedWindow,
             backend: "https://example.com".into(),
             user: "u".into(),
             namespace: "n".into(),
@@ -332,6 +424,12 @@ mod tests {
             process_id: 99,
         };
         assert!(matches_scope(&target, &scope).is_ok());
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert!(agent_windows().is_err());
+            assert!(agent_target(&scope).is_err());
+            assert!(select_agent_target(&scope).is_err());
+        }
         for field in 0..4 {
             let mut changed = scope.clone();
             match field {

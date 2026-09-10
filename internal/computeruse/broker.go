@@ -21,6 +21,11 @@ type pending struct {
 }
 
 type Broker struct {
+	mode                           string
+	targetRevision                 uint64
+	target                         *WindowTarget
+	windows                        map[string]WindowTarget
+	frameID                        string
 	mu                             sync.Mutex
 	namespace, run, owner, session string
 	leaseUntil                     time.Time
@@ -67,6 +72,11 @@ func (b *Broker) drop() {
 	}
 	b.sessionContext = nil
 	b.sessionCancel = nil
+	b.mode = ""
+	b.targetRevision = 0
+	b.target = nil
+	b.windows = nil
+	b.frameID = ""
 	b.owner = ""
 	b.session = ""
 }
@@ -149,7 +159,15 @@ func (b *Broker) Exchange(e Exchange) (Response, error) {
 	if b.session != "" && (b.owner != e.Owner || b.session != e.SessionID) {
 		return Response{}, ErrRejected
 	}
-	if e.Operation == "attach" && b.session == "" {
+	mode := "selected_window"
+	if e.Operation == "attach_agent" {
+		mode = "agent_choice"
+	}
+	if b.session != "" && (e.Operation == "attach" || e.Operation == "attach_agent") && b.mode != mode {
+		return Response{}, ErrRejected
+	}
+	if (e.Operation == "attach" || e.Operation == "attach_agent") && b.session == "" {
+		b.mode = mode
 		b.owner = e.Owner
 		b.session = e.SessionID
 		b.sessionContext, b.sessionCancel = context.WithCancel(context.Background())
@@ -162,7 +180,7 @@ func (b *Broker) Exchange(e Exchange) (Response, error) {
 		return Response{Reason: "session inactive", VisionAvailable: available}, nil
 	}
 	switch e.Operation {
-	case "attach", "poll":
+	case "attach", "attach_agent", "poll":
 		b.leaseUntil = time.Now().Add(Lease)
 	case "stop":
 		b.drop()
@@ -185,10 +203,51 @@ func (b *Broker) Exchange(e Exchange) (Response, error) {
 		if p.request.Action.Kind == "observe" && e.Outcome.Status == "completed" && e.Outcome.Capture == nil {
 			return Response{}, ErrRejected
 		}
+		o := e.Outcome
+		kind := p.request.Action.Kind
+		if (kind != "list_windows" && len(o.Windows) != 0) || (kind != "select_window" && o.Target != nil) {
+			return Response{}, ErrRejected
+		}
+		if b.mode == "agent_choice" {
+			expected := b.targetRevision
+			if kind == "select_window" && o.Status == "completed" {
+				expected++
+			}
+			if o.TargetRevision != expected {
+				return Response{}, ErrRejected
+			}
+			if o.Status == "completed" {
+				switch kind {
+				case "list_windows":
+					b.windows = map[string]WindowTarget{}
+					for _, w := range o.Windows {
+						b.windows[w.Ref] = w
+					}
+				case "select_window":
+					w, ok := b.windows[p.request.Action.TargetRef]
+					if !ok || o.Target == nil || *o.Target != w {
+						return Response{}, ErrRejected
+					}
+					b.target = o.Target
+					b.targetRevision = expected
+					b.frameID = ""
+					b.windows = nil
+				case "observe":
+					b.frameID = o.Capture.FrameID
+				default:
+					b.frameID = ""
+				}
+			}
+		} else if o.TargetRevision != 0 || o.Target != nil || len(o.Windows) != 0 {
+			return Response{}, ErrRejected
+		}
 		p.result <- delivery{outcome: *e.Outcome}
 		b.pending = nil
 	}
 	r := Response{Active: true, VisionAvailable: available}
+	if b.mode == "agent_choice" {
+		r.Mode = b.mode
+	}
 	if b.pending != nil && !b.pending.claimed {
 		copy := b.pending.request
 		r.Pending = &copy
@@ -223,7 +282,32 @@ func (b *Broker) Request(ctx context.Context, action Action, frameID string) (Ou
 		b.mu.Unlock()
 		return Outcome{}, ErrRejected
 	}
-	p := &pending{request: Request{RequestID: uuid.NewString(), FrameID: frameID, Action: action}, ctx: ctx, deadline: time.Now().Add(RequestTimeout), result: make(chan delivery, 1)}
+	discovery := action.Kind == "list_windows" || action.Kind == "select_window"
+	if discovery && (b.mode != "agent_choice" || frameID != "") {
+		b.mu.Unlock()
+		return Outcome{}, ErrRejected
+	}
+	if b.mode == "agent_choice" {
+		if action.Kind == "select_window" {
+			if _, ok := b.windows[action.TargetRef]; !ok {
+				b.mu.Unlock()
+				return Outcome{}, ErrRejected
+			}
+		}
+		if !discovery && b.target == nil {
+			b.mu.Unlock()
+			return Outcome{}, ErrRejected
+		}
+		if action.IsInput() && (frameID == "" || frameID != b.frameID) {
+			b.mu.Unlock()
+			return Outcome{}, ErrRejected
+		}
+		if action.Kind == "open_url" {
+			b.mu.Unlock()
+			return Outcome{}, ErrRejected
+		}
+	}
+	p := &pending{request: Request{TargetRevision: b.targetRevision, RequestID: uuid.NewString(), FrameID: frameID, Action: action}, ctx: ctx, deadline: time.Now().Add(RequestTimeout), result: make(chan delivery, 1)}
 	b.pending = p
 	b.mu.Unlock()
 	select {

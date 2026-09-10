@@ -30,8 +30,18 @@ pub struct WindowCapture {
     pub data_url: String,
 }
 
+pub fn available_target(
+    scope: &super::computer_use_session::SessionScope,
+) -> Result<super::computer_use_picker::Snapshot, String> {
+    if scope.mode == super::computer_use_session::SessionMode::AgentChoice {
+        super::computer_use_picker::agent_target(scope)
+    } else {
+        super::computer_use_picker::target(scope)
+    }
+}
+
 pub fn validate_target(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
-    super::computer_use_picker::target(scope).map(|_| ())
+    available_target(scope).map(|_| ())
 }
 
 /// The approved window still exists, belongs to the approved process, and is
@@ -43,7 +53,7 @@ pub fn validate_visible(scope: &super::computer_use_session::SessionScope) -> Re
 
 #[cfg(any(target_os = "macos", test))]
 pub fn validate_focus(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
-    if super::computer_use_picker::target(scope)?.focus_allowed {
+    if available_target(scope)?.focus_allowed {
         Ok(())
     } else {
         Err("Focus left the approved application and supervisor".into())
@@ -73,7 +83,7 @@ pub fn output_dimensions(width: u32, height: u32) -> Result<(u32, u32), String> 
 pub fn target_geometry(
     scope: &super::computer_use_session::SessionScope,
 ) -> Result<WindowGeometry, String> {
-    let geometry = super::computer_use_picker::target(scope)?.geometry;
+    let geometry = available_target(scope)?.geometry;
     output_dimensions(geometry.width, geometry.height)?;
     Ok(geometry)
 }
@@ -156,6 +166,7 @@ mod tests {
     #[test]
     fn unsupported_platform_cannot_list_or_capture_windows() {
         let scope = super::super::computer_use_session::SessionScope {
+            mode: super::super::computer_use_session::SessionMode::SelectedWindow,
             backend: "https://operator.example".into(),
             user: "u".into(),
             namespace: "default".into(),

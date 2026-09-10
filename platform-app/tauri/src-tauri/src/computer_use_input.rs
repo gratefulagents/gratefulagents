@@ -48,7 +48,7 @@ impl FocusTarget {
         Ok(Self { checks })
     }
 
-    fn verify(&self) -> Result<(), String> {
+    pub(super) fn verify(&self) -> Result<(), String> {
         let (reply, result) = std::sync::mpsc::sync_channel(1);
         self.checks
             .send(reply)
@@ -89,6 +89,12 @@ fn verify_focus(action: &Action, focus: Option<&FocusTarget>) -> Result<(), Stri
     deny_unknown_fields
 )]
 pub enum Action {
+    #[serde(rename = "list_windows")]
+    ListWindows {},
+    #[serde(rename = "select_window")]
+    SelectWindow {
+        target_ref: String,
+    },
     Observe {
         question: Option<String>,
     },
@@ -213,6 +219,8 @@ pub fn browser_bundle(bundle: &str) -> bool {
 #[derive(Clone, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QueuedRequest {
+    #[serde(default)]
+    pub target_revision: u64,
     pub request_id: String,
     pub frame_id: Option<String>,
     pub action: Action,
@@ -230,6 +238,16 @@ impl QueuedRequest {
             return Err("Invalid request or frame identifier".into());
         }
         match &self.action {
+            Action::ListWindows {} if self.frame_id.is_none() => Ok(()),
+            Action::SelectWindow { target_ref }
+                if target_ref.len() == 64
+                    && target_ref
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                    && self.frame_id.is_none() =>
+            {
+                Ok(())
+            }
             Action::Observe { question } if question.as_ref().is_none_or(|q| q.len() <= 4096) => {
                 Ok(())
             }
@@ -766,6 +784,44 @@ pub mod macos {
         non_password(focused.0)?;
         Ok(focused)
     }
+    fn process_launch(scope: &SessionScope) -> Result<f64, String> {
+        objc2::rc::autoreleasepool(|_| unsafe {
+            let app: *mut objc2::runtime::AnyObject = objc2::msg_send![objc2::class!(NSRunningApplication), runningApplicationWithProcessIdentifier: scope.process_id as i32];
+            if app.is_null() {
+                return Err("Selected process ended".into());
+            }
+            let date: *mut objc2::runtime::AnyObject = objc2::msg_send![app, launchDate];
+            if date.is_null() {
+                return Err("Cannot verify selected process identity".into());
+            }
+            let launched: f64 = objc2::msg_send![date, timeIntervalSince1970];
+            Ok(launched)
+        })
+    }
+
+    pub fn bind_window(scope: SessionScope) -> Result<FocusTarget, String> {
+        FocusTarget::retain(move || {
+            super::super::computer_use_capture::validate_visible(&scope)?;
+            let launched = process_launch(&scope)?;
+            let geometry = super::super::computer_use_capture::target_geometry(&scope)?;
+            approved_window(&scope, &geometry)?;
+            let application = app(&scope)?;
+            let intended = attr(application.0, "AXFocusedWindow")?;
+            Ok(move || {
+                if process_launch(&scope)? != launched {
+                    return Err("Selected process identity changed".into());
+                }
+                super::super::computer_use_capture::validate_visible(&scope)?;
+                let geometry = super::super::computer_use_capture::target_geometry(&scope)?;
+                approved_window(&scope, &geometry)?;
+                let current = attr(application.0, "AXFocusedWindow")?;
+                if !intended.same(&current) || !window_geometry_matches(intended.0, &geometry) {
+                    return Err("Selected window identity changed; select again".into());
+                }
+                Ok(())
+            })
+        })
+    }
     pub fn bind_focus(scope: SessionScope) -> Result<FocusTarget, String> {
         FocusTarget::retain(move || {
             // Queueing happens while the supervisor is usually frontmost; the
@@ -854,7 +910,7 @@ pub mod macos {
         }
         // AX has no public window-ID accessor; require the approved ID to be
         // the process's frontmost window as well as matching AX geometry.
-        if !super::super::computer_use_picker::target(scope)?.frontmost {
+        if !super::super::computer_use_capture::available_target(scope)?.frontmost {
             return Err("Approved window is not the frontmost application window".into());
         }
         Ok(())
@@ -1089,6 +1145,9 @@ pub mod macos {
             if let Some(frame) = frame {
                 frame.validate_snapshot(&geometry, &display, Instant::now())?;
             }
+            if scope.mode == super::super::computer_use_session::SessionMode::AgentChoice {
+                super::super::computer_use::require_agent_permission()?;
+            }
             let permissions = super::super::computer_use::computer_use_permissions();
             if !permissions.accessibility
                 || !permissions.supported
@@ -1305,7 +1364,9 @@ pub mod macos {
                 }
                 pair(scope, down, up, &guard)
             }
-            Action::Observe { .. } => Err("Observe uses capture, not input".into()),
+            Action::ListWindows {} | Action::SelectWindow { .. } | Action::Observe { .. } => {
+                Err("Observe uses capture, not input".into())
+            }
             Action::OpenUrl { .. } => unreachable!("handled before pointer setup"),
         }
     }
@@ -1461,6 +1522,7 @@ mod tests {
             },
         ] {
             assert!(QueuedRequest {
+                target_revision: 0,
                 request_id: "a".into(),
                 frame_id: Some("f".into()),
                 action
@@ -1540,6 +1602,7 @@ mod tests {
         ] {
             assert!(web_url(bad).is_err(), "{bad:?}");
             assert!(QueuedRequest {
+                target_revision: 0,
                 request_id: "a".into(),
                 frame_id: None,
                 action: Action::OpenUrl {
@@ -1750,6 +1813,7 @@ mod tests {
     #[test]
     fn proposed_text_must_render_exactly_as_typed() {
         let request = |text: &str| QueuedRequest {
+            target_revision: 0,
             request_id: "a".into(),
             frame_id: Some("f".into()),
             action: Action::Type { text: text.into() },

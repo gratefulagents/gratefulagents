@@ -3,6 +3,7 @@
 pub struct ComputerUsePermissions {
     pub supported: bool,
     pub accessibility: bool,
+    pub agent_screen_recording: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -40,6 +41,8 @@ mod macos {
     extern "C" {
         pub static kAXTrustedCheckOptionPrompt: *const c_void;
         pub fn AXIsProcessTrusted() -> bool;
+        pub fn CGPreflightScreenCaptureAccess() -> bool;
+        pub fn CGRequestScreenCaptureAccess() -> bool;
         pub fn AXIsProcessTrustedWithOptions(options: *const c_void) -> bool;
     }
 
@@ -76,6 +79,7 @@ pub fn computer_use_permissions() -> ComputerUsePermissions {
         ComputerUsePermissions {
             supported: super::computer_use_picker::supported(),
             accessibility: unsafe { macos::AXIsProcessTrusted() },
+            agent_screen_recording: unsafe { macos::CGPreflightScreenCaptureAccess() },
         }
     }
     #[cfg(not(target_os = "macos"))]
@@ -83,14 +87,23 @@ pub fn computer_use_permissions() -> ComputerUsePermissions {
         ComputerUsePermissions {
             supported: false,
             accessibility: false,
+            agent_screen_recording: false,
         }
     }
+}
+
+pub fn require_agent_permission() -> Result<(), String> {
+    if !computer_use_permissions().agent_screen_recording {
+        return Err("Agent chooses windows requires separate macOS Screen Recording permission; enable it in the connection panel and reconnect".into());
+    }
+    Ok(())
 }
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ComputerUsePermission {
     Accessibility,
+    AgentScreenRecording,
 }
 
 #[tauri::command]
@@ -103,6 +116,12 @@ pub fn computer_use_open_permission(
         use tauri_plugin_opener::OpenerExt;
 
         let url = match permission {
+            ComputerUsePermission::AgentScreenRecording => {
+                unsafe {
+                    macos::CGRequestScreenCaptureAccess();
+                }
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+            }
             ComputerUsePermission::Accessibility => {
                 macos::request_accessibility();
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
@@ -134,6 +153,9 @@ mod tests {
     fn permission_targets_are_closed() {
         assert!(serde_json::from_str::<ComputerUsePermission>("\"screen_recording\"").is_err());
         assert!(serde_json::from_str::<ComputerUsePermission>("\"accessibility\"").is_ok());
+        assert!(
+            serde_json::from_str::<ComputerUsePermission>("\"agent_screen_recording\"").is_ok()
+        );
         assert!(serde_json::from_str::<ComputerUsePermission>("\"https://example.com\"").is_err());
     }
 
@@ -143,5 +165,7 @@ mod tests {
         let status = computer_use_permissions();
         assert!(!status.supported);
         assert!(!status.accessibility);
+        assert!(!status.agent_screen_recording);
+        assert!(require_agent_permission().is_err());
     }
 }

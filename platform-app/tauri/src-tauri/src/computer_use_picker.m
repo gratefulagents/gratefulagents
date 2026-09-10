@@ -45,6 +45,8 @@ API_AVAILABLE(macos(15.2))
 @end
 
 static GAWindowShare *current API_AVAILABLE(macos(15.2));
+static NSDictionary<NSNumber *, GAWindowShare *> *agentWindows API_AVAILABLE(macos(15.2));
+static uint64_t agentInventoryRevision;
 
 @implementation GAWindowShare
 - (void)invalidate {
@@ -152,6 +154,7 @@ void ga_window_sharing_revoke(uint64_t token) {
     if (@available(macOS 15.2, *)) {
         @synchronized(GAWindowShare.class) {
             if (token == 0 || current.token == token) [current invalidate];
+            if (token == 0) { agentWindows = nil; agentInventoryRevision++; }
         }
     }
 }
@@ -290,4 +293,81 @@ void ga_window_sharing_capture(uint64_t token, uint32_t width, uint32_t height, 
     } else {
         [completion finish:@{@"error": @"Computer use requires macOS 15.2 or later"}];
     }
+}
+
+void ga_agent_windows(GAReply reply, void *context) {
+    GACompletion *completion = [GACompletion new];
+    completion.reply = reply;
+    completion.context = context;
+    if (@available(macOS 15.2, *)) {
+        if (!CGPreflightScreenCaptureAccess()) {
+            [completion finish:@{@"error": @"Agent-choice Screen Recording permission is required"}];
+            return;
+        }
+        __block uint64_t revision;
+        @synchronized(GAWindowShare.class) { revision = ++agentInventoryRevision; }
+        [SCShareableContent getShareableContentExcludingDesktopWindows:YES onScreenWindowsOnly:YES completionHandler:^(SCShareableContent *content, NSError *error) {
+            @synchronized(GAWindowShare.class) {
+                if (error || !content || revision != agentInventoryRevision || !CGPreflightScreenCaptureAccess()) {
+                    [completion finish:@{@"error": @"Window discovery failed or was revoked"}];
+                    return;
+                }
+                NSMutableDictionary *inventory = [NSMutableDictionary new];
+                NSMutableArray *metadata = [NSMutableArray new];
+                for (SCWindow *window in content.windows) {
+                    SCRunningApplication *owner = window.owningApplication;
+                    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:owner.processID];
+                    if (!owner || owner.processID == getpid() || !owner.applicationName.length || !owner.bundleIdentifier.length ||
+                        !app.launchDate || ![app.bundleIdentifier isEqual:owner.bundleIdentifier] ||
+                        [owner.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier]) continue;
+                    GAWindowShare *share = [GAWindowShare new];
+                    share.valid = YES;
+                    share.window = window;
+                    share.application = app;
+                    share.filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:window];
+                    NSDictionary *snapshot = [share snapshot];
+                    if (!snapshot || ![snapshot[@"frontmost"] boolValue]) continue;
+                    inventory[@(window.windowID)] = share;
+                    [metadata addObject:snapshot];
+                    if (metadata.count == 64) break;
+                }
+                agentWindows = inventory;
+                [completion finish:metadata];
+            }
+        }];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            @synchronized(GAWindowShare.class) {
+                if (revision == agentInventoryRevision) agentInventoryRevision++;
+                [completion finish:@{@"error": @"Window discovery timed out"}];
+            }
+        });
+    } else [completion finish:@{@"error": @"Computer use requires macOS 15.2 or later"}];
+}
+
+char *ga_agent_window_snapshot(uint32_t window_id) {
+    @autoreleasepool {
+        if (@available(macOS 15.2, *)) {
+            @synchronized(GAWindowShare.class) {
+                NSDictionary *snapshot = CGPreflightScreenCaptureAccess() ? [agentWindows[@(window_id)] snapshot] : nil;
+                if (!snapshot) return NULL;
+                NSData *data = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:nil];
+                return strdup([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding].UTF8String);
+            }
+        }
+        return NULL;
+    }
+}
+
+bool ga_agent_window_select(uint64_t token, uint32_t window_id) {
+    if (@available(macOS 15.2, *)) {
+        @synchronized(GAWindowShare.class) {
+            GAWindowShare *share = agentWindows[@(window_id)];
+            if (!CGPreflightScreenCaptureAccess() || ![share snapshot]) return false;
+            [current invalidate];
+            share.token = token;
+            current = share;
+            return true;
+        }
+    }
+    return false;
 }

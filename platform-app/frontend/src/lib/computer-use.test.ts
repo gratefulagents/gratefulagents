@@ -26,6 +26,12 @@ const scope = {
 };
 
 describe("computer use bridge", () => {
+  it("gives update/reconnect guidance when an old native app rejects agent mode", async () => {
+    native.invoke.mockRejectedValue(new Error("unknown field mode"));
+    await expect(startDesktopSession({ ...scope, mode: "agent_choice", application: "", windowId: 0, processId: 0 }, true, 0, "")).rejects.toThrow(/update.*reconnect/);
+    native.invoke.mockRejectedValue(new Error("Screen Recording permission is required"));
+    await expect(startDesktopSession({ ...scope, mode: "agent_choice" }, true, 0, "")).rejects.toThrow("Screen Recording");
+  });
   it("binds single-action approval commands to the native session, request and permit", async () => {
     const request = { requestId: "r", frameId: "f", action: { kind: "type" as const, text: "Proposed text" } };
     await queueDesktopRequest("s", scope, request);
