@@ -235,6 +235,13 @@ func TestOtherExternalSecuritySkillAssets(t *testing.T) {
 	}
 }
 
+// generalPurposeSkills are shipped skills that are not part of the opt-in
+// security bundle: tool companions offered to any run that has the tool.
+var generalPurposeSkills = map[string]bool{
+	"grafana.yaml":      true,
+	"computer-use.yaml": true,
+}
+
 func TestSkillBootstrapInventoryParity(t *testing.T) {
 	t.Parallel()
 
@@ -273,9 +280,9 @@ func TestSkillBootstrapInventoryParity(t *testing.T) {
 			continue
 		}
 		bundleMember := skill.Annotations["platform.gratefulagents.dev/security-skill"] == "true"
-		if entry.Name() == "grafana.yaml" {
+		if generalPurposeSkills[entry.Name()] {
 			if bundleMember {
-				t.Error("grafana must not be included in the opt-in security skill bundle")
+				t.Errorf("%s must not be included in the opt-in security skill bundle", entry.Name())
 			}
 		} else if !bundleMember {
 			t.Errorf("security skill %s is missing the opt-in bundle annotation", entry.Name())

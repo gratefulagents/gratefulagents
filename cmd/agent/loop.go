@@ -302,7 +302,14 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	}
 	// Skills use progressive disclosure: advertise only names and summaries,
 	// then load full instructions into context when the model chooses one.
-	loadSkillTool := tools.RegisterLoadSkillTool(ctx, toolRegistry, crdClient, run)
+	// The computer-use guide is offered as a companion whenever the
+	// computer_use tool is registered, so agents can load it without the user
+	// attaching it to the run.
+	var companionSkills []string
+	if desktopTool != nil {
+		companionSkills = append(companionSkills, tools.ComputerUseSkillName)
+	}
+	loadSkillTool := tools.RegisterLoadSkillTool(ctx, toolRegistry, crdClient, run, companionSkills...)
 	// Gate on the startup-resolved flag as well as the freshly read run: a
 	// transient CRD read failure (run == nil) must not produce a system
 	// prompt that advertises Kubernetes-admin tools without registering them.
