@@ -430,7 +430,12 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
           : `${ACTION_META[request.action.kind].label} failed`,
         detail: outcome.status === "failed" ? outcome.message : undefined,
       }, ...old].slice(0, 20));
-      if (outcome.status === "failed") setError(`${outcome.message} The action may be partially applied. Do not retry automatically.`);
+      if (outcome.status === "failed") {
+        const readOnly = request.action.kind === "observe" || request.action.kind === "list_windows" || request.action.kind === "select_window";
+        setError(readOnly
+          ? `${outcome.message} No input was sent to the window.`
+          : `${outcome.message} The action may be partially applied. Do not retry automatically.`);
+      }
       pendingRef.current = null;
       setPending(null);
     } catch {

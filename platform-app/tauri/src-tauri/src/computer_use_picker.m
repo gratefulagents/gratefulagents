@@ -90,8 +90,11 @@ static uint64_t agentInventoryRevision;
     return @{
         @"windowId": @(_window.windowID), @"processId": @(_application.processIdentifier),
         @"application": _window.owningApplication.applicationName,
-        @"title": _window.title ?: @"", @"frontmost": @(first.unsignedIntValue == _window.windowID),
-        @"focusAllowed": @(front == _application.processIdentifier || front == getpid()),
+        // Comparisons have type int in Objective-C, so @(a == b) would box an
+        // integer (serialized as 1/0) rather than a JSON boolean; the Rust
+        // Snapshot decoder expects true/false.
+        @"title": _window.title ?: @"", @"frontmost": (first.unsignedIntValue == _window.windowID) ? @YES : @NO,
+        @"focusAllowed": (front == _application.processIdentifier || front == getpid()) ? @YES : @NO,
         @"geometry": @{@"x": @((int32_t)bounds.origin.x), @"y": @((int32_t)bounds.origin.y),
                         @"width": @((uint32_t)bounds.size.width), @"height": @((uint32_t)bounds.size.height)}
     };
