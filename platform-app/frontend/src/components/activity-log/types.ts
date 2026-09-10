@@ -11,6 +11,7 @@ export type WorkUnit =
 export type WorkItem = { kind: "work"; units: WorkUnit[]; entries: ActivityEntry[] };
 
 export type FeedItem =
+  | { kind: "agent"; entry: ActivityEntry; previousAgent: string }
   | { kind: "prose"; entry: ActivityEntry }
   | { kind: "reasoning"; entries: ActivityEntry[] }
   | WorkItem

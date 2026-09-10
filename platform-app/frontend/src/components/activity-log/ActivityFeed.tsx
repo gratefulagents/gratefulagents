@@ -13,7 +13,7 @@ import type { FeedItem } from "./types";
 import { WorkCard } from "./WorkRows";
 import { InlineSubagentCard, SubagentCard } from "./SubagentCards";
 import { SubagentDagCard } from "./SubagentDagCard";
-import { MetaLine, PhaseDivider, PlanCard, QuestionCard, ReasoningCard } from "./InteractionCards";
+import { AgentDivider, MetaLine, PhaseDivider, PlanCard, QuestionCard, ReasoningCard } from "./InteractionCards";
 
 function sameEntryRefs(a: ActivityEntry[], b: ActivityEntry[]): boolean {
   if (a === b) return true;
@@ -32,6 +32,8 @@ function sameFeedItem(a: FeedItem, b: FeedItem): boolean {
   if (a === b) return true;
   if (a.kind !== b.kind) return false;
   switch (a.kind) {
+    case "agent":
+      return a.entry === (b as typeof a).entry && a.previousAgent === (b as typeof a).previousAgent;
     case "prose":
     case "phase":
     case "meta":
@@ -76,6 +78,8 @@ export const FeedItemView = memo(
     planContent?: string;
   }) {
     switch (item.kind) {
+      case "agent":
+        return <AgentDivider entry={item.entry} previousAgent={item.previousAgent} />;
       case "prose":
         return (
           <div className="text-sm leading-relaxed text-foreground">

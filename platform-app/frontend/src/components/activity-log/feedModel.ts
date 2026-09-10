@@ -1,5 +1,5 @@
 import type { ActivityEntry } from "@/rpc/platform/service_pb";
-import type { ActivityGroup } from "@/lib/activityGrouping";
+import { ROOT_AGENT_NAME, type ActivityGroup } from "@/lib/activityGrouping";
 import { SYSTEM_TYPES } from "@/lib/activityLogFormat";
 import type { FeedItem, WorkItem, WorkUnit } from "./types";
 
@@ -33,6 +33,7 @@ export function workUnitKey(unit: WorkUnit, index: number): string {
 
 export function feedItemBaseKey(item: FeedItem): string {
   switch (item.kind) {
+    case "agent":
     case "prose":
     case "phase":
     case "meta":
@@ -68,6 +69,7 @@ export function keyedFeedItems(feed: FeedItem[]): Array<{ item: FeedItem; key: s
 export function buildFeed(groups: ActivityGroup[]): FeedItem[] {
   const feed: FeedItem[] = [];
   let work: WorkItem | null = null;
+  let activeAgent = "";
 
   const flush = () => {
     if (work && work.units.length > 0) feed.push(work);
@@ -89,6 +91,17 @@ export function buildFeed(groups: ActivityGroup[]): FeedItem[] {
   };
 
   for (const g of groups) {
+    const agent = rootAgentOf(g);
+    if (agent && agent.name !== activeAgent) {
+      // A feed always starts under the root orchestrator, so only announce
+      // the opening agent when it is someone else (e.g. a segment that begins
+      // mid-handoff). Every later change is a real switch and is always shown.
+      if (activeAgent !== "" || agent.name !== ROOT_AGENT_NAME) {
+        flush();
+        feed.push({ kind: "agent", entry: agent.entry, previousAgent: activeAgent });
+      }
+      activeAgent = agent.name;
+    }
     switch (g.kind) {
       case "single": {
         const e = g.entry;
@@ -174,6 +187,32 @@ export function buildFeed(groups: ActivityGroup[]): FeedItem[] {
   flush();
   coalesceSubagentDelegations(feed);
   return feed;
+}
+
+/**
+ * The agent executing a root-level group, taken from the group's first entry.
+ * Sub-agent groups render as their own cards and never move the root
+ * execution boundary; legacy entries without agent metadata are ignored.
+ */
+function rootAgentOf(
+  g: ActivityGroup,
+): { name: string; entry: ActivityEntry } | undefined {
+  let entry: ActivityEntry | undefined;
+  switch (g.kind) {
+    case "single":
+      entry = g.entry;
+      break;
+    case "tool-pair":
+      entry = g.toolUse;
+      break;
+    case "tool-batch":
+    case "secondary-batch":
+      entry = g.entries[0];
+      break;
+    default:
+      return undefined;
+  }
+  return entry?.agentName ? { name: entry.agentName, entry } : undefined;
 }
 
 type SubagentFeedItem = Extract<FeedItem, { kind: "subagent" }>;

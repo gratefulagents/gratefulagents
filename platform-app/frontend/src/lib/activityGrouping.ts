@@ -41,6 +41,9 @@ const SECONDARY_TYPES = new Set([
 
 const BATCHABLE_TOOLS = new Set(["read", "read_file", "grep", "glob"]);
 
+/** Agent name the SDK stamps on root-orchestrator events. */
+export const ROOT_AGENT_NAME = "main";
+
 const SUBAGENT_EVIDENCE_TYPES = new Set([
   "subagent_started",
   "subagent_progress",
@@ -169,7 +172,7 @@ function hasSubagentGroupingEvidence(entry: ActivityEntry): boolean {
     // the legacy phantom groups caused by parent call IDs (call_*).
     (entry.taskId.startsWith("task_") &&
       Boolean(entry.agentName) &&
-      entry.agentName !== "main")
+      entry.agentName !== ROOT_AGENT_NAME)
   );
 }
 
@@ -380,6 +383,7 @@ export function groupActivityEntries(
       while (
         j < entries.length &&
         SECONDARY_TYPES.has(entries[j].type) &&
+        entries[j].agentName === e.agentName &&
         !consumedIndices.has(j)
       ) {
         batch.push(entries[j]);
@@ -401,6 +405,7 @@ export function groupActivityEntries(
         j < entries.length &&
         entries[j].type === "tool_use" &&
         entries[j].tool?.toLowerCase() === tool &&
+        entries[j].agentName === e.agentName &&
         !consumedIndices.has(j)
       ) {
         batch.push(entries[j]);

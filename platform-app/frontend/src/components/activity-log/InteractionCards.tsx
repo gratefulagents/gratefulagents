@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { Check, ChevronRight, CornerDownRight, FileText, Layers, MessageCircleQuestion, Sparkles } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, CornerDownRight, FileText, Layers, MessageCircleQuestion, Sparkles } from "lucide-react";
 
 import { Collapse } from "./Collapse";
 import { MarkdownViewer } from "@/components/MarkdownViewer";
 import { renderPlanDialogButton } from "@/components/run-session/helpers";
+import { AgentTypeChip } from "@/components/ui/agent-type-chip";
 import { Button } from "@/components/ui/button";
 import { extractUserAnswer, firstLine, formatClock, formatUsd, formatWall, isCostKnown, parsePlan, parseQuestion, wallSeconds } from "@/lib/activityLogFormat";
-import { formatDuration, formatTokens } from "@/lib/activityGrouping";
+import { ROOT_AGENT_NAME, formatDuration, formatTokens } from "@/lib/activityGrouping";
 import { toneText } from "@/lib/status";
 import type { ActivityEntry } from "@/rpc/platform/service_pb";
 
@@ -173,6 +174,45 @@ export function PhaseDivider({ entry }: { entry: ActivityEntry }) {
         {label}
       </span>
       <div className="h-px flex-1 bg-border/70" />
+    </div>
+  );
+}
+
+/**
+ * Marks where root execution moved to a different agent (a handoff), or
+ * which non-root agent a feed opens under. Uses the same chip vocabulary as
+ * the sub-agent cards so an agent looks identical everywhere in the timeline.
+ */
+export function AgentDivider({
+  entry,
+  previousAgent,
+}: {
+  entry: ActivityEntry;
+  previousAgent: string;
+}) {
+  const agent = entry.agentName;
+  const label = previousAgent
+    ? `Handoff from ${previousAgent} to ${agent}`
+    : `Continuing as ${agent}`;
+  return (
+    <div
+      role="separator"
+      aria-label={label}
+      title={`${label} · ${formatClock(entry.timestampUnix)}`}
+      className="flex items-center gap-2 py-0.5"
+    >
+      {previousAgent && (
+        <>
+          <AgentTypeChip
+            type={previousAgent}
+            root={previousAgent === ROOT_AGENT_NAME}
+            className="opacity-60"
+          />
+          <ArrowRight aria-hidden="true" className="size-3 shrink-0 text-muted-foreground/60" />
+        </>
+      )}
+      <AgentTypeChip type={agent} root={agent === ROOT_AGENT_NAME} />
+      <div className="h-px min-w-4 flex-1 bg-border/70" aria-hidden="true" />
     </div>
   );
 }
