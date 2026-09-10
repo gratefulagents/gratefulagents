@@ -111,6 +111,8 @@ func TestMaintainerModeValidatesUntrustedIssuesBeforeDispatch(t *testing.T) {
 		"Issue disposition, AgentRun phase, PR-loop verdict, GitHub PR lifecycle, and CI are separate facts",
 		"calling finish ends only its current execution episode",
 		"while checks are pending or an AI reviewer is active",
+		"inspect the current-head PR diff and compare it with the issue summary, accepted scope, and acceptance criteria",
+		"If any requirement is missing, only partially implemented, or unsupported by appropriate validation, treat the PR as CHANGES_REQUIRED",
 		"submit request_merge with the current projection sequence",
 		"submit finalize_work_item with explicit delivery evidence",
 		"controller binds the authenticated attestation to the accepted-scope hash",
