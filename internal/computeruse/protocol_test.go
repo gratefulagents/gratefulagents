@@ -181,6 +181,18 @@ func TestPointerActionValidation(t *testing.T) {
 		{"wait-missing", Action{Kind: "wait"}, false},
 		{"wait-with-point", Action{Kind: "wait", Seconds: &one, X: &n, Y: &n}, false},
 		{"seconds-on-observe", Action{Kind: "observe", Seconds: &one}, false},
+		{"open-url", Action{Kind: "open_url", URL: "https://example.com/a?b=c#d"}, true},
+		{"open-url-http", Action{Kind: "open_url", URL: "http://localhost:8080/"}, true},
+		{"open-url-file", Action{Kind: "open_url", URL: "file:///etc/passwd"}, false},
+		{"open-url-javascript", Action{Kind: "open_url", URL: "javascript:alert(1)"}, false},
+		{"open-url-relative", Action{Kind: "open_url", URL: "example.com"}, false},
+		{"open-url-credentials", Action{Kind: "open_url", URL: "https://user:pw@example.com"}, false},
+		{"open-url-space", Action{Kind: "open_url", URL: "https://example.com/a b"}, false},
+		{"open-url-control", Action{Kind: "open_url", URL: "https://example.com/\n"}, false},
+		{"open-url-empty", Action{Kind: "open_url"}, false},
+		{"open-url-long", Action{Kind: "open_url", URL: "https://example.com/" + strings.Repeat("a", 2048)}, false},
+		{"open-url-with-point", Action{Kind: "open_url", URL: "https://example.com", X: &n, Y: &n}, false},
+		{"url-on-click", Action{Kind: "click", X: &n, Y: &n, URL: "https://example.com"}, false},
 		{"destination-on-click", Action{Kind: "click", X: &n, Y: &n, ToX: &z, ToY: &z}, false},
 		{"key-with-point", Action{Kind: "key", Key: "Enter", X: &n, Y: &n}, false},
 		{"activate-with-point", Action{Kind: "activate", X: &n, Y: &n}, false},
@@ -196,9 +208,19 @@ func TestPointerActionValidation(t *testing.T) {
 			t.Errorf("%s reported as input", kind)
 		}
 	}
-	for _, kind := range []string{"click", "move", "drag", "scroll", "key", "type", "activate"} {
+	for _, kind := range []string{"click", "move", "drag", "scroll", "key", "type", "activate", "open_url"} {
 		if !(Action{Kind: kind}).IsInput() {
 			t.Errorf("%s not reported as input", kind)
+		}
+	}
+	for _, kind := range []string{"observe", "wait", "open_url"} {
+		if (Action{Kind: kind}).NeedsFrame() {
+			t.Errorf("%s should not need a frame", kind)
+		}
+	}
+	for _, kind := range []string{"click", "move", "drag", "scroll", "key", "type", "activate"} {
+		if !(Action{Kind: kind}).NeedsFrame() {
+			t.Errorf("%s should need a frame", kind)
 		}
 	}
 	one = 1

@@ -90,7 +90,20 @@ export type DesktopAction =
   | { kind: "scroll"; deltaX: number; deltaY: number; x?: number; y?: number }
   | { kind: "type"; text: string }
   | { kind: "key"; key: string }
-  | { kind: "activate" };
+  | { kind: "activate" }
+  | { kind: "open_url"; url: string };
+
+// Mirrors the Go and native validators: absolute http(s), a host, no
+// credentials, no whitespace/control characters, bounded length.
+export function isWebUrl(raw: unknown): raw is string {
+  if (typeof raw !== "string" || !raw.length || raw.length > 2048 || /[\s\p{Cc}]/u.test(raw)) return false;
+  try {
+    const parsed = new URL(raw);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") && !!parsed.hostname && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
 
 export interface Hotkey {
   control: boolean;

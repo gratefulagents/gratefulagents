@@ -316,6 +316,37 @@ describe("run-bound desktop preview", () => {
     expect(m.approve).not.toHaveBeenCalled();
     expect(m.queue).toHaveBeenCalledTimes(1);
     expect(m.cancel).toHaveBeenCalledWith("session-1", native.scope, "request-1");
+    // The native reason travels to the agent and is visible in the timeline.
+    expect(m.relay).toHaveBeenCalledWith("session-1", native.scope, "resolve", "request-1",
+      expect.objectContaining({ status: "failed", message: expect.stringContaining("Frame expired") }));
+    expect(screen.getByRole("list", { name: "Recent computer actions" }).textContent).toContain("Frame expired");
+  });
+
+  it("shows the native failure reason for an executed action in the timeline", async () => {
+    remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "key", key: "Cmd+L" } };
+    m.approve.mockResolvedValue({ requestId: "request-1", status: "failed", message: "Approved window is not the frontmost application window" });
+    await panel();
+    await startSession();
+    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    await screen.findByText("key — failed");
+    expect(screen.getByRole("list", { name: "Recent computer actions" }).textContent).toContain("Approved window is not the frontmost application window");
+    expect(screen.getByRole("alert").textContent).toContain("Approved window is not the frontmost application window");
+  });
+
+  it("describes open_url as a background browser action that needs no frame", async () => {
+    remotePending = { requestId: "request-1", action: { kind: "open_url", url: "https://www.google.com/search?q=gratefulagents" } };
+    m.approve.mockResolvedValue({ requestId: "request-1", status: "completed", message: "Opened" });
+    await panel();
+    await startSession();
+    await screen.findByText("Agent requests: open_url");
+    expect(screen.getByText("https://www.google.com/search?q=gratefulagents")).toBeTruthy();
+    expect(screen.getByText(/without bringing it forward/)).toBeTruthy();
+    expect(screen.getByText("Enters input")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    await screen.findByText("open_url — completed");
+    expect(screen.getByRole("list", { name: "Recent computer actions" }).textContent).toContain("Opened https://www.google.com/search?q=gratefulagents");
   });
 
   it("stops on an uncertain result delivery and does not retry the input", async () => {

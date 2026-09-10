@@ -59,6 +59,27 @@ pub fn validate_target(scope: &super::computer_use_session::SessionScope) -> Res
     }
 }
 
+/// The approved window still exists, belongs to the approved process, and is
+/// not minimized. Capture and pointer input work for a window behind other
+/// windows, so this — not focus — is the availability condition.
+pub fn validate_visible(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        if window(scope)?
+            .is_minimized()
+            .map_err(|error| error.to_string())?
+        {
+            return Err("The approved window is minimized".into());
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = scope;
+        Err("Window capture requires macOS".into())
+    }
+}
+
 pub fn validate_focus(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -127,14 +148,14 @@ pub fn capture(scope: &super::computer_use_session::SessionScope) -> Result<Wind
         use std::io::Cursor;
 
         use super::computer_use_input::macos;
-        validate_focus(scope)?;
+        validate_visible(scope)?;
         macos::secure(scope)?;
         let before = target_geometry(scope)?;
         let display_before = macos::displays()?;
         let image = macos::capture_image(scope, &before)?;
         let after = target_geometry(scope)?;
         let displays = macos::displays()?;
-        validate_focus(scope)?;
+        validate_visible(scope)?;
         macos::secure(scope)?;
         if before != after || display_before != displays {
             return Err(
@@ -147,7 +168,7 @@ pub fn capture(scope: &super::computer_use_session::SessionScope) -> Result<Wind
         image::DynamicImage::ImageRgba8(image)
             .write_to(&mut png, image::ImageFormat::Png)
             .map_err(|error| error.to_string())?;
-        validate_focus(scope)?;
+        validate_visible(scope)?;
         macos::secure(scope)?;
         if target_geometry(scope)? != after || macos::displays()? != displays {
             return Err("Window/display changed before capture delivery".into());
@@ -250,6 +271,7 @@ mod tests {
         assert!(computer_use_windows().is_err());
         assert!(validate_target(&scope).is_err());
         assert!(validate_focus(&scope).is_err());
+        assert!(validate_visible(&scope).is_err());
         assert!(capture(&scope).is_err());
     }
 }

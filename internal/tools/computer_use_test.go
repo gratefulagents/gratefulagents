@@ -82,7 +82,7 @@ func TestComputerUsePolicyAndVisionInjection(t *testing.T) {
 		t.Fatalf("missing proposed text schema bounds: %+v", text)
 	}
 	action := schema.Properties.Action.Properties
-	if kinds := strings.Join(action.Kind.Enum, ","); kinds != "observe,click,move,drag,scroll,type,key,activate,wait" {
+	if kinds := strings.Join(action.Kind.Enum, ","); kinds != "observe,click,move,drag,scroll,type,key,activate,open_url,wait" {
 		t.Fatalf("unexpected action kinds: %s", kinds)
 	}
 	if action.Key.Pattern == "" || !strings.Contains(action.Key.Description, "Cmd+A") || !strings.Contains(action.Key.Description, "Shift+Tab") {
@@ -91,7 +91,7 @@ func TestComputerUsePolicyAndVisionInjection(t *testing.T) {
 	if strings.Join(action.Button.Enum, ",") != "left,right,middle" || action.Count.Minimum != 1 || action.Count.Maximum != 3 {
 		t.Fatal("schema missing click button/count bounds")
 	}
-	for _, guidance := range []string{"double/triple click", "drag from x,y to toX,toY", "wait seconds (1-10)", "letters/digits need Control, Option, or Cmd", "follow-up observation should verify"} {
+	for _, guidance := range []string{"double/triple click", "drag from x,y to toX,toY", "wait seconds (1-10)", "letters/digits need Control, Option, or Cmd", "follow-up observation should verify", "open_url to load an absolute http(s) URL", "without bringing it to the front"} {
 		if !strings.Contains(tool.Description(), guidance) {
 			t.Errorf("description missing %q", guidance)
 		}
@@ -239,7 +239,7 @@ func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
 				t.Fatal(err)
 			}
 			e.Operation = "resolve"
-			e.Outcome = &computeruse.Outcome{RequestID: request.RequestID, Status: tc.status, Message: "PRIVATE " + tc.text}
+			e.Outcome = &computeruse.Outcome{RequestID: request.RequestID, Status: tc.status, Message: "Approved\u0000 window is\u200b not the frontmost\n application window"}
 			if _, err := b.Exchange(e); err != nil {
 				t.Fatal(err)
 			}
@@ -249,7 +249,8 @@ func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
 			select {
 			case result := <-done:
 				if tc.status != "completed" {
-					if !result.IsError || result.Content != "Desktop action "+tc.status+computerUseNoRetry {
+					// The desktop's reason reaches the agent, sanitized to printable text, so it can adapt instead of asking the user to look.
+					if !result.IsError || result.Content != "Desktop action "+tc.status+" (desktop reported: Approved window is not the frontmost application window)."+computerUseNoRetry {
 						t.Fatalf("unexpected failed input result: %+v", result)
 					}
 				} else if tc.name == "observation-denied" || tc.name == "vision-failed" {
@@ -303,6 +304,12 @@ func TestComputerUseRejectsInvalidNativeActions(t *testing.T) {
 		`{"kind":"wait","seconds":0}`,
 		`{"kind":"wait","seconds":11}`,
 		`{"kind":"wait"}`,
+		`{"kind":"open_url","url":"file:///etc/passwd"}`,
+		`{"kind":"open_url","url":"javascript:alert(1)"}`,
+		`{"kind":"open_url","url":"https://user:pw@example.com"}`,
+		`{"kind":"open_url","url":"example.com"}`,
+		`{"kind":"open_url"}`,
+		`{"kind":"click","x":1,"y":1,"url":"https://example.com"}`,
 		`{"kind":"click","x":1,"y":1,"question":"` + strings.Repeat("q", 2049) + `"}`,
 		`{"kind":"scroll","deltaX":1}`,
 		`{"kind":"scroll","deltaY":1}`,
@@ -529,5 +536,18 @@ func approvePostActionObservation(t *testing.T, b *computeruse.Broker, e compute
 	}
 	if _, err := b.Exchange(e); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestOutcomeReasonIsBoundedPrintableText(t *testing.T) {
+	if got := outcomeReason(""); got != "." {
+		t.Fatalf("empty reason: %q", got)
+	}
+	if got := outcomeReason(" Focus\tleft \u202ethe\x1b approved\r\n app "); got != " (desktop reported: Focus left the approved app)." {
+		t.Fatalf("unsanitized reason: %q", got)
+	}
+	long := outcomeReason(strings.Repeat("a", 600))
+	if len(long) > 512+len(" (desktop reported: ).") || !strings.HasSuffix(long, ").") {
+		t.Fatalf("unbounded reason: %d", len(long))
 	}
 }

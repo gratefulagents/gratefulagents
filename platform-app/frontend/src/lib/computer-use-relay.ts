@@ -1,6 +1,6 @@
 import { client } from "./client";
 import { backendBaseUrl } from "./platform";
-import { parseHotkey, type DesktopOutcome, type DesktopRequest, type DesktopScope } from "./computer-use";
+import { isWebUrl, parseHotkey, type DesktopOutcome, type DesktopRequest, type DesktopScope } from "./computer-use";
 
 export interface DesktopRelayStatus {
   active: boolean;
@@ -45,7 +45,7 @@ export function parseDesktopRelay(raw: string): DesktopRelayStatus {
     const allowed: Record<string, string[]> = {
       observe: ["kind", "question"], click: ["kind", "x", "y", "button", "count"], move: ["kind", "x", "y"],
       drag: ["kind", "x", "y", "toX", "toY"], scroll: ["kind", "deltaX", "deltaY", "x", "y"],
-      type: ["kind", "text"], key: ["kind", "key"], activate: ["kind"],
+      type: ["kind", "text"], key: ["kind", "key"], activate: ["kind"], open_url: ["kind", "url"],
     };
     const pixel = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 100_000;
     if (typeof action.kind !== "string" || !Object.hasOwn(allowed, action.kind)) throw new Error("Unsupported desktop action");
@@ -76,8 +76,11 @@ export function parseDesktopRelay(raw: string): DesktopRelayStatus {
       case "key":
         if (!parseHotkey(action.key)) throw new Error("Unsupported key combination");
         break;
+      case "open_url":
+        if (!isWebUrl(action.url)) throw new Error("Only http(s) URLs can be opened");
+        break;
     }
-    if (action.kind !== "observe" && !request.frameId) throw new Error("An observation frame is required");
+    if (action.kind !== "observe" && action.kind !== "open_url" && !request.frameId) throw new Error("An observation frame is required");
   }
   return value;
 }

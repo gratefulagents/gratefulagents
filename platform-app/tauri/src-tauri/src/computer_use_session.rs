@@ -491,11 +491,13 @@ fn inspect_session(state: &ComputerUseSession) -> Result<SessionStatus, String> 
         return Ok(observed);
     }
     let permissions_available = require_permissions(state).is_ok();
-    let focus_available = permissions_available
+    // Background delivery: the session stays active while the approved window
+    // exists and is not minimized, even when another application is in front.
+    let window_available = permissions_available
         && observed
             .scope
             .as_ref()
-            .is_some_and(|scope| super::computer_use_capture::validate_focus(scope).is_ok());
+            .is_some_and(|scope| super::computer_use_capture::validate_visible(scope).is_ok());
     let mut policy = state
         .policy
         .lock()
@@ -503,8 +505,8 @@ fn inspect_session(state: &ComputerUseSession) -> Result<SessionStatus, String> 
     if policy.revision == observed.revision {
         if !permissions_available {
             policy.pause("Required OS permission or emergency stop is unavailable");
-        } else if !focus_available {
-            policy.pause("Focus left the approved application and supervisor");
+        } else if !window_available {
+            policy.pause("The approved window is minimized or no longer available");
         }
     }
     Ok(policy.status(Instant::now()))
@@ -700,8 +702,11 @@ pub fn computer_use_queue_request(
         policy.active(&session_id, &scope, Instant::now())?;
         policy.revision
     };
-    let target = if request.frame_id.is_none() && !matches!(request.action, Action::Observe { .. })
-    {
+    let target = if request.frame_id.is_none()
+        && !matches!(
+            request.action,
+            Action::Observe { .. } | Action::OpenUrl { .. }
+        ) {
         Some(super::computer_use_input::snapshot(&scope)?)
     } else {
         None

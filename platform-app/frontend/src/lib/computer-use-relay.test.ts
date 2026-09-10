@@ -53,6 +53,7 @@ describe("computer use relay contract", () => {
     { kind: "drag", x: 1, y: 2, toX: 30, toY: 40 },
     { kind: "scroll", deltaX: 0, deltaY: 100, x: 12, y: 13 },
     { kind: "activate" },
+    { kind: "open_url", url: "https://example.com/path?q=1#frag" },
   ])("accepts the native action shape $kind", (action) => {
     expect(parseDesktopRelay(wrap(action)).pending?.action).toEqual(action);
   });
@@ -102,6 +103,14 @@ describe("computer use relay contract", () => {
     { kind: "scroll", deltaX: 0, deltaY: 100, x: 12 },
     { kind: "scroll", deltaX: 0, deltaY: 100, x: "12", y: 1 },
     { kind: "wait", seconds: 1 },
+    { kind: "open_url", url: "file:///etc/passwd" },
+    { kind: "open_url", url: "javascript:alert(1)" },
+    { kind: "open_url", url: "example.com" },
+    { kind: "open_url", url: "https://user:pw@example.com" },
+    { kind: "open_url", url: "https://example.com/a b" },
+    { kind: "open_url", url: `https://example.com/${"a".repeat(2048)}` },
+    { kind: "open_url" },
+    { kind: "open_url", url: "https://example.com", x: 1 },
   ])("rejects malformed or unsupported action %#", (action) => {
     expect(() => parseDesktopRelay(wrap(action))).toThrow();
   });
@@ -110,6 +119,7 @@ describe("computer use relay contract", () => {
     expect(() => parseDesktopRelay(wrap({ kind: "key", key: "Enter" }, { frameId: undefined }))).toThrow(/frame/);
     expect(() => parseDesktopRelay(wrap({ kind: "observe" }, { requestId: "../other" }))).toThrow(/binding/);
     expect(parseDesktopRelay(wrap({ kind: "observe" }, { frameId: undefined })).pending).toBeDefined();
+    expect(parseDesktopRelay(wrap({ kind: "open_url", url: "https://example.com" }, { frameId: undefined })).pending).toBeDefined();
   });
 
   it.each(["{}", "null", "[]", "not json", JSON.stringify({ ...status, active: "yes" }), "x".repeat(16385)])("rejects malformed relay envelopes", (raw) => {
