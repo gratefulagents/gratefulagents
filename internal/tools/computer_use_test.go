@@ -66,7 +66,10 @@ func TestComputerUsePolicyAndVisionInjection(t *testing.T) {
 						MaxLength int
 						Pattern   string
 					}
-					Key struct{ Enum []string }
+					Kind   struct{ Enum []string }
+					Key    struct{ Pattern, Description string }
+					Button struct{ Enum []string }
+					Count  struct{ Minimum, Maximum int }
 				}
 			}
 		}
@@ -78,8 +81,20 @@ func TestComputerUsePolicyAndVisionInjection(t *testing.T) {
 	if text.Type != "string" || text.MinLength != 1 || text.MaxLength != 1000 || text.Pattern == "" {
 		t.Fatalf("missing proposed text schema bounds: %+v", text)
 	}
-	if !strings.Contains(strings.Join(schema.Properties.Action.Properties.Key.Enum, ","), "Shift+Tab") {
-		t.Fatal("schema missing Shift+Tab")
+	action := schema.Properties.Action.Properties
+	if kinds := strings.Join(action.Kind.Enum, ","); kinds != "observe,click,move,drag,scroll,type,key,activate,wait" {
+		t.Fatalf("unexpected action kinds: %s", kinds)
+	}
+	if action.Key.Pattern == "" || !strings.Contains(action.Key.Description, "Cmd+A") || !strings.Contains(action.Key.Description, "Shift+Tab") {
+		t.Fatalf("schema missing hotkey guidance: %+v", action.Key)
+	}
+	if strings.Join(action.Button.Enum, ",") != "left,right,middle" || action.Count.Minimum != 1 || action.Count.Maximum != 3 {
+		t.Fatal("schema missing click button/count bounds")
+	}
+	for _, guidance := range []string{"double/triple click", "drag from x,y to toX,toY", "wait seconds (1-10)", "letters/digits need Control, Option, or Cmd", "follow-up observation should verify"} {
+		if !strings.Contains(tool.Description(), guidance) {
+			t.Errorf("description missing %q", guidance)
+		}
 	}
 }
 
@@ -159,6 +174,8 @@ func TestComputerUseObservationMemoryOnly(t *testing.T) {
 func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
 	for _, tc := range []struct{ name, raw, text, status string }{
 		{"completed", `{"kind":"type","text":"PRIVATE proposed text"}`, "PRIVATE proposed text", "completed"},
+		{"observation-denied", `{"kind":"key","key":"Enter"}`, "", "completed"},
+		{"vision-failed", `{"kind":"key","key":"Enter"}`, "", "completed"},
 		{"denied", `{"kind":"type","text":"PRIVATE proposed text"}`, "PRIVATE proposed text", "denied"},
 		{"failed", `{"kind":"type","text":"PRIVATE proposed text"}`, "PRIVATE proposed text", "failed"},
 		{"escaped-limit", `{"kind":"type","text":"` + strings.Repeat(`\u0061`, 1000) + `"}`, strings.Repeat("a", 1000), "completed"},
@@ -173,8 +190,13 @@ func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
 				t.Fatal(err)
 			}
 			tool := &ComputerUseTool{broker: b, vision: &sdkvision.Tool{AnalyzeFn: func(context.Context, []byte, string, string) (string, error) {
-				t.Error("non-observe action invoked vision")
-				return "", nil
+				if tc.status != "completed" || tc.name == "observation-denied" {
+					t.Error("vision invoked without completed observation")
+				}
+				if tc.name == "vision-failed" {
+					return "", errors.New("provider failed")
+				}
+				return "Visible result after input", nil
 			}}}
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
@@ -221,14 +243,31 @@ func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
 			if _, err := b.Exchange(e); err != nil {
 				t.Fatal(err)
 			}
+			if tc.status == "completed" {
+				approvePostActionObservation(t, b, e, done, tc.name == "observation-denied")
+			}
 			select {
 			case result := <-done:
-				want := `{"status":"completed"}`
 				if tc.status != "completed" {
-					want = "Desktop action " + tc.status + computerUseNoRetry
+					if !result.IsError || result.Content != "Desktop action "+tc.status+computerUseNoRetry {
+						t.Fatalf("unexpected failed input result: %+v", result)
+					}
+				} else if tc.name == "observation-denied" || tc.name == "vision-failed" {
+					if !result.IsError || !strings.Contains(result.Content, "Input completed, but its effect is unverified. Do not repeat the input.") {
+						t.Fatalf("lost completed-input status: %+v", result)
+					}
+				} else {
+					if result.IsError || !strings.Contains(result.Content, `"actionStatus":"completed"`) || !strings.Contains(result.Content, `"frameId":"after-input"`) || !strings.Contains(result.Content, "Visible result after input") {
+						t.Fatalf("missing post-action analysis: %+v", result)
+					}
 				}
-				if result.Content != want || result.IsError != (tc.status != "completed") {
-					t.Fatal("outcome was not status-only")
+				if strings.Contains(result.Content, "PRIVATE") || strings.Contains(result.Content, "data:image") {
+					t.Fatal("leaked input or capture")
+				}
+				e.Operation, e.RequestID, e.Outcome = "poll", "", nil
+				response, err := b.Exchange(e)
+				if err != nil || response.Pending != nil {
+					t.Fatal("unexpected retry", err)
 				}
 			case <-time.After(time.Second):
 				t.Fatal("action hung")
@@ -253,7 +292,18 @@ func TestComputerUseRejectsInvalidNativeActions(t *testing.T) {
 		`{"kind":"type","text":""}`,
 		`{"kind":"type","text":"` + strings.Repeat("😀", 501) + `"}`,
 		`{"kind":"type","text":"PRIVATE\u0085"}`,
-		`{"kind":"key","key":"Shift+Enter"}`,
+		`{"kind":"key","key":"Cmd+Q"}`,
+		`{"kind":"key","key":"A"}`,
+		`{"kind":"key","key":"Cmd+Tab"}`,
+		`{"kind":"click","x":1,"y":1,"button":"back"}`,
+		`{"kind":"click","x":1,"y":1,"count":4}`,
+		`{"kind":"drag","x":1,"y":1,"toX":1,"toY":1}`,
+		`{"kind":"drag","x":1,"y":1}`,
+		`{"kind":"move","x":1}`,
+		`{"kind":"wait","seconds":0}`,
+		`{"kind":"wait","seconds":11}`,
+		`{"kind":"wait"}`,
+		`{"kind":"click","x":1,"y":1,"question":"` + strings.Repeat("q", 2049) + `"}`,
 		`{"kind":"scroll","deltaX":1}`,
 		`{"kind":"scroll","deltaY":1}`,
 		`{"kind":"scroll","deltaX":0,"deltaY":0}`,
@@ -423,5 +473,61 @@ func TestComputerUseClaimedCancellationWarnsAgainstRetry(t *testing.T) {
 	e.Operation, e.RequestID = "poll", ""
 	if r, err := b.Exchange(e); err != nil || r.Active {
 		t.Fatalf("canceled claim remained active: %+v %v", r, err)
+	}
+}
+
+func TestComputerUseWorkflowDescription(t *testing.T) {
+	description := (&ComputerUseTool{}).Description()
+	for _, requirement := range []string{"not a headless Browser session", "locally selected mode", "requests a fresh observation", "not that the task succeeded"} {
+		if !strings.Contains(description, requirement) {
+			t.Errorf("missing workflow guidance: %s", requirement)
+		}
+	}
+	if strings.Contains(description, "Every action requires local human approval") {
+		t.Fatal("description contradicts session approval modes")
+	}
+}
+
+func approvePostActionObservation(t *testing.T, b *computeruse.Broker, e computeruse.Exchange, done <-chan Result, denied bool) {
+	t.Helper()
+	var observation *computeruse.Request
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		e.Operation, e.RequestID, e.Outcome = "poll", "", nil
+		response, err := b.Exchange(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.Pending != nil {
+			observation = response.Pending
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if observation == nil || observation.Action.Kind != "observe" || observation.FrameID != "" {
+		t.Fatalf("missing fresh post-action observation: %+v", observation)
+	}
+	select {
+	case <-done:
+		t.Fatal("returned before observation approval")
+	default:
+	}
+	e.Operation, e.RequestID = "claim", observation.RequestID
+	if _, err := b.Exchange(e); err != nil {
+		t.Fatal(err)
+	}
+	e.Operation = "resolve"
+	e.Outcome = &computeruse.Outcome{RequestID: observation.RequestID, Status: "completed"}
+	if denied {
+		e.Outcome.Status = "denied"
+	} else {
+		var pngBytes bytes.Buffer
+		if err := png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 2, 3))); err != nil {
+			t.Fatal(err)
+		}
+		e.Outcome.Capture = &computeruse.Capture{FrameID: "after-input", DataURL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBytes.Bytes()), PixelWidth: 2, PixelHeight: 3, Geometry: computeruse.Geometry{Width: 2, Height: 3}}
+	}
+	if _, err := b.Exchange(e); err != nil {
+		t.Fatal(err)
 	}
 }

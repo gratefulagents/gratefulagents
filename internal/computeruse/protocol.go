@@ -55,14 +55,124 @@ func visibleText(s string) bool {
 }
 
 type Action struct {
-	Kind     string   `json:"kind"`
-	X        *float64 `json:"x,omitempty"`
-	Y        *float64 `json:"y,omitempty"`
-	DeltaX   *float64 `json:"deltaX,omitempty"`
-	DeltaY   *float64 `json:"deltaY,omitempty"`
-	Key      string   `json:"key,omitempty"`
-	Text     string   `json:"text,omitempty"`
-	Question string   `json:"question,omitempty"`
+	Kind string `json:"kind"`
+	// X/Y are frame pixels for click, move, drag start, and optional scroll position.
+	X *float64 `json:"x,omitempty"`
+	Y *float64 `json:"y,omitempty"`
+	// ToX/ToY are the drag destination in frame pixels.
+	ToX    *float64 `json:"toX,omitempty"`
+	ToY    *float64 `json:"toY,omitempty"`
+	DeltaX *float64 `json:"deltaX,omitempty"`
+	DeltaY *float64 `json:"deltaY,omitempty"`
+	// Button is left (default), right, or middle; Count is 1 (default), 2, or 3.
+	Button string `json:"button,omitempty"`
+	Count  *int   `json:"count,omitempty"`
+	// Seconds is the agent-side wait before a fresh observation; never sent to the desktop.
+	Seconds  *int   `json:"seconds,omitempty"`
+	Key      string `json:"key,omitempty"`
+	Text     string `json:"text,omitempty"`
+	Question string `json:"question,omitempty"`
+}
+
+// IsInput reports whether the action delivers OS events to the approved window.
+func (a Action) IsInput() bool {
+	switch a.Kind {
+	case "observe", "wait":
+		return false
+	}
+	return true
+}
+
+// Hotkey is a parsed key action: a base key plus modifier set.
+type Hotkey struct {
+	Control, Option, Shift, Cmd bool
+	Key                         string
+}
+
+// Modifiers returns the canonical modifier prefix, e.g. "Control+Option+Shift+Cmd+".
+func (h Hotkey) String() string {
+	var b strings.Builder
+	for _, m := range []struct {
+		on   bool
+		name string
+	}{{h.Control, "Control"}, {h.Option, "Option"}, {h.Shift, "Shift"}, {h.Cmd, "Cmd"}} {
+		if m.on {
+			b.WriteString(m.name)
+			b.WriteByte('+')
+		}
+	}
+	b.WriteString(h.Key)
+	return b.String()
+}
+
+var namedKeys = map[string]bool{"Enter": true, "Tab": true, "Escape": true, "Backspace": true, "Delete": true, "ArrowUp": true, "ArrowDown": true, "ArrowLeft": true, "ArrowRight": true, "Home": true, "End": true, "PageUp": true, "PageDown": true, "Space": true}
+
+// ParseHotkey accepts "Mod+...+Key" in any modifier order. Base keys are the
+// named navigation/editing keys, Space, A-Z, and 0-9. Letters and digits need
+// Control, Option, or Cmd so this action cannot become a text input channel
+// that bypasses proposed-text review. Combinations that leave the approved
+// window or the session (quit, close, hide, minimize, app/space switching,
+// Spotlight, screenshots, force quit, the emergency stop, fullscreen, Dock)
+// are rejected here and again natively.
+func ParseHotkey(key string) (Hotkey, error) {
+	var h Hotkey
+	if len(key) == 0 || len(key) > 40 {
+		return h, ErrRejected
+	}
+	parts := strings.Split(key, "+")
+	for i, part := range parts {
+		last := i == len(parts)-1
+		switch {
+		case !last && part == "Control" || !last && part == "Ctrl":
+			if h.Control {
+				return h, ErrRejected
+			}
+			h.Control = true
+		case !last && part == "Option" || !last && part == "Alt":
+			if h.Option {
+				return h, ErrRejected
+			}
+			h.Option = true
+		case !last && part == "Shift":
+			if h.Shift {
+				return h, ErrRejected
+			}
+			h.Shift = true
+		case !last && part == "Cmd" || !last && part == "Command" || !last && part == "Meta":
+			if h.Cmd {
+				return h, ErrRejected
+			}
+			h.Cmd = true
+		case last && namedKeys[part]:
+			h.Key = part
+		case last && len(part) == 1 && (part[0] >= 'A' && part[0] <= 'Z' || part[0] >= 'a' && part[0] <= 'z' || part[0] >= '0' && part[0] <= '9'):
+			h.Key = strings.ToUpper(part)
+			if !h.Control && !h.Option && !h.Cmd {
+				return h, ErrRejected
+			}
+		default:
+			return h, ErrRejected
+		}
+	}
+	if h.denied() {
+		return h, ErrRejected
+	}
+	return h, nil
+}
+
+func (h Hotkey) denied() bool {
+	arrow := strings.HasPrefix(h.Key, "Arrow")
+	switch {
+	case h.Cmd && (h.Key == "Q" || h.Key == "W" || h.Key == "H" || h.Key == "M" || h.Key == "Tab" || h.Key == "Space" || h.Key == "Escape"):
+		return true
+	case h.Cmd && h.Shift && (h.Key == "3" || h.Key == "4" || h.Key == "5" || h.Key == "6"):
+		return true
+	case h.Cmd && h.Option && h.Key == "D", h.Cmd && h.Control && h.Key == "F":
+		return true
+	case h.Control && arrow, h.Control && h.Key == "Space":
+		return true
+	}
+	return false
 }
 
 type Request struct {
@@ -132,7 +242,7 @@ func (r Response) Validate() error {
 	}
 	if r.Pending != nil {
 		p := r.Pending
-		if !r.Active || !identifier.MatchString(p.RequestID) || (p.FrameID != "" && !identifier.MatchString(p.FrameID)) || p.Action.Validate() != nil {
+		if !r.Active || p.Action.Kind == "wait" || !identifier.MatchString(p.RequestID) || (p.FrameID != "" && !identifier.MatchString(p.FrameID)) || p.Action.Validate() != nil {
 			return ErrRejected
 		}
 	}
@@ -140,47 +250,74 @@ func (r Response) Validate() error {
 }
 
 func (a Action) Validate() error {
-	if len(a.Question) > 2048 || len(a.Key) > 40 || (a.Kind != "type" && a.Text != "") {
+	// Question belongs to observation only; the tool keeps any verification
+	// question for its follow-up observation and never sends it with input.
+	if len(a.Question) > 2048 || len(a.Key) > 40 || (a.Kind != "type" && a.Text != "") || (a.Kind != "observe" && a.Question != "") {
 		return ErrRejected
 	}
-	for _, n := range []*float64{a.X, a.Y, a.DeltaX, a.DeltaY} {
+	for _, n := range []*float64{a.X, a.Y, a.ToX, a.ToY, a.DeltaX, a.DeltaY} {
 		if n != nil && (math.IsNaN(*n) || math.IsInf(*n, 0) || math.Abs(*n) > 100000) {
 			return ErrRejected
 		}
 	}
+	// Fields that belong to exactly one kind.
+	if (a.Kind != "click" && (a.Button != "" || a.Count != nil)) || (a.Kind != "drag" && (a.ToX != nil || a.ToY != nil)) ||
+		(a.Kind != "wait" && a.Seconds != nil) || (a.Kind != "key" && a.Key != "") || (a.Kind != "scroll" && (a.DeltaX != nil || a.DeltaY != nil)) {
+		return ErrRejected
+	}
+	point := a.X != nil && a.Y != nil
+	if a.X == nil != (a.Y == nil) || a.ToX == nil != (a.ToY == nil) {
+		return ErrRejected
+	}
 	switch a.Kind {
 	case "observe":
-		if a.X != nil || a.Y != nil || a.DeltaX != nil || a.DeltaY != nil || a.Key != "" {
+		if point {
+			return ErrRejected
+		}
+	case "wait":
+		if point || a.Seconds == nil || *a.Seconds < 1 || *a.Seconds > 10 {
 			return ErrRejected
 		}
 	case "click":
-		if a.X == nil || a.Y == nil || a.DeltaX != nil || a.DeltaY != nil || a.Key != "" || a.Question != "" {
+		if !point {
+			return ErrRejected
+		}
+		switch a.Button {
+		case "", "left", "right", "middle":
+		default:
+			return ErrRejected
+		}
+		if a.Count != nil && (*a.Count < 1 || *a.Count > 3) {
+			return ErrRejected
+		}
+	case "move":
+		if !point {
+			return ErrRejected
+		}
+	case "drag":
+		if !point || a.ToX == nil || (*a.X == *a.ToX && *a.Y == *a.ToY) {
 			return ErrRejected
 		}
 	case "scroll":
-		if a.DeltaX == nil || a.DeltaY == nil || a.X != nil || a.Y != nil || a.Key != "" || a.Question != "" {
+		if a.DeltaX == nil || a.DeltaY == nil {
 			return ErrRejected
 		}
 		if math.Abs(*a.DeltaX) > 1000 || math.Abs(*a.DeltaY) > 1000 || math.Trunc(*a.DeltaX) != *a.DeltaX || math.Trunc(*a.DeltaY) != *a.DeltaY || (*a.DeltaX == 0 && *a.DeltaY == 0) {
 			return ErrRejected
 		}
 	case "key":
-		// Named keys only: this action cannot be used as a text input channel.
-		switch a.Key {
-		case "Enter", "Tab", "Shift+Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown":
-		default:
+		if point {
 			return ErrRejected
 		}
-		if a.X != nil || a.Y != nil || a.DeltaX != nil || a.DeltaY != nil || a.Question != "" {
-			return ErrRejected
+		if _, err := ParseHotkey(a.Key); err != nil {
+			return err
 		}
 	case "type":
-		if a.Text == "" || len(a.Text) > 4000 || !visibleText(a.Text) || len(utf16.Encode([]rune(a.Text))) > 1000 {
+		if point || a.Text == "" || len(a.Text) > 4000 || !visibleText(a.Text) || len(utf16.Encode([]rune(a.Text))) > 1000 {
 			return ErrRejected
 		}
-		fallthrough
 	case "activate":
-		if a.X != nil || a.Y != nil || a.DeltaX != nil || a.DeltaY != nil || a.Key != "" || a.Question != "" {
+		if point {
 			return ErrRejected
 		}
 	default:

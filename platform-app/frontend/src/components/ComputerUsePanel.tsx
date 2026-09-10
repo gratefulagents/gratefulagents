@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  AlertTriangle, AppWindow, ChevronDown, Eye, Keyboard, Monitor, MousePointerClick,
-  MoveVertical, Pause, Play, RefreshCw, ShieldAlert, Square, Type as TypeIcon, Zap,
+  AlertTriangle, AppWindow, ChevronDown, Eye, Keyboard, Monitor, MousePointer2, MousePointerClick,
+  Move, MoveVertical, Pause, Play, RefreshCw, ShieldAlert, Square, Type as TypeIcon, Zap,
 } from "lucide-react";
 import { ApprovalModeBadge, ApprovalModeControl } from "@/components/ComputerUseApprovalMode";
 import { useOptionalAuth } from "@/contexts/AuthContext";
@@ -14,7 +14,7 @@ import { isDonePhase, toneSoft, toneText, type StatusTone } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { backendBaseUrl, isTauri } from "@/lib/platform";
 import {
-  computerUsePermissions, computerUseWindows, startDesktopSession,
+  computerUsePermissions, computerUseWindows, hotkeyGlyphs, startDesktopSession,
   desktopSessionStatus, heartbeatDesktopSession, pauseDesktopSession,
   resumeDesktopSession, stopDesktopSession, captureDesktopWindow,
   queueDesktopRequest, armDesktopRequest, approveDesktopRequest,
@@ -33,6 +33,8 @@ type Activity = { id: string; kind: ActionKind; status: string; summary: string;
 const ACTION_META: Record<ActionKind, { label: string; icon: ReactNode }> = {
   observe: { label: "Observe", icon: <Eye /> },
   click: { label: "Click", icon: <MousePointerClick /> },
+  move: { label: "Move pointer", icon: <MousePointer2 /> },
+  drag: { label: "Drag", icon: <Move /> },
   scroll: { label: "Scroll", icon: <MoveVertical /> },
   type: { label: "Type text", icon: <TypeIcon /> },
   key: { label: "Key press", icon: <Keyboard /> },
@@ -42,13 +44,30 @@ const ACTION_META: Record<ActionKind, { label: string; icon: ReactNode }> = {
 const PHASE_TONE: Record<DesktopSession["phase"], StatusTone> = { stopped: "neutral", active: "running", paused: "warning" };
 const OUTCOME_TONE: Record<string, StatusTone> = { completed: "success", failed: "danger", denied: "neutral" };
 
+const CLICK_LABEL: Record<string, string> = {
+  "left-1": "Click", "left-2": "Double-click", "left-3": "Triple-click",
+  "right-1": "Right-click", "right-2": "Double right-click", "right-3": "Triple right-click",
+  "middle-1": "Middle-click", "middle-2": "Double middle-click", "middle-3": "Triple middle-click",
+};
+function clickLabel(action: Extract<DesktopAction, { kind: "click" }>): string {
+  return CLICK_LABEL[`${action.button ?? "left"}-${action.count ?? 1}`] ?? "Click";
+}
+
+function HotkeyKeys({ value }: { value: string }) {
+  return <span className="inline-flex items-center gap-0.5 align-middle">
+    {hotkeyGlyphs(value).map((glyph, index) => <Kbd key={index}>{glyph}</Kbd>)}
+  </span>;
+}
+
 function describeAction(request: DesktopRequest): ReactNode {
   const { action } = request;
   switch (action.kind) {
     case "observe": return <>Share a fresh capture for analysis: {action.question || "Describe the approved window"}</>;
-    case "click": return <>Click pixel ({action.x}, {action.y}) in frame {request.frameId}.</>;
-    case "scroll": return <>Scroll horizontally {action.deltaX}, vertically {action.deltaY} pixels (positive: right/down).</>;
-    case "key": return <>Press {action.key}.</>;
+    case "click": return <>{clickLabel(action)} pixel ({action.x}, {action.y}) in frame {request.frameId}.</>;
+    case "move": return <>Move the pointer to pixel ({action.x}, {action.y}) without clicking (hover).</>;
+    case "drag": return <>Press the left button at ({action.x}, {action.y}), drag to ({action.toX}, {action.toY}), and release.</>;
+    case "scroll": return <>Scroll horizontally {action.deltaX}, vertically {action.deltaY} pixels (positive: right/down){action.x !== undefined ? <> with the pointer at ({action.x}, {action.y})</> : null}.</>;
+    case "key": return <><span>Press {action.key}.</span> <HotkeyKeys value={action.key} /></>;
     case "activate": return <>Bring the approved application to the foreground.</>;
     case "type": return null;
   }
@@ -59,8 +78,10 @@ function describeAction(request: DesktopRequest): ReactNode {
 function summarizeAction(action: DesktopAction): string {
   switch (action.kind) {
     case "observe": return "Shared a capture for analysis";
-    case "click": return `Clicked pixel (${action.x}, ${action.y})`;
-    case "scroll": return `Scrolled ${action.deltaX}, ${action.deltaY}px`;
+    case "click": return `${clickLabel(action)}ed pixel (${action.x}, ${action.y})`;
+    case "move": return `Moved the pointer to (${action.x}, ${action.y})`;
+    case "drag": return `Dragged from (${action.x}, ${action.y}) to (${action.toX}, ${action.toY})`;
+    case "scroll": return `Scrolled ${action.deltaX}, ${action.deltaY}px${action.x !== undefined ? ` at (${action.x}, ${action.y})` : ""}`;
     case "type": return `Typed ${action.text.length} character${action.text.length === 1 ? "" : "s"}`;
     case "key": return `Pressed ${action.key}`;
     case "activate": return "Brought the approved app forward";
@@ -77,6 +98,9 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
   const [supported, setSupported] = useState(false);
   const [windows, setWindows] = useState<WindowTarget[]>([]);
   const [selected, setSelected] = useState("");
+  const [windowSearch, setWindowSearch] = useState("");
+  const [application, setApplication] = useState("");
+  const panelRef = useRef<HTMLDetailsElement>(null);
   const [consent, setConsent] = useState(false);
   const [session, setSession] = useState<DesktopSession | null>(null);
   const [preview, setPreview] = useState<WindowCapture | null>(null);
@@ -96,6 +120,12 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
   const localSession = useRef<DesktopSession | null>(null);
   const pendingRef = useRef<DesktopRequest | null>(null);
   const inFlight = useRef<string | null>(null);
+  useEffect(() => {
+    if (panelRef.current && (pending || session?.phase === "paused" || error)) {
+      panelRef.current.open = true;
+    }
+  }, [pending, session?.phase, error]);
+
   const sessionId = session?.sessionId;
   const sessionScope = session?.scope;
   const invalidate = useCallback(() => {
@@ -152,6 +182,8 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     if (isTauri && localSession.current) void disconnect();
     setWindows([]);
     setSelected("");
+    setWindowSearch("");
+    setApplication("");
     setActivity([]);
   }, [namespace, name, user, enabled, model, disconnect]);
 
@@ -382,8 +414,14 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
   // Viewers and finished runs get no controls unless a session or a pending
   // native stop still needs the operator's attention.
   if (!enabled && !session && !stopRequired && !busy) return null;
-  const click = pending?.action.kind === "click" && preview && pending.frameId === preview.frameId &&
-    pending.action.x < preview.pixelWidth && pending.action.y < preview.pixelHeight ? pending.action : null;
+  // Pointer markers are drawn only when the proposal targets the previewed frame.
+  const inFrame = (x: number, y: number) => !!preview && x < preview.pixelWidth && y < preview.pixelHeight;
+  const pointer = pending && preview && pending.frameId === preview.frameId &&
+    (pending.action.kind === "click" || pending.action.kind === "move" || pending.action.kind === "drag" ||
+      (pending.action.kind === "scroll" && pending.action.x !== undefined && pending.action.y !== undefined)) &&
+    inFrame(pending.action.x!, pending.action.y!) &&
+    (pending.action.kind !== "drag" || inFrame(pending.action.toX, pending.action.toY)) ? pending.action : null;
+  const pointerTo = pointer?.kind === "drag" ? { x: pointer.toX, y: pointer.toY } : null;
   const phase = session?.phase ?? "stopped";
   const phaseLabel = phase.charAt(0).toUpperCase() + phase.slice(1);
   const controlsLocked = busy || stopRequired || !enabled;
@@ -394,9 +432,12 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     ? `${ACTION_META[pending.action.kind].label} is allowed for this session` : APPROVAL_MODE_META[approvalMode].label;
   const skipAll = approvalMode === "auto";
   const allowedList = [...sessionAllowed].map((kind) => ACTION_META[kind].label);
+  const applications = [...new Set(windows.map((window) => window.application))].sort();
+  const matchingWindows = windows.filter((window) => (!application || window.application === application) &&
+    `${window.application} ${window.title}`.toLocaleLowerCase().includes(windowSearch.trim().toLocaleLowerCase()));
 
   return (
-    <details className="group/cu border-t text-sm">
+    <details ref={panelRef} className="group/cu border-t text-sm">
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2 select-none hover:bg-muted/40 md:px-4 [&::-webkit-details-marker]:hidden">
         <span className="grid size-6 shrink-0 place-items-center rounded-md bg-muted/60 text-muted-foreground ring-1 ring-inset ring-border/60 [&_svg]:size-3.5">
           <Monitor />
@@ -417,6 +458,12 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
           <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium", toneSoft.info)}>
             Needs your approval
           </span>
+        )}
+        {session && (
+          <Button size="xs" variant="destructive" className="ml-auto"
+            onClick={(event) => { event.preventDefault(); void disconnect(); }}>
+            <Square data-icon="inline-start" /> Stop computer use
+          </Button>
         )}
         <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-open/cu:rotate-180" />
       </summary>
@@ -454,18 +501,48 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
                   onClick={() => void operate(async () => {
                     const current = generation.current;
                     const available = await computerUseWindows();
-                    if (current === generation.current) { setWindows(available); setSelected(""); }
+                    if (current === generation.current) {
+                      setWindows(available);
+                      if (application && !available.some((window) => window.application === application)) {
+                        setApplication("");
+                      }
+                      const previous = windows.find((window) => String(window.windowId) === selected);
+                      if (!previous || !available.some((window) => window.windowId === previous.windowId &&
+                          window.processId === previous.processId && window.application === previous.application)) {
+                        setSelected("");
+                        setConsent(false);
+                      }
+                    }
                   })}>
                   <RefreshCw data-icon="inline-start" />
                   List open windows
                 </Button>
               </div>
+              {!!windows.length && <label className="mb-2 block text-xs text-muted-foreground">
+                Application
+                <select aria-label="Application" value={application} disabled={busy || !enabled}
+                  className="mt-1 block h-8 w-full rounded-md border bg-background px-2 text-sm"
+                  onChange={(event) => {
+                    setApplication(event.target.value);
+                    setSelected("");
+                    setConsent(false);
+                    setWindowSearch("");
+                  }}>
+                  <option value="">All open applications</option>
+                  {applications.map((app) => <option key={app} value={app}>{app}</option>)}
+                </select>
+              </label>}
+              {!!windows.length && <input type="search" aria-label="Search apps and windows"
+                placeholder="Search apps and windows…" value={windowSearch}
+                className="mb-2 block h-8 w-full rounded-md border bg-background px-2 text-sm"
+                onChange={(event) => setWindowSearch(event.target.value)} />}
               <select aria-label="Approved window"
                 className="block h-8 w-full rounded-md border bg-background px-2 text-sm disabled:opacity-50"
-                value={selected} disabled={busy || !enabled || !windows.length} onChange={(event) => setSelected(event.target.value)}>
+                value={selected} disabled={busy || !enabled || !windows.length} onChange={(event) => { setSelected(event.target.value); setConsent(false); }}>
                 <option value="">{windows.length ? "Select a window" : "List open windows first"}</option>
-                {windows.map((window) => <option key={window.windowId} value={window.windowId}>{window.application} — {window.title}</option>)}
+                {windows.filter((window) => matchingWindows.includes(window) || String(window.windowId) === selected).map((window) => <option key={window.windowId} value={window.windowId}>{window.application} — {window.title}</option>)}
               </select>
+              {!!windows.length && !matchingWindows.length && <p role="status" className="mt-1.5 text-xs text-muted-foreground">No matching windows. Open the app on your Mac, then refresh the window list.</p>}
               <p className="mt-1.5 text-[11px] text-muted-foreground">The agent can only see and act inside this one window. Prefer a test document with no private data.</p>
             </div>
 
@@ -535,10 +612,6 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
                 {session.phase === "paused" ? <Play data-icon="inline-start" /> : <Pause data-icon="inline-start" />}
                 {session.phase === "paused" ? "Resume" : "Pause"}
               </Button>
-              <Button size="sm" variant="destructive" onClick={() => void disconnect()}>
-                <Square data-icon="inline-start" />
-                Stop computer use
-              </Button>
             </div>
           </div>
         )}
@@ -555,12 +628,20 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
           <figure className="space-y-1">
             <div className="relative inline-block max-w-full overflow-hidden rounded-md border bg-muted/30">
               <img src={preview.dataUrl} alt="Preview of the approved desktop window" className="max-h-80 w-auto max-w-full" />
-              {click && <span aria-label="Proposed click location"
-                className="pointer-events-none absolute size-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[color:var(--tone-danger)] bg-[color-mix(in_oklch,var(--tone-danger)_30%,transparent)] shadow-[0_0_0_2px_var(--color-background)]"
-                style={{ left: `${100 * click.x / preview.pixelWidth}%`, top: `${100 * click.y / preview.pixelHeight}%` }} />}
+              {pointer && pointerTo && <svg aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" viewBox={`0 0 ${preview.pixelWidth} ${preview.pixelHeight}`} preserveAspectRatio="none">
+                <line x1={pointer.x!} y1={pointer.y!} x2={pointerTo.x} y2={pointerTo.y} stroke="var(--tone-danger)" strokeWidth={Math.max(2, preview.pixelWidth / 300)} strokeDasharray={`${preview.pixelWidth / 60} ${preview.pixelWidth / 120}`} vectorEffect="non-scaling-stroke" />
+              </svg>}
+              {pointer && <span aria-label={pointer.kind === "drag" ? "Proposed drag start" : pointer.kind === "click" ? "Proposed click location" : pointer.kind === "move" ? "Proposed pointer location" : "Proposed scroll location"}
+                className={cn("pointer-events-none absolute size-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[color:var(--tone-danger)] shadow-[0_0_0_2px_var(--color-background)]",
+                  pointer.kind === "click" || pointer.kind === "drag" ? "bg-[color-mix(in_oklch,var(--tone-danger)_30%,transparent)]" : "border-dashed")}
+                style={{ left: `${100 * pointer.x! / preview.pixelWidth}%`, top: `${100 * pointer.y! / preview.pixelHeight}%` }} />}
+              {pointer && pointerTo && <span aria-label="Proposed drag destination"
+                className="pointer-events-none absolute size-5 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-[color:var(--tone-danger)] bg-[color-mix(in_oklch,var(--tone-danger)_30%,transparent)] shadow-[0_0_0_2px_var(--color-background)]"
+                style={{ left: `${100 * pointerTo.x / preview.pixelWidth}%`, top: `${100 * pointerTo.y / preview.pixelHeight}%` }} />}
             </div>
             <figcaption className="text-[11px] text-muted-foreground">
-              Local preview, not shared · {preview.pixelWidth}×{preview.pixelHeight}px · frame {preview.frameId}{click ? " · red marker shows the proposed click" : ""}
+              Local preview, not shared · {preview.pixelWidth}×{preview.pixelHeight}px · frame {preview.frameId}
+              {pointer?.kind === "click" ? " · red marker shows the proposed click" : pointer?.kind === "drag" ? " · red markers show the proposed drag path" : pointer?.kind === "move" ? " · dashed marker shows the proposed pointer position" : pointer?.kind === "scroll" ? " · dashed marker shows where scrolling is aimed" : ""}
             </figcaption>
           </figure>
         )}

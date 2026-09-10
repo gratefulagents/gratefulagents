@@ -32,7 +32,9 @@ describe("computer use approval mode preference", () => {
     expect(modeAutoApproves("assisted", "observe")).toBe(true);
     expect(modeAutoApproves("assisted", "scroll")).toBe(true);
     expect(modeAutoApproves("assisted", "activate")).toBe(true);
+    expect(modeAutoApproves("assisted", "move")).toBe(true);
     expect(modeAutoApproves("assisted", "click")).toBe(false);
+    expect(modeAutoApproves("assisted", "drag")).toBe(false);
     expect(modeAutoApproves("assisted", "type")).toBe(false);
     expect(modeAutoApproves("assisted", "key")).toBe(false);
   });
