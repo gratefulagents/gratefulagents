@@ -88,7 +88,7 @@ export function ComputerUseSettings() {
     <SettingsSection
       icon={<Monitor />}
       title="Computer use"
-      description="Let an agent observe and act in one approved Mac window while you supervise."
+      description="Let an agent observe and act in the current approved Mac window while you supervise."
     >
       <div className="space-y-4 text-sm">
         <p className="text-[12px] leading-relaxed text-muted-foreground">
@@ -121,11 +121,21 @@ export function ComputerUseSettings() {
                 disabled={busy}
                 onOpen={() => void openPermission("accessibility")}
               />
+              <PermissionRow
+                icon={<Monitor />}
+                name="Screen Recording"
+                detail="Optional: required only for Agent chooses windows, to discover window names and capture the selected window."
+                granted={permissions.agentScreenRecording === true}
+                disabled={busy}
+                onOpen={() => void openPermission("agent_screen_recording")}
+              />
             </dl>
             <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-              Choose a single window using the native macOS sharing picker in a run's Computer use panel.
-              No broad Screen Recording permission is requested. Stop sharing from macOS or the supervisor to revoke access;
-              a new window always requires fresh selection and consent. Accessibility is separate and can be revoked in System Settings.
+              Selected window only uses the native macOS sharing picker and does not require broad Screen Recording permission.
+              Agent chooses windows requires the separate Screen Recording permission above. Granting it does not start a session
+              or authorize control: choose that mode and give sharing consent in a run's Computer use panel.
+              After enabling it in System Settings, relaunch if macOS requests it, then reconnect.
+              Stop sharing from macOS or the supervisor to revoke session access. OS permissions can be revoked in System Settings.
             </p>
             {missing && (
               <p className={cn("rounded-md px-3 py-2 text-[11.5px] leading-relaxed", toneSoft.warning)} role="note">

@@ -10,6 +10,16 @@ Built on [PR #398](https://github.com/gratefulagents/gratefulagents/pull/398): r
 
 The agent workflow is `list_windows` → `select_window` with a returned `targetRef` → `observe` → input. Discovery returns at most 32 eligible windows, bounded application/title text, and random session-scoped references—not PIDs or OS window IDs. References are replaced by a fresh listing and retired on selection, pause, or stop. The native implementation retains Accessibility window identity and process launch time, rechecks fresh window inventory, and refuses closed, minimized, reused, or changed identities. With the current input engine, eligible targets are the key window of each supported application; other windows in the same application are not advertised as safely addressable targets.
 
+#### Enabling the agent-choice permission
+
+In **Settings → Computer use**, open the optional **Screen Recording** permission and enable gratefulagents in macOS System Settings. Alternatively, choose **Agent chooses windows** in the run's Computer use panel, check **Sharing consent**, then click **Enable Screen Recording for agent choice**. Relaunch the app if macOS requests it, then reconnect with fresh sharing consent. Settings refreshes permission status when you return. Granting this OS permission alone neither starts a session nor changes the approval policy. **Selected window only** still works without this broad permission.
+
+Settings fixture with mocked permission status (not macOS acceptance evidence):
+
+![Optional agent-choice Screen Recording permission](docs/computer-use-permissions.png)
+
+If **Choose window with macOS** stays busy for roughly a minute without showing the picker, the native selection request has timed out. This now reports an error instead of silently looking like cancellation. macOS start failures include their error domain and code. Quit and reopen the app before a fresh attempt; this guidance is not a confirmed fix for OS presentation failures. Agent-choice mode does not invoke the picker. Real-Mac investigation of a missing picker remains necessary; Linux UI tests only verify that a native error is shown and explicit cancellation remains non-error.
+
 Selection uses the same queue/claim/arm/single-use permit path as other actions. Manual mode asks before listing and selection. Assisted mode may list metadata automatically but asks before selection. Skip-all mode also permits selection automatically. Choosing windows does not change input approval settings. A target change clears frames, pending native work and target-specific frontend grants, increments the target revision, and requires a fresh observation before any input. The active application/title, awaiting-selection, switching and paused/unavailable states appear in the panel. A vanished target pauses rather than redirecting input; if it cannot be restored, disconnect and grant fresh consent.
 
 `open_url` is **unavailable in agent-choice sessions**: the existing command is application-wide and cannot guarantee a particular browser window. It remains unchanged in legacy selected-window sessions. Navigate through observed, approved window input instead.

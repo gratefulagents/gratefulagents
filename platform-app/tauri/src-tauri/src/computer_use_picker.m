@@ -133,7 +133,8 @@ static uint64_t agentInventoryRevision;
 }
 - (void)contentSharingPickerStartDidFailWithError:(NSError *)error {
     @synchronized(GAWindowShare.class) {
-        [_selection finish:@{@"error": @"macOS could not open the window sharing picker"}];
+        NSString *message = [NSString stringWithFormat:@"macOS could not open the window sharing picker (%@, code %ld). Quit and reopen gratefulagents, then try again.", error.domain, (long)error.code];
+        [_selection finish:@{@"error": message}];
         [self invalidate];
     }
 }
@@ -193,7 +194,12 @@ void ga_window_sharing_pick(uint64_t token, GAReply reply, void *context) {
         });
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             @synchronized(GAWindowShare.class) {
-                if (share.selection) [share invalidate];
+                if (share.selection) {
+                    // A missing OS callback is not a user cancellation. Complete
+                    // with an error before invalidation clears the pending reply.
+                    [share.selection finish:@{@"error": @"The macOS window sharing picker timed out after 60 seconds without a selection. If no picker appeared, quit and reopen gratefulagents, then try again. Agent chooses windows uses a separate Screen Recording permission and does not need this picker."}];
+                    [share invalidate];
+                }
             }
         });
     } else {

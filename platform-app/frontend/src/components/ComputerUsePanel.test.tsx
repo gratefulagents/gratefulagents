@@ -89,12 +89,42 @@ async function startSession() {
 }
 
 describe("run-bound desktop preview", () => {
+  it("surfaces picker timeouts and permits a fresh attempt without starting a session", async () => {
+    m.pick.mockRejectedValueOnce(new Error("The macOS window sharing picker timed out after 60 seconds without a selection."));
+    await panel();
+    const picker = screen.getByRole("button", { name: "Choose window with macOS" });
+    await waitFor(() => expect(picker.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(picker);
+    expect((await screen.findByRole("alert")).textContent).toContain("picker timed out");
+    await waitFor(() => expect(picker.hasAttribute("disabled")).toBe(false));
+    expect(m.start).not.toHaveBeenCalled();
+    expect(m.capture).not.toHaveBeenCalled();
+    fireEvent.click(picker);
+    await screen.findByText("TextEdit — Notes");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("treats explicit picker cancellation as no selection, not an error", async () => {
+    m.pick.mockResolvedValueOnce(null);
+    await panel();
+    const picker = screen.getByRole("button", { name: "Choose window with macOS" });
+    await waitFor(() => expect(picker.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(picker);
+    await waitFor(() => expect(m.pick).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(picker.hasAttribute("disabled")).toBe(false));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("No window selected")).toBeTruthy();
+    expect(m.start).not.toHaveBeenCalled();
+  });
+
   it("requests broad OS permission only in agent-choice mode after explicit consent", async () => {
     await panel();
     expect(screen.queryByRole("button", { name: "Enable Screen Recording for agent choice" })).toBeNull();
     fireEvent.change(screen.getByRole("combobox", { name: "Window access" }), { target: { value: "agent_choice" } });
     const permission = screen.getByRole("button", { name: "Enable Screen Recording for agent choice" });
     expect(permission.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/Check Sharing consent below/)).toBeTruthy();
     expect(m.openPermission).not.toHaveBeenCalled();
     expect(m.pick).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("checkbox"));

@@ -545,6 +545,10 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
               onClick={() => void operate(() => openComputerUsePermission("agent_screen_recording"))}>
               Enable Screen Recording for agent choice
             </Button>}
+            {mode === "agent_choice" && <p className="text-xs text-muted-foreground">
+              Check Sharing consent below to enable this button, or open Screen Recording in Settings → Computer use.
+              After granting permission in macOS System Settings, relaunch the app if requested, then reconnect.
+            </p>}
             {mode === "selected_window" && <div className="rounded-lg border p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="text-xs font-medium"><span className="mr-1.5 text-muted-foreground">1</span>Approved window</span>
