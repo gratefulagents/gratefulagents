@@ -60,9 +60,43 @@ pub struct Snapshot {
     #[cfg(target_os = "macos")]
     pub geometry: WindowGeometry,
     #[cfg(target_os = "macos")]
+    #[serde(deserialize_with = "lenient_bool")]
     pub frontmost: bool,
     #[cfg(any(target_os = "macos", test))]
+    #[serde(deserialize_with = "lenient_bool")]
     pub focus_allowed: bool,
+}
+
+/// Accepts JSON `true`/`false` and also `1`/`0`. Objective-C boxes comparison
+/// results as integers (`@(a == b)` is `numberWithInt:`), and a single such
+/// slip in the native snapshot previously failed every `list_windows` with
+/// "invalid type: integer `1`, expected a boolean".
+fn lenient_bool<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    struct Visitor;
+    impl serde::de::Visitor<'_> for Visitor {
+        type Value = bool;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a boolean or 0/1")
+        }
+        fn visit_bool<E: serde::de::Error>(self, v: bool) -> Result<bool, E> {
+            Ok(v)
+        }
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<bool, E> {
+            match v {
+                0 => Ok(false),
+                1 => Ok(true),
+                _ => Err(E::invalid_value(serde::de::Unexpected::Unsigned(v), &self)),
+            }
+        }
+        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<bool, E> {
+            match v {
+                0 => Ok(false),
+                1 => Ok(true),
+                _ => Err(E::invalid_value(serde::de::Unexpected::Signed(v), &self)),
+            }
+        }
+    }
+    deserializer.deserialize_any(Visitor)
 }
 
 pub fn target(scope: &SessionScope) -> Result<Snapshot, String> {
@@ -404,6 +438,24 @@ mod native {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snapshot_accepts_boolean_and_integer_flags() {
+        for (raw, expected) in [
+            (r#"{"windowId":1,"processId":2,"application":"A","title":"t","geometry":{"x":0,"y":0,"width":10,"height":10},"frontmost":true,"focusAllowed":false}"#, (true, false)),
+            (r#"{"windowId":1,"processId":2,"application":"A","title":"t","geometry":{"x":0,"y":0,"width":10,"height":10},"frontmost":1,"focusAllowed":0}"#, (true, false)),
+        ] {
+            let snapshot: Snapshot = serde_json::from_str(raw).expect(raw);
+            assert_eq!(snapshot.focus_allowed, expected.1);
+            #[cfg(target_os = "macos")]
+            assert_eq!(snapshot.frontmost, expected.0);
+            #[cfg(not(target_os = "macos"))]
+            let _ = expected.0;
+        }
+        let rejected = r#"{"windowId":1,"processId":2,"application":"A","title":"t","geometry":{"x":0,"y":0,"width":10,"height":10},"frontmost":true,"focusAllowed":2}"#;
+        assert!(serde_json::from_str::<Snapshot>(rejected).is_err());
+    }
+
     #[test]
     fn picker_identity_binds_every_target_field_and_excludes_supervisor() {
         let target = WindowTarget {

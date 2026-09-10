@@ -14,6 +14,11 @@ import (
 	sdkvision "github.com/gratefulagents/sdk/pkg/agentsdk/tools/vision"
 )
 
+// computerUseReadOnlyFailure follows failed observe/list_windows/select_window
+// outcomes: no OS input was generated, so the agent may address the reported
+// reason and try again instead of stopping.
+const computerUseReadOnlyFailure = " No input was sent to the desktop. If the reason is something you can address (for example a window that is not visible or a target that needs listing again), do so and continue; if it points at the desktop connection or permissions, tell the user what it reported."
+
 const computerUseNoRetry = " Do not automatically retry denied, failed, canceled, or unconfirmed input: OS events may be partially applied. Ask the user to inspect the target, then obtain a fresh observation and approval before any further input."
 
 // ComputerUseSkillName is the companion Skill (configs/skills/computer-use.yaml)
@@ -162,7 +167,14 @@ func (t *ComputerUseTool) Execute(ctx context.Context, raw json.RawMessage, _ st
 		return fail("Computer use canceled, expired, or unavailable" + computerUseNoRetry), nil
 	}
 	if outcome.Status != "completed" {
-		return fail("Desktop action " + outcome.Status + outcomeReason(outcome.Message) + computerUseNoRetry), nil
+		suffix := computerUseNoRetry
+		if !in.Action.IsInput() {
+			// observe/list_windows/select_window never generate OS input, so
+			// there is nothing partially applied; the agent may adapt and
+			// continue once the reported reason is addressed.
+			suffix = computerUseReadOnlyFailure
+		}
+		return fail("Desktop action " + outcome.Status + outcomeReason(outcome.Message) + suffix), nil
 	}
 	if in.Action.IsInput() {
 		inputCompleted = true

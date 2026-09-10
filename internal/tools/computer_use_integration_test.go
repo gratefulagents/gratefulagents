@@ -61,8 +61,18 @@ func TestAgentChoiceDiscoveryAndSelectionDoNotInvokeVision(t *testing.T) {
 	if !result.IsError || !strings.Contains(result.Content, "Unknown targetRef") {
 		t.Fatalf("selection before listing lacks guidance: %+v", result)
 	}
+	// A failed discovery never generated OS input: the desktop's reason is
+	// forwarded, but without the partially-applied / do-not-retry warning.
 	done := h.start(`{"action":{"kind":"list_windows"}}`)
 	request := h.next("list_windows")
+	h.relay("claim", request.RequestID, nil)
+	h.relay("resolve", request.RequestID, &computeruse.Outcome{RequestID: request.RequestID, Status: "failed", Message: "invalid type: integer `1`, expected a boolean"})
+	result = <-done
+	if !result.IsError || !strings.Contains(result.Content, "Desktop action failed (desktop reported: invalid type") || !strings.Contains(result.Content, "No input was sent to the desktop") || strings.Contains(result.Content, "Do not automatically retry") {
+		t.Fatalf("failed discovery wording: %+v", result)
+	}
+	done = h.start(`{"action":{"kind":"list_windows"}}`)
+	request = h.next("list_windows")
 	h.relay("claim", request.RequestID, nil)
 	h.relay("resolve", request.RequestID, &computeruse.Outcome{RequestID: request.RequestID, Status: "completed", Windows: []computeruse.WindowTarget{target}})
 	result = <-done
