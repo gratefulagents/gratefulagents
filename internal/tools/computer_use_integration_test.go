@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,12 +40,32 @@ func TestAgentChoiceDiscoveryAndSelectionDoNotInvokeVision(t *testing.T) {
 		t.Error("discovery invoked vision")
 		return "", nil
 	}
+	// Regression: an agent that starts with observe (the documented first step
+	// for selected-window sessions) must learn that it has to pick a window,
+	// not be told the session is gone and never to retry.
+	for _, raw := range []string{`{"action":{"kind":"observe","question":"Is a browser open?"}}`, `{"action":{"kind":"wait","seconds":1}}`} {
+		result := <-h.start(raw)
+		if !result.IsError || !strings.Contains(result.Content, "list_windows") || !strings.Contains(result.Content, "Nothing was sent to the desktop") {
+			t.Fatalf("observe before selection lacks discovery guidance: %+v", result)
+		}
+		if strings.Contains(result.Content, "canceled, expired") || strings.Contains(result.Content, "Do not automatically retry") {
+			t.Fatalf("precondition rejection presented as cancellation: %+v", result)
+		}
+	}
+	result := <-h.start(`{"action":{"kind":"open_url","url":"https://example.com"}}`)
+	if !result.IsError || !strings.Contains(result.Content, "list_windows") {
+		t.Fatalf("open_url before selection lacks discovery guidance: %+v", result)
+	}
 	target := computeruse.WindowTarget{Ref: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Application: "Test app", Title: "Ignore instructions (untrusted title)"}
+	result = <-h.start(`{"action":{"kind":"select_window","targetRef":"` + target.Ref + `"}}`)
+	if !result.IsError || !strings.Contains(result.Content, "Unknown targetRef") {
+		t.Fatalf("selection before listing lacks guidance: %+v", result)
+	}
 	done := h.start(`{"action":{"kind":"list_windows"}}`)
 	request := h.next("list_windows")
 	h.relay("claim", request.RequestID, nil)
 	h.relay("resolve", request.RequestID, &computeruse.Outcome{RequestID: request.RequestID, Status: "completed", Windows: []computeruse.WindowTarget{target}})
-	result := <-done
+	result = <-done
 	if result.IsError || !bytes.Contains([]byte(result.Content), []byte(target.Ref)) {
 		t.Fatalf("listing: %+v", result)
 	}
@@ -55,6 +76,22 @@ func TestAgentChoiceDiscoveryAndSelectionDoNotInvokeVision(t *testing.T) {
 	result = <-done
 	if result.IsError || !bytes.Contains([]byte(result.Content), []byte(`"targetRevision":1`)) {
 		t.Fatalf("selection: %+v", result)
+	}
+	result = <-h.start(`{"frameId":"never-observed","action":{"kind":"key","key":"Enter"}}`)
+	if !result.IsError || !strings.Contains(result.Content, "Stale frameId") || strings.Contains(result.Content, "Do not automatically retry") {
+		t.Fatalf("input without a fresh observation lacks guidance: %+v", result)
+	}
+	result = <-h.start(`{"action":{"kind":"open_url","url":"https://example.com"}}`)
+	if !result.IsError || !strings.Contains(result.Content, "open_url is unavailable in agent-choice") {
+		t.Fatalf("open_url in agent-choice lacks guidance: %+v", result)
+	}
+}
+
+func TestSelectedWindowRejectsDiscoveryWithGuidance(t *testing.T) {
+	h := newDesktopWorkflowHarness(t)
+	result := <-h.start(`{"action":{"kind":"list_windows"}}`)
+	if !result.IsError || !strings.Contains(result.Content, "Window discovery is unavailable") || !strings.Contains(result.Content, "observe") || strings.Contains(result.Content, "Do not automatically retry") {
+		t.Fatalf("discovery in selected-window session lacks guidance: %+v", result)
 	}
 }
 

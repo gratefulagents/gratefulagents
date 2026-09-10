@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"image/png"
 	"io"
 	"math"
@@ -31,6 +32,30 @@ const (
 )
 
 var ErrRejected = errors.New("computer use request rejected")
+
+// Precondition rejections: Request refused the action before anything reached
+// the desktop, so no OS events were generated. They wrap ErrRejected so
+// existing callers still match, while the tool can give the agent the exact
+// next step instead of a generic "canceled" message.
+var (
+	// ErrNoTarget: agent-choice session without a selected window; the agent
+	// must list_windows and select_window before observing or acting.
+	ErrNoTarget = fmt.Errorf("%w: no window selected", ErrRejected)
+	// ErrDiscoveryUnavailable: list_windows/select_window in a selected-window
+	// session, or with a frameId attached.
+	ErrDiscoveryUnavailable = fmt.Errorf("%w: window discovery unavailable", ErrRejected)
+	// ErrUnknownTarget: select_window with a targetRef that is not in the
+	// latest list_windows result.
+	ErrUnknownTarget = fmt.Errorf("%w: unknown target reference", ErrRejected)
+	// ErrStaleFrame: input in an agent-choice session whose frameId does not
+	// match the latest observation of the current target.
+	ErrStaleFrame = fmt.Errorf("%w: stale frame", ErrRejected)
+	// ErrOpenURLUnavailable: open_url is application-wide and not permitted in
+	// agent-choice sessions.
+	ErrOpenURLUnavailable = fmt.Errorf("%w: open_url unavailable in agent-choice sessions", ErrRejected)
+	// ErrBusy: another request is still pending on this session.
+	ErrBusy = fmt.Errorf("%w: another request is pending", ErrRejected)
+)
 var targetReference = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
 
