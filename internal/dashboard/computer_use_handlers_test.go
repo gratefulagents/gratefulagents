@@ -105,8 +105,12 @@ func TestExchangeComputerUseAuthorizationAndRouting(t *testing.T) {
 				t.Fatalf("response=%+v error=%v calls=%d", response, err, calls)
 			}
 			if tc.code == 0 {
+				agentResponse, agentErr := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "agent-session", Operation: "attach_agent"})
+				if agentErr != nil || agentResponse == nil {
+					t.Fatalf("agent attachment: %v", agentErr)
+				}
 				_, err := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "claim", RequestId: "expired"})
-				if connect.CodeOf(err) != connect.CodeFailedPrecondition || calls != 2 {
+				if connect.CodeOf(err) != connect.CodeFailedPrecondition || calls != 3 {
 					t.Fatalf("rejected claim: code=%v calls=%d", connect.CodeOf(err), calls)
 				}
 			}

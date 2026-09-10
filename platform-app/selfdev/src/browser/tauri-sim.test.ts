@@ -60,6 +60,16 @@ describe("tauri-sim init script", () => {
     await expect(invoke("plugin:event|listen", { event: "tauri://focus" })).resolves.toBeTypeOf("number");
   });
 
+  it("simulates window sharing setup without broad permissions or a fabricated capture grant", async () => {
+    const invoke = evalSim(buildTauriSimScript()).__TAURI_INTERNALS__!.invoke;
+    await expect(invoke("computer_use_permissions")).resolves.toEqual({ supported: true, accessibility: true });
+    await expect(invoke("computer_use_pick_window", { expectedRevision: 0 })).resolves.toBeNull();
+    await expect(invoke("computer_use_session_status")).resolves.toMatchObject({ phase: "stopped", sessionId: null });
+    await expect(invoke("computer_use_session_stop")).resolves.toBeNull();
+    await expect(evalSim(buildTauriSimScript({ platform: "ios" })).__TAURI_INTERNALS__!.invoke("computer_use_permissions"))
+      .resolves.toEqual({ supported: false, accessibility: false });
+  });
+
   it("backs the store plugin with localStorage so storageState captures auth", async () => {
     const sandbox = evalSim(buildTauriSimScript());
     const invoke = sandbox.__TAURI_INTERNALS__!.invoke;

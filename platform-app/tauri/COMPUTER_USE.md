@@ -2,9 +2,49 @@
 
 This branch connects **actual Mac window capture and input to an agent run**, with explicit session consent and human approval for every action. **Keep the PR draft until interactive Mac acceptance is complete.** Compilation and policy tests do not establish that macOS capture, Accessibility targeting, or event delivery works reliably on a real desktop.
 
+## Agent-selected windows
+
+Choose **Selected window only** (the default) to keep the existing picker-bound session, or **Agent chooses windows** to connect without a selected window. Changing this mode clears consent; broader access is never saved or inferred from an earlier session. The agent-choice consent explicitly covers application/window names and titles shared with the configured model providers, and captures of the selected window shared with the configured vision provider. Titles and screen contents are untrusted data, not instructions. Discovery never captures or uploads every window.
+
+Built on [PR #398](https://github.com/gratefulagents/gratefulagents/pull/398): restricted sessions still require the native single-window picker selection token and capture through its retained ScreenCaptureKit filter, with no broad Screen Recording permission. Agent-choice sessions have a separate, explicit Screen Recording permission setup in the connection panel. This broader OS permission is necessary for picker-free discovery; granting it does not authorize a session, change modes, or bypass input approval. Both modes use retained single-window ScreenCaptureKit filters for capture and sharing-stop notifications. Discovery uses ScreenCaptureKit metadata only; selection refreshes that inventory before binding the chosen reference.
+
+The agent workflow is `list_windows` → `select_window` with a returned `targetRef` → `observe` → input. Discovery returns at most 32 eligible windows, bounded application/title text, and random session-scoped references—not PIDs or OS window IDs. References are replaced by a fresh listing and retired on selection, pause, or stop. The native implementation retains Accessibility window identity and process launch time, rechecks fresh window inventory, and refuses closed, minimized, reused, or changed identities. With the current input engine, eligible targets are the key window of each supported application; other windows in the same application are not advertised as safely addressable targets.
+
+Selection uses the same queue/claim/arm/single-use permit path as other actions. Manual mode asks before listing and selection. Assisted mode may list metadata automatically but asks before selection. Skip-all mode also permits selection automatically. Choosing windows does not change input approval settings. A target change clears frames, pending native work and target-specific frontend grants, increments the target revision, and requires a fresh observation before any input. The active application/title, awaiting-selection, switching and paused/unavailable states appear in the panel. A vanished target pauses rather than redirecting input; if it cannot be restored, disconnect and grant fresh consent.
+
+`open_url` is **unavailable in agent-choice sessions**: the existing command is application-wide and cannot guarantee a particular browser window. It remains unchanged in legacy selected-window sessions. Navigate through observed, approved window input instead.
+
+Compatibility uses the existing RPC envelope with an explicit `attach_agent` operation and an `agent_choice` response acknowledgement. Legacy `attach` remains restricted, with unchanged legacy request/outcome wire fields when the revision is zero. An attached session cannot escalate in place. Unknown operations/modes and a missing agent-choice acknowledgement fail closed with update/reconnect guidance. Update the desktop, backend and agent image together for agent-choice support. Authorization remains bound to backend/user/run/session/lease, separate from the mutable native target. Existing ownership, pod identity, native emergency stop, input restrictions and lease revocation checks still apply.
+
+Connection UI fixtures rendered with the production stylesheet (not macOS end-to-end evidence):
+
+![Selected-window consent](docs/computer-use-selected-window-consent.png)
+
+![Agent-choice consent without the picker](docs/computer-use-agent-choice-consent.png)
+
+### Agent-choice extension verification
+
+- Go tests, vet and builds passed for `internal/computeruse`, `internal/tools`, and `internal/dashboard`; uncached broker/tool race tests and focused dashboard relay tests passed.
+- Full frontend suite: **1,636 tests across 161 files passed**. Scoped ESLint and `pnpm run build:web` (TypeScript plus production build) passed. Selfdev: **55 tests** and typecheck passed.
+- Native Linux: `cargo +1.88.0 test --lib --locked` passed **52 tests**; `cargo check --lib --locked` and changed-file `rustfmt --check` passed. Cargo check reports three existing non-macOS dead-code warnings in the input module.
+- macOS ARM64 library/test cross-check passed against SDK 15.2 with deployment target 12.0. Strict Objective-C syntax/availability checks (`-Wall -Wextra -Werror`) passed for ARM64 and Intel. These are compilation checks, not a linked/signed app or interactive permission/input test.
+- The two consent fixtures above were refreshed after integrating the native picker base and visually inspected. Temporary fixture instrumentation was removed.
+
+### Additional interactive Mac acceptance (outstanding)
+
+- [ ] Deny broad Screen Recording and verify restricted picker capture still works. In agent-choice mode, verify denial prevents connection/discovery; enable the separate permission only after explicit consent. Revoke it mid-session and confirm input/capture/discovery stop.
+- [ ] With two harmless windows in different test applications, connect in agent-choice mode without operating the picker, list metadata, select and observe one, and enter harmless test text under the configured approval policy.
+- [ ] List again and switch to the second test application. Confirm its name/title is visible, old previews and per-target allowances disappear, old frames/queued approvals fail, and fresh observation is required before input.
+- [ ] Delay native and relay responses across selection, pause, disconnect, backend/user/run changes and emergency stop; no late result restores an old target or authorizes input.
+- [ ] Close, minimize, restart, or change the selected application's key window; no capture/input silently follows another identity. Verify recovery requires restoring the target or fresh consent.
+- [ ] Repeat in selected-window mode: listing and switching through the agent are rejected. Verify all three approval policies, lease expiry, OS permission denial and emergency stop.
+
+Linux policy tests do not validate Accessibility identity retention, macOS capture/input, or these interactive checks. Keep the PR draft until the Mac checks are recorded.
+
 ## What is connected
 
-- macOS Screen Recording and Accessibility onboarding in Settings → General. Other platforms do not expose the controls.
+- Computer use requires **macOS 15.2+**; the rest of the app retains its existing macOS minimum. Unsupported systems show an explanation without enabling computer use.
+- Native `SCContentSharingPicker` single-window sharing and separate Accessibility onboarding. Restricted mode has no broad Screen Recording requirement or fallback; agent-choice mode separately requires it.
 - An owner/admin-only **Computer use** panel in an unfinished run's session view: approved-window selection, consent, start, local preview, pause/resume, stop, exact proposed text, action confirmation, and a metadata-only recent-action list.
 - Native in-memory session authorization bound to backend, user, namespace, run, application, process, and window; ten-second lease; revision checks; independent native watchdog. Backend RPC separately authenticates the user and checks run ownership, lifecycle, and pod identity.
 - Run-scoped in-memory agent broker over a private Unix socket and authenticated dashboard/pod-exec bridge. No public desktop-control listener or database image queue. One outstanding request, bounded expiry, single-use claim, cancellation and disconnect revocation. A claimed request must resolve within 15 s (30 s for an observation carrying its PNG, 60 s for typing); an unresolved claim drops the desktop session. If the agent pod cannot create the private socket, the run continues without the `computer_use` tool rather than failing.
@@ -31,7 +71,7 @@ Every input action may carry a `question`; the tool strips it from the desktop r
 
 In the panel the approval card names the exact variant ("Double right-click", "Drag from … to …", "Press Shift+Cmd+Z" with ⇧⌘Z glyphs) and the local preview marks the click point, hover position, scroll aim, or the full drag path with start/destination markers — never for a proposal bound to a different frame. **Automatically approve read-only** covers `observe`, `scroll`, `move`, and `activate`; clicks, drags, typing, and keys still ask.
 - In the default **Manually approve** mode every request needs a new human confirmation. Two opt-in relaxations exist, chosen in Settings → General → Computer use → Approval mode or from the panel itself, stored in this Mac's localStorage only and never on the backend: **Automatically approve read-only** approves observe/scroll/move/activate requests as they arrive but still asks before click/drag/type/key; **Skip all approvals** approves every request immediately and can only be turned on through a confirmation dialog. A per-action prompt also offers **Allow for this session**, which approves further requests of that one kind until the native session stops. Auto-approval only bypasses the human confirmation step: the same native validation, claim, arm and single-use permit path still runs, nothing is approved while the session is paused, and the panel timeline marks those actions as auto-approved. Input is validated and queued natively, claimed remotely, then armed with a short-lived one-use permit and executed natively, so the permit covers only native execution rather than the network round trip. The permit is 5 s, extended by 40 ms per UTF-16 unit for typing. Approval is not transferable to another action. Failed or uncertain input is not automatically retried; a native rejection at queue or arm time is reported to the agent as `failed` without stopping the session.
-- **Background delivery.** Capture uses the window ID and input is posted to the approved process with `CGEventPostToPid`, so neither needs the approved application in front. Pointer actions (`click`, `move`, `drag`, `scroll`) and `open_url` run while you keep the supervisor or anything else in front; the session pauses only when the approved window is minimized or gone, or a permission is revoked. Pointer destinations are hit-tested inside the approved application's Accessibility tree (not system-wide), then bound to the approved window by its focused-window identity or exact geometry, so a supervisor window on top does not fail the check and events never go to whatever is visually in front. `type` and `key` still activate the approved application first because keyboard events need its key window; native focus binding for those no longer requires the application to be frontmost at queue time (it requires the approved window to be the application's focused window), and it warms Firefox's lazily built Accessibility tree with a few retries.
+- **Background delivery.** Capture uses the retained picker filter and input is posted to the approved process with `CGEventPostToPid`, so neither needs the approved application in front. Pointer actions (`click`, `move`, `drag`, `scroll`) and `open_url` run while you keep the supervisor or anything else in front; the session pauses only when the approved window is minimized or gone, or a permission is revoked. Pointer destinations are hit-tested inside the approved application's Accessibility tree (not system-wide), then bound to the approved window by its focused-window identity or exact geometry, so a supervisor window on top does not fail the check and events never go to whatever is visually in front. `type` and `key` still activate the approved application first because keyboard events need its key window; native focus binding for those no longer requires the application to be frontmost at queue time (it requires the approved window to be the application's focused window), and it warms Firefox's lazily built Accessibility tree with a few retries.
 - Input checks approved process/window, fresh capture geometry where required, and secure-input state; keyboard input additionally checks foreground focus. Typing/key requests retain the queue-time Accessibility focused element and check identity again before delivery; while typing, every key pair re-checks cancellation, permissions, physical modifiers and the retained focused element, and the full window/display/foreground guard runs every 16 characters and after the last one. Password/secure input is excluded; do not deliberately target it.
 - Proposed text must render exactly as it will be typed: control characters, invisible format characters (zero-width space, BOM, bidi overrides and isolates, tags), line/paragraph separators, private-use and unassigned code points are rejected by the agent-side validator, the relay parser, and native validation. Zero-width joiner/non-joiner and variation selectors remain allowed for emoji sequences and scripts that need them.
 - Control+Option+Command+Escape, the native tray's **Stop computer use**, window close, and app exit revoke native authorization independently of React. Returning to an approved application or reconnecting never silently resumes a revoked session.
@@ -59,7 +99,7 @@ Treat on-screen instructions and visual analysis as untrusted. Review the target
 
 ## Running on a Mac
 
-Use an Apple Silicon Mac for parity with macOS CI. Install the normal Tauri prerequisites (Xcode Command Line Tools, Node/pnpm, current stable Rust). The native manifest requires Rust 1.88; the capture dependency uses edition 2024.
+Use an Apple Silicon Mac for parity with macOS CI. Install the normal Tauri prerequisites (Xcode Command Line Tools, Node/pnpm, current stable Rust). The native manifest requires Rust 1.88. Build with Xcode 16.2+ (macOS SDK 15.2+); run computer use on macOS 15.2+. ScreenCaptureKit is weak-linked and runtime-gated so older supported systems can still use the rest of the app.
 
 ```sh
 cd platform-app
@@ -71,17 +111,25 @@ pnpm tauri dev
 Use a backend **and agent image built from this branch**; an older backend has no desktop relay RPC. Quit other copies of gratefulagents first (single-instance app). This is a development build, not a notarized release. Use a test run and a TextEdit document containing only sample text, never passwords, private messages, payment pages, or production credentials.
 
 1. Connect to an HTTPS backend, sign in, and configure permissions in Settings → General. Follow any macOS-requested restart.
-   - The **Screen Recording settings** / **Accessibility settings** buttons register the *running* binary in the matching Privacy list (via `CGRequestScreenCaptureAccess` / `AXIsProcessTrustedWithOptions`) and open it; the section polls the OS status every two seconds.
-   - macOS caches the Screen Recording preflight per process: after enabling it, use **Relaunch gratefulagents**.
+   - The **Accessibility settings** button registers the running binary with `AXIsProcessTrustedWithOptions` and opens its Privacy list; the section polls status every two seconds. This grants input access, not screen sharing.
+   - Leave broad Screen Recording permission **off**. Window sharing is granted in the native picker, not System Settings. No relaunch is required for picker consent.
    - Development and CI builds are ad-hoc signed (`APPLE_SIGNING_IDENTITY=-`), so every rebuild is a different binary to macOS TCC. A permission that is enabled in System Settings but still reads **Not granted** belongs to a previous build: remove gratefulagents from that list (−), press the settings button again to re-register, enable it, then relaunch. A stable signing identity avoids this.
 2. Open a live unfinished run you own with a write-capable runtime and configured vision provider. The run's agent pod/relay must be available.
-3. Expand **Computer use**, list windows, choose the test document, review sharing consent, and start a supervised session.
+3. Expand **Computer use**, click **Choose window with macOS**, select just the test document in the system picker, review the separate backend/agent sharing consent, and start a supervised session. Cancellation leaves no selected target and no error; selection alone does not capture or send a frame.
 4. Ask the agent to inspect or act on the approved window. Approve each observation to share a capture; inspect the proposed click location/text/key/scroll/activation, confirm, then choose **Allow once**, **Allow for this session**, or **Deny**. Switching the **Approvals** dropdown to a less strict mode changes what is approved automatically; **Skip all approvals** asks for confirmation first and shows a persistent warning banner with a one-click **Switch to manual**.
 5. Use **Local preview** for a capture not sent to the agent. Stop before leaving the task. A closed/restarted agent process or expired connection requires a new session.
 
 ## Interactive Mac acceptance checklist
 
 Record commit, macOS version, hardware/display configuration, pass/fail and errors. Use synthetic content only. None of these checks is satisfied merely by CI compilation.
+
+- [ ] On macOS 15.2+ with broad Screen Recording **denied**, select/capture/input works through picker consent only, with no broad TCC prompt.
+- [ ] Picker offers single windows only, never the supervisor, applications, or displays; exact selected PID/window/app is reflected in session scope.
+- [ ] Cancel/error/timeout/reselection never preserves old consent. Navigation, logout, emergency stop, window close and lease expiry during selection discard late callbacks.
+- [ ] Stop sharing using macOS while capture/input is in flight: grant is invalidated, no late image is delivered, input stops, and resume cannot recreate the grant; stop and select again.
+- [ ] Moving/resizing/minimizing/closing the target, opening child windows, and changing displays cannot change captured/input scope. Shadows and child windows are absent; preview points match input coordinates.
+- [ ] On macOS 12–15.1, launch and use the rest of the app; computer use reports the 15.2 minimum without loading unavailable APIs.
+
 
 - [ ] Permission denial rejects start/capture/input. Settings links open the right privacy category; no automatic restart/resume authorization.
 - [ ] Capture contains the selected document, not another window or the full desktop. Approved observation reaches the configured vision analyzer and returns a description without PNG/base64 in ordinary tool output.
@@ -110,7 +158,9 @@ Record commit, macOS version, hardware/display configuration, pass/fail and erro
 - [ ] Type a 200–1000 character sample: delivery completes within the scaled permit, the full guard fires periodically, and switching focus mid-text stops delivery without a stuck key.
 - [ ] Approve an observation on a slow uplink: the PNG resolve completes within the 20 s client / 30 s broker window rather than dropping the session.
 
-Capture uses xcap 0.9.4's deprecated Core Graphics window-capture API, not ScreenCaptureKit. Its foreground check is process-based and uses a deprecated NSWorkspace API. Compatibility and actual focus behavior must be checked on supported macOS versions before release.
+Capture uses `SCScreenshotManager` with the **same retained `SCContentFilter` returned by the picker**, never an ID-based reconstruction. The 15.2 `includedWindows` API must identify exactly one window; its owning application PID/name/bundle and process launch identity are bound natively. The picker excludes supervisor bundle/window IDs and rejects supervisor selections again after callback. No `SCShareableContent` enumeration or Core Graphics image capture remains. CG metadata supplies live bounds, PID and front-to-back order only (without a Screen Recording grant); the existing AX/input guards remain in place.
+
+A lightweight `SCStream` is started on the first consented capture to receive macOS user/system stop notifications. It uses the same filter, emits no images to the agent, and is stopped when the native grant is cleared. A changed filter, cancellation, stream failure or revoked share invalidates the grant rather than silently broadening/replacing it. Each operation rechecks the native grant. Stop/lease expiry release it and invalidate pending picker replies; late captures still fail the existing session/revision checks. Picker requests are serialized, time out after 60 seconds as cancellation, and cannot replace an active session. Screenshots are bounded to 1920×1080, exclude shadows/child windows, and have an eight-second response timeout. Native GUI behavior still needs the acceptance checks below; Linux policy tests are not runtime evidence.
 
 ## Automated verification
 
@@ -132,7 +182,18 @@ go test -race -count=1 ./internal/computeruse
 go test -race -count=1 -v ./internal/tools -run '^TestComputerUse'
 ```
 
-The existing frontend CI suite separately tests local approval modes and supervision controls; the existing macOS Tauri job builds the native app and runs native shell tests. These CI tests **do not generate OS input** or automate macOS permission prompts. A real GUI smoke test still needs a logged-in Mac runner with explicitly granted Screen Recording and Accessibility permissions. Hosted CI compilation and synthetic screenshots must not be marked as passing that native acceptance checklist.
+The existing frontend CI suite separately tests local approval modes and supervision controls; the existing macOS Tauri job builds the native app and runs native shell tests. These CI tests **do not generate OS input** or automate macOS permission prompts. A real GUI smoke test still needs a logged-in Mac runner with native single-window picker consent and explicitly granted Accessibility permission. Hosted CI compilation and synthetic screenshots must not be marked as passing that native acceptance checklist.
+
+### Base PR #398 native picker migration verification (before this extension)
+
+- Full frontend suite: **1,628 tests across 161 files passed**; scoped ESLint and the web production build (including TypeScript) passed.
+- Linux native policy/FFI tests: **50 passed** with `cargo test --lib --locked`.
+- macOS ARM64 library and test **cross-compilation checks** passed using `cargo check --lib --tests --locked --target aarch64-apple-darwin`, SDK 15.2, and deployment target 12.0. This compiles the Objective-C bridge but does not link or run a macOS app.
+- Objective-C syntax/availability checks passed with `-Wall -Wextra -Werror` against SDK 15.2 for both ARM64 and Intel, with deployment target 12.0.
+- Selfdev: **55 tests**, typecheck, and synthetic settings/run-panel screenshots passed with no captured console/network findings. These screenshots cannot exercise the macOS picker.
+- Strict Linux Clippy (`cargo clippy --lib --locked -- -D warnings`) remains blocked by existing non-macOS dead-code warnings in `computer_use_input.rs` and existing findings in `diagnostics.rs`, `openai_oauth.rs`, and `updater.rs`. No lint rules were suppressed.
+
+A signed macOS app build and the interactive checklist (especially capture with broad Screen Recording denied, system sharing-stop revocation, exact input mapping, and old-OS launch) remain required before release.
 
 ### Previous baseline verification
 

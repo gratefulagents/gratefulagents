@@ -1,6 +1,6 @@
 use super::computer_use_capture::WindowCapture;
 use super::computer_use_input::{Action, FocusTarget, Frame, QueuedRequest, FRAME_TTL};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -26,9 +26,19 @@ fn execution_ttl(action: &Action) -> Duration {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionMode {
+    #[default]
+    SelectedWindow,
+    AgentChoice,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionScope {
+    #[serde(default)]
+    pub mode: SessionMode,
     pub backend: String,
     pub user: String,
     pub namespace: String,
@@ -49,6 +59,8 @@ pub enum SessionPhase {
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStatus {
+    pub target_revision: u64,
+    pub target: Option<WindowMetadata>,
     pub revision: u64,
     pub phase: SessionPhase,
     pub session_id: Option<String>,
@@ -56,7 +68,24 @@ pub struct SessionStatus {
     pub reason: String,
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowMetadata {
+    pub r#ref: String,
+    pub application: String,
+    pub title: String,
+}
+
+struct TargetBinding {
+    scope: SessionScope,
+    metadata: WindowMetadata,
+    identity: Arc<FocusTarget>,
+}
+
 struct Session {
+    target_revision: u64,
+    target: Option<TargetBinding>,
+    candidates: HashMap<String, TargetBinding>,
     id: String,
     scope: SessionScope,
     deadline: Instant,
@@ -79,6 +108,7 @@ impl Session {
     fn invalidate(&mut self) {
         self.pending = None;
         self.frames.clear();
+        self.candidates.clear();
         if let Some((_, canceled)) = self.running.take() {
             canceled.store(true, Ordering::SeqCst);
         }
@@ -151,6 +181,7 @@ impl SessionPolicy {
             session.invalidate();
         }
         self.session = None;
+        super::computer_use_picker::clear();
         self.reason = reason.to_owned();
     }
 
@@ -173,18 +204,29 @@ impl SessionPolicy {
         {
             return Err("Computer use requires an HTTPS backend origin".into());
         }
-        if [
-            &scope.user,
-            &scope.namespace,
-            &scope.run,
-            &scope.application,
-        ]
-        .iter()
-        .any(|value| value.trim().is_empty() || value.len() > 256)
+        if [&scope.user, &scope.namespace, &scope.run]
+            .iter()
+            .any(|value| value.trim().is_empty() || value.len() > 256)
         {
             return Err("A user, run, namespace, and approved application are required".into());
         }
+        if scope.mode == SessionMode::SelectedWindow
+            && (scope.application.trim().is_empty()
+                || scope.application.len() > 256
+                || scope.window_id == 0
+                || scope.process_id == 0)
+        {
+            return Err("An approved application and window are required".into());
+        }
+        if scope.mode == SessionMode::AgentChoice
+            && (!scope.application.is_empty() || scope.window_id != 0 || scope.process_id != 0)
+        {
+            return Err("Agent-choice authorization must not contain a target".into());
+        }
         self.session = Some(Session {
+            target_revision: 0,
+            target: None,
+            candidates: HashMap::new(),
             id,
             scope,
             deadline: now + LEASE,
@@ -234,6 +276,32 @@ impl SessionPolicy {
     ) -> Result<(), String> {
         request.validate()?;
         let session = self.active(id, scope, now)?;
+        if request.target_revision != session.target_revision {
+            return Err("Target changed; obtain a fresh observation".into());
+        }
+        let discovery = matches!(
+            request.action,
+            Action::ListWindows {} | Action::SelectWindow { .. }
+        );
+        if discovery && scope.mode != SessionMode::AgentChoice {
+            return Err("Selected-window sessions cannot discover or switch targets".into());
+        }
+        if scope.mode == SessionMode::AgentChoice {
+            if !discovery && session.target.is_none() {
+                return Err("Select a target first".into());
+            }
+            if !discovery
+                && !matches!(request.action, Action::Observe { .. })
+                && request.frame_id.is_none()
+            {
+                return Err("Observe the selected target before input".into());
+            }
+            if matches!(request.action, Action::OpenUrl { .. }) {
+                return Err(
+                    "Application-wide URL opening is unavailable in agent-choice mode".into(),
+                );
+            }
+        }
         if let Some(pending) = &session.pending {
             return if pending.request == request {
                 Ok(())
@@ -368,6 +436,33 @@ impl SessionPolicy {
         Ok(())
     }
 
+    fn select_target(
+        &mut self,
+        id: &str,
+        scope: &SessionScope,
+        reference: &str,
+        now: Instant,
+        validate: impl FnOnce(&TargetBinding) -> Result<(), String>,
+    ) -> Result<WindowMetadata, String> {
+        let session = self.active(id, scope, now)?;
+        if scope.mode != SessionMode::AgentChoice {
+            return Err("Selected-window session cannot switch targets".into());
+        }
+        let target = session
+            .candidates
+            .remove(reference)
+            .ok_or("Target reference expired; list windows again")?;
+        validate(&target)?;
+        let metadata = target.metadata.clone();
+        session.pending = None;
+        session.frames.clear();
+        session.candidates.clear();
+        session.target = Some(target);
+        session.target_revision += 1;
+        self.revision = self.revision.wrapping_add(1);
+        Ok(metadata)
+    }
+
     fn record_frame(
         &mut self,
         id: &str,
@@ -411,6 +506,11 @@ impl SessionPolicy {
     fn status(&mut self, now: Instant) -> SessionStatus {
         self.expire(now);
         SessionStatus {
+            target_revision: self.session.as_ref().map_or(0, |s| s.target_revision),
+            target: self
+                .session
+                .as_ref()
+                .and_then(|s| s.target.as_ref().map(|t| t.metadata.clone())),
             revision: self.revision,
             phase: match &self.session {
                 None => SessionPhase::Stopped,
@@ -429,6 +529,7 @@ pub struct ComputerUseSession {
     policy: Mutex<SessionPolicy>,
     pub shortcut_ready: AtomicBool,
     capture_busy: AtomicBool,
+    picker_busy: AtomicBool,
 }
 
 pub fn stop<R: Runtime>(app: &AppHandle<R>, reason: &str) {
@@ -446,15 +547,54 @@ pub fn stop<R: Runtime>(app: &AppHandle<R>, reason: &str) {
 fn require_permissions(state: &ComputerUseSession) -> Result<(), String> {
     let permissions = crate::computer_use::computer_use_permissions();
     if !permissions.supported {
-        return Err("Computer use requires the macOS desktop app".into());
+        return Err("Computer use requires the macOS desktop app on macOS 15.2 or later".into());
     }
     if !state.shortcut_ready.load(Ordering::SeqCst) {
         return Err("The native emergency stop shortcut is unavailable".into());
     }
-    if !permissions.screen_recording || !permissions.accessibility {
-        return Err("Screen Recording and Accessibility permissions are required".into());
+    if !permissions.accessibility {
+        return Err("Accessibility permission is required".into());
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn computer_use_pick_window(
+    app: AppHandle,
+    expected_revision: u64,
+) -> Result<Option<super::computer_use_capture::WindowTarget>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<ComputerUseSession>();
+        require_permissions(&state)?;
+        if state.picker_busy.swap(true, Ordering::SeqCst) {
+            return Err("The macOS window picker is already open".into());
+        }
+        let _busy = Busy(&state.picker_busy);
+        let mut policy = state
+            .policy
+            .lock()
+            .map_err(|_| "Desktop session state unavailable")?;
+        policy.expire(Instant::now());
+        policy.require_revision(expected_revision)?;
+        if policy.session.is_some() {
+            return Err("Stop the current session before selecting another window".into());
+        }
+        super::computer_use_picker::clear();
+        let picking = super::computer_use_picker::begin()?;
+        drop(policy);
+        let picked = picking.wait()?;
+        let policy = state
+            .policy
+            .lock()
+            .map_err(|_| "Desktop session state unavailable")?;
+        policy.require_revision(expected_revision)?;
+        if policy.session.is_some() {
+            return Err("Desktop authorization changed".into());
+        }
+        Ok(picked.install())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -462,13 +602,14 @@ pub fn computer_use_session_start(
     state: tauri::State<'_, ComputerUseSession>,
     scope: SessionScope,
     consent_to_screen_sharing: bool,
+    selection_id: String,
     expected_revision: u64,
 ) -> Result<SessionStatus, String> {
     require_permissions(&state)?;
     if !consent_to_screen_sharing {
         return Err("Explicit consent to share screen content is required".into());
     }
-    super::computer_use_capture::validate_target(&scope)?;
+
     let id = random_id()?;
     let mut policy = state
         .policy
@@ -477,6 +618,12 @@ pub fn computer_use_session_start(
     let now = Instant::now();
     policy.expire(now);
     policy.require_revision(expected_revision)?;
+    if scope.mode == SessionMode::SelectedWindow {
+        super::computer_use_picker::bind(&selection_id, &scope)?;
+    } else {
+        super::computer_use::require_agent_permission()?;
+        super::computer_use_picker::clear();
+    }
     policy.start(id, scope, now)?;
     Ok(policy.status(now))
 }
@@ -490,14 +637,35 @@ fn inspect_session(state: &ComputerUseSession) -> Result<SessionStatus, String> 
     if observed.phase != SessionPhase::Active {
         return Ok(observed);
     }
-    let permissions_available = require_permissions(state).is_ok();
+    let permissions_available = require_permissions(state).is_ok()
+        && observed.scope.as_ref().is_none_or(|scope| {
+            scope.mode != SessionMode::AgentChoice
+                || super::computer_use::require_agent_permission().is_ok()
+        });
     // Background delivery: the session stays active while the approved window
     // exists and is not minimized, even when another application is in front.
     let window_available = permissions_available
-        && observed
-            .scope
-            .as_ref()
-            .is_some_and(|scope| super::computer_use_capture::validate_visible(scope).is_ok());
+        && observed.scope.as_ref().is_some_and(|scope| {
+            if scope.mode == SessionMode::AgentChoice {
+                state
+                    .policy
+                    .lock()
+                    .ok()
+                    .and_then(|p| {
+                        p.session.as_ref().and_then(|s| {
+                            s.target
+                                .as_ref()
+                                .map(|t| (t.identity.clone(), t.scope.clone()))
+                        })
+                    })
+                    .is_none_or(|(identity, target)| {
+                        identity.verify().is_ok()
+                            && super::computer_use_picker::target(&target).is_ok()
+                    })
+            } else {
+                super::computer_use_capture::validate_visible(scope).is_ok()
+            }
+        });
     let mut policy = state
         .policy
         .lock()
@@ -572,7 +740,11 @@ pub fn computer_use_session_resume(
     scope: SessionScope,
 ) -> Result<SessionStatus, String> {
     require_permissions(&state)?;
-    super::computer_use_capture::validate_target(&scope)?;
+    if scope.mode == SessionMode::SelectedWindow {
+        super::computer_use_capture::validate_target(&scope)?;
+    } else {
+        super::computer_use::require_agent_permission()?;
+    }
     let mut policy = state
         .policy
         .lock()
@@ -608,7 +780,8 @@ pub async fn computer_use_capture_window(
         let _busy = state.acquire()?;
         let created = Instant::now();
         check_execution(&state, &session_id, &scope, revision, None)?;
-        let result = super::computer_use_capture::capture(&scope);
+        let target = current_target(&state, &session_id, &scope)?;
+        let result = super::computer_use_capture::capture(&target);
         check_execution(&state, &session_id, &scope, revision, None)?;
         let mut policy = state
             .policy
@@ -650,6 +823,30 @@ impl ComputerUseSession {
     }
 }
 
+fn current_target(
+    state: &ComputerUseSession,
+    id: &str,
+    scope: &SessionScope,
+) -> Result<SessionScope, String> {
+    let mut policy = state
+        .policy
+        .lock()
+        .map_err(|_| "Desktop session state unavailable")?;
+    let session = policy.active(id, scope, Instant::now())?;
+    if scope.mode == SessionMode::SelectedWindow {
+        return Ok(scope.clone());
+    }
+    let target = session
+        .target
+        .as_ref()
+        .ok_or("Select a target before observing or acting")?;
+    let selected = target.scope.clone();
+    let identity = target.identity.clone();
+    drop(policy);
+    identity.verify()?;
+    Ok(selected)
+}
+
 fn check_execution(
     state: &ComputerUseSession,
     id: &str,
@@ -658,6 +855,11 @@ fn check_execution(
     execution: Option<&Execution>,
 ) -> Result<(), String> {
     require_permissions(state)?;
+    if scope.mode == SessionMode::SelectedWindow {
+        super::computer_use_capture::validate_target(scope)?;
+    } else {
+        super::computer_use::require_agent_permission()?;
+    }
     let now = Instant::now();
     if execution.is_some_and(|e| e.canceled.load(Ordering::SeqCst) || now >= e.deadline) {
         return Err("Desktop execution canceled or expired".into());
@@ -666,8 +868,16 @@ fn check_execution(
         .policy
         .lock()
         .map_err(|_| "Desktop session state unavailable")?;
-    policy.active(id, scope, now)?;
-    policy.require_revision(revision)
+    let session = policy.active(id, scope, now)?;
+    let identity = session.target.as_ref().map(|t| t.identity.clone());
+    policy.require_revision(revision)?;
+    drop(policy);
+    if let Some(identity) = identity {
+        identity.verify()?;
+        let target_scope = current_target(state, id, scope)?;
+        super::computer_use_picker::target(&target_scope)?;
+    }
+    Ok(())
 }
 
 #[derive(serde::Serialize)]
@@ -675,9 +885,19 @@ pub struct ArmedRequest {
     permit: String,
 }
 
+fn zero_revision(revision: &u64) -> bool {
+    *revision == 0
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestOutcome {
+    #[serde(skip_serializing_if = "zero_revision")]
+    target_revision: u64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    windows: Vec<WindowMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target: Option<WindowMetadata>,
     request_id: String,
     status: &'static str,
     message: String,
@@ -702,16 +922,26 @@ pub fn computer_use_queue_request(
         policy.active(&session_id, &scope, Instant::now())?;
         policy.revision
     };
-    let target = if request.frame_id.is_none()
+    let discovery = matches!(
+        request.action,
+        Action::ListWindows {} | Action::SelectWindow { .. }
+    );
+    let selected = if discovery {
+        scope.clone()
+    } else {
+        current_target(&state, &session_id, &scope)?
+    };
+    let target = if !discovery
+        && request.frame_id.is_none()
         && !matches!(
             request.action,
             Action::Observe { .. } | Action::OpenUrl { .. }
         ) {
-        Some(super::computer_use_input::snapshot(&scope)?)
+        Some(super::computer_use_input::snapshot(&selected)?)
     } else {
         None
     };
-    let focus = super::computer_use_input::bind_focus(&scope, &request.action)?;
+    let focus = super::computer_use_input::bind_focus(&selected, &request.action)?;
     let mut policy = state
         .policy
         .lock()
@@ -779,6 +1009,12 @@ pub async fn computer_use_approve_request(
                 .map_err(|_| "Desktop session state unavailable")?;
             policy.consume(&session_id, &scope, &request_id, &permit, Instant::now())?
         };
+        if matches!(
+            execution.request.action,
+            Action::ListWindows {} | Action::SelectWindow { .. }
+        ) {
+            return execute_target_request(&state, &session_id, &scope, &execution);
+        }
         let run = || -> Result<Option<WindowCapture>, String> {
             let check = || {
                 check_execution(
@@ -790,9 +1026,10 @@ pub async fn computer_use_approve_request(
                 )
             };
             check()?;
+            let selected = current_target(&state, &session_id, &scope)?;
             if matches!(execution.request.action, Action::Observe { .. }) {
                 let created = Instant::now();
-                let capture = super::computer_use_capture::capture(&scope)?;
+                let capture = super::computer_use_capture::capture(&selected)?;
                 check()?;
                 state
                     .policy
@@ -808,7 +1045,7 @@ pub async fn computer_use_approve_request(
                 Ok(Some(capture))
             } else {
                 super::computer_use_input::execute(
-                    &scope,
+                    &selected,
                     &execution.request.action,
                     execution.frame.as_ref(),
                     execution.focus.as_ref(),
@@ -855,6 +1092,9 @@ pub async fn computer_use_approve_request(
             Err(message) => ("failed", message, None),
         };
         Ok(RequestOutcome {
+            target_revision: policy.session.as_ref().map_or(0, |s| s.target_revision),
+            windows: Vec::new(),
+            target: None,
             request_id,
             status,
             message,
@@ -865,12 +1105,279 @@ pub async fn computer_use_approve_request(
     .map_err(|e| e.to_string())?
 }
 
+fn discover_targets(scope: &SessionScope) -> Result<HashMap<String, TargetBinding>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut candidates = HashMap::new();
+        for window in super::computer_use_picker::agent_windows()?
+            .into_iter()
+            .take(128)
+        {
+            if candidates.len() == 32 {
+                break;
+            }
+            if window.application.is_empty() || window.application.len() > 256 {
+                continue;
+            }
+            let mut selected = scope.clone();
+            selected.application = window.application.clone();
+            selected.window_id = window.window_id;
+            selected.process_id = window.process_id;
+            let identity = match super::computer_use_input::macos::bind_window(selected.clone()) {
+                Ok(identity) => identity,
+                Err(_) => continue,
+            };
+            let reference = random_id()?;
+            let mut title = window.title;
+            while title.len() > 512 {
+                title.pop();
+            }
+            candidates.insert(
+                reference.clone(),
+                TargetBinding {
+                    scope: selected,
+                    metadata: WindowMetadata {
+                        r#ref: reference,
+                        application: window.application,
+                        title,
+                    },
+                    identity: Arc::new(identity),
+                },
+            );
+        }
+        Ok(candidates)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = scope;
+        Err("Window discovery requires macOS".into())
+    }
+}
+
+fn execute_target_request(
+    state: &ComputerUseSession,
+    id: &str,
+    scope: &SessionScope,
+    execution: &Execution,
+) -> Result<RequestOutcome, String> {
+    let result = (|| -> Result<(Vec<WindowMetadata>, Option<WindowMetadata>), String> {
+        check_execution(state, id, scope, execution.revision, Some(execution))?;
+        if scope.mode != SessionMode::AgentChoice {
+            return Err("Selected-window session cannot discover targets".into());
+        }
+        let candidates = if matches!(execution.request.action, Action::ListWindows {}) {
+            discover_targets(scope)?
+        } else {
+            super::computer_use_picker::agent_windows()?;
+            HashMap::new()
+        };
+        let mut policy = state
+            .policy
+            .lock()
+            .map_err(|_| "Desktop session state unavailable")?;
+        policy.require_revision(execution.revision)?;
+        if execution.canceled.load(Ordering::SeqCst) || Instant::now() >= execution.deadline {
+            return Err("Target request expired".into());
+        }
+        let session = policy.active(id, scope, Instant::now())?;
+        match &execution.request.action {
+            Action::ListWindows {} => {
+                let windows = candidates.values().map(|t| t.metadata.clone()).collect();
+                session.candidates = candidates;
+                Ok((windows, None))
+            }
+            Action::SelectWindow { target_ref } => {
+                let metadata =
+                    policy.select_target(id, scope, target_ref, Instant::now(), |target| {
+                        target.identity.verify()?;
+                        super::computer_use_capture::validate_visible(&target.scope)?;
+                        require_permissions(state)?;
+                        super::computer_use_picker::select_agent_target(&target.scope)?;
+                        target.identity.verify()?;
+                        if execution.canceled.load(Ordering::SeqCst)
+                            || Instant::now() >= execution.deadline
+                        {
+                            return Err("Target request expired".into());
+                        }
+                        Ok(())
+                    })?;
+                Ok((Vec::new(), Some(metadata)))
+            }
+            _ => Err("Unsupported target request".into()),
+        }
+    })();
+    require_permissions(state)?;
+    let mut policy = state
+        .policy
+        .lock()
+        .map_err(|_| "Desktop session state unavailable")?;
+    let session = policy.active(id, scope, Instant::now())?;
+    if execution.canceled.load(Ordering::SeqCst) || Instant::now() >= execution.deadline {
+        return Err("Target request canceled".into());
+    }
+    session.running = None;
+    let (status, message, windows, target) = match result {
+        Ok((windows, target)) => (
+            "completed",
+            "Approved target request completed".into(),
+            windows,
+            target,
+        ),
+        Err(error) => ("failed", error, Vec::new(), None),
+    };
+    Ok(RequestOutcome {
+        request_id: execution.request.request_id.clone(),
+        target_revision: session.target_revision,
+        status,
+        message,
+        windows,
+        target,
+        capture: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn agent_scope() -> SessionScope {
+        SessionScope {
+            mode: SessionMode::AgentChoice,
+            application: String::new(),
+            window_id: 0,
+            process_id: 0,
+            ..scope()
+        }
+    }
+
+    fn candidate(reference: &str) -> TargetBinding {
+        TargetBinding {
+            scope: scope(),
+            metadata: WindowMetadata {
+                r#ref: reference.into(),
+                application: "Test".into(),
+                title: "Untrusted title".into(),
+            },
+            identity: Arc::new(FocusTarget::retain(|| Ok(|| Ok(()))).unwrap()),
+        }
+    }
+
+    #[test]
+    fn agent_choice_requires_selection_and_invalidates_old_work() {
+        let now = Instant::now();
+        let scope = agent_scope();
+        let mut p = SessionPolicy::default();
+        p.start("s".into(), scope.clone(), now).unwrap();
+        assert!(p.status(now).target.is_none());
+        assert!(p
+            .queue("s", &scope, request("observe-before-selection"), now)
+            .is_err());
+        let listing = QueuedRequest {
+            target_revision: 0,
+            request_id: "list".into(),
+            frame_id: None,
+            action: Action::ListWindows {},
+        };
+        p.queue("s", &scope, listing, now).unwrap();
+        p.arm("s", &scope, "list", "permit".into(), now).unwrap();
+        p.session
+            .as_mut()
+            .unwrap()
+            .candidates
+            .insert("a".repeat(64), candidate(&"a".repeat(64)));
+        p.select_target("s", &scope, &"a".repeat(64), now, |_| Ok(()))
+            .unwrap();
+        assert!(p.session.as_ref().unwrap().pending.is_none());
+        assert_eq!(p.status(now).target_revision, 1);
+        assert!(p.consume("s", &scope, "list", "permit", now).is_err());
+        let mut observed = request("fresh-observe");
+        assert!(p.queue("s", &scope, observed.clone(), now).is_err());
+        observed.target_revision = 1;
+        p.queue("s", &scope, observed, now).unwrap();
+        p.session.as_mut().unwrap().pending = None;
+        let input = QueuedRequest {
+            target_revision: 1,
+            request_id: "input".into(),
+            frame_id: None,
+            action: Action::Key {
+                key: "Enter".into(),
+            },
+        };
+        assert!(p.queue("s", &scope, input, now).is_err());
+        p.record_frame("s", &scope, p.revision, frame("old-frame", now), now)
+            .unwrap();
+        let previous_revision = p.revision;
+        p.session
+            .as_mut()
+            .unwrap()
+            .candidates
+            .insert("b".repeat(64), candidate(&"b".repeat(64)));
+        p.select_target("s", &scope, &"b".repeat(64), now, |_| Ok(()))
+            .unwrap();
+        assert!(p.session.as_ref().unwrap().frames.is_empty());
+        assert!(p
+            .record_frame(
+                "s",
+                &scope,
+                previous_revision,
+                frame("late-frame", now),
+                now
+            )
+            .is_err());
+        let stale = QueuedRequest {
+            target_revision: 2,
+            request_id: "stale-input".into(),
+            frame_id: Some("old-frame".into()),
+            action: Action::Key {
+                key: "Enter".into(),
+            },
+        };
+        assert!(p.queue("s", &scope, stale, now).is_err());
+    }
+
+    #[test]
+    fn selection_rejects_restricted_expired_paused_or_reused_identity() {
+        let now = Instant::now();
+        let mut restricted = policy(now);
+        assert!(restricted
+            .select_target("s", &scope(), &"a".repeat(64), now, |_| Ok(()))
+            .is_err());
+        let mut listing = request("list");
+        listing.action = Action::ListWindows {};
+        assert!(restricted
+            .queue("s", &scope(), listing.clone(), now)
+            .is_err());
+        let scope = agent_scope();
+        let mut p = SessionPolicy::default();
+        p.start("s".into(), scope.clone(), now).unwrap();
+        let reference = "a".repeat(64);
+        p.session
+            .as_mut()
+            .unwrap()
+            .candidates
+            .insert(reference.clone(), candidate(&reference));
+        assert!(p
+            .select_target("s", &scope, &reference, now, |_| Err(
+                "identity reused".into()
+            ))
+            .is_err());
+        assert!(p.status(now).target.is_none());
+        assert!(p
+            .select_target("s", &scope, &reference, now, |_| Ok(()))
+            .is_err());
+        p.pause("paused");
+        assert!(p.queue("s", &scope, listing.clone(), now).is_err());
+        p.resume("s", &scope, now).unwrap();
+        assert!(p.queue("s", &scope, listing, now + LEASE).is_err());
+        assert!(p.session.is_none());
+        let mut unknown = serde_json::to_value(scope).unwrap();
+        unknown["mode"] = "unknown".into();
+        assert!(serde_json::from_value::<SessionScope>(unknown).is_err());
+    }
+
     fn scope() -> SessionScope {
         SessionScope {
+            mode: SessionMode::SelectedWindow,
             backend: "https://operator.example".into(),
             user: "user-1".into(),
             namespace: "default".into(),
@@ -883,6 +1390,7 @@ mod tests {
 
     fn request(id: &str) -> QueuedRequest {
         QueuedRequest {
+            target_revision: 0,
             request_id: id.into(),
             frame_id: None,
             action: Action::Observe { question: None },
@@ -936,6 +1444,7 @@ mod tests {
         p.record_frame("s", &scope(), p.revision, frame("f", now), now)
             .unwrap();
         let request = QueuedRequest {
+            target_revision: 0,
             request_id: "r".into(),
             frame_id: Some("f".into()),
             action: Action::Type { text: "abc".into() },
@@ -1004,6 +1513,7 @@ mod tests {
     fn typing_permit_scales_with_text_but_stays_bounded() {
         let now = Instant::now();
         let typed = |units: usize| QueuedRequest {
+            target_revision: 0,
             request_id: "t".into(),
             frame_id: None,
             action: Action::Type {
@@ -1130,6 +1640,7 @@ mod tests {
             .fresh_frame("1", now + FRAME_TTL)
             .is_err());
         let click = QueuedRequest {
+            target_revision: 0,
             request_id: "click".into(),
             frame_id: Some("1".into()),
             action: Action::Click {

@@ -31,6 +31,7 @@ const (
 )
 
 var ErrRejected = errors.New("computer use request rejected")
+var targetReference = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
 
 // ClaimTimeoutFor returns how long a claimed request of this kind may stay unresolved.
@@ -55,8 +56,22 @@ func visibleText(s string) bool {
 	})
 }
 
+type WindowTarget struct {
+	Ref         string `json:"ref"`
+	Application string `json:"application"`
+	Title       string `json:"title"`
+}
+
+func (w WindowTarget) Validate() error {
+	if !targetReference.MatchString(w.Ref) || w.Application == "" || len(w.Application) > 256 || len(w.Title) > 512 {
+		return ErrRejected
+	}
+	return nil
+}
+
 type Action struct {
-	Kind string `json:"kind"`
+	TargetRef string `json:"targetRef,omitempty"`
+	Kind      string `json:"kind"`
 	// X/Y are frame pixels for click, move, drag start, and optional scroll position.
 	X *float64 `json:"x,omitempty"`
 	Y *float64 `json:"y,omitempty"`
@@ -82,7 +97,7 @@ type Action struct {
 // prior observation and therefore requires its frameId.
 func (a Action) NeedsFrame() bool {
 	switch a.Kind {
-	case "observe", "wait", "open_url":
+	case "observe", "wait", "open_url", "list_windows", "select_window":
 		return false
 	}
 	return true
@@ -103,7 +118,7 @@ func WebURL(raw string) (*url.URL, error) {
 // IsInput reports whether the action delivers OS events to the approved window.
 func (a Action) IsInput() bool {
 	switch a.Kind {
-	case "observe", "wait":
+	case "observe", "wait", "list_windows", "select_window":
 		return false
 	}
 	return true
@@ -202,9 +217,10 @@ func (h Hotkey) denied() bool {
 }
 
 type Request struct {
-	RequestID string `json:"requestId"`
-	FrameID   string `json:"frameId,omitempty"`
-	Action    Action `json:"action"`
+	TargetRevision uint64 `json:"targetRevision,omitempty"`
+	RequestID      string `json:"requestId"`
+	FrameID        string `json:"frameId,omitempty"`
+	Action         Action `json:"action"`
 }
 
 type Geometry struct {
@@ -223,10 +239,13 @@ type Capture struct {
 }
 
 type Outcome struct {
-	RequestID string   `json:"requestId"`
-	Status    string   `json:"status"`
-	Message   string   `json:"message"`
-	Capture   *Capture `json:"capture,omitempty"`
+	TargetRevision uint64         `json:"targetRevision,omitempty"`
+	Windows        []WindowTarget `json:"windows,omitempty"`
+	Target         *WindowTarget  `json:"target,omitempty"`
+	RequestID      string         `json:"requestId"`
+	Status         string         `json:"status"`
+	Message        string         `json:"message"`
+	Capture        *Capture       `json:"capture,omitempty"`
 }
 
 // Exchange identity is supplied by the authenticated dashboard, never by the desktop.
@@ -241,6 +260,7 @@ type Exchange struct {
 }
 
 type Response struct {
+	Mode            string   `json:"mode,omitempty"`
 	Active          bool     `json:"active"`
 	Pending         *Request `json:"pending,omitempty"`
 	Reason          string   `json:"reason,omitempty"`
@@ -261,6 +281,9 @@ func Decode(r io.Reader, out any) error {
 }
 
 func (r Response) Validate() error {
+	if r.Mode != "" && r.Mode != "selected_window" && r.Mode != "agent_choice" {
+		return ErrRejected
+	}
 	switch r.Reason {
 	case "", "session inactive", "session stopped", "computer use request rejected":
 	default:
@@ -268,6 +291,9 @@ func (r Response) Validate() error {
 	}
 	if r.Pending != nil {
 		p := r.Pending
+		if r.Mode != "agent_choice" && (p.TargetRevision != 0 || p.Action.Kind == "list_windows" || p.Action.Kind == "select_window") {
+			return ErrRejected
+		}
 		if !r.Active || p.Action.Kind == "wait" || !identifier.MatchString(p.RequestID) || (p.FrameID != "" && !identifier.MatchString(p.FrameID)) || p.Action.Validate() != nil {
 			return ErrRejected
 		}
@@ -276,6 +302,9 @@ func (r Response) Validate() error {
 }
 
 func (a Action) Validate() error {
+	if (a.Kind == "select_window" && !targetReference.MatchString(a.TargetRef)) || (a.Kind != "select_window" && a.TargetRef != "") {
+		return ErrRejected
+	}
 	// Question belongs to observation only; the tool keeps any verification
 	// question for its follow-up observation and never sends it with input.
 	if len(a.Question) > 2048 || len(a.Key) > 40 || (a.Kind != "type" && a.Text != "") || (a.Kind != "observe" && a.Question != "") {
@@ -297,7 +326,7 @@ func (a Action) Validate() error {
 		return ErrRejected
 	}
 	switch a.Kind {
-	case "observe":
+	case "observe", "list_windows", "select_window":
 		if point {
 			return ErrRejected
 		}
@@ -365,7 +394,7 @@ func (e Exchange) Validate() error {
 		return ErrRejected
 	}
 	switch e.Operation {
-	case "attach", "poll", "stop":
+	case "attach", "attach_agent", "poll", "stop":
 		if e.RequestID != "" || e.Outcome != nil {
 			return ErrRejected
 		}
@@ -387,6 +416,19 @@ func (e Exchange) Validate() error {
 }
 
 func (o Outcome) Validate() error {
+	if len(o.Windows) > 32 || (o.Status != "completed" && (o.Target != nil || len(o.Windows) != 0)) {
+		return ErrRejected
+	}
+	seen := map[string]bool{}
+	for _, w := range o.Windows {
+		if w.Validate() != nil || seen[w.Ref] {
+			return ErrRejected
+		}
+		seen[w.Ref] = true
+	}
+	if o.Target != nil && o.Target.Validate() != nil {
+		return ErrRejected
+	}
 	if len(o.Message) > 2048 {
 		return ErrRejected
 	}

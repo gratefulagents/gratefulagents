@@ -6,7 +6,7 @@ vi.mock("./client", () => ({ client: { exchangeComputerUse: m.exchange } }));
 vi.mock("./platform", () => ({ backendBaseUrl: () => m.backend }));
 const scope = { backend: "https://operator.example", user: "local-user", namespace: "default", run: "run-1", application: "TextEdit", windowId: 42, processId: 99 };
 const status = { active: true, visionAvailable: true };
-const wrap = (action: unknown, extra = {}) => JSON.stringify({ ...status, pending: { requestId: "request-1", frameId: "frame-1", action, ...extra } });
+const wrap = (action: unknown, extra = {}) => JSON.stringify({ ...status, mode: "agent_choice", pending: { requestId: "request-1", frameId: "frame-1", action, ...extra } });
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -15,6 +15,22 @@ beforeEach(() => {
 });
 
 describe("computer use relay contract", () => {
+  it("negotiates explicit agent mode and rejects an old relay", async () => {
+    const agentScope = { ...scope, mode: "agent_choice" as const, application: "", windowId: 0, processId: 0 };
+    await expect(exchangeDesktopRelay("s", agentScope, "attach")).rejects.toThrow(/update.*reconnect/);
+    expect(m.exchange).toHaveBeenCalledWith(expect.objectContaining({ operation: "attach_agent" }), { timeoutMs: 4000 });
+    m.exchange.mockResolvedValue({ responseJson: JSON.stringify({ ...status, mode: "agent_choice" }) });
+    expect((await exchangeDesktopRelay("s", agentScope, "attach")).mode).toBe("agent_choice");
+  });
+
+  it("validates target references, revisions and modes", () => {
+    const action = { kind: "select_window", targetRef: "a".repeat(64) };
+    expect(parseDesktopRelay(wrap(action, { frameId: undefined, targetRevision: 2 })).pending?.action).toEqual(action);
+    expect(parseDesktopRelay(wrap({ kind: "list_windows" }, { frameId: undefined })).pending?.action.kind).toBe("list_windows");
+    for (const targetRef of ["42", "A".repeat(64), "a".repeat(65)]) expect(() => parseDesktopRelay(wrap({ ...action, targetRef }))).toThrow();
+    for (const targetRevision of [-1, 1.1, "1", Number.MAX_SAFE_INTEGER + 1]) expect(() => parseDesktopRelay(wrap(action, { targetRevision }))).toThrow();
+    expect(() => parseDesktopRelay(JSON.stringify({ ...status, mode: "unknown" }))).toThrow();
+  });
   it("sends run/session binding with a bounded RPC timeout, never a caller-supplied owner", async () => {
     expect(await exchangeDesktopRelay("session-1", scope, "claim", "request-1")).toEqual(status);
     expect(m.exchange).toHaveBeenCalledWith({ namespace: "default", name: "run-1", sessionId: "session-1", operation: "claim", requestId: "request-1", outcomeJson: "" }, { timeoutMs: 6000 });
