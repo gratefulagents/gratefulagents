@@ -199,6 +199,7 @@ service PlatformService {
   rpc ListGitHubAppInstallationRepositories(ListGitHubAppInstallationRepositoriesRequest) returns (ListGitHubAppInstallationRepositoriesResponse);
   rpc CreateGitHubRepositoryFromInstallation(CreateGitHubRepositoryFromInstallationRequest) returns (GitHubRepository);
   rpc CreateGitHubRepositoryFromToken(CreateGitHubRepositoryFromTokenRequest) returns (GitHubRepository);
+  rpc CreateGitHubRemoteRepository(CreateGitHubRemoteRepositoryRequest) returns (CreateGitHubRemoteRepositoryResponse);
   rpc UpdateGitHubRepository(UpdateGitHubRepositoryRequest) returns (GitHubRepository);
   rpc ListCrons(ListCronsRequest) returns (ListCronsResponse);
   rpc GetCron(GetCronRequest) returns (Cron);
@@ -6269,4 +6270,18 @@ message ExchangeComputerUseRequest {
 
 message ExchangeComputerUseResponse {
   string response_json = 1;
+}
+
+// Creates an initialized repository on GitHub using the caller's saved token.
+message CreateGitHubRemoteRepositoryRequest {
+  // Empty means the token owner's personal account; otherwise an organization.
+  string organization = 1;
+  string name = 2;
+  // Public visibility must be explicitly requested; private is the default.
+  bool public = 3;
+}
+
+message CreateGitHubRemoteRepositoryResponse {
+  string repo_url = 1;
+  string default_branch = 2;
 }
