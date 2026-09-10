@@ -151,6 +151,7 @@ impl SessionPolicy {
             session.invalidate();
         }
         self.session = None;
+        super::computer_use_picker::clear();
         self.reason = reason.to_owned();
     }
 
@@ -429,6 +430,7 @@ pub struct ComputerUseSession {
     policy: Mutex<SessionPolicy>,
     pub shortcut_ready: AtomicBool,
     capture_busy: AtomicBool,
+    picker_busy: AtomicBool,
 }
 
 pub fn stop<R: Runtime>(app: &AppHandle<R>, reason: &str) {
@@ -446,15 +448,54 @@ pub fn stop<R: Runtime>(app: &AppHandle<R>, reason: &str) {
 fn require_permissions(state: &ComputerUseSession) -> Result<(), String> {
     let permissions = crate::computer_use::computer_use_permissions();
     if !permissions.supported {
-        return Err("Computer use requires the macOS desktop app".into());
+        return Err("Computer use requires the macOS desktop app on macOS 15.2 or later".into());
     }
     if !state.shortcut_ready.load(Ordering::SeqCst) {
         return Err("The native emergency stop shortcut is unavailable".into());
     }
-    if !permissions.screen_recording || !permissions.accessibility {
-        return Err("Screen Recording and Accessibility permissions are required".into());
+    if !permissions.accessibility {
+        return Err("Accessibility permission is required".into());
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn computer_use_pick_window(
+    app: AppHandle,
+    expected_revision: u64,
+) -> Result<Option<super::computer_use_capture::WindowTarget>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<ComputerUseSession>();
+        require_permissions(&state)?;
+        if state.picker_busy.swap(true, Ordering::SeqCst) {
+            return Err("The macOS window picker is already open".into());
+        }
+        let _busy = Busy(&state.picker_busy);
+        let mut policy = state
+            .policy
+            .lock()
+            .map_err(|_| "Desktop session state unavailable")?;
+        policy.expire(Instant::now());
+        policy.require_revision(expected_revision)?;
+        if policy.session.is_some() {
+            return Err("Stop the current session before selecting another window".into());
+        }
+        super::computer_use_picker::clear();
+        let picking = super::computer_use_picker::begin()?;
+        drop(policy);
+        let picked = picking.wait()?;
+        let policy = state
+            .policy
+            .lock()
+            .map_err(|_| "Desktop session state unavailable")?;
+        policy.require_revision(expected_revision)?;
+        if policy.session.is_some() {
+            return Err("Desktop authorization changed".into());
+        }
+        Ok(picked.install())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -462,13 +503,13 @@ pub fn computer_use_session_start(
     state: tauri::State<'_, ComputerUseSession>,
     scope: SessionScope,
     consent_to_screen_sharing: bool,
+    selection_id: String,
     expected_revision: u64,
 ) -> Result<SessionStatus, String> {
     require_permissions(&state)?;
     if !consent_to_screen_sharing {
         return Err("Explicit consent to share screen content is required".into());
     }
-    super::computer_use_capture::validate_target(&scope)?;
     let id = random_id()?;
     let mut policy = state
         .policy
@@ -477,6 +518,7 @@ pub fn computer_use_session_start(
     let now = Instant::now();
     policy.expire(now);
     policy.require_revision(expected_revision)?;
+    super::computer_use_picker::bind(&selection_id, &scope)?;
     policy.start(id, scope, now)?;
     Ok(policy.status(now))
 }
@@ -658,6 +700,7 @@ fn check_execution(
     execution: Option<&Execution>,
 ) -> Result<(), String> {
     require_permissions(state)?;
+    super::computer_use_capture::validate_target(scope)?;
     let now = Instant::now();
     if execution.is_some_and(|e| e.canceled.load(Ordering::SeqCst) || now >= e.deadline) {
         return Err("Desktop execution canceled or expired".into());

@@ -2,7 +2,6 @@
 #[serde(rename_all = "camelCase")]
 pub struct ComputerUsePermissions {
     pub supported: bool,
-    pub screen_recording: bool,
     pub accessibility: bool,
 }
 
@@ -35,12 +34,6 @@ mod macos {
             value_callbacks: *const DictionaryCallBacks,
         ) -> *const c_void;
         pub fn CFRelease(value: *const c_void);
-    }
-
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        pub fn CGPreflightScreenCaptureAccess() -> bool;
-        pub fn CGRequestScreenCaptureAccess() -> bool;
     }
 
     #[link(name = "ApplicationServices", kind = "framework")]
@@ -81,8 +74,7 @@ pub fn computer_use_permissions() -> ComputerUsePermissions {
     #[cfg(target_os = "macos")]
     {
         ComputerUsePermissions {
-            supported: true,
-            screen_recording: unsafe { macos::CGPreflightScreenCaptureAccess() },
+            supported: super::computer_use_picker::supported(),
             accessibility: unsafe { macos::AXIsProcessTrusted() },
         }
     }
@@ -90,7 +82,6 @@ pub fn computer_use_permissions() -> ComputerUsePermissions {
     {
         ComputerUsePermissions {
             supported: false,
-            screen_recording: false,
             accessibility: false,
         }
     }
@@ -99,7 +90,6 @@ pub fn computer_use_permissions() -> ComputerUsePermissions {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ComputerUsePermission {
-    ScreenRecording,
     Accessibility,
 }
 
@@ -113,12 +103,6 @@ pub fn computer_use_open_permission(
         use tauri_plugin_opener::OpenerExt;
 
         let url = match permission {
-            ComputerUsePermission::ScreenRecording => {
-                // Adds this binary to the Screen Recording list. The preflight
-                // result is cached per process: a grant only shows after relaunch.
-                unsafe { macos::CGRequestScreenCaptureAccess() };
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-            }
             ComputerUsePermission::Accessibility => {
                 macos::request_accessibility();
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
@@ -135,8 +119,7 @@ pub fn computer_use_open_permission(
     }
 }
 
-/// Screen Recording (and, for re-signed builds, Accessibility) grants take
-/// effect only in a fresh process; the supervisor offers an explicit relaunch.
+/// Re-signed builds may need a fresh process for Accessibility grants.
 #[tauri::command]
 pub fn computer_use_relaunch(app: tauri::AppHandle) {
     crate::computer_use_session::stop(&app, "Desktop app relaunching");
@@ -149,7 +132,7 @@ mod tests {
 
     #[test]
     fn permission_targets_are_closed() {
-        assert!(serde_json::from_str::<ComputerUsePermission>("\"screen_recording\"").is_ok());
+        assert!(serde_json::from_str::<ComputerUsePermission>("\"screen_recording\"").is_err());
         assert!(serde_json::from_str::<ComputerUsePermission>("\"accessibility\"").is_ok());
         assert!(serde_json::from_str::<ComputerUsePermission>("\"https://example.com\"").is_err());
     }
@@ -159,7 +142,6 @@ mod tests {
     fn unsupported_platform_never_reports_permission() {
         let status = computer_use_permissions();
         assert!(!status.supported);
-        assert!(!status.screen_recording);
         assert!(!status.accessibility);
     }
 }

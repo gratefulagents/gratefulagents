@@ -1,0 +1,346 @@
+#[cfg(target_os = "macos")]
+use super::computer_use_capture::WindowGeometry;
+use super::computer_use_capture::WindowTarget;
+use super::computer_use_session::SessionScope;
+use std::sync::Mutex;
+
+static SELECTION: Mutex<Option<Selection>> = Mutex::new(None);
+
+struct Selection {
+    token: u64,
+    target: WindowTarget,
+}
+
+impl Drop for Selection {
+    fn drop(&mut self) {
+        revoke(self.token);
+    }
+}
+
+pub fn clear() {
+    SELECTION.lock().unwrap_or_else(|e| e.into_inner()).take();
+    revoke(0);
+}
+
+pub fn bind(selection_id: &str, scope: &SessionScope) -> Result<(), String> {
+    let selected = SELECTION
+        .lock()
+        .map_err(|_| "Window sharing state unavailable")?;
+    let selected = selected
+        .as_ref()
+        .ok_or("Select a window using the macOS picker")?;
+    if selected.target.selection_id != selection_id {
+        return Err("Window selection changed; grant fresh consent".into());
+    }
+    matches_scope(&selected.target, scope)?;
+    snapshot(selected.token).map(|_| ())
+}
+
+fn matches_scope(target: &WindowTarget, scope: &SessionScope) -> Result<(), String> {
+    if target.window_id != scope.window_id
+        || target.process_id != scope.process_id
+        || target.application != scope.application
+        || scope.process_id == std::process::id()
+    {
+        return Err(
+            "Window selection does not match the approved application/process/window".into(),
+        );
+    }
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Snapshot {
+    pub window_id: u32,
+    pub process_id: u32,
+    pub application: String,
+    #[cfg(target_os = "macos")]
+    pub title: String,
+    #[cfg(target_os = "macos")]
+    pub geometry: WindowGeometry,
+    #[cfg(target_os = "macos")]
+    pub frontmost: bool,
+    #[cfg(any(target_os = "macos", test))]
+    pub focus_allowed: bool,
+}
+
+pub fn target(scope: &SessionScope) -> Result<Snapshot, String> {
+    let selected = SELECTION
+        .lock()
+        .map_err(|_| "Window sharing state unavailable")?;
+    let selected = selected
+        .as_ref()
+        .ok_or("Window sharing was revoked; select the window again")?;
+    matches_scope(&selected.target, scope)?;
+    let snapshot = snapshot(selected.token)?;
+    if snapshot.window_id != scope.window_id
+        || snapshot.process_id != scope.process_id
+        || snapshot.application != scope.application
+    {
+        return Err("The shared window identity changed".into());
+    }
+    Ok(snapshot)
+}
+
+#[cfg(target_os = "macos")]
+pub fn supported() -> bool {
+    unsafe { native::ga_window_sharing_supported() }
+}
+
+fn revoke(token: u64) {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        native::ga_window_sharing_revoke(token)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let _ = token;
+}
+
+fn snapshot(token: u64) -> Result<Snapshot, String> {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        let value = native::ga_window_sharing_snapshot(token);
+        if value.is_null() {
+            return Err("Window sharing was revoked or the window is unavailable".into());
+        }
+        let result = serde_json::from_slice(std::ffi::CStr::from_ptr(value).to_bytes())
+            .map_err(|e| e.to_string());
+        native::ga_window_sharing_free(value);
+        result
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = token;
+        Err("Computer use requires macOS 15.2 or later".into())
+    }
+}
+
+pub struct Picked {
+    token: u64,
+    pub target: Option<WindowTarget>,
+}
+impl Drop for Picked {
+    fn drop(&mut self) {
+        if self.token != 0 {
+            revoke(self.token);
+        }
+    }
+}
+impl Picked {
+    pub fn install(mut self) -> Option<WindowTarget> {
+        let target = self.target.take()?;
+        *SELECTION.lock().unwrap_or_else(|e| e.into_inner()) = Some(Selection {
+            token: self.token,
+            target: target.clone(),
+        });
+        self.token = 0;
+        Some(target)
+    }
+}
+
+pub struct Picking {
+    picked: Picked,
+    #[cfg(target_os = "macos")]
+    response: std::sync::mpsc::Receiver<Result<serde_json::Value, String>>,
+}
+
+pub fn begin() -> Result<Picking, String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let token = NEXT.fetch_add(1, Ordering::SeqCst);
+        let response = native::begin(|reply, context| unsafe {
+            native::ga_window_sharing_pick(token, reply, context)
+        });
+        Ok(Picking {
+            picked: Picked {
+                token,
+                target: None,
+            },
+            response,
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Computer use requires macOS 15.2 or later".into())
+    }
+}
+
+impl Picking {
+    pub fn wait(self) -> Result<Picked, String> {
+        #[cfg(target_os = "macos")]
+        {
+            let mut picked = self.picked;
+            let value = native::wait(self.response)?;
+            if !value.is_null() {
+                let snapshot: Snapshot =
+                    serde_json::from_value(value).map_err(|e| e.to_string())?;
+                picked.target = Some(WindowTarget {
+                    selection_id: super::computer_use_session::random_id()?,
+                    window_id: snapshot.window_id,
+                    process_id: snapshot.process_id,
+                    application: snapshot.application,
+                    title: snapshot.title,
+                });
+            }
+            Ok(picked)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = self.picked;
+            Err("Computer use requires macOS 15.2 or later".into())
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn capture(scope: &SessionScope, width: u32, height: u32) -> Result<String, String> {
+    let token = {
+        let selected = SELECTION
+            .lock()
+            .map_err(|_| "Window sharing state unavailable")?;
+        let selected = selected.as_ref().ok_or("Window sharing was revoked")?;
+        matches_scope(&selected.target, scope)?;
+        selected.token
+    };
+    let value = native::request(|reply, context| unsafe {
+        native::ga_window_sharing_capture(token, width, height, reply, context)
+    })?;
+    snapshot(token)?;
+    value["dataUrl"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "No window capture received".into())
+}
+
+#[cfg(any(target_os = "macos", test))]
+mod native {
+    use std::ffi::{c_char, c_void, CStr};
+    use std::sync::mpsc;
+    pub type Reply = extern "C" fn(*mut c_void, *const c_char);
+    #[cfg(target_os = "macos")]
+    extern "C" {
+        pub fn ga_window_sharing_supported() -> bool;
+        pub fn ga_window_sharing_revoke(token: u64);
+        pub fn ga_window_sharing_pick(token: u64, reply: Reply, context: *mut c_void);
+        pub fn ga_window_sharing_snapshot(token: u64) -> *mut c_char;
+        pub fn ga_window_sharing_free(value: *mut c_char);
+        pub fn ga_window_sharing_capture(
+            token: u64,
+            width: u32,
+            height: u32,
+            reply: Reply,
+            context: *mut c_void,
+        );
+    }
+    extern "C" fn receive(context: *mut c_void, json: *const c_char) {
+        // Native GACompletion invokes this exactly once, including cancellation and timeout.
+        let sender = unsafe {
+            Box::from_raw(context.cast::<mpsc::SyncSender<Result<serde_json::Value, String>>>())
+        };
+        let result = if json.is_null() {
+            Err("Invalid native sharing response".into())
+        } else {
+            serde_json::from_slice(unsafe { CStr::from_ptr(json) }.to_bytes())
+                .map_err(|e| e.to_string())
+        };
+        let _ = sender.send(result);
+    }
+    pub fn begin(
+        start: impl FnOnce(Reply, *mut c_void),
+    ) -> mpsc::Receiver<Result<serde_json::Value, String>> {
+        let (sender, receiver) = mpsc::sync_channel::<Result<serde_json::Value, String>>(1);
+        start(receive, Box::into_raw(Box::new(sender)).cast());
+        receiver
+    }
+    pub fn request(start: impl FnOnce(Reply, *mut c_void)) -> Result<serde_json::Value, String> {
+        wait(begin(start))
+    }
+    pub fn wait(
+        receiver: mpsc::Receiver<Result<serde_json::Value, String>>,
+    ) -> Result<serde_json::Value, String> {
+        let value = receiver
+            .recv()
+            .map_err(|_| "Native sharing response unavailable")??;
+        if let Some(error) = value.get("error").and_then(serde_json::Value::as_str) {
+            return Err(error.into());
+        }
+        Ok(value)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::ffi::CString;
+
+        fn response(json: &str) -> Result<serde_json::Value, String> {
+            request(|reply, context| reply(context, CString::new(json).unwrap().as_ptr()))
+        }
+
+        #[test]
+        fn callback_preserves_cancellation_and_native_errors() {
+            assert_eq!(response("null").unwrap(), serde_json::Value::Null);
+            assert_eq!(
+                response(r#"{"error":"Sharing revoked"}"#).unwrap_err(),
+                "Sharing revoked"
+            );
+            assert!(response("not json").is_err());
+            assert!(request(|reply, context| reply(context, std::ptr::null())).is_err());
+        }
+
+        #[test]
+        fn callback_copies_json_before_native_storage_is_released() {
+            let receiver = begin(|reply, context| {
+                let json = CString::new(r#"{"windowId":42}"#).unwrap();
+                reply(context, json.as_ptr());
+            });
+            assert_eq!(wait(receiver).unwrap()["windowId"], 42);
+        }
+
+        #[test]
+        fn a_dropped_request_can_receive_a_late_callback_safely() {
+            let mut callback = None;
+            let receiver = begin(|reply, context| callback = Some((reply, context)));
+            drop(receiver);
+            let (reply, context) = callback.unwrap();
+            reply(context, c"null".as_ptr());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn picker_identity_binds_every_target_field_and_excludes_supervisor() {
+        let target = WindowTarget {
+            selection_id: "s".into(),
+            window_id: 42,
+            process_id: 99,
+            application: "TextEdit".into(),
+            title: "Notes".into(),
+        };
+        let scope = SessionScope {
+            backend: "https://example.com".into(),
+            user: "u".into(),
+            namespace: "n".into(),
+            run: "r".into(),
+            application: target.application.clone(),
+            window_id: 42,
+            process_id: 99,
+        };
+        assert!(matches_scope(&target, &scope).is_ok());
+        for field in 0..4 {
+            let mut changed = scope.clone();
+            match field {
+                0 => changed.window_id += 1,
+                1 => changed.process_id += 1,
+                2 => changed.application = "Other".into(),
+                _ => changed.process_id = std::process::id(),
+            }
+            assert!(matches_scope(&target, &changed).is_err());
+        }
+    }
+}

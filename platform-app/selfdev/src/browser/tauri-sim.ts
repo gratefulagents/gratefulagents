@@ -174,6 +174,10 @@ export function buildTauriSimScript(options: TauriSimOptions = {}): string {
       case "plugin:window-state|restore_state": return null;
 
       // ---- gratefulagents' custom Rust commands ----
+      case "computer_use_permissions": return { supported: cfg.platform === "macos", accessibility: cfg.platform === "macos" };
+      case "computer_use_session_status": return { revision: 0, phase: "stopped", sessionId: null, scope: null, reason: "" };
+      case "computer_use_pick_window":
+      case "computer_use_session_stop": return null;
       case "detect_local_credentials": return cfg.localCredentials;
       case "cancel_openai_oauth": return null;
       case "start_openai_oauth":
