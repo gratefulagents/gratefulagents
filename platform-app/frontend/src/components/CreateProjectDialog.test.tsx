@@ -41,6 +41,10 @@ vi.mock("@/lib/client", () => ({
     listMCPServers: vi.fn().mockResolvedValue({ servers: [] }),
     listModeTemplates: vi.fn().mockResolvedValue({ templates: [] }),
     listSkills: vi.fn().mockResolvedValue({ skills: [] }),
+    createGitHubRemoteRepository: vi.fn().mockResolvedValue({
+      repoUrl: "https://github.com/alice/payments-api",
+      defaultBranch: "trunk",
+    }),
     createProject: vi.fn().mockResolvedValue({ namespace: "user-alice", name: "payments-api" }),
   },
 }));
@@ -147,5 +151,70 @@ describe("CreateProjectDialog", () => {
     openDialog();
     expect(await screen.findByText(/No saved Anthropic credential yet/)).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Use my saved credentials" })).toBeTruthy();
+  });
+});
+
+describe("new GitHub repositories", () => {
+  async function fillNewRepository() {
+    openDialog();
+    await waitFor(() => expect(client.listMyCredentials).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Create GitHub repository" }));
+    fireEvent.change(screen.getByLabelText(/^Repository name/), { target: { value: "payments-api" } });
+  }
+
+  it.each([false, true])("creates with public=%s and uses the returned URL and branch", async (isPublic) => {
+    await fillNewRepository();
+    expect((screen.getByLabelText("Visibility") as HTMLSelectElement).value).toBe("private");
+    if (isPublic) {
+      fireEvent.change(screen.getByLabelText("Visibility"), { target: { value: "public" } });
+      fireEvent.change(screen.getByLabelText("GitHub organization"), { target: { value: "acme" } });
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    await waitFor(() => expect(client.createProject).toHaveBeenCalledTimes(1));
+    expect(client.createGitHubRemoteRepository).toHaveBeenCalledWith({
+      name: "payments-api", organization: isPublic ? "acme" : "", public: isPublic,
+    });
+    expect(vi.mocked(client.createProject).mock.calls[0][0]).toMatchObject({
+      name: "payments-api", repoUrl: "https://github.com/alice/payments-api", baseBranch: "trunk",
+    });
+  });
+
+  it("does not create a project when GitHub rejects creation", async () => {
+    vi.mocked(client.createGitHubRemoteRepository).mockRejectedValueOnce(new Error("Repository already exists"));
+    await fillNewRepository();
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Repository already exists");
+    expect(client.createProject).not.toHaveBeenCalled();
+    expect((screen.getByLabelText(/^Repository name/) as HTMLInputElement).value).toBe("payments-api");
+  });
+
+  it("asks the user to check GitHub after an ambiguous network failure", async () => {
+    vi.mocked(client.createGitHubRemoteRepository).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await fillNewRepository();
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Check GitHub before retrying");
+    expect(client.createGitHubRemoteRepository).toHaveBeenCalledTimes(1);
+    expect(client.createProject).not.toHaveBeenCalled();
+  });
+
+  it("retains the created repository and does not recreate it on project retry", async () => {
+    vi.mocked(client.createProject).mockRejectedValueOnce(new Error("Project failed"));
+    await fillNewRepository();
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole("status").textContent).toContain("Created https://github.com/alice/payments-api");
+    expect((screen.getByLabelText("Repository URL") as HTMLInputElement).value).toBe("https://github.com/alice/payments-api");
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    await waitFor(() => expect(client.createProject).toHaveBeenCalledTimes(2));
+    expect(client.createGitHubRemoteRepository).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables creation without a saved GitHub token", async () => {
+    vi.mocked(client.listMyCredentials).mockResolvedValueOnce({
+      namespace: "user-alice", anthropicApiKeyPresent: true, githubTokenPresent: false, secrets: [],
+    } as never);
+    await fillNewRepository();
+    expect(screen.getByRole("button", { name: "Create project" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("alert").textContent).toContain("Save a GitHub token");
   });
 });

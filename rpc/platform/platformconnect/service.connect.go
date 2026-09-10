@@ -438,6 +438,9 @@ const (
 	// PlatformServiceCreateGitHubRepositoryFromTokenProcedure is the fully-qualified name of the
 	// PlatformService's CreateGitHubRepositoryFromToken RPC.
 	PlatformServiceCreateGitHubRepositoryFromTokenProcedure = "/platform.v1.PlatformService/CreateGitHubRepositoryFromToken"
+	// PlatformServiceCreateGitHubRemoteRepositoryProcedure is the fully-qualified name of the
+	// PlatformService's CreateGitHubRemoteRepository RPC.
+	PlatformServiceCreateGitHubRemoteRepositoryProcedure = "/platform.v1.PlatformService/CreateGitHubRemoteRepository"
 	// PlatformServiceUpdateGitHubRepositoryProcedure is the fully-qualified name of the
 	// PlatformService's UpdateGitHubRepository RPC.
 	PlatformServiceUpdateGitHubRepositoryProcedure = "/platform.v1.PlatformService/UpdateGitHubRepository"
@@ -972,6 +975,7 @@ type PlatformServiceClient interface {
 	ListGitHubAppInstallationRepositories(context.Context, *connect.Request[platform.ListGitHubAppInstallationRepositoriesRequest]) (*connect.Response[platform.ListGitHubAppInstallationRepositoriesResponse], error)
 	CreateGitHubRepositoryFromInstallation(context.Context, *connect.Request[platform.CreateGitHubRepositoryFromInstallationRequest]) (*connect.Response[platform.GitHubRepository], error)
 	CreateGitHubRepositoryFromToken(context.Context, *connect.Request[platform.CreateGitHubRepositoryFromTokenRequest]) (*connect.Response[platform.GitHubRepository], error)
+	CreateGitHubRemoteRepository(context.Context, *connect.Request[platform.CreateGitHubRemoteRepositoryRequest]) (*connect.Response[platform.CreateGitHubRemoteRepositoryResponse], error)
 	UpdateGitHubRepository(context.Context, *connect.Request[platform.UpdateGitHubRepositoryRequest]) (*connect.Response[platform.GitHubRepository], error)
 	ListCrons(context.Context, *connect.Request[platform.ListCronsRequest]) (*connect.Response[platform.ListCronsResponse], error)
 	GetCron(context.Context, *connect.Request[platform.GetCronRequest]) (*connect.Response[platform.Cron], error)
@@ -2043,6 +2047,12 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("CreateGitHubRepositoryFromToken")),
 			connect.WithClientOptions(opts...),
 		),
+		createGitHubRemoteRepository: connect.NewClient[platform.CreateGitHubRemoteRepositoryRequest, platform.CreateGitHubRemoteRepositoryResponse](
+			httpClient,
+			baseURL+PlatformServiceCreateGitHubRemoteRepositoryProcedure,
+			connect.WithSchema(platformServiceMethods.ByName("CreateGitHubRemoteRepository")),
+			connect.WithClientOptions(opts...),
+		),
 		updateGitHubRepository: connect.NewClient[platform.UpdateGitHubRepositoryRequest, platform.GitHubRepository](
 			httpClient,
 			baseURL+PlatformServiceUpdateGitHubRepositoryProcedure,
@@ -2861,6 +2871,7 @@ type platformServiceClient struct {
 	listGitHubAppInstallationRepositories  *connect.Client[platform.ListGitHubAppInstallationRepositoriesRequest, platform.ListGitHubAppInstallationRepositoriesResponse]
 	createGitHubRepositoryFromInstallation *connect.Client[platform.CreateGitHubRepositoryFromInstallationRequest, platform.GitHubRepository]
 	createGitHubRepositoryFromToken        *connect.Client[platform.CreateGitHubRepositoryFromTokenRequest, platform.GitHubRepository]
+	createGitHubRemoteRepository           *connect.Client[platform.CreateGitHubRemoteRepositoryRequest, platform.CreateGitHubRemoteRepositoryResponse]
 	updateGitHubRepository                 *connect.Client[platform.UpdateGitHubRepositoryRequest, platform.GitHubRepository]
 	listCrons                              *connect.Client[platform.ListCronsRequest, platform.ListCronsResponse]
 	getCron                                *connect.Client[platform.GetCronRequest, platform.Cron]
@@ -3655,6 +3666,11 @@ func (c *platformServiceClient) CreateGitHubRepositoryFromToken(ctx context.Cont
 	return c.createGitHubRepositoryFromToken.CallUnary(ctx, req)
 }
 
+// CreateGitHubRemoteRepository calls platform.v1.PlatformService.CreateGitHubRemoteRepository.
+func (c *platformServiceClient) CreateGitHubRemoteRepository(ctx context.Context, req *connect.Request[platform.CreateGitHubRemoteRepositoryRequest]) (*connect.Response[platform.CreateGitHubRemoteRepositoryResponse], error) {
+	return c.createGitHubRemoteRepository.CallUnary(ctx, req)
+}
+
 // UpdateGitHubRepository calls platform.v1.PlatformService.UpdateGitHubRepository.
 func (c *platformServiceClient) UpdateGitHubRepository(ctx context.Context, req *connect.Request[platform.UpdateGitHubRepositoryRequest]) (*connect.Response[platform.GitHubRepository], error) {
 	return c.updateGitHubRepository.CallUnary(ctx, req)
@@ -4430,6 +4446,7 @@ type PlatformServiceHandler interface {
 	ListGitHubAppInstallationRepositories(context.Context, *connect.Request[platform.ListGitHubAppInstallationRepositoriesRequest]) (*connect.Response[platform.ListGitHubAppInstallationRepositoriesResponse], error)
 	CreateGitHubRepositoryFromInstallation(context.Context, *connect.Request[platform.CreateGitHubRepositoryFromInstallationRequest]) (*connect.Response[platform.GitHubRepository], error)
 	CreateGitHubRepositoryFromToken(context.Context, *connect.Request[platform.CreateGitHubRepositoryFromTokenRequest]) (*connect.Response[platform.GitHubRepository], error)
+	CreateGitHubRemoteRepository(context.Context, *connect.Request[platform.CreateGitHubRemoteRepositoryRequest]) (*connect.Response[platform.CreateGitHubRemoteRepositoryResponse], error)
 	UpdateGitHubRepository(context.Context, *connect.Request[platform.UpdateGitHubRepositoryRequest]) (*connect.Response[platform.GitHubRepository], error)
 	ListCrons(context.Context, *connect.Request[platform.ListCronsRequest]) (*connect.Response[platform.ListCronsResponse], error)
 	GetCron(context.Context, *connect.Request[platform.GetCronRequest]) (*connect.Response[platform.Cron], error)
@@ -5497,6 +5514,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("CreateGitHubRepositoryFromToken")),
 		connect.WithHandlerOptions(opts...),
 	)
+	platformServiceCreateGitHubRemoteRepositoryHandler := connect.NewUnaryHandler(
+		PlatformServiceCreateGitHubRemoteRepositoryProcedure,
+		svc.CreateGitHubRemoteRepository,
+		connect.WithSchema(platformServiceMethods.ByName("CreateGitHubRemoteRepository")),
+		connect.WithHandlerOptions(opts...),
+	)
 	platformServiceUpdateGitHubRepositoryHandler := connect.NewUnaryHandler(
 		PlatformServiceUpdateGitHubRepositoryProcedure,
 		svc.UpdateGitHubRepository,
@@ -6447,6 +6470,8 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceCreateGitHubRepositoryFromInstallationHandler.ServeHTTP(w, r)
 		case PlatformServiceCreateGitHubRepositoryFromTokenProcedure:
 			platformServiceCreateGitHubRepositoryFromTokenHandler.ServeHTTP(w, r)
+		case PlatformServiceCreateGitHubRemoteRepositoryProcedure:
+			platformServiceCreateGitHubRemoteRepositoryHandler.ServeHTTP(w, r)
 		case PlatformServiceUpdateGitHubRepositoryProcedure:
 			platformServiceUpdateGitHubRepositoryHandler.ServeHTTP(w, r)
 		case PlatformServiceListCronsProcedure:
@@ -7220,6 +7245,10 @@ func (UnimplementedPlatformServiceHandler) CreateGitHubRepositoryFromInstallatio
 
 func (UnimplementedPlatformServiceHandler) CreateGitHubRepositoryFromToken(context.Context, *connect.Request[platform.CreateGitHubRepositoryFromTokenRequest]) (*connect.Response[platform.GitHubRepository], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateGitHubRepositoryFromToken is not implemented"))
+}
+
+func (UnimplementedPlatformServiceHandler) CreateGitHubRemoteRepository(context.Context, *connect.Request[platform.CreateGitHubRemoteRepositoryRequest]) (*connect.Response[platform.CreateGitHubRemoteRepositoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateGitHubRemoteRepository is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) UpdateGitHubRepository(context.Context, *connect.Request[platform.UpdateGitHubRepositoryRequest]) (*connect.Response[platform.GitHubRepository], error) {
