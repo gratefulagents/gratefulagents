@@ -84,6 +84,28 @@ Capture uses xcap 0.9.4's deprecated Core Graphics window-capture API, not Scree
 
 ## Automated verification
 
+### Computer-use workflow CI
+
+Every pull request runs a dedicated **Computer-use workflow** job on Ubuntu and macOS with the Go race detector. `internal/tools/computer_use_integration_test.go` exercises the production tool → broker → private Unix socket → `Bridge` path, not an in-process broker mock. A deterministic synthetic desktop supplies before/after PNGs and a synthetic vision provider decodes the actual PNG bytes.
+
+The scenarios assert that:
+- An initial approved observation returns the empty synthetic field and its frame.
+- Proposed input retains the observed frame and text and cannot finish before approval.
+- Completed input requests a distinct, fresh observation and returns the changed visual state/new frame.
+- Denying that observation or disconnecting after input preserves the completed-input warning and never queues an input retry.
+- PNG data never appears in ordinary model-facing tool output.
+
+Run the same checks locally:
+
+```sh
+go test -race -count=1 ./internal/computeruse
+go test -race -count=1 -v ./internal/tools -run '^TestComputerUse'
+```
+
+The existing frontend CI suite separately tests local approval modes and supervision controls; the existing macOS Tauri job builds the native app and runs native shell tests. These CI tests **do not generate OS input** or automate macOS permission prompts. A real GUI smoke test still needs a logged-in Mac runner with explicitly granted Screen Recording and Accessibility permissions. Hosted CI compilation and synthetic screenshots must not be marked as passing that native acceptance checklist.
+
+### Previous baseline verification
+
 The native executor commit `f92c4f9` passed the macOS ARM64 app build and **35 native tests** in [CI job 102558472054](https://github.com/gratefulagents/gratefulagents/actions/runs/34378875257/job/102558472054). Fresh Linux native checks passed **40 tests** and `cargo check --lib --locked`.
 
 The connected relay/UI changes passed:

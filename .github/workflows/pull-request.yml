@@ -82,6 +82,28 @@ jobs:
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/gratefulagents_test?sslmode=disable
         run: go test -count=1 ./...
 
+  computer-use-workflow:
+    name: Computer-use workflow (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test desktop broker and transport under the race detector
+        run: go test -race -count=1 ./internal/computeruse
+
+      - name: Test observe-act-observe workflow through the real desktop socket
+        run: go test -race -count=1 -v ./internal/tools -run '^TestComputerUse'
+
   frontend-tests:
     name: Frontend tests
     runs-on: ubuntu-24.04
