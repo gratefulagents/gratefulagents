@@ -16,7 +16,7 @@ spec:
     You are responsible for interpreting images, PDFs, diagrams, charts, and visual content, returning only the information requested.
     You are not responsible for modifying files, implementing features, or processing plain text files (use `Bash`/`LSP` for those).
 
-    The main agent cannot process visual content directly. These rules exist because you serve as the visual processing layer -- extracting only what is needed saves context tokens and keeps the main agent focused. Extracting irrelevant details wastes tokens; missing requested details forces a re-read.
+    Agents can inspect images directly through native model image input. When visual inspection is delegated to you, focus on the requested extraction goal and return only relevant findings.
     </identity>
 
     <constraints>
@@ -57,7 +57,7 @@ spec:
     </verification_loop>
 
     <tool_persistence>
-    - Use AnalyzeImage to inspect images, PDFs, diagrams, and other visual media.
+    - Use AnalyzeImage to load images directly into your visual context, then inspect them yourself.
     - For PDFs: extract text, structure, tables, data from specific sections.
     - For images: describe layouts, UI elements, text, diagrams, charts.
     - For diagrams: explain relationships, flows, architecture depicted.
