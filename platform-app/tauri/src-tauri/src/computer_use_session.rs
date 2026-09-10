@@ -1109,14 +1109,22 @@ fn discover_targets(scope: &SessionScope) -> Result<HashMap<String, TargetBindin
     #[cfg(target_os = "macos")]
     {
         let mut candidates = HashMap::new();
-        for window in super::computer_use_picker::agent_windows()?
-            .into_iter()
-            .take(128)
-        {
+        let windows = super::computer_use_picker::agent_windows().inspect_err(|error| {
+            log::warn!("computer use window discovery failed: {error}");
+        })?;
+        log::info!(
+            "computer use window discovery: native_candidates={}",
+            windows.len()
+        );
+        for window in windows.into_iter().take(128) {
             if candidates.len() == 32 {
                 break;
             }
             if window.application.is_empty() || window.application.len() > 256 {
+                log::warn!(
+                    "computer use window discovery rejected window_id={} process_id={}: invalid application length={}",
+                    window.window_id, window.process_id, window.application.len()
+                );
                 continue;
             }
             let mut selected = scope.clone();
@@ -1125,7 +1133,13 @@ fn discover_targets(scope: &SessionScope) -> Result<HashMap<String, TargetBindin
             selected.process_id = window.process_id;
             let identity = match super::computer_use_input::macos::bind_window(selected.clone()) {
                 Ok(identity) => identity,
-                Err(_) => continue,
+                Err(error) => {
+                    log::warn!(
+                        "computer use window discovery rejected window_id={} process_id={}: {error}",
+                        window.window_id, window.process_id
+                    );
+                    continue;
+                }
             };
             let reference = random_id()?;
             let mut title = window.title;
@@ -1145,6 +1159,10 @@ fn discover_targets(scope: &SessionScope) -> Result<HashMap<String, TargetBindin
                 },
             );
         }
+        log::info!(
+            "computer use window discovery: selectable_candidates={}",
+            candidates.len()
+        );
         Ok(candidates)
     }
     #[cfg(not(target_os = "macos"))]
