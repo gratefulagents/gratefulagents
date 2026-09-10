@@ -159,6 +159,8 @@ func TestComputerUseObservationMemoryOnly(t *testing.T) {
 func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
 	for _, tc := range []struct{ name, raw, text, status string }{
 		{"completed", `{"kind":"type","text":"PRIVATE proposed text"}`, "PRIVATE proposed text", "completed"},
+		{"observation-denied", `{"kind":"key","key":"Enter"}`, "", "completed"},
+		{"vision-failed", `{"kind":"key","key":"Enter"}`, "", "completed"},
 		{"denied", `{"kind":"type","text":"PRIVATE proposed text"}`, "PRIVATE proposed text", "denied"},
 		{"failed", `{"kind":"type","text":"PRIVATE proposed text"}`, "PRIVATE proposed text", "failed"},
 		{"escaped-limit", `{"kind":"type","text":"` + strings.Repeat(`\u0061`, 1000) + `"}`, strings.Repeat("a", 1000), "completed"},
@@ -173,8 +175,13 @@ func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
 				t.Fatal(err)
 			}
 			tool := &ComputerUseTool{broker: b, vision: &sdkvision.Tool{AnalyzeFn: func(context.Context, []byte, string, string) (string, error) {
-				t.Error("non-observe action invoked vision")
-				return "", nil
+				if tc.status != "completed" || tc.name == "observation-denied" {
+					t.Error("vision invoked without completed observation")
+				}
+				if tc.name == "vision-failed" {
+					return "", errors.New("provider failed")
+				}
+				return "Visible result after input", nil
 			}}}
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
@@ -221,14 +228,70 @@ func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
 			if _, err := b.Exchange(e); err != nil {
 				t.Fatal(err)
 			}
+			if tc.status == "completed" {
+				var observation *computeruse.Request
+				deadline := time.Now().Add(time.Second)
+				for time.Now().Before(deadline) {
+					e.Operation, e.RequestID, e.Outcome = "poll", "", nil
+					response, err := b.Exchange(e)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if response.Pending != nil {
+						observation = response.Pending
+						break
+					}
+					time.Sleep(time.Millisecond)
+				}
+				if observation == nil || observation.Action.Kind != "observe" || observation.FrameID != "" {
+					t.Fatalf("missing fresh post-action observation: %+v", observation)
+				}
+				select {
+				case <-done:
+					t.Fatal("returned before observation approval")
+				default:
+				}
+				e.Operation, e.RequestID = "claim", observation.RequestID
+				if _, err := b.Exchange(e); err != nil {
+					t.Fatal(err)
+				}
+				e.Operation = "resolve"
+				e.Outcome = &computeruse.Outcome{RequestID: observation.RequestID, Status: "completed"}
+				if tc.name == "observation-denied" {
+					e.Outcome.Status = "denied"
+				} else {
+					var pngBytes bytes.Buffer
+					if err := png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 2, 3))); err != nil {
+						t.Fatal(err)
+					}
+					e.Outcome.Capture = &computeruse.Capture{FrameID: "after-input", DataURL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBytes.Bytes()), PixelWidth: 2, PixelHeight: 3, Geometry: computeruse.Geometry{Width: 2, Height: 3}}
+				}
+				if _, err := b.Exchange(e); err != nil {
+					t.Fatal(err)
+				}
+			}
 			select {
 			case result := <-done:
-				want := `{"status":"completed","verified":false,"nextStep":"Observe the approved window to verify the effect before reporting success or taking another action."}`
 				if tc.status != "completed" {
-					want = "Desktop action " + tc.status + computerUseNoRetry
+					if !result.IsError || result.Content != "Desktop action "+tc.status+computerUseNoRetry {
+						t.Fatalf("unexpected failed input result: %+v", result)
+					}
+				} else if tc.name == "observation-denied" || tc.name == "vision-failed" {
+					if !result.IsError || !strings.Contains(result.Content, "Input completed, but its effect is unverified. Do not repeat the input.") {
+						t.Fatalf("lost completed-input status: %+v", result)
+					}
+				} else {
+					if result.IsError || !strings.Contains(result.Content, `"actionStatus":"completed"`) || !strings.Contains(result.Content, `"frameId":"after-input"`) || !strings.Contains(result.Content, "Visible result after input") {
+						t.Fatalf("missing post-action analysis: %+v", result)
+					}
 				}
-				if result.Content != want || result.IsError != (tc.status != "completed") {
-					t.Fatal("outcome was not status-only")
+				if strings.Contains(result.Content, "PRIVATE") || strings.Contains(result.Content, "data:image") {
+					t.Fatal("leaked input or capture")
+				}
+				e.Operation, e.RequestID, e.Outcome = "poll", "", nil
+				response, err := b.Exchange(e)
+				if err != nil || response.Pending != nil {
+					t.Fatal("unexpected retry", err)
 				}
 			case <-time.After(time.Second):
 				t.Fatal("action hung")
@@ -428,7 +491,7 @@ func TestComputerUseClaimedCancellationWarnsAgainstRetry(t *testing.T) {
 
 func TestComputerUseWorkflowDescription(t *testing.T) {
 	description := (&ComputerUseTool{}).Description()
-	for _, requirement := range []string{"not a headless Browser session", "locally selected mode", "observe again to verify", "not that the task succeeded"} {
+	for _, requirement := range []string{"not a headless Browser session", "locally selected mode", "requests a fresh observation", "not that the task succeeded"} {
 		if !strings.Contains(description, requirement) {
 			t.Errorf("missing workflow guidance: %s", requirement)
 		}

@@ -87,6 +87,18 @@ async function startSession() {
 }
 
 describe("run-bound desktop preview", () => {
+  it("selects an application before its window without granting consent implicitly", async () => {
+    m.windows.mockResolvedValue([target, { ...target, windowId: 43, application: "Firefox", title: "Google" }]);
+    await panel();
+    await selectAndConsent();
+    fireEvent.change(screen.getByRole("combobox", { name: "Application" }), { target: { value: "Firefox" } });
+    expect(screen.queryByRole("option", { name: "TextEdit — Notes" })).toBeNull();
+    expect(screen.getByRole("option", { name: "Firefox — Google" })).toBeTruthy();
+    expect((screen.getByRole("combobox", { name: "Approved window" }) as HTMLSelectElement).value).toBe("");
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect(m.start).not.toHaveBeenCalled();
+  });
+
   it("filters windows by app or title without silently changing the approved target", async () => {
     m.windows.mockResolvedValue([target, { ...target, windowId: 43, application: "Firefox", title: "Google" }]);
     await panel();

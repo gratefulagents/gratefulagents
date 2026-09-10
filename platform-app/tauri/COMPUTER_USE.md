@@ -17,11 +17,13 @@ This branch connects **actual Mac window capture and input to an agent run**, wi
 
 ## Workflow handoff
 
-The window picker supports searching by app or window title. Refreshing keeps the chosen target and consent only while its window, process and application identity still match; selecting a different target requires new sharing consent. Search never silently switches the selected target. Incoming requests, pauses and errors reveal the panel, and Stop computer use remains available in its collapsed header.
+Choose an application first to filter its open windows, or search across all open applications by app or window title. Application selection never launches an app, picks a window, or grants consent implicitly. Refreshing keeps the chosen target and consent only while its window, process and application identity still match; selecting a different target requires new sharing consent. Search never silently switches the selected target. Incoming requests, pauses and errors reveal the panel, and Stop computer use remains available in its collapsed header.
 
-The agent tool distinguishes the connected local app from a headless browser. Successful input returns `verified: false` with an instruction to observe the result before continuing or reporting success. This is agent guidance, not an automatic visual success detector or a new native enforcement boundary. Existing single-window authorization and approval modes are unchanged.
+The agent tool distinguishes the connected local app from a headless browser. After completed input (including approved-app activation), the same tool call requests a fresh observation through the broker and local approval path, then returns `actionStatus: completed`, visual analysis and the new `frameId` for the next action. Manual mode still requires approval of that capture; existing read-only/session grants apply normally. The agent must compare the visible result against the goal rather than infer task success from event delivery. Input and observation share the existing bounded tool timeout.
 
-These improvements take inspiration from [Cua](https://github.com/trycua/cua)'s app-oriented workflow and [Agent S](https://github.com/simular-ai/Agent-S)'s observation/action loop; neither framework is added as a dependency. Cross-platform drivers, application launch/switching outside the approved window, and automatic post-action capture are not implemented here.
+Denied or failed input never triggers a follow-up capture or retry. If input completes but the follow-up capture or vision analysis fails, the tool explicitly reports that the input completed but its effect is unverified and must not be repeated. This is a real capture/analyze loop, not an automatic visual success classifier. Existing single-window authorization and approval modes are unchanged.
+
+These improvements take inspiration from [Cua](https://github.com/trycua/cua)'s app-oriented workflow and [Agent S](https://github.com/simular-ai/Agent-S)'s observation/action loop; neither framework is added as a dependency. Cross-platform drivers and application launch/switching outside the approved window are not implemented here.
 
 ![Synthetic workflow setup rendered from the component with mocked native IPC, not Mac acceptance evidence](docs/computer-use-workflow.png)
 

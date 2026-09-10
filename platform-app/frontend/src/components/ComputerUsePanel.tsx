@@ -78,6 +78,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
   const [windows, setWindows] = useState<WindowTarget[]>([]);
   const [selected, setSelected] = useState("");
   const [windowSearch, setWindowSearch] = useState("");
+  const [application, setApplication] = useState("");
   const panelRef = useRef<HTMLDetailsElement>(null);
   const [consent, setConsent] = useState(false);
   const [session, setSession] = useState<DesktopSession | null>(null);
@@ -161,6 +162,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     setWindows([]);
     setSelected("");
     setWindowSearch("");
+    setApplication("");
     setActivity([]);
   }, [namespace, name, user, enabled, model, disconnect]);
 
@@ -403,7 +405,8 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     ? `${ACTION_META[pending.action.kind].label} is allowed for this session` : APPROVAL_MODE_META[approvalMode].label;
   const skipAll = approvalMode === "auto";
   const allowedList = [...sessionAllowed].map((kind) => ACTION_META[kind].label);
-  const matchingWindows = windows.filter((window) =>
+  const applications = [...new Set(windows.map((window) => window.application))].sort();
+  const matchingWindows = windows.filter((window) => (!application || window.application === application) &&
     `${window.application} ${window.title}`.toLocaleLowerCase().includes(windowSearch.trim().toLocaleLowerCase()));
 
   return (
@@ -473,6 +476,9 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
                     const available = await computerUseWindows();
                     if (current === generation.current) {
                       setWindows(available);
+                      if (application && !available.some((window) => window.application === application)) {
+                        setApplication("");
+                      }
                       const previous = windows.find((window) => String(window.windowId) === selected);
                       if (!previous || !available.some((window) => window.windowId === previous.windowId &&
                           window.processId === previous.processId && window.application === previous.application)) {
@@ -485,6 +491,20 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
                   List open windows
                 </Button>
               </div>
+              {!!windows.length && <label className="mb-2 block text-xs text-muted-foreground">
+                Application
+                <select aria-label="Application" value={application} disabled={busy || !enabled}
+                  className="mt-1 block h-8 w-full rounded-md border bg-background px-2 text-sm"
+                  onChange={(event) => {
+                    setApplication(event.target.value);
+                    setSelected("");
+                    setConsent(false);
+                    setWindowSearch("");
+                  }}>
+                  <option value="">All open applications</option>
+                  {applications.map((app) => <option key={app} value={app}>{app}</option>)}
+                </select>
+              </label>}
               {!!windows.length && <input type="search" aria-label="Search apps and windows"
                 placeholder="Search apps and windows…" value={windowSearch}
                 className="mb-2 block h-8 w-full rounded-md border bg-background px-2 text-sm"
