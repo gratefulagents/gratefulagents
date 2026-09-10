@@ -24,8 +24,26 @@ describe("execution agent boundaries", () => {
       agentName, type: "tool_use", tool: "read_file", timestampUnix: BigInt(i),
     }))));
     expect(feed.filter((item) => item.kind === "agent").map((item) => [item.previousAgent, item.entry.agentName]))
-      .toEqual([["", "main"], ["main", "architect"], ["architect", "main"]]);
-    expect(feed.map((item) => item.kind)).toEqual(["agent", "work", "agent", "work", "agent", "work"]);
+      .toEqual([["main", "architect"], ["architect", "main"]]);
+    expect(feed.map((item) => item.kind)).toEqual(["work", "agent", "work", "agent", "work"]);
+  });
+
+  it("announces a non-root agent that is already executing when the feed opens", () => {
+    const feed = buildFeed(groupActivityEntries([
+      entry({ agentName: "architect", type: "assistant_text", message: "Reviewing", timestampUnix: 1n }),
+    ]));
+    expect(feed.map((item) => item.kind)).toEqual(["agent", "prose"]);
+    expect(feed[0].kind === "agent" && feed[0].previousAgent).toBe("");
+  });
+
+  it("does not split sub-agent work off the root agent's boundary", () => {
+    const feed = buildFeed(groupActivityEntries([
+      entry({ agentName: "main", type: "tool_use", tool: "read_file", timestampUnix: 1n }),
+      entry({ agentName: "explore", type: "subagent_started", taskId: "task_1", subagentType: "explore", timestampUnix: 2n }),
+      entry({ agentName: "explore", type: "tool_use", tool: "grep", taskId: "task_1", timestampUnix: 3n }),
+      entry({ agentName: "main", type: "tool_use", tool: "read_file", timestampUnix: 4n }),
+    ]));
+    expect(feed.map((item) => item.kind)).toEqual(["work", "subagent", "work"]);
   });
 
   it("does not invent an identity for legacy events", () => {

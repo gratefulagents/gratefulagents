@@ -278,10 +278,24 @@ export function bucketActivityByMessage(
 ): { segments: ActivityEntry[][]; trailing: ActivityEntry[] } {
   const segments: ActivityEntry[][] = messageTimestamps.map(() => []);
   const trailing: ActivityEntry[] = [];
-  // Late events and streaming upserts can retain earlier timestamps. Resolve
-  // each entry independently rather than advancing a shared monotone cursor.
-  // Cache task placement so its lifecycle still stays together. Same-second
-  // activity follows a user bubble, but precedes an assistant's final reply.
+  // Segment i renders immediately BEFORE message i, so an entry belongs to the
+  // first message whose timestamp it does not exceed. Entries are not strictly
+  // time-ordered (streaming upserts keep an entry's original timestamp while
+  // newer entries land behind it), so each entry is resolved on its own rather
+  // than by advancing a shared monotone cursor. Ties are broken by role: a
+  // same-second entry follows the user bubble that triggered it, but precedes
+  // the assistant reply that concluded it.
+  const placeBySelf = (e: ActivityEntry): number => {
+    let seg = 0;
+    while (
+      seg < messageTimestamps.length &&
+      (e.timestampUnix > messageTimestamps[seg] ||
+        (e.timestampUnix === messageTimestamps[seg] && messageRoles[seg] === "user"))
+    ) {
+      seg += 1;
+    }
+    return seg;
+  };
   const taskSegment = new Map<string, number>();
   for (const e of entries) {
     let seg: number;
@@ -289,14 +303,7 @@ export function bucketActivityByMessage(
     if (cached !== undefined) {
       seg = cached;
     } else {
-      let cursor = 0;
-      while (cursor < messageTimestamps.length && (
-        e.timestampUnix > messageTimestamps[cursor] ||
-        (e.timestampUnix === messageTimestamps[cursor] && messageRoles[cursor] === "user")
-      )) {
-        cursor += 1;
-      }
-      seg = cursor;
+      seg = placeBySelf(e);
       if (e.taskId) taskSegment.set(e.taskId, seg);
     }
     if (seg >= messageTimestamps.length) trailing.push(e);
