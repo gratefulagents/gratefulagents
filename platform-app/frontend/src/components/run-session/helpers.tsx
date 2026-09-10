@@ -274,22 +274,26 @@ export function orderDeliveredMessages(messages: ChatMessage[]): ChatMessage[] {
 export function bucketActivityByMessage(
   entries: ActivityEntry[],
   messageTimestamps: bigint[],
+  messageRoles: string[] = [],
 ): { segments: ActivityEntry[][]; trailing: ActivityEntry[] } {
   const segments: ActivityEntry[][] = messageTimestamps.map(() => []);
   const trailing: ActivityEntry[] = [];
-  // Entries and messages are both time-ordered, so a single monotone cursor
-  // replaces a per-entry scan. A task's segment is decided once, at its first
-  // entry (where the cursor sits at that moment), and cached for the rest of
-  // its lifecycle.
+  // Late events and streaming upserts can retain earlier timestamps. Resolve
+  // each entry independently rather than advancing a shared monotone cursor.
+  // Cache task placement so its lifecycle still stays together. Same-second
+  // activity follows a user bubble, but precedes an assistant's final reply.
   const taskSegment = new Map<string, number>();
-  let cursor = 0;
   for (const e of entries) {
     let seg: number;
     const cached = e.taskId ? taskSegment.get(e.taskId) : undefined;
     if (cached !== undefined) {
       seg = cached;
     } else {
-      while (cursor < messageTimestamps.length && e.timestampUnix > messageTimestamps[cursor]) {
+      let cursor = 0;
+      while (cursor < messageTimestamps.length && (
+        e.timestampUnix > messageTimestamps[cursor] ||
+        (e.timestampUnix === messageTimestamps[cursor] && messageRoles[cursor] === "user")
+      )) {
         cursor += 1;
       }
       seg = cursor;

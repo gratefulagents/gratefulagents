@@ -108,6 +108,19 @@ describe("bucketActivityByMessage", () => {
     expect(trailing).toHaveLength(3);
   });
 
+  it("does not move late entries behind a newer message", () => {
+    const late = e(8);
+    const { segments, trailing } = bucketActivityByMessage([e(30), late], [10n, 20n]);
+    expect(segments[0]).toEqual([late]);
+    expect(trailing).toHaveLength(1);
+  });
+
+  it("places same-second activity after the user and before the assistant", () => {
+    const activity = e(10);
+    const { segments } = bucketActivityByMessage([activity], [10n, 10n], ["user", "assistant"]);
+    expect(segments).toEqual([[], [activity]]);
+  });
+
   it("slices task-less entries by their own timestamps", () => {
     const entries = [e(1), e(15), e(25)];
     const { segments, trailing } = bucketActivityByMessage(entries, [10n, 20n]);

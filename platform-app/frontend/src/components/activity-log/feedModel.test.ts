@@ -18,6 +18,21 @@ function subagentOrder(feedKinds: ReturnType<typeof buildFeed>): string[] {
   return order;
 }
 
+describe("execution agent boundaries", () => {
+  it("separates work when execution switches, including a return to main", () => {
+    const feed = buildFeed(groupActivityEntries(["main", "architect", "architect", "main"].map((agentName, i) => entry({
+      agentName, type: "tool_use", tool: "read_file", timestampUnix: BigInt(i),
+    }))));
+    expect(feed.filter((item) => item.kind === "agent").map((item) => [item.previousAgent, item.entry.agentName]))
+      .toEqual([["", "main"], ["main", "architect"], ["architect", "main"]]);
+    expect(feed.map((item) => item.kind)).toEqual(["agent", "work", "agent", "work", "agent", "work"]);
+  });
+
+  it("does not invent an identity for legacy events", () => {
+    expect(buildFeed(groupActivityEntries([entry({ type: "assistant_text", message: "Hello" })])).map((item) => item.kind)).toEqual(["prose"]);
+  });
+});
+
 describe("buildFeed subagent DAG ordering", () => {
   it("coalesces a burst into one DAG item with dependencies before dependents", () => {
     // Concurrent task goroutines interleave events arbitrarily: here the

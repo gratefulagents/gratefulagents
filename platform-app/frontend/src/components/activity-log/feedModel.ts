@@ -33,6 +33,7 @@ export function workUnitKey(unit: WorkUnit, index: number): string {
 
 export function feedItemBaseKey(item: FeedItem): string {
   switch (item.kind) {
+    case "agent":
     case "prose":
     case "phase":
     case "meta":
@@ -68,6 +69,7 @@ export function keyedFeedItems(feed: FeedItem[]): Array<{ item: FeedItem; key: s
 export function buildFeed(groups: ActivityGroup[]): FeedItem[] {
   const feed: FeedItem[] = [];
   let work: WorkItem | null = null;
+  let activeAgent = "";
 
   const flush = () => {
     if (work && work.units.length > 0) feed.push(work);
@@ -89,6 +91,16 @@ export function buildFeed(groups: ActivityGroup[]): FeedItem[] {
   };
 
   for (const g of groups) {
+    // Child agents have their own cards, not root execution boundaries.
+    const anchor = g.kind === "single" ? g.entry
+      : g.kind === "tool-pair" ? g.toolUse
+      : g.kind === "tool-batch" || g.kind === "secondary-batch" ? g.entries[0]
+      : undefined;
+    if (anchor?.agentName && anchor.agentName !== activeAgent) {
+      flush();
+      feed.push({ kind: "agent", entry: anchor, previousAgent: activeAgent });
+      activeAgent = anchor.agentName;
+    }
     switch (g.kind) {
       case "single": {
         const e = g.entry;

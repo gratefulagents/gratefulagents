@@ -380,6 +380,7 @@ export function groupActivityEntries(
       while (
         j < entries.length &&
         SECONDARY_TYPES.has(entries[j].type) &&
+        entries[j].agentName === e.agentName &&
         !consumedIndices.has(j)
       ) {
         batch.push(entries[j]);
@@ -401,6 +402,7 @@ export function groupActivityEntries(
         j < entries.length &&
         entries[j].type === "tool_use" &&
         entries[j].tool?.toLowerCase() === tool &&
+        entries[j].agentName === e.agentName &&
         !consumedIndices.has(j)
       ) {
         batch.push(entries[j]);

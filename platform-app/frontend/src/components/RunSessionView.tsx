@@ -537,6 +537,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     const { segments: segmentBuckets, trailing: trailingBucket } = bucketActivityByMessage(
       activityEntries,
       messages.map(messageDeliveryTimestamp),
+      messages.map((message) => message.role),
     );
 
     for (let i = 0; i < messages.length; i += 1) {

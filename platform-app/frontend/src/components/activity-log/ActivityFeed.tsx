@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { ArrowRight, Loader2, Workflow } from "lucide-react";
 
 import { useActivityLog } from "@/hooks/useActivityLog";
 import { useActivityEntryDetail } from "@/hooks/useActivityEntryDetail";
@@ -32,6 +32,8 @@ function sameFeedItem(a: FeedItem, b: FeedItem): boolean {
   if (a === b) return true;
   if (a.kind !== b.kind) return false;
   switch (a.kind) {
+    case "agent":
+      return a.entry === (b as typeof a).entry && a.previousAgent === (b as typeof a).previousAgent;
     case "prose":
     case "phase":
     case "meta":
@@ -76,6 +78,22 @@ export const FeedItemView = memo(
     planContent?: string;
   }) {
     switch (item.kind) {
+      case "agent":
+        return (
+          <div className="flex min-w-0 items-center gap-3 py-3" aria-label={`Executing agent: ${item.entry.agentName}`}>
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-primary/25 bg-primary/10 text-primary">
+              <Workflow className="size-4" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">{item.previousAgent ? "Execution switched" : "Executing agent"}</div>
+              <div className="flex flex-wrap items-center gap-x-2 text-xs">
+                {item.previousAgent && <><span className="break-all text-muted-foreground">{item.previousAgent}</span><ArrowRight className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" /></>}
+                <span className="break-all font-semibold text-foreground">{item.entry.agentName}</span>
+              </div>
+            </div>
+            <div className="h-px min-w-4 flex-1 bg-border/60" aria-hidden="true" />
+          </div>
+        );
       case "prose":
         return (
           <div className="text-sm leading-relaxed text-foreground">
