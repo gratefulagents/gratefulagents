@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -386,6 +387,74 @@ func TestNotActionableTriageReusesDecisionMarker(t *testing.T) {
 	}
 	if githubClient.created != 1 || githubClient.editedIssue != 1 || githubClient.issue.GetState() != string(triggersv1alpha1.MaintainerIssueStateClosed) || githubClient.issue.GetStateReason() != "not_planned" || firstURL != secondURL {
 		t.Fatalf("created=%d editedIssue=%d issue=%#v URLs=%q,%q", githubClient.created, githubClient.editedIssue, githubClient.issue, firstURL, secondURL)
+	}
+}
+
+func TestNotActionableTriageReleasesDispatchReservation(t *testing.T) {
+	t.Parallel()
+
+	scheme := maintainerWorkItemScheme(t)
+	repository := testMaintainerRepository()
+	item := testMaintainerWorkItem(repository, 17)
+	item.Status.Phase = triggersv1alpha1.MaintainerWorkItemPhaseDispatched
+	item.Status.DispatchReservation = &triggersv1alpha1.MaintainerDispatchReservation{ID: "dispatch-17-v1", CommandRef: corev1.LocalObjectReference{Name: "old-dispatch-command"}, ReservedAt: metav1.Now()}
+	now := time.Now().UTC()
+	ledger := maintainerRepositoryDispatchLedger{Day: now.Format("2006-01-02"), Count: 2, Reservations: map[string]maintainerRepositoryReservation{
+		item.Name:    {CommandName: "old-dispatch-command", ReservedAt: metav1.NewTime(now)},
+		"other-item": {CommandName: "other-command", ReservedAt: metav1.NewTime(now)},
+	}}
+	encoded, err := json.Marshal(ledger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.Annotations = map[string]string{triggersv1alpha1.MaintainerDispatchReservationsAnnotation: string(encoded)}
+	issuer := testMaintainerIssuer(repository)
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithStatusSubresource(&triggersv1alpha1.MaintainerWorkItem{}, &triggersv1alpha1.MaintainerWorkItemCommand{}).
+		WithObjects(repository, item, issuer, testMaintainerCapability(repository, issuer)).Build()
+	stored := getMaintainerWorkItem(t, c, repository, 17)
+	command := testMaintainerCommand(repository, stored, "close-17", issuer.UID)
+	reason := triggersv1alpha1.MaintainerWorkItemCloseReasonNotPlanned
+	command.Spec.Triage.Disposition = triggersv1alpha1.MaintainerWorkItemDispositionNotActionable
+	command.Spec.Triage.CloseReason = &reason
+	command.Spec.PayloadHash = MaintainerWorkItemCommandPayloadHash(command.Spec.Type, command.Spec.Triage, command.Spec.Preconditions)
+	command.Spec.Issuer.Proof = triggersv1alpha1.MaintainerWorkItemCommandProof(testMaintainerCapabilityKey(), repository.Name, repository.UID, command.Spec.IdempotencyKey, command.Spec.PayloadHash, command.Spec.Issuer.RunName, command.Spec.Issuer.UID)
+	if err := c.Create(context.Background(), command); err != nil {
+		t.Fatal(err)
+	}
+	githubClient := &fakeMaintainerGitHub{issue: &github.Issue{State: new("open")}}
+	reconciler := &GitHubRepositoryReconciler{Client: c, Scheme: scheme}
+	if err := reconciler.reconcileMaintainerWorkItemCommands(context.Background(), repository, githubClient); err != nil {
+		t.Fatalf("reconcile commands: %v", err)
+	}
+
+	receipt := &triggersv1alpha1.MaintainerWorkItemCommand{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(command), receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Status.Phase != triggersv1alpha1.MaintainerWorkItemCommandPhaseSucceeded {
+		t.Fatalf("command receipt = %#v", receipt.Status)
+	}
+	closed := getMaintainerWorkItem(t, c, repository, 17)
+	if closed.Status.DispatchReservation != nil {
+		t.Fatalf("dispatch reservation was not released: %#v", closed.Status.DispatchReservation)
+	}
+	fresh := &triggersv1alpha1.GitHubRepository{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(repository), fresh); err != nil {
+		t.Fatal(err)
+	}
+	after := maintainerRepositoryDispatchLedger{}
+	if err := json.Unmarshal([]byte(fresh.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation]), &after); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := after.Reservations[item.Name]; ok {
+		t.Fatalf("ledger reservation was not released: %#v", after.Reservations)
+	}
+	if _, ok := after.Reservations["other-item"]; !ok {
+		t.Fatalf("unrelated ledger reservation was dropped: %#v", after.Reservations)
+	}
+	if after.Count != 2 {
+		t.Fatalf("daily dispatch count was refunded: %d", after.Count)
 	}
 }
 

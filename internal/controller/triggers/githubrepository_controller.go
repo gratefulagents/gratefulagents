@@ -76,6 +76,14 @@ func (r *GitHubRepositoryReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if gh.Spec.Suspend {
+		// A suspended repository keeps every piece of runtime state — work
+		// items, the dispatch reservation ledger, and the standing maintainer
+		// run — but performs no polling, run creation, maintainer supervision,
+		// or work-item command execution until it is resumed.
+		return ctrl.Result{}, nil
+	}
+
 	if err := r.ensureMaintainerHumanCommandCapability(ctx, gh); err != nil {
 		return ctrl.Result{}, err
 	}

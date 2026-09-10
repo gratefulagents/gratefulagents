@@ -254,39 +254,44 @@ func TestPruneMaintainerDispatchReservations(t *testing.T) {
 	recent := metav1.NewTime(now.Add(-time.Hour))
 	expired := metav1.NewTime(now.Add(-25 * time.Hour))
 	ledger := &maintainerRepositoryDispatchLedger{Day: now.Format("2006-01-02"), Count: 6, Reservations: map[string]maintainerRepositoryReservation{
-		"deleted-item":        {CommandName: "a", ReservedAt: recent},
-		"finished-item":       {CommandName: "b", ReservedAt: recent},
-		"expired-item":        {CommandName: "c", ReservedAt: expired},
-		"pending-item":        {CommandName: "d", ReservedAt: recent},
-		"running-item":        {CommandName: "e", ReservedAt: recent},
-		"protected-item":      {CommandName: "f", ReservedAt: expired},
-		"materialized-active": {CommandName: "g", ReservedAt: recent},
+		"deleted-item":         {CommandName: "a", ReservedAt: recent},
+		"finished-item":        {CommandName: "b", ReservedAt: recent},
+		"expired-item":         {CommandName: "c", ReservedAt: expired},
+		"pending-item":         {CommandName: "d", ReservedAt: recent},
+		"running-item":         {CommandName: "e", ReservedAt: recent},
+		"protected-item":       {CommandName: "f", ReservedAt: expired},
+		"materialized-active":  {CommandName: "g", ReservedAt: recent},
+		"not-actionable-item":  {CommandName: "h", ReservedAt: recent},
+		"not-actionable-still": {CommandName: "i", ReservedAt: recent},
 	}}
 	workItemUIDs := map[string]string{
-		"finished-item":       "uid-b",
-		"expired-item":        "uid-c",
-		"pending-item":        "uid-d",
-		"running-item":        "uid-e",
-		"protected-item":      "uid-f",
-		"materialized-active": "uid-g",
+		"finished-item":        "uid-b",
+		"expired-item":         "uid-c",
+		"pending-item":         "uid-d",
+		"running-item":         "uid-e",
+		"protected-item":       "uid-f",
+		"materialized-active":  "uid-g",
+		"not-actionable-item":  "uid-h",
+		"not-actionable-still": "uid-i",
 	}
 	materialized := map[string]bool{"finished-item": true, "materialized-active": true}
-	activeItems := map[string]bool{"running-item": true, "materialized-active": true}
+	activeItems := map[string]bool{"running-item": true, "materialized-active": true, "not-actionable-still": true}
+	notActionable := map[string]bool{"not-actionable-item": true, "not-actionable-still": true}
 
-	if !pruneMaintainerDispatchReservations(ledger, "protected-item", workItemUIDs, materialized, activeItems, now) {
+	if !pruneMaintainerDispatchReservations(ledger, "protected-item", workItemUIDs, materialized, activeItems, notActionable, now) {
 		t.Fatal("expected pruning to report changes")
 	}
-	for _, gone := range []string{"deleted-item", "finished-item", "expired-item"} {
+	for _, gone := range []string{"deleted-item", "finished-item", "expired-item", "not-actionable-item"} {
 		if _, ok := ledger.Reservations[gone]; ok {
 			t.Fatalf("reservation %q was not pruned", gone)
 		}
 	}
-	for _, kept := range []string{"pending-item", "running-item", "protected-item", "materialized-active"} {
+	for _, kept := range []string{"pending-item", "running-item", "protected-item", "materialized-active", "not-actionable-still"} {
 		if _, ok := ledger.Reservations[kept]; !ok {
 			t.Fatalf("reservation %q was wrongly pruned", kept)
 		}
 	}
-	if pruneMaintainerDispatchReservations(ledger, "protected-item", workItemUIDs, materialized, activeItems, now) {
+	if pruneMaintainerDispatchReservations(ledger, "protected-item", workItemUIDs, materialized, activeItems, notActionable, now) {
 		t.Fatal("second prune must be a no-op")
 	}
 }
