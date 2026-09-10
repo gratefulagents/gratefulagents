@@ -10,7 +10,7 @@ vi.mock("@/lib/computer-use", () => ({
   relaunchComputerUse: vi.fn(),
 }));
 
-const denied = { supported: true, accessibility: false };
+const denied = { supported: true, accessibility: false, agentScreenRecording: false };
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -24,11 +24,12 @@ afterEach(cleanup);
 describe("computer use permission setup", () => {
   it("checks permissions without prompting or implying control is enabled", async () => {
     render(<ComputerUseSettings />);
-    expect(await screen.findAllByText("Not granted")).toHaveLength(1);
+    expect(await screen.findAllByText("Not granted")).toHaveLength(2);
     expect(screen.getByText(/does not capture your screen/)).toBeTruthy();
     expect(openComputerUsePermission).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "Screen Recording settings" })).toBeNull();
-    expect(screen.getByText(/No broad Screen Recording permission/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Screen Recording settings" })).toBeTruthy();
+    expect(screen.getByText(/Optional: required only for Agent chooses windows/)).toBeTruthy();
+    expect(screen.getByText(/does not require broad Screen Recording permission/)).toBeTruthy();
     expect(relaunchComputerUse).not.toHaveBeenCalled();
     expect(screen.getByRole("note").textContent).toContain("different build");
   });
@@ -57,6 +58,7 @@ describe("computer use permission setup", () => {
 
   it.each([
     ["Accessibility settings", "accessibility"],
+    ["Screen Recording settings", "agent_screen_recording"],
   ])("opens %s only after a click", async (label, permission) => {
     render(<ComputerUseSettings />);
     fireEvent.click(await screen.findByRole("button", { name: label }));
@@ -67,10 +69,24 @@ describe("computer use permission setup", () => {
     render(<ComputerUseSettings />);
     await screen.findAllByText("Not granted");
     vi.mocked(computerUsePermissions).mockResolvedValue({
-      supported: true, accessibility: true,
+      supported: true, accessibility: true, agentScreenRecording: true,
     });
     fireEvent.focus(window);
-    expect(await screen.findAllByText("Granted")).toHaveLength(1);
+    expect(await screen.findAllByText("Granted")).toHaveLength(2);
+  });
+
+  it("refreshes Screen Recording after an explicit request and offers relaunch", async () => {
+    vi.mocked(computerUsePermissions).mockResolvedValue({ ...denied, accessibility: true });
+    render(<ComputerUseSettings />);
+    const button = await screen.findByRole("button", { name: "Screen Recording settings" });
+    expect(screen.queryByRole("button", { name: "Relaunch gratefulagents" })).toBeNull();
+    vi.mocked(computerUsePermissions).mockResolvedValue({ ...denied, accessibility: true, agentScreenRecording: true });
+    fireEvent.click(button);
+    await waitFor(() => expect(screen.getAllByText("Granted")).toHaveLength(2));
+    expect(openComputerUsePermission).toHaveBeenCalledWith("agent_screen_recording");
+    expect(screen.getByRole("button", { name: "Relaunch gratefulagents" })).toBeTruthy();
+    expect(relaunchComputerUse).not.toHaveBeenCalled();
+    expect(getComputerUseApprovalMode()).toBe("manual");
   });
 
   it("does not show permission controls on unsupported platforms", async () => {
