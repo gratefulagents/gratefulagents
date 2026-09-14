@@ -20,6 +20,8 @@ mod computer_use;
 mod computer_use_capture;
 mod computer_use_input;
 mod computer_use_picker;
+#[cfg(target_os = "macos")]
+mod computer_use_process;
 mod computer_use_session;
 mod copilot_oauth;
 mod deep_link;

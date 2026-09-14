@@ -12,13 +12,15 @@ For window-discovery diagnostics, open **Settings → General → Open logs** in
 
 The `computer use window discovery native` line goes through the same Rust `log::info!` desktop logger, not `NSLog`. It contains numeric counts only:
 - `raw`: ScreenCaptureKit `content.windows.count` (already requested with desktop windows excluded and on-screen windows only); `inspected`: windows visited before the native cap.
-- `missing_owner`, `supervisor_pid`, `missing_name`, `missing_bundle`, `missing_launch_date`, `bundle_mismatch`, `supervisor_bundle`: application-identity rejections, counted per window at the first failing check in this order, not per distinct application.
+- `missing_owner`, `supervisor_pid`, `missing_name`, `missing_bundle`, `process_identity_unavailable`, `bundle_mismatch`, `supervisor_bundle`: application-identity rejections, counted per window at the first failing check in this order, not per distinct application.
 - `invalid_snapshot`: identity-valid windows whose snapshot failed; `non_frontmost`: valid snapshots not first in their application's on-screen layer-zero window order (not necessarily the globally focused application).
 - `eligible`: returned native windows, at most 64; `cap_uninspected`: `raw - inspected`, windows not inspected because the cap was reached, whose eligibility is unknown.
 
-The rejection counts plus `eligible` sum to `inspected`; `inspected + cap_uninspected = raw`. Logs do not include window titles, application names, bundle identifiers, target references, or screen content. These diagnostics preserve all eligibility checks and do not diagnose or fix the underlying cause of an empty listing.
+The rejection counts plus `eligible` sum to `inspected`; `inspected + cap_uninspected = raw`. Logs do not include window titles, application names, bundle identifiers, target references, or screen content. These diagnostics preserve all eligibility checks. `process_identity_unavailable` means the running application is absent/terminated or its kernel identity cannot be verified; it replaces the former `missing_launch_date` counter.
 
-The agent workflow is `list_windows` → `select_window` with a returned `targetRef` → `observe` → input. Discovery returns at most 32 eligible windows, bounded application/title text, and random session-scoped references—not PIDs or OS window IDs. References are replaced by a fresh listing and retired on selection, pause, or stop. The native implementation retains Accessibility window identity and process launch time, rechecks fresh window inventory, and refuses closed, minimized, reused, or changed identities. With the current input engine, eligible targets are the key window of each supported application; other windows in the same application are not advertised as safely addressable targets.
+Process identity is the exact integer tuple `(PID, start seconds, start microseconds)` from `proc_pidinfo(PROC_PIDTBSDINFO)`, shared by the native picker/discovery/snapshot bridge and Rust input binding via C FFI. `NSRunningApplication.launchDate` is LaunchServices-only and may be nil for otherwise eligible apps; it is not an identity prerequisite. Kernel lookup failures, short responses, mismatched PIDs, exiting processes, and invalid start times fail closed, as do absent running applications. There is no PID-only or floating-point fallback. Bundle matching, visibility, Accessibility identity, and session consent checks remain required.
+
+The agent workflow is `list_windows` → `select_window` with a returned `targetRef` → `observe` → input. Discovery returns at most 32 eligible windows, bounded application/title text, and random session-scoped references—not PIDs or OS window IDs. References are replaced by a fresh listing and retired on selection, pause, or stop. The native implementation retains Accessibility window identity and kernel process start time, rechecks fresh window inventory, and refuses closed, minimized, reused, or changed identities. With the current input engine, eligible targets are the key window of each supported application; other windows in the same application are not advertised as safely addressable targets.
 
 The agent cannot see which mode the user connected in, so it usually starts with `observe` (the correct first step for a selected-window session). In an agent-choice session with no window selected that request is refused *before* anything reaches the desktop, and the tool tells the agent so explicitly ("No window is selected yet … call `list_windows` … `select_window` … then `observe`"). The same applies to the other precondition rejections — discovery in a selected-window session, an unknown `targetRef`, a stale `frameId`, `open_url` in agent-choice — each names the next step and states that nothing was sent to the desktop. Only real cancellations, expiries, and detachments produce the generic "canceled, expired, or unavailable — do not retry" message; precondition rejections never do, because there is no partially applied OS input to protect.
 
@@ -209,6 +211,23 @@ go test -race -count=1 -v ./internal/tools -run '^TestComputerUse'
 ```
 
 The existing frontend CI suite separately tests local approval modes and supervision controls; the existing macOS Tauri job builds the native app and runs native shell tests. These CI tests **do not generate OS input** or automate macOS permission prompts. A real GUI smoke test still needs a logged-in Mac runner with native single-window picker consent and explicitly granted Accessibility permission. Hosted CI compilation and synthetic screenshots must not be marked as passing that native acceptance checklist.
+
+### Kernel process identity regression checks
+
+From `platform-app/tauri/src-tauri`:
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -Itests/support \
+  src/computer_use_process.c tests/computer_use_process_test.c \
+  -o /tmp/computer-use-process-test
+/tmp/computer-use-process-test
+cargo test --lib --locked
+cargo check --lib --tests --locked
+```
+
+The C fault-injection test runs on Linux or macOS. It covers malformed PIDs, disappeared/denied queries, short/oversized replies, returned-PID mismatch, exiting processes, invalid timestamps, and exact PID/start-time changes (including integer values beyond floating-point precision). Linux uses a test-only libproc fixture, not a Darwin ABI substitute. On macOS the Rust library tests additionally exercise the real C FFI against the current process and a spawned/reaped child.
+
+A logged-in Mac must still verify discovery and native picker selection for an app whose `launchDate` is nil, then observe/input under consent and AX permissions. Close/relaunch that app and confirm the old selection cannot capture or receive input. Native compile checks and fault injection do not establish this GUI acceptance result.
 
 ### Base PR #398 native picker migration verification (before this extension)
 

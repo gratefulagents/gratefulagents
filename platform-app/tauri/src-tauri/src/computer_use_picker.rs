@@ -134,7 +134,7 @@ struct DiscoveryDiagnostics {
     supervisor_pid: u64,
     missing_name: u64,
     missing_bundle: u64,
-    missing_launch_date: u64,
+    process_identity_unavailable: u64,
     bundle_mismatch: u64,
     supervisor_bundle: u64,
     invalid_snapshot: u64,
@@ -147,9 +147,9 @@ struct DiscoveryDiagnostics {
 impl DiscoveryDiagnostics {
     fn log(&self) {
         log::info!(
-            "computer use window discovery native: raw={} inspected={} missing_owner={} supervisor_pid={} missing_name={} missing_bundle={} missing_launch_date={} bundle_mismatch={} supervisor_bundle={} invalid_snapshot={} non_frontmost={} eligible={} cap_uninspected={}",
+            "computer use window discovery native: raw={} inspected={} missing_owner={} supervisor_pid={} missing_name={} missing_bundle={} process_identity_unavailable={} bundle_mismatch={} supervisor_bundle={} invalid_snapshot={} non_frontmost={} eligible={} cap_uninspected={}",
             self.raw, self.inspected, self.missing_owner, self.supervisor_pid,
-            self.missing_name, self.missing_bundle, self.missing_launch_date,
+            self.missing_name, self.missing_bundle, self.process_identity_unavailable,
             self.bundle_mismatch, self.supervisor_bundle, self.invalid_snapshot,
             self.non_frontmost, self.eligible, self.cap_uninspected
         );
@@ -484,6 +484,7 @@ mod tests {
     fn discovery_reply_decodes_counts_through_native_callback() {
         for (eligible, rejected, cap_uninspected) in [
             (0, [0; 9], 0),
+            (0, [0, 1, 0, 0, 3, 0, 0, 0, 0], 0),
             (0, [1, 2, 3, 4, 5, 6, 7, 8, 9], 0),
             (1, [1, 2, 3, 4, 5, 6, 7, 8, 9], 0),
             (64, [0; 9], 0),
@@ -505,7 +506,7 @@ mod tests {
                     "raw": inspected + cap_uninspected, "inspected": inspected,
                     "missingOwner": rejected[0], "supervisorPid": rejected[1],
                     "missingName": rejected[2], "missingBundle": rejected[3],
-                    "missingLaunchDate": rejected[4], "bundleMismatch": rejected[5],
+                    "processIdentityUnavailable": rejected[4], "bundleMismatch": rejected[5],
                     "supervisorBundle": rejected[6], "invalidSnapshot": rejected[7],
                     "nonFrontmost": rejected[8], "eligible": eligible,
                     "capUninspected": cap_uninspected
@@ -526,7 +527,7 @@ mod tests {
                 d.supervisor_pid,
                 d.missing_name,
                 d.missing_bundle,
-                d.missing_launch_date,
+                d.process_identity_unavailable,
                 d.bundle_mismatch,
                 d.supervisor_bundle,
                 d.invalid_snapshot,
