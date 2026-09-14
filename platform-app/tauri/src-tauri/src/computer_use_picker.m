@@ -323,25 +323,44 @@ void ga_agent_windows(GAReply reply, void *context) {
                 }
                 NSMutableDictionary *inventory = [NSMutableDictionary new];
                 NSMutableArray *metadata = [NSMutableArray new];
+                NSUInteger raw = content.windows.count, inspected = 0;
+                NSUInteger missingOwner = 0, supervisorPid = 0, missingName = 0, missingBundle = 0;
+                NSUInteger missingLaunchDate = 0, bundleMismatch = 0, supervisorBundle = 0;
+                NSUInteger invalidSnapshot = 0, nonFrontmost = 0;
                 for (SCWindow *window in content.windows) {
+                    inspected++;
                     SCRunningApplication *owner = window.owningApplication;
                     NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:owner.processID];
-                    if (!owner || owner.processID == getpid() || !owner.applicationName.length || !owner.bundleIdentifier.length ||
-                        !app.launchDate || ![app.bundleIdentifier isEqual:owner.bundleIdentifier] ||
-                        [owner.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier]) continue;
+                    // Count only the first rejection, preserving predicate order and nil messaging.
+                    if (!owner) { missingOwner++; continue; }
+                    if (owner.processID == getpid()) { supervisorPid++; continue; }
+                    if (!owner.applicationName.length) { missingName++; continue; }
+                    if (!owner.bundleIdentifier.length) { missingBundle++; continue; }
+                    if (!app.launchDate) { missingLaunchDate++; continue; }
+                    if (![app.bundleIdentifier isEqual:owner.bundleIdentifier]) { bundleMismatch++; continue; }
+                    if ([owner.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier]) { supervisorBundle++; continue; }
                     GAWindowShare *share = [GAWindowShare new];
                     share.valid = YES;
                     share.window = window;
                     share.application = app;
                     share.filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:window];
                     NSDictionary *snapshot = [share snapshot];
-                    if (!snapshot || ![snapshot[@"frontmost"] boolValue]) continue;
+                    if (!snapshot) { invalidSnapshot++; continue; }
+                    if (![snapshot[@"frontmost"] boolValue]) { nonFrontmost++; continue; }
                     inventory[@(window.windowID)] = share;
                     [metadata addObject:snapshot];
                     if (metadata.count == 64) break;
                 }
                 agentWindows = inventory;
-                [completion finish:metadata];
+                [completion finish:@{@"windows": metadata, @"diagnostics": @{
+                    @"raw": @(raw), @"inspected": @(inspected),
+                    @"missingOwner": @(missingOwner), @"supervisorPid": @(supervisorPid),
+                    @"missingName": @(missingName), @"missingBundle": @(missingBundle),
+                    @"missingLaunchDate": @(missingLaunchDate), @"bundleMismatch": @(bundleMismatch),
+                    @"supervisorBundle": @(supervisorBundle), @"invalidSnapshot": @(invalidSnapshot),
+                    @"nonFrontmost": @(nonFrontmost), @"eligible": @(metadata.count),
+                    @"capUninspected": @(raw - inspected)
+                }}];
             }
         }];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{

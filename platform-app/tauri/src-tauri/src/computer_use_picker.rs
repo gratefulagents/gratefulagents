@@ -117,14 +117,55 @@ pub fn target(scope: &SessionScope) -> Result<Snapshot, String> {
     Ok(snapshot)
 }
 
+#[cfg(any(target_os = "macos", test))]
+#[derive(serde::Deserialize)]
+struct AgentWindowsReply {
+    windows: Vec<Snapshot>,
+    diagnostics: DiscoveryDiagnostics,
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DiscoveryDiagnostics {
+    raw: u64,
+    inspected: u64,
+    missing_owner: u64,
+    supervisor_pid: u64,
+    missing_name: u64,
+    missing_bundle: u64,
+    missing_launch_date: u64,
+    bundle_mismatch: u64,
+    supervisor_bundle: u64,
+    invalid_snapshot: u64,
+    non_frontmost: u64,
+    eligible: u64,
+    cap_uninspected: u64,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl DiscoveryDiagnostics {
+    fn log(&self) {
+        log::info!(
+            "computer use window discovery native: raw={} inspected={} missing_owner={} supervisor_pid={} missing_name={} missing_bundle={} missing_launch_date={} bundle_mismatch={} supervisor_bundle={} invalid_snapshot={} non_frontmost={} eligible={} cap_uninspected={}",
+            self.raw, self.inspected, self.missing_owner, self.supervisor_pid,
+            self.missing_name, self.missing_bundle, self.missing_launch_date,
+            self.bundle_mismatch, self.supervisor_bundle, self.invalid_snapshot,
+            self.non_frontmost, self.eligible, self.cap_uninspected
+        );
+    }
+}
+
 pub fn agent_windows() -> Result<Vec<WindowTarget>, String> {
     super::computer_use::require_agent_permission()?;
     #[cfg(target_os = "macos")]
     {
         let value =
             native::request(|reply, context| unsafe { native::ga_agent_windows(reply, context) })?;
-        let snapshots: Vec<Snapshot> = serde_json::from_value(value).map_err(|e| e.to_string())?;
-        Ok(snapshots
+        let reply: AgentWindowsReply = serde_json::from_value(value).map_err(|e| e.to_string())?;
+        reply.diagnostics.log();
+        Ok(reply
+            .windows
             .into_iter()
             .map(|s| WindowTarget {
                 selection_id: String::new(),
@@ -440,10 +481,98 @@ mod tests {
     use super::*;
 
     #[test]
+    fn discovery_reply_decodes_counts_through_native_callback() {
+        for (eligible, rejected, cap_uninspected) in [
+            (0, [0; 9], 0),
+            (0, [1, 2, 3, 4, 5, 6, 7, 8, 9], 0),
+            (1, [1, 2, 3, 4, 5, 6, 7, 8, 9], 0),
+            (64, [0; 9], 0),
+            (64, [1, 2, 3, 4, 5, 6, 7, 8, 9], 12),
+        ] {
+            let inspected: u64 = eligible + rejected.iter().sum::<u64>();
+            let windows: Vec<_> = (0..eligible)
+                .map(|id| {
+                    serde_json::json!({
+                        "windowId": id, "processId": 99, "application": "Private app",
+                        "title": "Private title", "frontmost": true, "focusAllowed": false,
+                        "geometry": {"x": 0, "y": 0, "width": 10, "height": 10}
+                    })
+                })
+                .collect();
+            let value = serde_json::json!({
+                "windows": windows,
+                "diagnostics": {
+                    "raw": inspected + cap_uninspected, "inspected": inspected,
+                    "missingOwner": rejected[0], "supervisorPid": rejected[1],
+                    "missingName": rejected[2], "missingBundle": rejected[3],
+                    "missingLaunchDate": rejected[4], "bundleMismatch": rejected[5],
+                    "supervisorBundle": rejected[6], "invalidSnapshot": rejected[7],
+                    "nonFrontmost": rejected[8], "eligible": eligible,
+                    "capUninspected": cap_uninspected
+                }
+            });
+            let json = std::ffi::CString::new(value.to_string()).unwrap();
+            let response = native::request(|reply, context| reply(context, json.as_ptr())).unwrap();
+            let reply: AgentWindowsReply = serde_json::from_value(response).unwrap();
+            let d = reply.diagnostics;
+            d.log();
+            assert_eq!(reply.windows.len() as u64, eligible);
+            assert_eq!(d.eligible, eligible);
+            assert_eq!(d.inspected, inspected);
+            assert_eq!(d.cap_uninspected, cap_uninspected);
+            assert_eq!(d.raw, d.inspected + d.cap_uninspected);
+            let counts = [
+                d.missing_owner,
+                d.supervisor_pid,
+                d.missing_name,
+                d.missing_bundle,
+                d.missing_launch_date,
+                d.bundle_mismatch,
+                d.supervisor_bundle,
+                d.invalid_snapshot,
+                d.non_frontmost,
+            ];
+            assert_eq!(counts, rejected);
+            assert_eq!(counts.iter().sum::<u64>() + d.eligible, d.inspected);
+            if eligible > 0 {
+                assert_eq!(reply.windows[0].application, "Private app");
+                assert_eq!(reply.windows[0].process_id, 99);
+            }
+            for key in value["diagnostics"].as_object().unwrap().keys() {
+                for invalid in [
+                    serde_json::json!(-1),
+                    serde_json::json!("0"),
+                    serde_json::Value::Null,
+                ] {
+                    let mut malformed = value.clone();
+                    malformed["diagnostics"][key] = invalid;
+                    assert!(serde_json::from_value::<AgentWindowsReply>(malformed).is_err());
+                }
+                let mut missing = value.clone();
+                missing["diagnostics"].as_object_mut().unwrap().remove(key);
+                assert!(serde_json::from_value::<AgentWindowsReply>(missing).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn discovery_reply_requires_windows_and_diagnostics_envelope() {
+        for raw in ["[]", "null", r#"{"windows":[]}"#, r#"{"diagnostics":{}}"#] {
+            assert!(serde_json::from_str::<AgentWindowsReply>(raw).is_err());
+        }
+    }
+
+    #[test]
     fn snapshot_accepts_boolean_and_integer_flags() {
         for (raw, expected) in [
-            (r#"{"windowId":1,"processId":2,"application":"A","title":"t","geometry":{"x":0,"y":0,"width":10,"height":10},"frontmost":true,"focusAllowed":false}"#, (true, false)),
-            (r#"{"windowId":1,"processId":2,"application":"A","title":"t","geometry":{"x":0,"y":0,"width":10,"height":10},"frontmost":1,"focusAllowed":0}"#, (true, false)),
+            (
+                r#"{"windowId":1,"processId":2,"application":"A","title":"t","geometry":{"x":0,"y":0,"width":10,"height":10},"frontmost":true,"focusAllowed":false}"#,
+                (true, false),
+            ),
+            (
+                r#"{"windowId":1,"processId":2,"application":"A","title":"t","geometry":{"x":0,"y":0,"width":10,"height":10},"frontmost":1,"focusAllowed":0}"#,
+                (true, false),
+            ),
         ] {
             let snapshot: Snapshot = serde_json::from_str(raw).expect(raw);
             assert_eq!(snapshot.focus_allowed, expected.1);
