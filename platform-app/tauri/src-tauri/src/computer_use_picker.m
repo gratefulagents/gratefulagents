@@ -1,6 +1,7 @@
 #import <AppKit/AppKit.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <ImageIO/ImageIO.h>
+#include "computer_use_process.h"
 
 #include <stdint.h>
 #include <unistd.h>
@@ -38,6 +39,7 @@ API_AVAILABLE(macos(15.2))
 @property (strong) SCContentFilter *filter;
 @property (strong) SCWindow *window;
 @property (strong) NSRunningApplication *application;
+@property GAProcessIdentity processIdentity;
 @property (strong) SCStream *stream;
 @property (strong) GACompletion *selection;
 - (void)invalidate;
@@ -67,9 +69,11 @@ static uint64_t agentInventoryRevision;
 }
 
 - (NSDictionary *)snapshot {
-    if (!_valid || !_filter || !_window || _application.terminated) return nil;
+    if (!_valid || !_filter || !_window || !_application || _application.terminated) return nil;
+    GAProcessIdentity identity;
     NSRunningApplication *live = [NSRunningApplication runningApplicationWithProcessIdentifier:_application.processIdentifier];
-    if (!live || !live.launchDate || ![live.launchDate isEqual:_application.launchDate] ||
+    if (!live || live.terminated || !ga_process_identity_read(_application.processIdentifier, &identity) ||
+        !ga_process_identity_equal(identity, _processIdentity) ||
         ![live.bundleIdentifier isEqual:_window.owningApplication.bundleIdentifier]) return nil;
     // CG metadata (IDs, PIDs, bounds, order) needs no Screen Recording grant.
     // Never use window titles or images from this list to authorize a target.
@@ -111,8 +115,10 @@ static uint64_t agentInventoryRevision;
         SCWindow *window = filter.includedWindows.firstObject;
         SCRunningApplication *owner = window.owningApplication;
         NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:owner.processID];
+        GAProcessIdentity identity;
         if (!owner || owner.processID == getpid() || !owner.applicationName.length || !owner.bundleIdentifier.length ||
-            !app.launchDate || ![app.bundleIdentifier isEqual:owner.bundleIdentifier] ||
+            !app || app.terminated || !ga_process_identity_read(owner.processID, &identity) ||
+            ![app.bundleIdentifier isEqual:owner.bundleIdentifier] ||
             [owner.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier]) {
             [_selection finish:@{@"error": @"The supervisor or unidentified application cannot be shared"}];
             [self invalidate];
@@ -121,6 +127,7 @@ static uint64_t agentInventoryRevision;
         _filter = filter;
         _window = window;
         _application = app;
+        _processIdentity = identity;
         NSDictionary *snapshot = [self snapshot];
         if (!snapshot) {
             [_selection finish:@{@"error": @"The selected window is unavailable"}];
@@ -325,7 +332,7 @@ void ga_agent_windows(GAReply reply, void *context) {
                 NSMutableArray *metadata = [NSMutableArray new];
                 NSUInteger raw = content.windows.count, inspected = 0;
                 NSUInteger missingOwner = 0, supervisorPid = 0, missingName = 0, missingBundle = 0;
-                NSUInteger missingLaunchDate = 0, bundleMismatch = 0, supervisorBundle = 0;
+                NSUInteger processIdentityUnavailable = 0, bundleMismatch = 0, supervisorBundle = 0;
                 NSUInteger invalidSnapshot = 0, nonFrontmost = 0;
                 for (SCWindow *window in content.windows) {
                     inspected++;
@@ -336,13 +343,15 @@ void ga_agent_windows(GAReply reply, void *context) {
                     if (owner.processID == getpid()) { supervisorPid++; continue; }
                     if (!owner.applicationName.length) { missingName++; continue; }
                     if (!owner.bundleIdentifier.length) { missingBundle++; continue; }
-                    if (!app.launchDate) { missingLaunchDate++; continue; }
+                    GAProcessIdentity identity;
+                    if (!app || app.terminated || !ga_process_identity_read(owner.processID, &identity)) { processIdentityUnavailable++; continue; }
                     if (![app.bundleIdentifier isEqual:owner.bundleIdentifier]) { bundleMismatch++; continue; }
                     if ([owner.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier]) { supervisorBundle++; continue; }
                     GAWindowShare *share = [GAWindowShare new];
                     share.valid = YES;
                     share.window = window;
                     share.application = app;
+                    share.processIdentity = identity;
                     share.filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:window];
                     NSDictionary *snapshot = [share snapshot];
                     if (!snapshot) { invalidSnapshot++; continue; }
@@ -356,7 +365,7 @@ void ga_agent_windows(GAReply reply, void *context) {
                     @"raw": @(raw), @"inspected": @(inspected),
                     @"missingOwner": @(missingOwner), @"supervisorPid": @(supervisorPid),
                     @"missingName": @(missingName), @"missingBundle": @(missingBundle),
-                    @"missingLaunchDate": @(missingLaunchDate), @"bundleMismatch": @(bundleMismatch),
+                    @"processIdentityUnavailable": @(processIdentityUnavailable), @"bundleMismatch": @(bundleMismatch),
                     @"supervisorBundle": @(supervisorBundle), @"invalidSnapshot": @(invalidSnapshot),
                     @"nonFrontmost": @(nonFrontmost), @"eligible": @(metadata.count),
                     @"capUninspected": @(raw - inspected)

@@ -784,31 +784,32 @@ pub mod macos {
         non_password(focused.0)?;
         Ok(focused)
     }
-    fn process_launch(scope: &SessionScope) -> Result<f64, String> {
+    fn process_identity(
+        scope: &SessionScope,
+    ) -> Result<super::super::computer_use_process::ProcessIdentity, String> {
         objc2::rc::autoreleasepool(|_| unsafe {
-            let app: *mut objc2::runtime::AnyObject = objc2::msg_send![objc2::class!(NSRunningApplication), runningApplicationWithProcessIdentifier: scope.process_id as i32];
+            let pid = i32::try_from(scope.process_id)
+                .ok()
+                .filter(|pid| *pid > 0)
+                .ok_or("Cannot verify selected process identity")?;
+            let app: *mut objc2::runtime::AnyObject = objc2::msg_send![objc2::class!(NSRunningApplication), runningApplicationWithProcessIdentifier: pid];
             if app.is_null() {
                 return Err("Selected process ended".into());
             }
-            let date: *mut objc2::runtime::AnyObject = objc2::msg_send![app, launchDate];
-            if date.is_null() {
-                return Err("Cannot verify selected process identity".into());
-            }
-            let launched: f64 = objc2::msg_send![date, timeIntervalSince1970];
-            Ok(launched)
+            super::super::computer_use_process::ProcessIdentity::read(scope.process_id)
         })
     }
 
     pub fn bind_window(scope: SessionScope) -> Result<FocusTarget, String> {
         FocusTarget::retain(move || {
             super::super::computer_use_capture::validate_visible(&scope)?;
-            let launched = process_launch(&scope)?;
+            let identity = process_identity(&scope)?;
             let geometry = super::super::computer_use_capture::target_geometry(&scope)?;
             approved_window(&scope, &geometry)?;
             let application = app(&scope)?;
             let intended = attr(application.0, "AXFocusedWindow")?;
             Ok(move || {
-                if process_launch(&scope)? != launched {
+                if process_identity(&scope)? != identity {
                     return Err("Selected process identity changed".into());
                 }
                 super::super::computer_use_capture::validate_visible(&scope)?;

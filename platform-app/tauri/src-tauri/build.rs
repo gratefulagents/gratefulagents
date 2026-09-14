@@ -1,6 +1,12 @@
 fn main() {
     println!("cargo:rerun-if-changed=src/computer_use_picker.m");
+    println!("cargo:rerun-if-changed=src/computer_use_process.c");
+    println!("cargo:rerun-if-changed=src/computer_use_process.h");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        cc::Build::new()
+            .file("src/computer_use_process.c")
+            .compile("computer_use_process");
+        println!("cargo:rustc-link-lib=proc");
         let mut native = cc::Build::new();
         native
             .file("src/computer_use_picker.m")
