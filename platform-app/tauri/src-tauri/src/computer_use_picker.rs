@@ -138,20 +138,64 @@ struct DiscoveryDiagnostics {
     bundle_mismatch: u64,
     supervisor_bundle: u64,
     invalid_snapshot: u64,
+    snapshot_rejections: SnapshotRejections,
     non_frontmost: u64,
     eligible: u64,
     cap_uninspected: u64,
 }
 
 #[cfg(any(target_os = "macos", test))]
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SnapshotRejections {
+    invalidated: u64,
+    missing_filter: u64,
+    missing_window: u64,
+    missing_application: u64,
+    terminated_application: u64,
+    missing_live_application: u64,
+    terminated_live_application: u64,
+    process_identity_unavailable: u64,
+    process_identity_changed: u64,
+    bundle_mismatch: u64,
+    cg_inventory_unavailable: u64,
+    cg_window_missing: u64,
+    cg_window_nonzero_layer: u64,
+    cg_window_pid_mismatch: u64,
+    bounds_malformed: u64,
+    bounds_empty: u64,
+    bounds_infinite: u64,
+    bounds_null: u64,
+}
+
+#[cfg(any(target_os = "macos", test))]
 impl DiscoveryDiagnostics {
     fn log(&self) {
+        let s = &self.snapshot_rejections;
         log::info!(
-            "computer use window discovery native: raw={} inspected={} missing_owner={} supervisor_pid={} missing_name={} missing_bundle={} process_identity_unavailable={} bundle_mismatch={} supervisor_bundle={} invalid_snapshot={} non_frontmost={} eligible={} cap_uninspected={}",
+            "computer use window discovery native: raw={} inspected={} missing_owner={} supervisor_pid={} missing_name={} missing_bundle={} process_identity_unavailable={} bundle_mismatch={} supervisor_bundle={} invalid_snapshot={} non_frontmost={} eligible={} cap_uninspected={} snapshot_invalidated={} snapshot_missing_filter={} snapshot_missing_window={} snapshot_missing_application={} snapshot_terminated_application={} snapshot_missing_live_application={} snapshot_terminated_live_application={} snapshot_process_identity_unavailable={} snapshot_process_identity_changed={} snapshot_bundle_mismatch={} snapshot_cg_inventory_unavailable={} snapshot_cg_window_missing={} snapshot_cg_window_nonzero_layer={} snapshot_cg_window_pid_mismatch={} snapshot_bounds_malformed={} snapshot_bounds_empty={} snapshot_bounds_infinite={} snapshot_bounds_null={}",
             self.raw, self.inspected, self.missing_owner, self.supervisor_pid,
             self.missing_name, self.missing_bundle, self.process_identity_unavailable,
             self.bundle_mismatch, self.supervisor_bundle, self.invalid_snapshot,
-            self.non_frontmost, self.eligible, self.cap_uninspected
+            self.non_frontmost, self.eligible, self.cap_uninspected,
+            s.invalidated,
+            s.missing_filter,
+            s.missing_window,
+            s.missing_application,
+            s.terminated_application,
+            s.missing_live_application,
+            s.terminated_live_application,
+            s.process_identity_unavailable,
+            s.process_identity_changed,
+            s.bundle_mismatch,
+            s.cg_inventory_unavailable,
+            s.cg_window_missing,
+            s.cg_window_nonzero_layer,
+            s.cg_window_pid_mismatch,
+            s.bounds_malformed,
+            s.bounds_empty,
+            s.bounds_infinite,
+            s.bounds_null,
         );
     }
 }
@@ -482,14 +526,26 @@ mod tests {
 
     #[test]
     fn discovery_reply_decodes_counts_through_native_callback() {
-        for (eligible, rejected, cap_uninspected) in [
-            (0, [0; 9], 0),
-            (0, [0, 1, 0, 0, 3, 0, 0, 0, 0], 0),
-            (0, [1, 2, 3, 4, 5, 6, 7, 8, 9], 0),
-            (1, [1, 2, 3, 4, 5, 6, 7, 8, 9], 0),
-            (64, [0; 9], 0),
-            (64, [1, 2, 3, 4, 5, 6, 7, 8, 9], 12),
-        ] {
+        let mut cases = vec![
+            (0, [0; 9], 0, [0; 18]),
+            (0, [0, 1, 0, 0, 3, 0, 0, 0, 0], 0, [0; 18]),
+            (0, [1, 2, 3, 4, 5, 6, 7, 0, 9], 0, [1; 18]),
+            (
+                1,
+                [1, 2, 3, 4, 5, 6, 7, 0, 9],
+                0,
+                std::array::from_fn(|i| i as u64 + 1),
+            ),
+            (64, [0; 9], 0, [0; 18]),
+            (64, [1, 2, 3, 4, 5, 6, 7, 0, 9], 12, [1; 18]),
+        ];
+        for reason in 0..18 {
+            let mut snapshot_rejected = [0; 18];
+            snapshot_rejected[reason] = 2;
+            cases.push((0, [0, 1, 0, 0, 0, 0, 0, 0, 0], 0, snapshot_rejected));
+        }
+        for (eligible, mut rejected, cap_uninspected, snapshot_rejected) in cases {
+            rejected[7] = snapshot_rejected.iter().sum();
             let inspected: u64 = eligible + rejected.iter().sum::<u64>();
             let windows: Vec<_> = (0..eligible)
                 .map(|id| {
@@ -508,6 +564,26 @@ mod tests {
                     "missingName": rejected[2], "missingBundle": rejected[3],
                     "processIdentityUnavailable": rejected[4], "bundleMismatch": rejected[5],
                     "supervisorBundle": rejected[6], "invalidSnapshot": rejected[7],
+                    "snapshotRejections": {
+                        "invalidated": snapshot_rejected[0],
+                        "missingFilter": snapshot_rejected[1],
+                        "missingWindow": snapshot_rejected[2],
+                        "missingApplication": snapshot_rejected[3],
+                        "terminatedApplication": snapshot_rejected[4],
+                        "missingLiveApplication": snapshot_rejected[5],
+                        "terminatedLiveApplication": snapshot_rejected[6],
+                        "processIdentityUnavailable": snapshot_rejected[7],
+                        "processIdentityChanged": snapshot_rejected[8],
+                        "bundleMismatch": snapshot_rejected[9],
+                        "cgInventoryUnavailable": snapshot_rejected[10],
+                        "cgWindowMissing": snapshot_rejected[11],
+                        "cgWindowNonzeroLayer": snapshot_rejected[12],
+                        "cgWindowPidMismatch": snapshot_rejected[13],
+                        "boundsMalformed": snapshot_rejected[14],
+                        "boundsEmpty": snapshot_rejected[15],
+                        "boundsInfinite": snapshot_rejected[16],
+                        "boundsNull": snapshot_rejected[17]
+                    },
                     "nonFrontmost": rejected[8], "eligible": eligible,
                     "capUninspected": cap_uninspected
                 }
@@ -533,25 +609,56 @@ mod tests {
                 d.invalid_snapshot,
                 d.non_frontmost,
             ];
+            let snapshot_counts = [
+                d.snapshot_rejections.invalidated,
+                d.snapshot_rejections.missing_filter,
+                d.snapshot_rejections.missing_window,
+                d.snapshot_rejections.missing_application,
+                d.snapshot_rejections.terminated_application,
+                d.snapshot_rejections.missing_live_application,
+                d.snapshot_rejections.terminated_live_application,
+                d.snapshot_rejections.process_identity_unavailable,
+                d.snapshot_rejections.process_identity_changed,
+                d.snapshot_rejections.bundle_mismatch,
+                d.snapshot_rejections.cg_inventory_unavailable,
+                d.snapshot_rejections.cg_window_missing,
+                d.snapshot_rejections.cg_window_nonzero_layer,
+                d.snapshot_rejections.cg_window_pid_mismatch,
+                d.snapshot_rejections.bounds_malformed,
+                d.snapshot_rejections.bounds_empty,
+                d.snapshot_rejections.bounds_infinite,
+                d.snapshot_rejections.bounds_null,
+            ];
+            assert_eq!(snapshot_counts, snapshot_rejected);
+            assert_eq!(snapshot_counts.iter().sum::<u64>(), d.invalid_snapshot);
             assert_eq!(counts, rejected);
             assert_eq!(counts.iter().sum::<u64>() + d.eligible, d.inspected);
             if eligible > 0 {
                 assert_eq!(reply.windows[0].application, "Private app");
                 assert_eq!(reply.windows[0].process_id, 99);
             }
-            for key in value["diagnostics"].as_object().unwrap().keys() {
-                for invalid in [
-                    serde_json::json!(-1),
-                    serde_json::json!("0"),
-                    serde_json::Value::Null,
-                ] {
-                    let mut malformed = value.clone();
-                    malformed["diagnostics"][key] = invalid;
-                    assert!(serde_json::from_value::<AgentWindowsReply>(malformed).is_err());
+            for path in ["/diagnostics", "/diagnostics/snapshotRejections"] {
+                for key in value.pointer(path).unwrap().as_object().unwrap().keys() {
+                    for invalid in [
+                        serde_json::json!(-1),
+                        serde_json::json!(0.5),
+                        serde_json::json!(true),
+                        serde_json::json!("0"),
+                        serde_json::Value::Null,
+                    ] {
+                        let mut malformed = value.clone();
+                        malformed.pointer_mut(path).unwrap()[key] = invalid;
+                        assert!(serde_json::from_value::<AgentWindowsReply>(malformed).is_err());
+                    }
+                    let mut missing = value.clone();
+                    missing
+                        .pointer_mut(path)
+                        .unwrap()
+                        .as_object_mut()
+                        .unwrap()
+                        .remove(key);
+                    assert!(serde_json::from_value::<AgentWindowsReply>(missing).is_err());
                 }
-                let mut missing = value.clone();
-                missing["diagnostics"].as_object_mut().unwrap().remove(key);
-                assert!(serde_json::from_value::<AgentWindowsReply>(missing).is_err());
             }
         }
     }

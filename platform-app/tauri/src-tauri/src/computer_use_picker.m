@@ -32,6 +32,49 @@ static void replyJSON(GAReply reply, void *context, id value) {
 }
 @end
 
+typedef NS_ENUM(NSUInteger, GASnapshotRejection) {
+    GASnapshotInvalidated,
+    GASnapshotMissingFilter,
+    GASnapshotMissingWindow,
+    GASnapshotMissingApplication,
+    GASnapshotTerminatedApplication,
+    GASnapshotMissingLiveApplication,
+    GASnapshotTerminatedLiveApplication,
+    GASnapshotProcessIdentityUnavailable,
+    GASnapshotProcessIdentityChanged,
+    GASnapshotBundleMismatch,
+    GASnapshotCGInventoryUnavailable,
+    GASnapshotCGWindowMissing,
+    GASnapshotCGWindowNonzeroLayer,
+    GASnapshotCGWindowPidMismatch,
+    GASnapshotBoundsMalformed,
+    GASnapshotBoundsEmpty,
+    GASnapshotBoundsInfinite,
+    GASnapshotBoundsNull,
+    GASnapshotRejectionCount
+};
+
+static NSString * const GASnapshotRejectionKeys[GASnapshotRejectionCount] = {
+    [GASnapshotInvalidated] = @"invalidated",
+    [GASnapshotMissingFilter] = @"missingFilter",
+    [GASnapshotMissingWindow] = @"missingWindow",
+    [GASnapshotMissingApplication] = @"missingApplication",
+    [GASnapshotTerminatedApplication] = @"terminatedApplication",
+    [GASnapshotMissingLiveApplication] = @"missingLiveApplication",
+    [GASnapshotTerminatedLiveApplication] = @"terminatedLiveApplication",
+    [GASnapshotProcessIdentityUnavailable] = @"processIdentityUnavailable",
+    [GASnapshotProcessIdentityChanged] = @"processIdentityChanged",
+    [GASnapshotBundleMismatch] = @"bundleMismatch",
+    [GASnapshotCGInventoryUnavailable] = @"cgInventoryUnavailable",
+    [GASnapshotCGWindowMissing] = @"cgWindowMissing",
+    [GASnapshotCGWindowNonzeroLayer] = @"cgWindowNonzeroLayer",
+    [GASnapshotCGWindowPidMismatch] = @"cgWindowPidMismatch",
+    [GASnapshotBoundsMalformed] = @"boundsMalformed",
+    [GASnapshotBoundsEmpty] = @"boundsEmpty",
+    [GASnapshotBoundsInfinite] = @"boundsInfinite",
+    [GASnapshotBoundsNull] = @"boundsNull",
+};
+
 API_AVAILABLE(macos(15.2))
 @interface GAWindowShare : NSObject <SCContentSharingPickerObserver, SCStreamDelegate>
 @property uint64_t token;
@@ -44,6 +87,7 @@ API_AVAILABLE(macos(15.2))
 @property (strong) GACompletion *selection;
 - (void)invalidate;
 - (NSDictionary *)snapshot;
+- (NSDictionary *)snapshotWithRejection:(GASnapshotRejection *)rejection;
 @end
 
 static GAWindowShare *current API_AVAILABLE(macos(15.2));
@@ -69,27 +113,93 @@ static uint64_t agentInventoryRevision;
 }
 
 - (NSDictionary *)snapshot {
-    if (!_valid || !_filter || !_window || !_application || _application.terminated) return nil;
+    return [self snapshotWithRejection:NULL];
+}
+
+- (NSDictionary *)snapshotWithRejection:(GASnapshotRejection *)rejection {
+    if (rejection) *rejection = GASnapshotRejectionCount;
+    if (!_valid) {
+        if (rejection) *rejection = GASnapshotInvalidated;
+        return nil;
+    }
+    if (!_filter) {
+        if (rejection) *rejection = GASnapshotMissingFilter;
+        return nil;
+    }
+    if (!_window) {
+        if (rejection) *rejection = GASnapshotMissingWindow;
+        return nil;
+    }
+    if (!_application) {
+        if (rejection) *rejection = GASnapshotMissingApplication;
+        return nil;
+    }
+    if (_application.terminated) {
+        if (rejection) *rejection = GASnapshotTerminatedApplication;
+        return nil;
+    }
     GAProcessIdentity identity;
     NSRunningApplication *live = [NSRunningApplication runningApplicationWithProcessIdentifier:_application.processIdentifier];
-    if (!live || live.terminated || !ga_process_identity_read(_application.processIdentifier, &identity) ||
-        !ga_process_identity_equal(identity, _processIdentity) ||
-        ![live.bundleIdentifier isEqual:_window.owningApplication.bundleIdentifier]) return nil;
+    if (!live) {
+        if (rejection) *rejection = GASnapshotMissingLiveApplication;
+        return nil;
+    }
+    if (live.terminated) {
+        if (rejection) *rejection = GASnapshotTerminatedLiveApplication;
+        return nil;
+    }
+    if (!ga_process_identity_read(_application.processIdentifier, &identity)) {
+        if (rejection) *rejection = GASnapshotProcessIdentityUnavailable;
+        return nil;
+    }
+    if (!ga_process_identity_equal(identity, _processIdentity)) {
+        if (rejection) *rejection = GASnapshotProcessIdentityChanged;
+        return nil;
+    }
+    if (![live.bundleIdentifier isEqual:_window.owningApplication.bundleIdentifier]) {
+        if (rejection) *rejection = GASnapshotBundleMismatch;
+        return nil;
+    }
     // CG metadata (IDs, PIDs, bounds, order) needs no Screen Recording grant.
     // Never use window titles or images from this list to authorize a target.
     NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID));
+    if (!windows) {
+        if (rejection) *rejection = GASnapshotCGInventoryUnavailable;
+        return nil;
+    }
     NSNumber *first = nil;
     NSDictionary *selected = nil;
+    NSDictionary *target = nil;
     for (NSDictionary *info in windows) {
+        if (rejection && [info[(__bridge NSString *)kCGWindowNumber] unsignedIntValue] == _window.windowID) target = info;
         if ([info[(__bridge NSString *)kCGWindowOwnerPID] intValue] != _application.processIdentifier) continue;
         if ([info[(__bridge NSString *)kCGWindowLayer] intValue] != 0) continue;
         NSNumber *wid = info[(__bridge NSString *)kCGWindowNumber];
         if (!first) first = wid;
         if (wid.unsignedIntValue == _window.windowID) selected = info;
     }
+    if (!selected) {
+        if (rejection) {
+            if (!target) *rejection = GASnapshotCGWindowMissing;
+            else if ([target[(__bridge NSString *)kCGWindowOwnerPID] intValue] != _application.processIdentifier) *rejection = GASnapshotCGWindowPidMismatch;
+            else *rejection = GASnapshotCGWindowNonzeroLayer;
+        }
+        return nil;
+    }
     CGRect bounds;
-    if (!selected || !CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)selected[(__bridge NSString *)kCGWindowBounds], &bounds) ||
-        CGRectIsEmpty(bounds) || CGRectIsInfinite(bounds) || CGRectIsNull(bounds)) return nil;
+    if (!CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)selected[(__bridge NSString *)kCGWindowBounds], &bounds)) {
+        if (rejection) *rejection = GASnapshotBoundsMalformed;
+        return nil;
+    }
+    if (CGRectIsEmpty(bounds) || CGRectIsInfinite(bounds) || CGRectIsNull(bounds)) {
+        if (rejection) {
+            // Null/infinite rectangles may also be empty; keep their diagnostic distinct.
+            if (CGRectIsNull(bounds)) *rejection = GASnapshotBoundsNull;
+            else if (CGRectIsInfinite(bounds)) *rejection = GASnapshotBoundsInfinite;
+            else *rejection = GASnapshotBoundsEmpty;
+        }
+        return nil;
+    }
     pid_t front = NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
     return @{
         @"windowId": @(_window.windowID), @"processId": @(_application.processIdentifier),
@@ -334,6 +444,7 @@ void ga_agent_windows(GAReply reply, void *context) {
                 NSUInteger missingOwner = 0, supervisorPid = 0, missingName = 0, missingBundle = 0;
                 NSUInteger processIdentityUnavailable = 0, bundleMismatch = 0, supervisorBundle = 0;
                 NSUInteger invalidSnapshot = 0, nonFrontmost = 0;
+                NSUInteger snapshotRejections[GASnapshotRejectionCount] = {0};
                 for (SCWindow *window in content.windows) {
                     inspected++;
                     SCRunningApplication *owner = window.owningApplication;
@@ -353,12 +464,17 @@ void ga_agent_windows(GAReply reply, void *context) {
                     share.application = app;
                     share.processIdentity = identity;
                     share.filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:window];
-                    NSDictionary *snapshot = [share snapshot];
-                    if (!snapshot) { invalidSnapshot++; continue; }
+                    GASnapshotRejection rejection;
+                    NSDictionary *snapshot = [share snapshotWithRejection:&rejection];
+                    if (!snapshot) { invalidSnapshot++; snapshotRejections[rejection]++; continue; }
                     if (![snapshot[@"frontmost"] boolValue]) { nonFrontmost++; continue; }
                     inventory[@(window.windowID)] = share;
                     [metadata addObject:snapshot];
                     if (metadata.count == 64) break;
+                }
+                NSMutableDictionary *snapshotDiagnostics = [NSMutableDictionary new];
+                for (NSUInteger reason = 0; reason < GASnapshotRejectionCount; reason++) {
+                    snapshotDiagnostics[GASnapshotRejectionKeys[reason]] = @(snapshotRejections[reason]);
                 }
                 agentWindows = inventory;
                 [completion finish:@{@"windows": metadata, @"diagnostics": @{
@@ -367,6 +483,7 @@ void ga_agent_windows(GAReply reply, void *context) {
                     @"missingName": @(missingName), @"missingBundle": @(missingBundle),
                     @"processIdentityUnavailable": @(processIdentityUnavailable), @"bundleMismatch": @(bundleMismatch),
                     @"supervisorBundle": @(supervisorBundle), @"invalidSnapshot": @(invalidSnapshot),
+                    @"snapshotRejections": snapshotDiagnostics,
                     @"nonFrontmost": @(nonFrontmost), @"eligible": @(metadata.count),
                     @"capUninspected": @(raw - inspected)
                 }}];
