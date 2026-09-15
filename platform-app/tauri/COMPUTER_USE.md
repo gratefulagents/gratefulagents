@@ -18,6 +18,28 @@ The `computer use window discovery native` line goes through the same Rust `log:
 
 The rejection counts plus `eligible` sum to `inspected`; `inspected + cap_uninspected = raw`. Logs do not include window titles, application names, bundle identifiers, target references, or screen content. These diagnostics preserve all eligibility checks. `process_identity_unavailable` means the running application is absent/terminated or its kernel identity cannot be verified; it replaces the former `missing_launch_date` counter.
 
+Snapshot failures also carry a required structured `diagnostics.snapshotRejections` object from native code to Rust. Its camelCase fields are logged on the same line as the following snake_case numeric counters (including zeros):
+
+| Log counter | Snapshot rejection |
+| --- | --- |
+| `snapshot_invalidated` | Retained share is no longer valid. |
+| `snapshot_missing_filter`, `snapshot_missing_window` | Missing sharing filter or ScreenCaptureKit window. |
+| `snapshot_missing_application`, `snapshot_terminated_application` | Retained running application is absent or terminated. |
+| `snapshot_missing_live_application`, `snapshot_terminated_live_application` | Fresh PID-based running-application lookup is absent or terminated. |
+| `snapshot_process_identity_unavailable` | Kernel process-identity lookup failed during the snapshot recheck. |
+| `snapshot_process_identity_changed` | Lookup succeeded but PID/start-time identity differs from the retained identity. |
+| `snapshot_bundle_mismatch` | Fresh running application's bundle does not match the ScreenCaptureKit owner. |
+| `snapshot_cg_inventory_unavailable` | CG window-inventory query returned nil (not an empty inventory). |
+| `snapshot_cg_window_missing` | Target window ID is absent from the on-screen, non-desktop CG inventory. |
+| `snapshot_cg_window_pid_mismatch` | Target CG window exists but its PID differs from the retained application. |
+| `snapshot_cg_window_nonzero_layer` | Target CG window has the expected PID but is not layer zero. |
+| `snapshot_bounds_malformed` | Selected CG bounds could not be decoded as a CGRect. |
+| `snapshot_bounds_empty`, `snapshot_bounds_infinite`, `snapshot_bounds_null` | Decoded CG bounds fail the existing rectangle-validity checks. |
+
+Exactly one snapshot reason is counted per `invalid_snapshot`; the sum of all `snapshot_*` counters equals `invalid_snapshot`. These are a breakdown, **not additional top-level rejections** when reconciling `inspected`. Rejections retain existing predicate order. CG reasons are assigned only when the original PID/layer-filtered selection fails (PID mismatch takes precedence over layer mismatch). For overlapping rectangle predicates, null takes precedence over infinite, then empty, without changing the original rejection condition. Other snapshot callers keep the existing method and do not collect diagnostics. No titles, application names, bundle IDs, geometry, or content are logged by these counters.
+
+For example, `raw=3 supervisor_pid=1 process_identity_unavailable=0 invalid_snapshot=2 non_frontmost=0 eligible=0` now has exactly two counts distributed among the snapshot reasons; it does not by itself establish which check failed. Callback tests cover that accounting for each reason, mixed reasons, zero/eligible/capped inventories, and missing or non-numeric fields. They do not execute AppKit/CG checks; a native Mac retry remains necessary to identify the actual rejection.
+
 Process identity is the exact integer tuple `(PID, start seconds, start microseconds)` from `proc_pidinfo(PROC_PIDTBSDINFO)`, shared by the native picker/discovery/snapshot bridge and Rust input binding via C FFI. `NSRunningApplication.launchDate` is LaunchServices-only and may be nil for otherwise eligible apps; it is not an identity prerequisite. Kernel lookup failures, short responses, mismatched PIDs, exiting processes, and invalid start times fail closed, as do absent running applications. There is no PID-only or floating-point fallback. Bundle matching, visibility, Accessibility identity, and session consent checks remain required.
 
 The agent workflow is `list_windows` → `select_window` with a returned `targetRef` → `observe` → input. Discovery returns at most 32 eligible windows, bounded application/title text, and random session-scoped references—not PIDs or OS window IDs. References are replaced by a fresh listing and retired on selection, pause, or stop. The native implementation retains Accessibility window identity and kernel process start time, rechecks fresh window inventory, and refuses closed, minimized, reused, or changed identities. With the current input engine, eligible targets are the key window of each supported application; other windows in the same application are not advertised as safely addressable targets.
