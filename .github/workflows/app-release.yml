@@ -455,45 +455,45 @@ jobs:
           retryAttempts: 2
 
   android:
-    name: Tauri Android ARM64
+    name: Tauri Android Play bundle
     needs: release
     if: ${{ needs.release.outputs.release_created == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           package_json_file: platform-app/package.json
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: platform-app/pnpm-lock.yaml
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           distribution: temurin
           java-version: 17
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
 
-      - uses: nttld/setup-ndk@v1
+      - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         id: setup-ndk
         with:
           ndk-version: r26d
           link-to-sdk: true
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
         with:
           workspaces: platform-app/tauri/src-tauri -> target
 
@@ -504,7 +504,22 @@ jobs:
       - name: Configure Android release
         env:
           APP_VERSION: ${{ needs.release.outputs.version }}
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
         run: |
+          for name in \
+            ANDROID_UPLOAD_KEYSTORE_BASE64 \
+            ANDROID_UPLOAD_KEYSTORE_PASSWORD \
+            ANDROID_UPLOAD_KEY_ALIAS \
+            ANDROID_UPLOAD_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::${name} is required to sign the Google Play bundle"
+              exit 1
+            fi
+          done
+
           VERSION_CODE="$(git rev-list --count HEAD)"
           if [ "${VERSION_CODE}" -gt 2100000000 ]; then
             echo "::error::Commit count is too large for Android versionCode"
@@ -516,37 +531,67 @@ jobs:
             '{version: $version, bundle: {android: {versionCode: $version_code}}}' \
             > "${RUNNER_TEMP}/tauri-android.conf.json"
 
+          printf '%s' "${ANDROID_UPLOAD_KEYSTORE_BASE64}" \
+            | base64 --decode > "${RUNNER_TEMP}/android-upload-keystore.jks"
+          keytool -list \
+            -keystore "${RUNNER_TEMP}/android-upload-keystore.jks" \
+            -storepass "${ANDROID_UPLOAD_KEYSTORE_PASSWORD}" \
+            -alias "${ANDROID_UPLOAD_KEY_ALIAS}" > /dev/null
+
       - name: Initialize Android project
         working-directory: platform-app/tauri
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: pnpm tauri android init --config "${RUNNER_TEMP}/tauri-android.conf.json" --ci
 
+      - name: Configure Android signing
+        run: |
+          python3 scripts/configure-android-signing.py \
+            platform-app/tauri/src-tauri/gen/android/app/build.gradle.kts
+
       - name: Stamp Android icons
         working-directory: platform-app/tauri
         run: pnpm tauri icon app-icon.png
 
-      - name: Build Android APK
+      - name: Build signed Android App Bundle
         working-directory: platform-app/tauri
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           VITE_APP_VERSION: ${{ needs.release.outputs.version }}
           VITE_BUILD_COMMIT: ${{ needs.release.outputs.release_sha }}
-        run: pnpm tauri android build --debug --apk --target aarch64 --config "${RUNNER_TEMP}/tauri-android.conf.json" --ci
+          ANDROID_UPLOAD_KEYSTORE_PATH: ${{ runner.temp }}/android-upload-keystore.jks
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: pnpm tauri android build --aab --config "${RUNNER_TEMP}/tauri-android.conf.json" --ci
 
-      - name: Upload Android APK
+      - name: Stage Android App Bundle
+        env:
+          TAG_NAME: ${{ needs.release.outputs.tag_name }}
+        run: |
+          AAB="platform-app/tauri/src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab"
+          if [ ! -f "${AAB}" ]; then
+            echo "::error::Android build completed without producing ${AAB}"
+            exit 1
+          fi
+          cp "${AAB}" "gratefulagents-${TAG_NAME}-android.aab"
+
+      - name: Preserve Play bundle for publication
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-play-aab
+          path: gratefulagents-${{ needs.release.outputs.tag_name }}-android.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Android App Bundle to GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ needs.release.outputs.tag_name }}
         run: |
-          APK="$(find platform-app/tauri/src-tauri/gen/android -type f -name '*.apk' -path '*debug*' -print -quit)"
-          if [ -z "${APK}" ]; then
-            echo "::error::Android build completed without producing a debug APK"
-            exit 1
-          fi
-          ASSET="gratefulagents-${TAG_NAME}-android-arm64-debug.apk"
-          cp "${APK}" "${ASSET}"
-          gh release upload "${TAG_NAME}" "${ASSET}" --repo "${GITHUB_REPOSITORY}" --clobber
+          gh release upload "${TAG_NAME}" \
+            "gratefulagents-${TAG_NAME}-android.aab" \
+            --repo "${GITHUB_REPOSITORY}" --clobber
 
   ios:
     name: Tauri iOS ARM64
@@ -777,6 +822,43 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ needs.release.outputs.tag_name }}
         run: gh release edit "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest
+
+  google-play:
+    name: Publish Google Play release
+    needs:
+      - release
+      - android
+      - publish-release
+    if: ${{ needs.release.outputs.release_created == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Download signed Android App Bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-play-aab
+          path: android-play-aab
+
+      - name: Validate Google Play credentials
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" ]; then
+            echo "::error::GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is required to publish to Google Play"
+            exit 1
+          fi
+          printf '%s' "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON}" \
+            | jq -e '.type == "service_account" and (.client_email | length > 0)' > /dev/null
+
+      - name: Publish to Google Play
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: dev.gratefulagents.app
+          releaseFiles: android-play-aab/*.aab
+          tracks: ${{ vars.GOOGLE_PLAY_TRACK || 'internal' }}
+          status: completed
+          releaseName: ${{ needs.release.outputs.tag_name }}
 
   cleanup-release:
     name: Remove failed draft release
