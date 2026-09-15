@@ -552,6 +552,50 @@ func (r *GitHubRepositoryReconciler) failAndReleaseMaintainerDispatch(ctx contex
 	return r.failMaintainerWorkItemCommand(ctx, command, item, message)
 }
 
+// releaseMaintainerDispatchReservationForClosedItem returns a work item's
+// concurrency slot when the item reaches a terminal NotActionable closure,
+// regardless of which command reserved it. Without this, a dispatched-then-
+// closed item holds a capacity slot until the unmaterialized-reservation TTL
+// even though no implementer will ever bind to it. The daily ledger count is
+// intentionally not refunded: the dispatch budget was genuinely spent.
+func (r *GitHubRepositoryReconciler) releaseMaintainerDispatchReservationForClosedItem(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, item *triggersv1alpha1.MaintainerWorkItem) error {
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		fresh := &triggersv1alpha1.GitHubRepository{}
+		if err := r.maintainerReader().Get(ctx, client.ObjectKeyFromObject(repository), fresh); err != nil {
+			return err
+		}
+		raw := fresh.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation]
+		if raw == "" {
+			return nil
+		}
+		ledger := maintainerRepositoryDispatchLedger{}
+		if err := json.Unmarshal([]byte(raw), &ledger); err != nil {
+			return err
+		}
+		if _, ok := ledger.Reservations[item.Name]; !ok {
+			return nil
+		}
+		delete(ledger.Reservations, item.Name)
+		encoded, err := json.Marshal(ledger)
+		if err != nil {
+			return err
+		}
+		patch := client.MergeFromWithOptions(fresh.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		fresh.Annotations[triggersv1alpha1.MaintainerDispatchReservationsAnnotation] = string(encoded)
+		return r.Patch(ctx, fresh, patch)
+	}); err != nil {
+		return err
+	}
+	return r.retryMaintainerWorkItemStatusMutation(ctx, client.ObjectKeyFromObject(item), func(fresh *triggersv1alpha1.MaintainerWorkItem) (bool, error) {
+		if fresh.Status.DispatchReservation == nil {
+			return false, nil
+		}
+		fresh.Status.DispatchReservation = nil
+		fresh.Status.ProjectionSequence++
+		return true, nil
+	})
+}
+
 func (r *GitHubRepositoryReconciler) releaseMaintainerDispatch(ctx context.Context, repository *triggersv1alpha1.GitHubRepository, command *triggersv1alpha1.MaintainerWorkItemCommand, item *triggersv1alpha1.MaintainerWorkItem) error {
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		fresh := &triggersv1alpha1.GitHubRepository{}
@@ -666,12 +710,13 @@ const maintainerDispatchReservationTTL = 24 * time.Hour
 
 // pruneMaintainerDispatchReservations removes ledger entries that can no
 // longer legitimately hold capacity: entries whose work item was deleted,
-// entries whose bound run already finished, and unmaterialized entries older
-// than the TTL with no correlated active run. Without this, orphaned entries
-// count against the concurrency cap forever. The entry for protect (the work
-// item currently being reserved) is never pruned so an in-flight dispatch
-// cannot lose its own reservation.
-func pruneMaintainerDispatchReservations(ledger *maintainerRepositoryDispatchLedger, protect string, workItemUIDs map[string]string, materialized, activeItems map[string]bool, now time.Time) bool {
+// entries whose work item was closed as NotActionable, entries whose bound
+// run already finished, and unmaterialized entries older than the TTL with no
+// correlated active run. Without this, orphaned entries count against the
+// concurrency cap forever. The entry for protect (the work item currently
+// being reserved) is never pruned so an in-flight dispatch cannot lose its
+// own reservation.
+func pruneMaintainerDispatchReservations(ledger *maintainerRepositoryDispatchLedger, protect string, workItemUIDs map[string]string, materialized, activeItems, notActionable map[string]bool, now time.Time) bool {
 	pruned := false
 	for name, reservation := range ledger.Reservations {
 		if name == protect {
@@ -680,6 +725,9 @@ func pruneMaintainerDispatchReservations(ledger *maintainerRepositoryDispatchLed
 		switch {
 		case workItemUIDs[name] == "":
 			// The work item no longer exists; its reservation is unreleasable.
+		case notActionable[name] && !activeItems[name]:
+			// The work item was closed as NotActionable; no implementer will
+			// ever materialize this reservation.
 		case materialized[name] && !activeItems[name]:
 			// The reservation was bound to a run that is now terminal or gone.
 		case !materialized[name] && !activeItems[name] && now.Sub(reservation.ReservedAt.Time) > maintainerDispatchReservationTTL:
@@ -717,9 +765,11 @@ func (r *GitHubRepositoryReconciler) reserveMaintainerDispatch(ctx context.Conte
 		return err
 	}
 	materialized := map[string]bool{}
+	notActionable := map[string]bool{}
 	workItemUIDs := map[string]string{}
 	for i := range items.Items {
 		materialized[items.Items[i].Name] = items.Items[i].Status.DispatchReservation != nil && items.Items[i].Status.DispatchReservation.AgentRunRef != nil
+		notActionable[items.Items[i].Name] = items.Items[i].Spec.Disposition == triggersv1alpha1.MaintainerWorkItemDispositionNotActionable
 		workItemUIDs[items.Items[i].Name] = string(items.Items[i].UID)
 	}
 	runs := &platformv1alpha1.AgentRunList{}
@@ -787,7 +837,7 @@ func (r *GitHubRepositoryReconciler) reserveMaintainerDispatch(ctx context.Conte
 		if ledger.Reservations == nil {
 			ledger.Reservations = map[string]maintainerRepositoryReservation{}
 		}
-		pruned := pruneMaintainerDispatchReservations(&ledger, item.Name, workItemUIDs, materialized, activeItems, now)
+		pruned := pruneMaintainerDispatchReservations(&ledger, item.Name, workItemUIDs, materialized, activeItems, notActionable, now)
 		persist := func() error {
 			encoded, err := json.Marshal(ledger)
 			if err != nil {

@@ -51,6 +51,12 @@ func (r *LinearProjectReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if lp.Spec.Suspend {
+		// A suspended Linear trigger keeps its processed-issue state but does
+		// not poll or create runs until it is resumed.
+		return ctrl.Result{}, nil
+	}
+
 	apiKey, err := ReadSecretValue(ctx, r.Client, lp.Namespace, lp.Spec.LinearAPIKeySecret, "api-key")
 	if err != nil {
 		_ = retryLinearProjectStatusUpdate(ctx, r.Client, client.ObjectKeyFromObject(lp), func(fresh *triggersv1alpha1.LinearProject) {

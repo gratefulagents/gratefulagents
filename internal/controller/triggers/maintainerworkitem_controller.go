@@ -671,6 +671,12 @@ func (r *GitHubRepositoryReconciler) processMaintainerWorkItemCommand(ctx contex
 	if err := r.markMaintainerWorkItemClosed(ctx, client.ObjectKeyFromObject(item)); err != nil {
 		return err
 	}
+	// A NotActionable closure is terminal: return any capacity slot the item
+	// still holds so a dispatched-then-closed item cannot count against the
+	// concurrency cap forever.
+	if err := r.releaseMaintainerDispatchReservationForClosedItem(ctx, repository, item); err != nil {
+		return err
+	}
 	return r.completeMaintainerWorkItemCommand(ctx, command, item, "issue triaged and closed", commentURL, state)
 }
 

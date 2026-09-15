@@ -18,6 +18,9 @@ spec:
     - jsonPath: .spec.projectId
       name: Project
       type: string
+    - jsonPath: .spec.suspend
+      name: Suspended
+      type: boolean
     - jsonPath: .status.issuesProcessed
       name: Processed
       type: integer
@@ -471,6 +474,12 @@ spec:
                 description: projectId is the Linear project ID to watch.
                 minLength: 1
                 type: string
+              suspend:
+                description: |-
+                  suspend pauses Linear polling and run creation while preserving the
+                  resource and its processed-issue state. Project triggers set this when
+                  they are disabled so re-enabling resumes without a destructive teardown.
+                type: boolean
               teamId:
                 description: teamId is the Linear team ID used for label lookups.
                 minLength: 1
