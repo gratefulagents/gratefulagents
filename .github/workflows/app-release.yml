@@ -482,6 +482,9 @@ jobs:
           java-version: 17
 
       - uses: android-actions/setup-android@v3
+        with:
+          # The default includes the obsolete SDK 'tools' package.
+          packages: platform-tools
 
       - uses: nttld/setup-ndk@v1
         id: setup-ndk
