@@ -61,6 +61,7 @@ pub struct Snapshot {
     pub geometry: WindowGeometry,
     #[cfg(target_os = "macos")]
     #[serde(deserialize_with = "lenient_bool")]
+    // True only when the exact CG target is its application's AX focused window.
     pub frontmost: bool,
     #[cfg(any(target_os = "macos", test))]
     #[serde(deserialize_with = "lenient_bool")]
@@ -160,7 +161,7 @@ struct SnapshotRejections {
     bundle_mismatch: u64,
     cg_inventory_unavailable: u64,
     cg_window_missing: u64,
-    cg_window_nonzero_layer: u64,
+    ax_window_identity_unavailable: u64,
     cg_window_pid_mismatch: u64,
     bounds_malformed: u64,
     bounds_empty: u64,
@@ -173,7 +174,7 @@ impl DiscoveryDiagnostics {
     fn log(&self) {
         let s = &self.snapshot_rejections;
         log::info!(
-            "computer use window discovery native: raw={} inspected={} missing_owner={} supervisor_pid={} missing_name={} missing_bundle={} process_identity_unavailable={} bundle_mismatch={} supervisor_bundle={} invalid_snapshot={} non_frontmost={} eligible={} cap_uninspected={} snapshot_invalidated={} snapshot_missing_filter={} snapshot_missing_window={} snapshot_missing_application={} snapshot_terminated_application={} snapshot_missing_live_application={} snapshot_terminated_live_application={} snapshot_process_identity_unavailable={} snapshot_process_identity_changed={} snapshot_bundle_mismatch={} snapshot_cg_inventory_unavailable={} snapshot_cg_window_missing={} snapshot_cg_window_nonzero_layer={} snapshot_cg_window_pid_mismatch={} snapshot_bounds_malformed={} snapshot_bounds_empty={} snapshot_bounds_infinite={} snapshot_bounds_null={}",
+            "computer use window discovery native: raw={} inspected={} missing_owner={} supervisor_pid={} missing_name={} missing_bundle={} process_identity_unavailable={} bundle_mismatch={} supervisor_bundle={} invalid_snapshot={} non_frontmost={} eligible={} cap_uninspected={} snapshot_invalidated={} snapshot_missing_filter={} snapshot_missing_window={} snapshot_missing_application={} snapshot_terminated_application={} snapshot_missing_live_application={} snapshot_terminated_live_application={} snapshot_process_identity_unavailable={} snapshot_process_identity_changed={} snapshot_bundle_mismatch={} snapshot_cg_inventory_unavailable={} snapshot_cg_window_missing={} snapshot_ax_window_identity_unavailable={} snapshot_cg_window_pid_mismatch={} snapshot_bounds_malformed={} snapshot_bounds_empty={} snapshot_bounds_infinite={} snapshot_bounds_null={}",
             self.raw, self.inspected, self.missing_owner, self.supervisor_pid,
             self.missing_name, self.missing_bundle, self.process_identity_unavailable,
             self.bundle_mismatch, self.supervisor_bundle, self.invalid_snapshot,
@@ -190,7 +191,7 @@ impl DiscoveryDiagnostics {
             s.bundle_mismatch,
             s.cg_inventory_unavailable,
             s.cg_window_missing,
-            s.cg_window_nonzero_layer,
+            s.ax_window_identity_unavailable,
             s.cg_window_pid_mismatch,
             s.bounds_malformed,
             s.bounds_empty,
@@ -525,6 +526,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_snapshot_uses_shared_ax_eligibility_without_a_layer_gate() {
+        // The portable C fixtures exercise identity/focus decisions. Guard the
+        // Objective-C call site too: filtering by layer before that helper would
+        // silently reject focused floating windows despite those tests passing.
+        let source = include_str!("computer_use_picker.m");
+        let snapshot = source
+            .split("- (NSDictionary *)snapshotWithRejection:(GASnapshotRejection *)rejection {")
+            .nth(1)
+            .unwrap()
+            .split("- (void)contentSharingPicker:")
+            .next()
+            .unwrap();
+        assert!(!snapshot.contains("kCGWindowLayer"));
+        assert!(snapshot.contains(
+            "ga_ax_window_eligibility(_application.processIdentifier, _window.windowID, bounds)"
+        ));
+        assert!(snapshot.contains("if (eligibility == GAWindowIdentityUnavailable)"));
+        assert!(snapshot
+            .contains("@\"frontmost\": (eligibility == GAWindowFocused) ? @YES : @NO"));
+    }
+
+    #[test]
     fn discovery_reply_decodes_counts_through_native_callback() {
         let mut cases = vec![
             (0, [0; 9], 0, [0; 18]),
@@ -577,7 +600,7 @@ mod tests {
                         "bundleMismatch": snapshot_rejected[9],
                         "cgInventoryUnavailable": snapshot_rejected[10],
                         "cgWindowMissing": snapshot_rejected[11],
-                        "cgWindowNonzeroLayer": snapshot_rejected[12],
+                        "axWindowIdentityUnavailable": snapshot_rejected[12],
                         "cgWindowPidMismatch": snapshot_rejected[13],
                         "boundsMalformed": snapshot_rejected[14],
                         "boundsEmpty": snapshot_rejected[15],
@@ -622,7 +645,7 @@ mod tests {
                 d.snapshot_rejections.bundle_mismatch,
                 d.snapshot_rejections.cg_inventory_unavailable,
                 d.snapshot_rejections.cg_window_missing,
-                d.snapshot_rejections.cg_window_nonzero_layer,
+                d.snapshot_rejections.ax_window_identity_unavailable,
                 d.snapshot_rejections.cg_window_pid_mismatch,
                 d.snapshot_rejections.bounds_malformed,
                 d.snapshot_rejections.bounds_empty,

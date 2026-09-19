@@ -2,11 +2,15 @@ fn main() {
     println!("cargo:rerun-if-changed=src/computer_use_picker.m");
     println!("cargo:rerun-if-changed=src/computer_use_process.c");
     println!("cargo:rerun-if-changed=src/computer_use_process.h");
+    println!("cargo:rerun-if-changed=src/computer_use_window.c");
+    println!("cargo:rerun-if-changed=src/computer_use_window.h");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         cc::Build::new()
             .file("src/computer_use_process.c")
+            .file("src/computer_use_window.c")
             .compile("computer_use_process");
         println!("cargo:rustc-link-lib=proc");
+        println!("cargo:rustc-link-lib=framework=ApplicationServices");
         let mut native = cc::Build::new();
         native
             .file("src/computer_use_picker.m")
