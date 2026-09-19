@@ -804,23 +804,14 @@ pub mod macos {
             super::super::computer_use_capture::validate_visible(&scope)?;
             let identity = process_identity(&scope)?;
             let geometry = super::super::computer_use_capture::target_geometry(&scope)?;
-            approved_window(&scope, &geometry)?;
-            let application = app(&scope)?;
-            let intended = attr(application.0, "AXFocusedWindow")?;
-            if !window_matches(intended.0, &scope, &geometry) {
-                return Err("Selected window identity changed; select again".into());
-            }
+            let intended = copy_window(&scope, &geometry, ptr::null())?;
             Ok(move || {
                 if process_identity(&scope)? != identity {
                     return Err("Selected process identity changed".into());
                 }
                 super::super::computer_use_capture::validate_visible(&scope)?;
                 let geometry = super::super::computer_use_capture::target_geometry(&scope)?;
-                approved_window(&scope, &geometry)?;
-                let current = attr(application.0, "AXFocusedWindow")?;
-                if !intended.same(&current) || !window_matches(intended.0, &scope, &geometry) {
-                    return Err("Selected window identity changed; select again".into());
-                }
+                copy_window(&scope, &geometry, intended.0)?;
                 Ok(())
             })
         })
@@ -890,6 +881,40 @@ pub mod macos {
     }
     extern "C" {
         fn ga_ax_window_matches(window: Ref, pid: i32, window_id: u32, bounds: Rect) -> bool;
+        fn ga_ax_window_copy(
+            pid: i32,
+            window_id: u32,
+            bounds: Rect,
+            retained: Ref,
+            eligibility: *mut i32,
+        ) -> Ref;
+    }
+    fn window_bounds(geometry: &WindowGeometry) -> Rect {
+        Rect {
+            origin: Point {
+                x: f64::from(geometry.x),
+                y: f64::from(geometry.y),
+            },
+            size: Size {
+                width: f64::from(geometry.width),
+                height: f64::from(geometry.height),
+            },
+        }
+    }
+    fn copy_window(
+        scope: &SessionScope,
+        geometry: &WindowGeometry,
+        retained: Ref,
+    ) -> Result<Owned, String> {
+        Owned::new(unsafe {
+            ga_ax_window_copy(
+                scope.process_id as i32,
+                scope.window_id,
+                window_bounds(geometry),
+                retained,
+                ptr::null_mut(),
+            )
+        })
     }
     fn window_matches(window: Ref, scope: &SessionScope, geometry: &WindowGeometry) -> bool {
         unsafe {
@@ -897,16 +922,7 @@ pub mod macos {
                 window,
                 scope.process_id as i32,
                 scope.window_id,
-                Rect {
-                    origin: Point {
-                        x: f64::from(geometry.x),
-                        y: f64::from(geometry.y),
-                    },
-                    size: Size {
-                        width: f64::from(geometry.width),
-                        height: f64::from(geometry.height),
-                    },
-                },
+                window_bounds(geometry),
             )
         }
     }

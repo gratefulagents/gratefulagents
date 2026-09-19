@@ -11,6 +11,6 @@ typedef enum {
 } GAWindowEligibility;
 
 bool ga_ax_window_matches(AXUIElementRef window, pid_t pid, CGWindowID window_id, CGRect bounds);
-GAWindowEligibility ga_ax_window_eligibility(pid_t pid, CGWindowID window_id, CGRect bounds);
+AXUIElementRef ga_ax_window_copy(pid_t pid, CGWindowID window_id, CGRect bounds, AXUIElementRef retained, GAWindowEligibility *eligibility);
 
 #endif

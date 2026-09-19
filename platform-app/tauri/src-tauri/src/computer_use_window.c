@@ -52,26 +52,27 @@ bool ga_ax_window_matches(AXUIElementRef window, pid_t pid, CGWindowID window_id
     return matches;
 }
 
-GAWindowEligibility ga_ax_window_eligibility(pid_t pid, CGWindowID window_id, CGRect bounds) {
+AXUIElementRef ga_ax_window_copy(pid_t pid, CGWindowID window_id, CGRect bounds, AXUIElementRef retained, GAWindowEligibility *eligibility) {
+    if (eligibility) *eligibility = GAWindowIdentityUnavailable;
     AXUIElementRef app = AXUIElementCreateApplication(pid);
-    if (!app) return GAWindowIdentityUnavailable;
+    if (!app) return NULL;
     if (AXUIElementSetMessagingTimeout(app, 0.2f) != kAXErrorSuccess) {
         CFRelease(app);
-        return GAWindowIdentityUnavailable;
+        return NULL;
     }
     CFTypeRef focused = attribute(app, kAXFocusedWindowAttribute);
-    GAWindowEligibility result = GAWindowIdentityUnavailable;
+    AXUIElementRef result = NULL;
     if (ga_ax_window_matches((AXUIElementRef)focused, pid, window_id, bounds)) {
-        result = GAWindowFocused;
+        result = (AXUIElementRef)CFRetain(focused);
+        if (eligibility) *eligibility = GAWindowFocused;
     } else {
-        // Unfocused real AX windows remain available for window-only capture,
-        // but are never eligible for discovery or approved input.
         CFTypeRef windows = attribute(app, kAXWindowsAttribute);
         if (windows && CFGetTypeID(windows) == CFArrayGetTypeID()) {
             for (CFIndex i = 0; i < CFArrayGetCount(windows); i++) {
                 AXUIElementRef window = (AXUIElementRef)CFArrayGetValueAtIndex(windows, i);
                 if (ga_ax_window_matches(window, pid, window_id, bounds)) {
-                    result = GAWindowUnfocused;
+                    result = (AXUIElementRef)CFRetain(window);
+                    if (eligibility) *eligibility = GAWindowUnfocused;
                     break;
                 }
             }
@@ -80,5 +81,11 @@ GAWindowEligibility ga_ax_window_eligibility(pid_t pid, CGWindowID window_id, CG
     }
     if (focused) CFRelease(focused);
     CFRelease(app);
+    if (result && retained && (!CFEqual(retained, result) ||
+        !ga_ax_window_matches(retained, pid, window_id, bounds))) {
+        CFRelease(result);
+        result = NULL;
+        if (eligibility) *eligibility = GAWindowIdentityUnavailable;
+    }
     return result;
 }

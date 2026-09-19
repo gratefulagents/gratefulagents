@@ -77,7 +77,9 @@ static NSString * const GASnapshotRejectionKeys[GASnapshotRejectionCount] = {
 };
 
 API_AVAILABLE(macos(15.2))
-@interface GAWindowShare : NSObject <SCContentSharingPickerObserver, SCStreamDelegate>
+@interface GAWindowShare : NSObject <SCContentSharingPickerObserver, SCStreamDelegate> {
+    AXUIElementRef _axWindow;
+}
 @property uint64_t token;
 @property BOOL valid;
 @property (strong) SCContentFilter *filter;
@@ -96,8 +98,14 @@ static NSDictionary<NSNumber *, GAWindowShare *> *agentWindows API_AVAILABLE(mac
 static uint64_t agentInventoryRevision;
 
 @implementation GAWindowShare
+- (void)dealloc {
+    if (_axWindow) CFRelease(_axWindow);
+}
+
 - (void)invalidate {
     _valid = NO;
+    if (_axWindow) CFRelease(_axWindow);
+    _axWindow = NULL;
     _filter = nil;
     _window = nil;
     _application = nil;
@@ -197,11 +205,15 @@ static uint64_t agentInventoryRevision;
         }
         return nil;
     }
-    GAWindowEligibility eligibility = ga_ax_window_eligibility(_application.processIdentifier, _window.windowID, bounds);
-    if (eligibility == GAWindowIdentityUnavailable) {
+    GAWindowEligibility eligibility;
+    AXUIElementRef window = ga_ax_window_copy(_application.processIdentifier, _window.windowID, bounds, _axWindow, &eligibility);
+    if (!window) {
         if (rejection) *rejection = GASnapshotAXWindowIdentityUnavailable;
         return nil;
     }
+    // Bind once: focus changes must not replace the consented AX identity.
+    if (!_axWindow) _axWindow = window;
+    else CFRelease(window);
     pid_t front = NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
     return @{
         @"windowId": @(_window.windowID), @"processId": @(_application.processIdentifier),
@@ -469,7 +481,7 @@ void ga_agent_windows(GAReply reply, void *context) {
                     GASnapshotRejection rejection;
                     NSDictionary *snapshot = [share snapshotWithRejection:&rejection];
                     if (!snapshot) { invalidSnapshot++; snapshotRejections[rejection]++; continue; }
-                    if (![snapshot[@"frontmost"] boolValue]) { nonFrontmost++; continue; }
+                    if (![snapshot[@"frontmost"] boolValue]) nonFrontmost++;
                     inventory[@(window.windowID)] = share;
                     [metadata addObject:snapshot];
                     if (metadata.count == 64) break;

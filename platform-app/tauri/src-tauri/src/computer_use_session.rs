@@ -1354,6 +1354,80 @@ mod tests {
     }
 
     #[test]
+    fn unfocused_selection_and_observation_keep_identity_but_input_remains_focus_bound() {
+        use std::sync::atomic::AtomicUsize;
+        let now = Instant::now();
+        let scope = agent_scope();
+        let mut p = SessionPolicy::default();
+        p.start("s".into(), scope.clone(), now).unwrap();
+        let reference = "a".repeat(64);
+        let live_identity = Arc::new(AtomicUsize::new(7));
+        let focused_window = Arc::new(AtomicUsize::new(8));
+        let live = live_identity.clone();
+        let mut target = candidate(&reference);
+        target.identity = Arc::new(
+            FocusTarget::retain(move || {
+                Ok(move || {
+                    if live.load(Ordering::SeqCst) == 7 {
+                        Ok(())
+                    } else {
+                        Err("Window replaced".into())
+                    }
+                })
+            })
+            .unwrap(),
+        );
+        let identity = target.identity.clone();
+        p.session
+            .as_mut()
+            .unwrap()
+            .candidates
+            .insert(reference.clone(), target);
+        p.select_target("s", &scope, &reference, now, |target| {
+            target.identity.verify()
+        })
+        .unwrap();
+        for focused in [8, 7, 9] {
+            focused_window.store(focused, Ordering::SeqCst);
+            identity.verify().unwrap();
+            let mut observe = request(&format!("observe-{focused}"));
+            observe.target_revision = 1;
+            let id = observe.request_id.clone();
+            p.queue("s", &scope, observe, now).unwrap();
+            p.arm("s", &scope, &id, "permit".into(), now).unwrap();
+            p.consume("s", &scope, &id, "permit", now).unwrap();
+            p.record_frame(
+                "s",
+                &scope,
+                p.revision,
+                frame(&format!("frame-{focused}"), now),
+                now,
+            )
+            .unwrap();
+            p.session.as_mut().unwrap().running = None;
+            let focus = focused_window.clone();
+            let input = FocusTarget::retain(move || {
+                if focus.load(Ordering::SeqCst) != 7 {
+                    return Err("Wrong focused window".into());
+                }
+                Ok(move || {
+                    if focus.load(Ordering::SeqCst) == 7 {
+                        Ok(())
+                    } else {
+                        Err("Focus changed".into())
+                    }
+                })
+            });
+            assert_eq!(input.is_ok(), focused == 7);
+            assert_eq!(p.status(now).target_revision, 1);
+        }
+        live_identity.store(8, Ordering::SeqCst);
+        assert!(identity.verify().is_err());
+        live_identity.store(7, Ordering::SeqCst);
+        assert!(identity.verify().is_err());
+    }
+
+    #[test]
     fn selection_rejects_restricted_expired_paused_or_reused_identity() {
         let now = Instant::now();
         let mut restricted = policy(now);

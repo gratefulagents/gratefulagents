@@ -27,6 +27,7 @@ extern CFStringRef kAXFocusedWindowAttribute, kAXWindowsAttribute, kAXWindowRole
 
 CFTypeID CFGetTypeID(CFTypeRef value);
 bool CFEqual(CFTypeRef a, CFTypeRef b);
+CFTypeRef CFRetain(CFTypeRef value);
 void CFRelease(CFTypeRef value);
 CFTypeID CFArrayGetTypeID(void);
 CFIndex CFArrayGetCount(CFArrayRef array);
