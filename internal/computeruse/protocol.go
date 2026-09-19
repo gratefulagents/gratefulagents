@@ -82,13 +82,24 @@ func visibleText(s string) bool {
 }
 
 type WindowTarget struct {
-	Ref         string `json:"ref"`
-	Application string `json:"application"`
-	Title       string `json:"title"`
+	Ref          string             `json:"ref"`
+	Application  string             `json:"application"`
+	Title        string             `json:"title"`
+	OnScreen     *bool              `json:"onScreen"`
+	Capabilities WindowCapabilities `json:"capabilities"`
+}
+
+type WindowCapabilities struct {
+	Selectable bool   `json:"selectable"`
+	Observable bool   `json:"observable"`
+	Input      bool   `json:"input"`
+	Reason     string `json:"reason"`
 }
 
 func (w WindowTarget) Validate() error {
-	if !targetReference.MatchString(w.Ref) || w.Application == "" || len(w.Application) > 256 || len(w.Title) > 512 {
+	if len(w.Capabilities.Reason) == 0 || len(w.Capabilities.Reason) > 512 ||
+		w.Capabilities.Observable != w.Capabilities.Selectable || (w.Capabilities.Input && (!w.Capabilities.Selectable || w.OnScreen == nil || !*w.OnScreen)) ||
+		!targetReference.MatchString(w.Ref) || w.Application == "" || len(w.Application) > 256 || len(w.Title) > 512 {
 		return ErrRejected
 	}
 	return nil
@@ -441,7 +452,7 @@ func (e Exchange) Validate() error {
 }
 
 func (o Outcome) Validate() error {
-	if len(o.Windows) > 32 || (o.Status != "completed" && (o.Target != nil || len(o.Windows) != 0)) {
+	if o.Status != "completed" && (o.Target != nil || len(o.Windows) != 0) {
 		return ErrRejected
 	}
 	seen := map[string]bool{}

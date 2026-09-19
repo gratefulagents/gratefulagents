@@ -2,7 +2,10 @@ package computeruse
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
+	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -248,7 +251,7 @@ func TestWindowDiscoveryWireBounds(t *testing.T) {
 			t.Fatalf("accepted malformed target action: %+v", a)
 		}
 	}
-	target := WindowTarget{Ref: ref, Application: "Test", Title: "Title"}
+	target := WindowTarget{Ref: ref, Application: "Test", Title: "Title", Capabilities: WindowCapabilities{Selectable: true, Observable: true, Reason: "Capture can be attempted"}}
 	good := Outcome{Status: "completed", Windows: []WindowTarget{target}}
 	if good.Validate() != nil {
 		t.Fatal("valid metadata rejected")
@@ -263,5 +266,59 @@ func TestWindowDiscoveryWireBounds(t *testing.T) {
 	}
 	if (Response{Mode: "unknown"}).Validate() == nil {
 		t.Fatal("unknown mode accepted")
+	}
+}
+
+func TestBroadWindowCapabilities(t *testing.T) {
+	data, err := os.ReadFile("testdata/window-discovery.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reply struct {
+		Windows        []WindowTarget `json:"windows"`
+		Target         *WindowTarget  `json:"target"`
+		TargetRevision uint64         `json:"targetRevision"`
+		Guidance       string         `json:"guidance"`
+	}
+	if err := json.Unmarshal(data, &reply); err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range reply.Windows {
+		if err := w.Validate(); err != nil {
+			t.Fatalf("%s: %v", w.Title, err)
+		}
+	}
+	encoded, err := json.Marshal(reply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before, after any
+	json.Unmarshal(data, &before)
+	json.Unmarshal(encoded, &after)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("discovery capabilities lost in typed relay")
+	}
+	windows := make([]WindowTarget, 100)
+	for i := range windows {
+		windows[i] = reply.Windows[i%len(reply.Windows)]
+		windows[i].Ref = fmt.Sprintf("%064x", i)
+	}
+	if err := (Outcome{Status: "completed", Windows: windows}).Validate(); err != nil {
+		t.Fatal("broad inventory rejected:", err)
+	}
+	w := reply.Windows[4]
+	w.Capabilities.Input = true
+	if w.Validate() == nil {
+		t.Fatal("unavailable window advertised as input eligible")
+	}
+	w = reply.Windows[3]
+	w.Capabilities.Input = true
+	if w.Validate() == nil {
+		t.Fatal("off-screen input advertised")
+	}
+	w = reply.Windows[0]
+	w.Capabilities.Reason = ""
+	if w.Validate() == nil {
+		t.Fatal("missing availability reason")
 	}
 }

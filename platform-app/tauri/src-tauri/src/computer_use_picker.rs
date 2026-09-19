@@ -66,6 +66,9 @@ pub struct Snapshot {
     #[cfg(any(target_os = "macos", test))]
     #[serde(deserialize_with = "lenient_bool")]
     pub focus_allowed: bool,
+    #[cfg(any(target_os = "macos", test))]
+    #[serde(default, deserialize_with = "lenient_bool")]
+    pub input_available: bool,
 }
 
 /// Accepts JSON `true`/`false` and also `1`/`0`. Objective-C boxes comparison
@@ -120,8 +123,20 @@ pub fn target(scope: &SessionScope) -> Result<Snapshot, String> {
 
 #[cfg(any(target_os = "macos", test))]
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveredWindow {
+    pub window_id: u32,
+    pub process_id: u32,
+    pub application: String,
+    pub title: String,
+    pub on_screen: Option<bool>,
+    pub capabilities: super::computer_use_session::WindowCapabilities,
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(serde::Deserialize)]
 struct AgentWindowsReply {
-    windows: Vec<Snapshot>,
+    windows: Vec<DiscoveredWindow>,
     diagnostics: DiscoveryDiagnostics,
 }
 
@@ -201,7 +216,8 @@ impl DiscoveryDiagnostics {
     }
 }
 
-pub fn agent_windows() -> Result<Vec<WindowTarget>, String> {
+#[cfg(any(target_os = "macos", test))]
+pub fn agent_windows() -> Result<Vec<DiscoveredWindow>, String> {
     super::computer_use::require_agent_permission()?;
     #[cfg(target_os = "macos")]
     {
@@ -209,17 +225,7 @@ pub fn agent_windows() -> Result<Vec<WindowTarget>, String> {
             native::request(|reply, context| unsafe { native::ga_agent_windows(reply, context) })?;
         let reply: AgentWindowsReply = serde_json::from_value(value).map_err(|e| e.to_string())?;
         reply.diagnostics.log();
-        Ok(reply
-            .windows
-            .into_iter()
-            .map(|s| WindowTarget {
-                selection_id: String::new(),
-                window_id: s.window_id,
-                process_id: s.process_id,
-                application: s.application,
-                title: s.title,
-            })
-            .collect())
+        Ok(reply.windows)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -526,6 +532,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn broad_discovery_never_uses_visibility_or_ax_as_admission() {
+        let source = include_str!("computer_use_picker.m");
+        let discovery = source
+            .split("void ga_agent_windows(")
+            .nth(1)
+            .unwrap()
+            .split("char *ga_agent_window_snapshot")
+            .next()
+            .unwrap();
+        assert!(discovery
+            .contains("getShareableContentExcludingDesktopWindows:NO onScreenWindowsOnly:NO"));
+        assert!(discovery.contains("CGWindowListCopyWindowInfo(kCGWindowListOptionAll"));
+        assert!(!source.contains("kCGWindowListOptionOnScreenOnly"));
+        assert!(!source.contains("kCGWindowListExcludeDesktopElements"));
+        assert!(discovery.contains("pid == getpid()"));
+        assert!(discovery
+            .contains("owner.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier"));
+        assert!(discovery.contains("if (!snapshot) {\n                        snapshot ="));
+        assert!(discovery.contains("for (NSDictionary *cg in cgWindows)"));
+        assert!(!discovery.contains("metadata.count =="));
+        for forbidden in ["activate", "unminimize", "AXRaise", "setValue"] {
+            assert!(!discovery.contains(forbidden));
+        }
+        let input = include_str!("computer_use_input.rs");
+        assert!(input.contains("super::super::computer_use_capture::validate_input(scope)?;"));
+    }
+
+    #[test]
+    fn unavailable_discovery_metadata_needs_no_live_snapshot_geometry() {
+        for on_screen in [
+            serde_json::json!(true),
+            serde_json::json!(false),
+            serde_json::Value::Null,
+        ] {
+            let raw = serde_json::json!({"windowId": 10, "processId": 0, "application": "Window Server", "title": "System surface", "onScreen": on_screen, "capabilities": {"selectable": false, "observable": false, "input": false, "reason": "AX identity unavailable"}});
+            let window: DiscoveredWindow = serde_json::from_value(raw.clone()).unwrap();
+            assert!(!window.capabilities.selectable);
+            assert_eq!(window.window_id, 10);
+            assert_eq!(window.process_id, 0);
+            assert_eq!(window.application, "Window Server");
+            assert_eq!(window.title, "System surface");
+            assert_eq!(window.on_screen, on_screen.as_bool());
+            assert!(serde_json::from_value::<Snapshot>(raw).is_err());
+        }
+    }
+
+    #[test]
     fn native_snapshot_uses_shared_ax_eligibility_without_a_layer_gate() {
         // The portable C fixtures exercise identity/focus decisions. Guard the
         // Objective-C call site too: filtering by layer before that helper would
@@ -602,6 +655,7 @@ mod tests {
                     serde_json::json!({
                         "windowId": id, "processId": 99, "application": "Private app",
                         "title": "Private title", "frontmost": id >= non_frontmost, "focusAllowed": false,
+                        "onScreen": true, "capabilities": {"selectable": true, "observable": true, "input": id >= non_frontmost, "reason": "Live checks required"},
                         "geometry": {"x": 0, "y": 0, "width": 10, "height": 10}
                     })
                 })
@@ -647,7 +701,11 @@ mod tests {
             assert_eq!(d.eligible, eligible);
             assert_eq!(d.non_frontmost, non_frontmost);
             assert_eq!(
-                reply.windows.iter().filter(|w| !w.frontmost).count() as u64,
+                reply
+                    .windows
+                    .iter()
+                    .filter(|w| !w.capabilities.input)
+                    .count() as u64,
                 non_frontmost
             );
             assert_eq!(d.inspected, inspected);
@@ -739,6 +797,7 @@ mod tests {
             let snapshot: Snapshot = serde_json::from_str(raw).expect(raw);
             assert_eq!(snapshot.focus_allowed, expected.1);
             assert_eq!(snapshot.frontmost, expected.0);
+            assert!(!snapshot.input_available);
         }
         let rejected = r#"{"windowId":1,"processId":2,"application":"A","title":"t","geometry":{"x":0,"y":0,"width":10,"height":10},"frontmost":true,"focusAllowed":2}"#;
         assert!(serde_json::from_str::<Snapshot>(rejected).is_err());

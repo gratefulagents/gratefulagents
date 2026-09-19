@@ -2,6 +2,7 @@ package computeruse
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"time"
 
@@ -225,7 +226,7 @@ func (b *Broker) Exchange(e Exchange) (Response, error) {
 					}
 				case "select_window":
 					w, ok := b.windows[p.request.Action.TargetRef]
-					if !ok || o.Target == nil || *o.Target != w {
+					if !ok || o.Target == nil || !w.Capabilities.Selectable || !reflect.DeepEqual(*o.Target, w) {
 						return Response{}, ErrRejected
 					}
 					b.target = o.Target

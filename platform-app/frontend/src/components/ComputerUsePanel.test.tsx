@@ -154,14 +154,14 @@ describe("run-bound desktop preview", () => {
   });
 
   it.each([false, true])("selects an approved target and rejects stale delivery: stale=%s", async (stale) => {
-    const chosen = { ref: "a".repeat(64), application: "Test application", title: "Harmless test document" };
+    const chosen = { ref: "a".repeat(64), application: "Test application", title: "Harmless test document", onScreen: false, capabilities: { selectable: true, observable: true, input: false, reason: "Not on screen; capture can be attempted" } };
     remotePending = { requestId: "listing", targetRevision: 0, action: { kind: "list_windows" } };
     m.start.mockImplementation(async (scope: DesktopScope) => {
       native = { revision: 0, targetRevision: 0, target: null, phase: "active", sessionId: "session-1", scope, reason: "" };
       return native;
     });
     m.approve.mockImplementation(async (_id: string, _scope: DesktopScope, requestId: string) => {
-      if (requestId === "listing") return { requestId, status: "completed", message: "Listed", windows: [chosen] };
+      if (requestId === "listing") return { requestId, status: "completed", message: "Listed", windows: [chosen, { ...chosen, ref: "b".repeat(64), application: "Window Server", title: "System surface", onScreen: null, capabilities: { selectable: false, observable: false, input: false, reason: "AX identity unavailable" } }] };
       native = { ...native, target: chosen, targetRevision: stale ? 2 : 1, revision: stale ? 2 : 1 };
       return { requestId, status: "completed", message: "Selected", target: chosen, targetRevision: 1 };
     });
@@ -173,6 +173,10 @@ describe("run-bound desktop preview", () => {
     fireEvent.click(await screen.findByRole("checkbox", { name: /I reviewed/ }));
     fireEvent.click(screen.getByRole("button", { name: "Allow for this session" }));
     await waitFor(() => expect(m.relay.mock.calls.some((call) => call[2] === "resolve" && call[3] === "listing")).toBe(true));
+    expect(screen.getByLabelText("Discovered windows").textContent).toContain("Not on screen");
+    expect(screen.getByLabelText("Discovered windows").textContent).toContain("Input unavailable");
+    expect(screen.getByLabelText("Discovered windows").textContent).toContain("AX identity unavailable");
+    expect(screen.getByLabelText("Discovered windows").textContent).toContain("Visibility unknown");
     remotePending = { requestId: "selecting", targetRevision: 0, action: { kind: "select_window", targetRef: chosen.ref } };
     await screen.findByText(/Switch target to Test application/, {}, { timeout: 3000 });
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
