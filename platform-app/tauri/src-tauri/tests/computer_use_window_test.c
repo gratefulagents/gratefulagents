@@ -36,6 +36,7 @@ static CGRect bounds = {{10, 20}, {300, 200}};
 
 CFTypeID CFGetTypeID(CFTypeRef value) { return *(const CFTypeID *)value; }
 bool CFEqual(CFTypeRef a, CFTypeRef b) { return a == b; }
+CFTypeRef CFRetain(CFTypeRef value) { assert(value); return value; }
 void CFRelease(CFTypeRef value) { assert(value); }
 CFTypeID CFArrayGetTypeID(void) { return ArrayType; }
 CFIndex CFArrayGetCount(CFArrayRef array) { return ((const Array *)array)->count; }
@@ -95,8 +96,60 @@ static void reset(void) {
     missing_app = missing_focus = missing_windows = false;
 }
 static void expect(GAWindowEligibility expected) {
-    assert(ga_ax_window_eligibility(42, 7, bounds) == expected);
+    GAWindowEligibility eligibility;
+    AXUIElementRef window = ga_ax_window_copy(42, 7, bounds, NULL, &eligibility);
+    assert(eligibility == expected);
+    assert((window != NULL) == (expected != GAWindowIdentityUnavailable));
+    if (window) {
+        assert(CFEqual(window, &target));
+        CFRelease(window);
+    }
     tests++;
+}
+static void retained_identity(void) {
+    reset();
+    focused = &overlay;
+    GAWindowEligibility eligibility;
+    AXUIElementRef retained = ga_ax_window_copy(42, 7, bounds, NULL, &eligibility);
+    assert(retained == &target && eligibility == GAWindowUnfocused);
+    for (unsigned i = 0; i < 3; i++) {
+        focused = i == 0 ? &target : i == 1 ? &overlay : NULL;
+        AXUIElementRef current = ga_ax_window_copy(42, 7, bounds, retained, &eligibility);
+        assert(current && CFEqual(current, retained));
+        assert(eligibility == (i == 0 ? GAWindowFocused : GAWindowUnfocused));
+        // Input still checks the AXFocusedWindow, not the discovery result.
+        assert(ga_ax_window_matches(focused, 42, 7, bounds) == (i == 0));
+        CFRelease(current);
+    }
+    target.position.x++;
+    CGRect moved = bounds;
+    moved.origin.x++;
+    AXUIElementRef current = ga_ax_window_copy(42, 7, moved, retained, NULL);
+    assert(current && CFEqual(current, retained));
+    CFRelease(current);
+    target.position.x--;
+    windows.values[1] = &overlay;
+    assert(!ga_ax_window_copy(42, 7, bounds, retained, &eligibility));
+    assert(eligibility == GAWindowIdentityUnavailable);
+    // Even a replacement with the same CG ID, PID and bounds is not the retained AX window.
+    Window replacement = target;
+    windows.values[1] = &replacement;
+    for (unsigned i = 0; i < 2; i++) {
+        focused = i == 0 ? &replacement : &overlay;
+        assert(!ga_ax_window_copy(42, 7, bounds, retained, &eligibility));
+        assert(eligibility == GAWindowIdentityUnavailable);
+    }
+    windows.values[1] = &target;
+    target.id_error = true;
+    assert(!ga_ax_window_copy(42, 7, bounds, retained, NULL));
+    target.id_error = false;
+    target.pid++;
+    assert(!ga_ax_window_copy(42, 7, bounds, retained, NULL));
+    target.pid--;
+    target.id++;
+    assert(!ga_ax_window_copy(42, 7, bounds, retained, NULL));
+    CFRelease(retained);
+    puts("unfocused binding, focus-independent observation, moved/closed/reused identity and input focus gate: passed");
 }
 int main(int argc, char **argv) {
     reset();
@@ -106,6 +159,8 @@ int main(int argc, char **argv) {
         puts("missing AX window-ID symbol fails closed: passed");
         return 0;
     }
+    retained_identity();
+    reset();
     // CG layer is deliberately not an authorization input. A focused floating
     // window uses the same exact-ID contract as an ordinary layer-zero window.
     expect(GAWindowFocused);
@@ -163,7 +218,7 @@ int main(int argc, char **argv) {
     expect(GAWindowIdentityUnavailable);
     reset();
     missing_focus = true;
-    expect(GAWindowUnfocused); // Capture-only, never input/discovery eligible.
+    expect(GAWindowUnfocused); // Discovery/capture eligible, but not input eligible.
     missing_windows = true;
     expect(GAWindowIdentityUnavailable);
     reset();

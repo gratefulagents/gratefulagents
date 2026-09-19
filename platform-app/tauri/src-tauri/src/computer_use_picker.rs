@@ -59,7 +59,7 @@ pub struct Snapshot {
     pub title: String,
     #[cfg(target_os = "macos")]
     pub geometry: WindowGeometry,
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", test))]
     #[serde(deserialize_with = "lenient_bool")]
     // True only when the exact CG target is its application's AX focused window.
     pub frontmost: bool,
@@ -540,41 +540,68 @@ mod tests {
             .unwrap();
         assert!(!snapshot.contains("kCGWindowLayer"));
         assert!(snapshot.contains(
-            "ga_ax_window_eligibility(_application.processIdentifier, _window.windowID, bounds)"
+            "ga_ax_window_copy(_application.processIdentifier, _window.windowID, bounds, _axWindow, &eligibility)"
         ));
-        assert!(snapshot.contains("if (eligibility == GAWindowIdentityUnavailable)"));
-        assert!(snapshot
-            .contains("@\"frontmost\": (eligibility == GAWindowFocused) ? @YES : @NO"));
+        assert!(snapshot.contains("if (!window)"));
+        assert!(snapshot.contains("if (!_axWindow) _axWindow = window;"));
+        assert!(source.contains("if (![snapshot[@\"frontmost\"] boolValue]) nonFrontmost++;"));
+        assert!(!source.contains("{ nonFrontmost++; continue; }"));
+        let input = include_str!("computer_use_input.rs");
+        let binding = input
+            .split("pub fn bind_window(")
+            .nth(1)
+            .unwrap()
+            .split("pub fn bind_focus(")
+            .next()
+            .unwrap();
+        assert!(!binding.contains("AXFocusedWindow"));
+        assert!(!binding.contains("approved_window("));
+        assert!(binding.contains("copy_window(&scope, &geometry, intended.0)?"));
+        assert!(binding.contains("process_identity(&scope)? != identity"));
+        let approved = input
+            .split("fn approved_window(")
+            .nth(1)
+            .unwrap()
+            .split("fn foreground(")
+            .next()
+            .unwrap();
+        assert!(approved.contains("attr(app(scope)?.0, \"AXFocusedWindow\")?"));
+        assert!(approved.contains("!window_matches(focused_window.0, scope, geometry)"));
+        assert!(approved.contains("available_target(scope)?.frontmost"));
+        assert!(input.contains("approved_window(scope, &geometry)?;"));
+        assert!(snapshot.contains("@\"frontmost\": (eligibility == GAWindowFocused) ? @YES : @NO"));
     }
 
     #[test]
     fn discovery_reply_decodes_counts_through_native_callback() {
         let mut cases = vec![
-            (0, [0; 9], 0, [0; 18]),
-            (0, [0, 1, 0, 0, 3, 0, 0, 0, 0], 0, [0; 18]),
-            (0, [1, 2, 3, 4, 5, 6, 7, 0, 9], 0, [1; 18]),
+            (0, [0; 8], 0, 0, [0; 18]),
+            (0, [0, 1, 0, 0, 3, 0, 0, 0], 0, 0, [0; 18]),
+            (0, [1, 2, 3, 4, 5, 6, 7, 0], 0, 0, [1; 18]),
+            (2, [0, 1, 0, 0, 0, 0, 0, 0], 2, 0, [0; 18]),
             (
                 1,
-                [1, 2, 3, 4, 5, 6, 7, 0, 9],
+                [1, 2, 3, 4, 5, 6, 7, 0],
+                1,
                 0,
                 std::array::from_fn(|i| i as u64 + 1),
             ),
-            (64, [0; 9], 0, [0; 18]),
-            (64, [1, 2, 3, 4, 5, 6, 7, 0, 9], 12, [1; 18]),
+            (64, [0; 8], 32, 0, [0; 18]),
+            (64, [1, 2, 3, 4, 5, 6, 7, 0], 9, 12, [1; 18]),
         ];
         for reason in 0..18 {
             let mut snapshot_rejected = [0; 18];
             snapshot_rejected[reason] = 2;
-            cases.push((0, [0, 1, 0, 0, 0, 0, 0, 0, 0], 0, snapshot_rejected));
+            cases.push((0, [0, 1, 0, 0, 0, 0, 0, 0], 0, 0, snapshot_rejected));
         }
-        for (eligible, mut rejected, cap_uninspected, snapshot_rejected) in cases {
+        for (eligible, mut rejected, non_frontmost, cap_uninspected, snapshot_rejected) in cases {
             rejected[7] = snapshot_rejected.iter().sum();
             let inspected: u64 = eligible + rejected.iter().sum::<u64>();
             let windows: Vec<_> = (0..eligible)
                 .map(|id| {
                     serde_json::json!({
                         "windowId": id, "processId": 99, "application": "Private app",
-                        "title": "Private title", "frontmost": true, "focusAllowed": false,
+                        "title": "Private title", "frontmost": id >= non_frontmost, "focusAllowed": false,
                         "geometry": {"x": 0, "y": 0, "width": 10, "height": 10}
                     })
                 })
@@ -607,7 +634,7 @@ mod tests {
                         "boundsInfinite": snapshot_rejected[16],
                         "boundsNull": snapshot_rejected[17]
                     },
-                    "nonFrontmost": rejected[8], "eligible": eligible,
+                    "nonFrontmost": non_frontmost, "eligible": eligible,
                     "capUninspected": cap_uninspected
                 }
             });
@@ -618,6 +645,11 @@ mod tests {
             d.log();
             assert_eq!(reply.windows.len() as u64, eligible);
             assert_eq!(d.eligible, eligible);
+            assert_eq!(d.non_frontmost, non_frontmost);
+            assert_eq!(
+                reply.windows.iter().filter(|w| !w.frontmost).count() as u64,
+                non_frontmost
+            );
             assert_eq!(d.inspected, inspected);
             assert_eq!(d.cap_uninspected, cap_uninspected);
             assert_eq!(d.raw, d.inspected + d.cap_uninspected);
@@ -630,7 +662,6 @@ mod tests {
                 d.bundle_mismatch,
                 d.supervisor_bundle,
                 d.invalid_snapshot,
-                d.non_frontmost,
             ];
             let snapshot_counts = [
                 d.snapshot_rejections.invalidated,
@@ -707,10 +738,7 @@ mod tests {
         ] {
             let snapshot: Snapshot = serde_json::from_str(raw).expect(raw);
             assert_eq!(snapshot.focus_allowed, expected.1);
-            #[cfg(target_os = "macos")]
             assert_eq!(snapshot.frontmost, expected.0);
-            #[cfg(not(target_os = "macos"))]
-            let _ = expected.0;
         }
         let rejected = r#"{"windowId":1,"processId":2,"application":"A","title":"t","geometry":{"x":0,"y":0,"width":10,"height":10},"frontmost":true,"focusAllowed":2}"#;
         assert!(serde_json::from_str::<Snapshot>(rejected).is_err());
