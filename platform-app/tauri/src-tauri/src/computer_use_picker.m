@@ -2,6 +2,7 @@
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <ImageIO/ImageIO.h>
 #include "computer_use_process.h"
+#include "computer_use_window.h"
 
 #include <stdint.h>
 #include <unistd.h>
@@ -45,7 +46,7 @@ typedef NS_ENUM(NSUInteger, GASnapshotRejection) {
     GASnapshotBundleMismatch,
     GASnapshotCGInventoryUnavailable,
     GASnapshotCGWindowMissing,
-    GASnapshotCGWindowNonzeroLayer,
+    GASnapshotAXWindowIdentityUnavailable,
     GASnapshotCGWindowPidMismatch,
     GASnapshotBoundsMalformed,
     GASnapshotBoundsEmpty,
@@ -67,7 +68,7 @@ static NSString * const GASnapshotRejectionKeys[GASnapshotRejectionCount] = {
     [GASnapshotBundleMismatch] = @"bundleMismatch",
     [GASnapshotCGInventoryUnavailable] = @"cgInventoryUnavailable",
     [GASnapshotCGWindowMissing] = @"cgWindowMissing",
-    [GASnapshotCGWindowNonzeroLayer] = @"cgWindowNonzeroLayer",
+    [GASnapshotAXWindowIdentityUnavailable] = @"axWindowIdentityUnavailable",
     [GASnapshotCGWindowPidMismatch] = @"cgWindowPidMismatch",
     [GASnapshotBoundsMalformed] = @"boundsMalformed",
     [GASnapshotBoundsEmpty] = @"boundsEmpty",
@@ -167,23 +168,19 @@ static uint64_t agentInventoryRevision;
         if (rejection) *rejection = GASnapshotCGInventoryUnavailable;
         return nil;
     }
-    NSNumber *first = nil;
     NSDictionary *selected = nil;
-    NSDictionary *target = nil;
     for (NSDictionary *info in windows) {
-        if (rejection && [info[(__bridge NSString *)kCGWindowNumber] unsignedIntValue] == _window.windowID) target = info;
-        if ([info[(__bridge NSString *)kCGWindowOwnerPID] intValue] != _application.processIdentifier) continue;
-        if ([info[(__bridge NSString *)kCGWindowLayer] intValue] != 0) continue;
-        NSNumber *wid = info[(__bridge NSString *)kCGWindowNumber];
-        if (!first) first = wid;
-        if (wid.unsignedIntValue == _window.windowID) selected = info;
+        if ([info[(__bridge NSString *)kCGWindowNumber] unsignedIntValue] == _window.windowID) {
+            selected = info;
+            break;
+        }
     }
     if (!selected) {
-        if (rejection) {
-            if (!target) *rejection = GASnapshotCGWindowMissing;
-            else if ([target[(__bridge NSString *)kCGWindowOwnerPID] intValue] != _application.processIdentifier) *rejection = GASnapshotCGWindowPidMismatch;
-            else *rejection = GASnapshotCGWindowNonzeroLayer;
-        }
+        if (rejection) *rejection = GASnapshotCGWindowMissing;
+        return nil;
+    }
+    if ([selected[(__bridge NSString *)kCGWindowOwnerPID] intValue] != _application.processIdentifier) {
+        if (rejection) *rejection = GASnapshotCGWindowPidMismatch;
         return nil;
     }
     CGRect bounds;
@@ -200,6 +197,11 @@ static uint64_t agentInventoryRevision;
         }
         return nil;
     }
+    GAWindowEligibility eligibility = ga_ax_window_eligibility(_application.processIdentifier, _window.windowID, bounds);
+    if (eligibility == GAWindowIdentityUnavailable) {
+        if (rejection) *rejection = GASnapshotAXWindowIdentityUnavailable;
+        return nil;
+    }
     pid_t front = NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
     return @{
         @"windowId": @(_window.windowID), @"processId": @(_application.processIdentifier),
@@ -207,7 +209,7 @@ static uint64_t agentInventoryRevision;
         // Comparisons have type int in Objective-C, so @(a == b) would box an
         // integer (serialized as 1/0) rather than a JSON boolean; the Rust
         // Snapshot decoder expects true/false.
-        @"title": _window.title ?: @"", @"frontmost": (first.unsignedIntValue == _window.windowID) ? @YES : @NO,
+        @"title": _window.title ?: @"", @"frontmost": (eligibility == GAWindowFocused) ? @YES : @NO,
         @"focusAllowed": (front == _application.processIdentifier || front == getpid()) ? @YES : @NO,
         @"geometry": @{@"x": @((int32_t)bounds.origin.x), @"y": @((int32_t)bounds.origin.y),
                         @"width": @((uint32_t)bounds.size.width), @"height": @((uint32_t)bounds.size.height)}

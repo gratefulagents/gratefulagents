@@ -660,7 +660,6 @@ pub mod macos {
         fn AXUIElementCopyElementAtPosition(element: Ref, x: f32, y: f32, value: *mut Ref) -> i32;
         fn AXUIElementGetPid(element: Ref, pid: *mut i32) -> i32;
         fn AXUIElementSetMessagingTimeout(element: Ref, timeout: f32) -> i32;
-        fn AXValueGetValue(value: Ref, kind: u32, result: *mut c_void) -> bool;
     }
     #[link(name = "Carbon", kind = "framework")]
     extern "C" {
@@ -808,6 +807,9 @@ pub mod macos {
             approved_window(&scope, &geometry)?;
             let application = app(&scope)?;
             let intended = attr(application.0, "AXFocusedWindow")?;
+            if !window_matches(intended.0, &scope, &geometry) {
+                return Err("Selected window identity changed; select again".into());
+            }
             Ok(move || {
                 if process_identity(&scope)? != identity {
                     return Err("Selected process identity changed".into());
@@ -816,7 +818,7 @@ pub mod macos {
                 let geometry = super::super::computer_use_capture::target_geometry(&scope)?;
                 approved_window(&scope, &geometry)?;
                 let current = attr(application.0, "AXFocusedWindow")?;
-                if !intended.same(&current) || !window_geometry_matches(intended.0, &geometry) {
+                if !intended.same(&current) || !window_matches(intended.0, &scope, &geometry) {
                     return Err("Selected window identity changed; select again".into());
                 }
                 Ok(())
@@ -886,33 +888,37 @@ pub mod macos {
         result.sort_by_key(|d| d.id);
         Ok(result)
     }
-    fn window_geometry_matches(window: Ref, geometry: &WindowGeometry) -> bool {
-        let (Ok(position), Ok(size)) = (attr(window, "AXPosition"), attr(window, "AXSize")) else {
-            return false;
-        };
-        let mut point = Point::default();
-        let mut dims = Size::default();
-        let decoded = unsafe { AXValueGetValue(position.0, 1, (&mut point as *mut Point).cast()) }
-            && unsafe { AXValueGetValue(size.0, 2, (&mut dims as *mut Size).cast()) };
-        decoded
-            && point.x == f64::from(geometry.x)
-            && point.y == f64::from(geometry.y)
-            && dims.width == f64::from(geometry.width)
-            && dims.height == f64::from(geometry.height)
+    extern "C" {
+        fn ga_ax_window_matches(window: Ref, pid: i32, window_id: u32, bounds: Rect) -> bool;
     }
-    /// The approved window must be its application's focused window and the
-    /// application's frontmost CG window. This holds whether or not the
-    /// application itself is active, so background delivery stays bound to
-    /// the reviewed window.
+    fn window_matches(window: Ref, scope: &SessionScope, geometry: &WindowGeometry) -> bool {
+        unsafe {
+            ga_ax_window_matches(
+                window,
+                scope.process_id as i32,
+                scope.window_id,
+                Rect {
+                    origin: Point {
+                        x: f64::from(geometry.x),
+                        y: f64::from(geometry.y),
+                    },
+                    size: Size {
+                        width: f64::from(geometry.width),
+                        height: f64::from(geometry.height),
+                    },
+                },
+            )
+        }
+    }
+    /// The exact approved CG window must be its application's AX focused window,
+    /// whether or not the application itself is active.
     fn approved_window(scope: &SessionScope, geometry: &WindowGeometry) -> Result<(), String> {
         let focused_window = attr(app(scope)?.0, "AXFocusedWindow")?;
-        if !window_geometry_matches(focused_window.0, geometry) {
-            return Err("Focused window geometry differs from the approved window".into());
+        if !window_matches(focused_window.0, scope, geometry) {
+            return Err("Focused AX window identity differs from the approved window".into());
         }
-        // AX has no public window-ID accessor; require the approved ID to be
-        // the process's frontmost window as well as matching AX geometry.
         if !super::super::computer_use_capture::available_target(scope)?.frontmost {
-            return Err("Approved window is not the frontmost application window".into());
+            return Err("Approved window is not the focused application window".into());
         }
         Ok(())
     }
@@ -950,19 +956,13 @@ pub mod macos {
             return Err("Cannot verify pointer destination inside the approved application".into());
         }
         let mut hit = Owned::new(hit)?;
-        let focused = attr(application.0, "AXFocusedWindow").ok();
         let mut pid = 0;
         if unsafe { AXUIElementGetPid(hit.0, &mut pid) } != 0 || pid as u32 != scope.process_id {
             return Err("Pointer destination is outside the approved process".into());
         }
         for _ in 0..16 {
             non_password(hit.0)?;
-            if focused
-                .as_ref()
-                .is_some_and(|window| unsafe { CFEqual(hit.0, window.0) })
-                || (attr(hit.0, "AXRole").is_ok_and(|role| equals(role.0, "AXWindow"))
-                    && window_geometry_matches(hit.0, geometry))
-            {
+            if window_matches(hit.0, scope, geometry) {
                 return Ok(());
             }
             hit = attr(hit.0, "AXParent")?;
