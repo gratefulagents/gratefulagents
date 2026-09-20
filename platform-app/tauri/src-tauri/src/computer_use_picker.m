@@ -171,7 +171,7 @@ static uint64_t agentInventoryRevision;
     }
     // CG metadata (IDs, PIDs, bounds, order) needs no Screen Recording grant.
     // Never use window titles or images from this list to authorize a target.
-    NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID));
+    NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID));
     if (!windows) {
         if (rejection) *rejection = GASnapshotCGInventoryUnavailable;
         return nil;
@@ -214,6 +214,7 @@ static uint64_t agentInventoryRevision;
     // Bind once: focus changes must not replace the consented AX identity.
     if (!_axWindow) _axWindow = window;
     else CFRelease(window);
+    BOOL onScreen = [selected[(__bridge NSString *)kCGWindowIsOnscreen] boolValue];
     pid_t front = NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
     return @{
         @"windowId": @(_window.windowID), @"processId": @(_application.processIdentifier),
@@ -221,6 +222,10 @@ static uint64_t agentInventoryRevision;
         // Comparisons have type int in Objective-C, so @(a == b) would box an
         // integer (serialized as 1/0) rather than a JSON boolean; the Rust
         // Snapshot decoder expects true/false.
+        @"onScreen": selected[(__bridge NSString *)kCGWindowIsOnscreen] ? (onScreen ? @YES : @NO) : NSNull.null,
+        @"inputAvailable": onScreen ? @YES : @NO,
+        @"capabilities": @{@"selectable": @YES, @"observable": @YES, @"input": onScreen ? @YES : @NO,
+            @"reason": onScreen ? @"Capture can be attempted; input requires fresh identity, frame, permission, approval and action-specific focus checks" : @"Not on screen; capture can be attempted, but input is unavailable. Listing does not restore windows or change Spaces"},
         @"title": _window.title ?: @"", @"frontmost": (eligibility == GAWindowFocused) ? @YES : @NO,
         @"focusAllowed": (front == _application.processIdentifier || front == getpid()) ? @YES : @NO,
         @"geometry": @{@"x": @((int32_t)bounds.origin.x), @"y": @((int32_t)bounds.origin.y),
@@ -446,7 +451,7 @@ void ga_agent_windows(GAReply reply, void *context) {
         }
         __block uint64_t revision;
         @synchronized(GAWindowShare.class) { revision = ++agentInventoryRevision; }
-        [SCShareableContent getShareableContentExcludingDesktopWindows:YES onScreenWindowsOnly:YES completionHandler:^(SCShareableContent *content, NSError *error) {
+        [SCShareableContent getShareableContentExcludingDesktopWindows:NO onScreenWindowsOnly:NO completionHandler:^(SCShareableContent *content, NSError *error) {
             @synchronized(GAWindowShare.class) {
                 if (error || !content || revision != agentInventoryRevision || !CGPreflightScreenCaptureAccess()) {
                     [completion finish:@{@"error": @"Window discovery failed or was revoked"}];
@@ -459,32 +464,78 @@ void ga_agent_windows(GAReply reply, void *context) {
                 NSUInteger processIdentityUnavailable = 0, bundleMismatch = 0, supervisorBundle = 0;
                 NSUInteger invalidSnapshot = 0, nonFrontmost = 0;
                 NSUInteger snapshotRejections[GASnapshotRejectionCount] = {0};
+                NSArray *cgWindows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID));
+                if (!cgWindows) {
+                    [completion finish:@{@"error": @"Core Graphics window inventory unavailable; cannot safely exclude supervisor controls"}];
+                    return;
+                }
+                NSMutableDictionary *cgByID = [NSMutableDictionary new];
+                for (NSDictionary *info in cgWindows) cgByID[info[(__bridge NSString *)kCGWindowNumber]] = info;
+                NSMutableSet *seen = [NSMutableSet new];
                 for (SCWindow *window in content.windows) {
+                    [seen addObject:@(window.windowID)];
                     inspected++;
                     SCRunningApplication *owner = window.owningApplication;
-                    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:owner.processID];
-                    // Count only the first rejection, preserving predicate order and nil messaging.
-                    if (!owner) { missingOwner++; continue; }
-                    if (owner.processID == getpid()) { supervisorPid++; continue; }
-                    if (!owner.applicationName.length) { missingName++; continue; }
-                    if (!owner.bundleIdentifier.length) { missingBundle++; continue; }
+                    NSDictionary *cg = cgByID[@(window.windowID)];
+                    NSNumber *ownerPID = cg[(__bridge NSString *)kCGWindowOwnerPID] ?: (owner ? @(owner.processID) : nil);
+                    pid_t pid = ownerPID.intValue;
+                    // Unknown ownership cannot reliably exclude the supervisor's consent controls.
+                    if (!ownerPID || pid < 0) { missingOwner++; continue; }
+                    if (pid == getpid() || (owner && owner.processID == getpid())) { supervisorPid++; continue; }
+                    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+                    if ([owner.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier] ||
+                        [app.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier]) { supervisorBundle++; continue; }
+                    NSString *reason = nil;
                     GAProcessIdentity identity;
-                    if (!app || app.terminated || !ga_process_identity_read(owner.processID, &identity)) { processIdentityUnavailable++; continue; }
-                    if (![app.bundleIdentifier isEqual:owner.bundleIdentifier]) { bundleMismatch++; continue; }
-                    if ([owner.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier]) { supervisorBundle++; continue; }
-                    GAWindowShare *share = [GAWindowShare new];
-                    share.valid = YES;
-                    share.window = window;
-                    share.application = app;
-                    share.processIdentity = identity;
-                    share.filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:window];
-                    GASnapshotRejection rejection;
-                    NSDictionary *snapshot = [share snapshotWithRejection:&rejection];
-                    if (!snapshot) { invalidSnapshot++; snapshotRejections[rejection]++; continue; }
-                    if (![snapshot[@"frontmost"] boolValue]) nonFrontmost++;
-                    inventory[@(window.windowID)] = share;
+                    if (!owner || owner.processID != pid) { missingOwner++; reason = @"Window owner identity unavailable"; }
+                    else if (!owner.applicationName.length) { missingName++; reason = @"Application name unavailable"; }
+                    else if (!owner.bundleIdentifier.length) { missingBundle++; reason = @"Application bundle identity unavailable"; }
+                    else if (!app || app.terminated || !ga_process_identity_read(pid, &identity)) { processIdentityUnavailable++; reason = @"Live process identity unavailable"; }
+                    else if (![app.bundleIdentifier isEqual:owner.bundleIdentifier]) { bundleMismatch++; reason = @"Application bundle identity changed"; }
+                    NSDictionary *snapshot = nil;
+                    if (!reason) {
+                        GAWindowShare *share = [GAWindowShare new];
+                        share.valid = YES;
+                        share.window = window;
+                        share.application = app;
+                        share.processIdentity = identity;
+                        share.filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:window];
+                        GASnapshotRejection rejection;
+                        snapshot = [share snapshotWithRejection:&rejection];
+                        if (!snapshot) {
+                            invalidSnapshot++;
+                            snapshotRejections[rejection]++;
+                            reason = [NSString stringWithFormat:@"Safe window identity/capture unavailable (%@); refresh discovery after making the window available", GASnapshotRejectionKeys[rejection]];
+                        } else {
+                            if (![snapshot[@"frontmost"] boolValue]) nonFrontmost++;
+                            inventory[@(window.windowID)] = share;
+                        }
+                    }
+                    if (!snapshot) {
+                        snapshot = @{@"windowId": @(window.windowID), @"processId": @(pid),
+                            @"application": owner.applicationName.length ? owner.applicationName : @"Unidentified application",
+                            @"title": window.title ?: @"", @"onScreen": cg[(__bridge NSString *)kCGWindowIsOnscreen] ? ([cg[(__bridge NSString *)kCGWindowIsOnscreen] boolValue] ? @YES : @NO) : NSNull.null,
+                            @"capabilities": @{@"selectable": @NO, @"observable": @NO, @"input": @NO, @"reason": reason}};
+                    }
                     [metadata addObject:snapshot];
-                    if (metadata.count == 64) break;
+                }
+                for (NSDictionary *cg in cgWindows) {
+                    NSNumber *windowID = cg[(__bridge NSString *)kCGWindowNumber];
+                    if ([seen containsObject:windowID]) continue;
+                    raw++; inspected++;
+                    NSNumber *ownerPID = cg[(__bridge NSString *)kCGWindowOwnerPID];
+                    pid_t pid = ownerPID.intValue;
+                    if (!ownerPID || pid < 0) { missingOwner++; continue; }
+                    if (pid == getpid()) { supervisorPid++; continue; }
+                    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+                    if ([app.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier]) { supervisorBundle++; continue; }
+                    missingOwner++;
+                    [metadata addObject:@{@"windowId": windowID, @"processId": @(pid),
+                        @"application": cg[(__bridge NSString *)kCGWindowOwnerName] ?: @"Unidentified application",
+                        @"title": cg[(__bridge NSString *)kCGWindowName] ?: @"",
+                        @"onScreen": cg[(__bridge NSString *)kCGWindowIsOnscreen] ? ([cg[(__bridge NSString *)kCGWindowIsOnscreen] boolValue] ? @YES : @NO) : NSNull.null,
+                        @"capabilities": @{@"selectable": @NO, @"observable": @NO, @"input": @NO,
+                            @"reason": @"macOS did not expose this window through ScreenCaptureKit; safe capture and input unavailable"}}];
                 }
                 NSMutableDictionary *snapshotDiagnostics = [NSMutableDictionary new];
                 for (NSUInteger reason = 0; reason < GASnapshotRejectionCount; reason++) {
@@ -498,7 +549,7 @@ void ga_agent_windows(GAReply reply, void *context) {
                     @"processIdentityUnavailable": @(processIdentityUnavailable), @"bundleMismatch": @(bundleMismatch),
                     @"supervisorBundle": @(supervisorBundle), @"invalidSnapshot": @(invalidSnapshot),
                     @"snapshotRejections": snapshotDiagnostics,
-                    @"nonFrontmost": @(nonFrontmost), @"eligible": @(metadata.count),
+                    @"nonFrontmost": @(nonFrontmost), @"eligible": @(inventory.count),
                     @"capUninspected": @(raw - inspected)
                 }}];
             }

@@ -44,15 +44,23 @@ pub fn validate_target(scope: &super::computer_use_session::SessionScope) -> Res
     available_target(scope).map(|_| ())
 }
 
-/// The approved window still exists, belongs to the approved process, and is
-/// not minimized. Capture and pointer input work for a window behind other
-/// windows, so this — not focus — is the availability condition.
+/// Validate capture identity independently of visibility or input readiness.
 pub fn validate_visible(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
     validate_target(scope)
 }
 
 #[cfg(any(target_os = "macos", test))]
+pub fn validate_input(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
+    if available_target(scope)?.input_available {
+        Ok(())
+    } else {
+        Err("Window is not on screen or input identity is unavailable; restore it manually and observe again".into())
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
 pub fn validate_focus(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
+    validate_input(scope)?;
     if available_target(scope)?.focus_allowed {
         Ok(())
     } else {

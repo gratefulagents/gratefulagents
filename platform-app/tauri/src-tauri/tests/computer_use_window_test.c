@@ -161,6 +161,20 @@ int main(int argc, char **argv) {
     }
     retained_identity();
     reset();
+    focused = NULL;
+    missing_focus = true;
+    CGRect offscreen = {{-2000, -1000}, {300, 200}};
+    target.position.x = offscreen.origin.x;
+    target.position.y = offscreen.origin.y;
+    GAWindowEligibility offscreenEligibility;
+    AXUIElementRef offscreenWindow = ga_ax_window_copy(42, 7, offscreen, NULL, &offscreenEligibility);
+    assert(offscreenWindow == &target && offscreenEligibility == GAWindowUnfocused);
+    CFRelease(offscreenWindow);
+    target.id_error = true;
+    assert(!ga_ax_window_copy(42, 7, offscreen, NULL, &offscreenEligibility));
+    assert(offscreenEligibility == GAWindowIdentityUnavailable);
+    puts("off-screen identity can bind without focus; AX-unavailable identity fails closed: passed");
+    reset();
     // CG layer is deliberately not an authorization input. A focused floating
     // window uses the same exact-ID contract as an ordinary layer-zero window.
     expect(GAWindowFocused);

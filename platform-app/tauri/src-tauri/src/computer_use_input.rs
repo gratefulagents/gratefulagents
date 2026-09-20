@@ -599,6 +599,15 @@ pub fn snapshot(scope: &SessionScope) -> Result<Frame, String> {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn check_input(
+    check_live: &dyn Fn() -> Result<(), String>,
+    validate_input: &dyn Fn() -> Result<(), String>,
+) -> Result<(), String> {
+    check_live()?;
+    validate_input()
+}
+
 pub fn execute(
     scope: &SessionScope,
     action: &Action,
@@ -1018,7 +1027,7 @@ pub mod macos {
                 "open_url requires the approved window to belong to a web browser (got {bundle})"
             ));
         }
-        super::super::computer_use_capture::validate_visible(scope)?;
+        super::super::computer_use_capture::validate_input(scope)?;
         check()?;
         let status = std::process::Command::new("/usr/bin/open")
             .arg("-g")
@@ -1126,6 +1135,13 @@ pub mod macos {
         focus: Option<&FocusTarget>,
         check: &dyn Fn() -> Result<(), String>,
     ) -> Result<(), String> {
+        // Broad inventory retains off-screen targets, so every input check must
+        // separately revalidate visibility. Cleanup releases bypass this check.
+        let check = &|| {
+            check_input(check, &|| {
+                super::super::computer_use_capture::validate_input(scope)
+            })
+        };
         check()?;
         if !unsafe { CGPreflightPostEventAccess() } {
             return Err("macOS input permission is unavailable".into());
@@ -1138,7 +1154,7 @@ pub mod macos {
             if foreground_needed {
                 super::super::computer_use_capture::validate_focus(scope)
             } else {
-                super::super::computer_use_capture::validate_visible(scope)
+                super::super::computer_use_capture::validate_input(scope)
             }
         };
         present(scope)?;
@@ -1392,6 +1408,43 @@ pub mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn input_visibility_change_after_admission_stops_ordinary_events() {
+        use std::cell::Cell;
+
+        for hide_after in [0, 1, 6, 11] {
+            let on_screen = Cell::new(true);
+            let live_checks = Cell::new(0);
+            let check_live = || {
+                live_checks.set(live_checks.get() + 1);
+                Ok(())
+            };
+            let validate_input = || {
+                if on_screen.get() {
+                    Ok(())
+                } else {
+                    Err("Window is not on screen".into())
+                }
+            };
+            let check = || check_input(&check_live, &validate_input);
+            check().unwrap();
+            let mut sent = 0;
+            let result = (|| -> Result<(), String> {
+                for step in 0..12 {
+                    if step == hide_after {
+                        on_screen.set(false);
+                    }
+                    check()?;
+                    sent += 1;
+                }
+                Ok(())
+            })();
+            assert_eq!(result, Err("Window is not on screen".into()));
+            assert_eq!(sent, hide_after);
+            assert_eq!(live_checks.get(), hide_after + 2);
+        }
+    }
+
     #[test]
     fn focus_change_before_execution_or_between_characters_rejects_input() {
         use std::sync::atomic::{AtomicUsize, Ordering};

@@ -17,7 +17,12 @@ export interface WindowTarget {
 }
 
 export type DesktopMode = "selected_window" | "agent_choice";
-export interface WindowMetadata { ref: string; application: string; title: string }
+export interface WindowCapabilities { selectable: boolean; observable: boolean; input: boolean; reason: string }
+export interface WindowMetadata {
+  ref: string; application: string; title: string;
+  onScreen: boolean | null;
+  capabilities: WindowCapabilities;
+}
 
 export interface DesktopScope {
   mode?: DesktopMode;

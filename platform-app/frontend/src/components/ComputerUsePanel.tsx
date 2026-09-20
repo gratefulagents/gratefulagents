@@ -65,10 +65,10 @@ function HotkeyKeys({ value }: { value: string }) {
 function describeAction(request: DesktopRequest, windows: WindowMetadata[]): ReactNode {
   const { action } = request;
   switch (action.kind) {
-    case "list_windows": return <>Share eligible window names and titles (no screenshots).</>;
+    case "list_windows": return <>Share macOS-exposed window names, titles and availability (no screenshots). Listing never focuses, restores windows or changes Spaces.</>;
     case "select_window": {
       const target = windows.find((window) => window.ref === action.targetRef);
-      return <>Switch target to {target ? `${target.application} — ${target.title}` : "an expired target"}. Old frames and target-specific grants will be cleared.</>;
+      return <>Switch target to {target ? `${target.application} — ${target.title}` : "an expired target"}. Old frames and target-specific grants will be cleared. {target?.capabilities.reason}</>;
     }
     case "observe": return <>Share a fresh capture for analysis: {action.question || "Describe the approved window"}</>;
     case "click": return <>{clickLabel(action)} pixel ({action.x}, {action.y}) in frame {request.frameId}.</>;
@@ -355,7 +355,6 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     if (revoked.current || inFlight.current || !pending || !session?.sessionId || !session.scope) return;
     if (allow && ((!confirmed && !auto) || session.phase !== "active")) return;
     const request = pending;
-    if (allow && request.action.kind === "select_window" && !candidates.some((target) => target.ref === (request.action as { targetRef: string }).targetRef)) throw new Error("Target metadata expired; list windows again");
     const id = session.sessionId;
     const scope = session.scope;
     const current = generation.current;
@@ -438,8 +437,10 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
       }
       pendingRef.current = null;
       setPending(null);
-    } catch {
-      if (valid()) await disconnect(mayHaveExecuted
+    } catch (cause) {
+      if (valid()) await disconnect((request.action.kind === "list_windows" || request.action.kind === "select_window")
+        ? `Window request failed: ${String(cause).slice(0, 1024)}. No input was sent.`
+        : mayHaveExecuted
         ? "Action result could not be confirmed. It may already have happened. Session stopped; inspect the app before any retry."
         : "The request expired or the connection failed. Session stopped without authorizing further input.");
     } finally {
@@ -525,6 +526,15 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
           </p>
         )}
 
+        {candidates.length > 0 && <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-3 text-xs" aria-label="Discovered windows">
+          {candidates.map((window) => <div key={window.ref}>
+            <p className="font-medium">{window.application} — {window.title}</p>
+            <p>{window.onScreen === null ? "Visibility unknown" : window.onScreen ? "On screen" : "Not on screen"} · {window.capabilities.selectable ? "Selectable" : "Unavailable"} · {window.capabilities.observable ? "Capture can be attempted" : "Cannot observe"} · {window.capabilities.input ? "Input subject to live checks" : "Input unavailable"}</p>
+            <p className="text-muted-foreground">{window.capabilities.reason}</p>
+          </div>)}
+        </div>}
+        {session?.target && <p className="text-xs text-muted-foreground">{session.target.capabilities.reason}</p>}
+
         {skipAll && (
           <div className={cn("flex flex-wrap items-center gap-2 rounded-md px-3 py-2 text-xs", toneSoft.warning)} role="note">
             <ShieldAlert className="size-3.5 shrink-0" />
@@ -545,7 +555,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
                 <option value="agent_choice">Agent chooses windows</option>
               </select>
             </label>
-            {mode === "agent_choice" && <p className="text-xs text-muted-foreground">Connect without selecting a window. The agent may list eligible application/window names and choose or switch targets under your approval policy. Only the selected window is captured. This mode additionally requires broad macOS Screen Recording permission; selected-window-only mode does not. Use harmless test windows, not private content.</p>}
+            {mode === "agent_choice" && <p className="text-xs text-muted-foreground">Connect without selecting a window. The agent may list macOS-exposed application/window names and availability and choose or switch targets under your approval policy. Only the selected window is captured, when macOS supports it. Off-screen does not identify minimized windows or other Spaces. Listing never focuses or restores windows or changes Spaces. This mode additionally requires broad macOS Screen Recording permission; selected-window-only mode does not. Use harmless test windows, not private content.</p>}
             {mode === "agent_choice" && <Button variant="outline" size="xs" disabled={controlsLocked || !consent}
               onClick={() => void operate(() => openComputerUsePermission("agent_screen_recording"))}>
               Enable Screen Recording for agent choice

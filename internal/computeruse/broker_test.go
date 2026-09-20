@@ -410,8 +410,8 @@ func TestAgentChoiceAuthorizationAndTargetRevisions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	first := WindowTarget{Ref: strings.Repeat("a", 64), Application: "Test One", Title: "Untrusted title"}
-	second := WindowTarget{Ref: strings.Repeat("b", 64), Application: "Test Two", Title: "Other"}
+	first := WindowTarget{Ref: strings.Repeat("a", 64), Application: "Test One", Title: "Untrusted title", Capabilities: WindowCapabilities{Selectable: true, Observable: true, Reason: "Capture can be attempted"}}
+	second := WindowTarget{Ref: strings.Repeat("b", 64), Application: "Test Two", Title: "Other", Capabilities: WindowCapabilities{Selectable: true, Observable: true, Reason: "Capture can be attempted"}}
 	run(Action{Kind: "list_windows"}, "", Outcome{Status: "completed", Windows: []WindowTarget{first, second}}, nil)
 	run(Action{Kind: "select_window", TargetRef: first.Ref}, "", Outcome{Status: "completed", TargetRevision: 1, Target: &first}, &Outcome{Status: "completed", TargetRevision: 0, Target: &first})
 	if _, err := b.Request(context.Background(), Action{Kind: "key", Key: "Enter"}, "old-frame"); !errors.Is(err, ErrStaleFrame) {

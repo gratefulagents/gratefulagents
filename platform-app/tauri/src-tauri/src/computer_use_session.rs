@@ -74,12 +74,31 @@ pub struct WindowMetadata {
     pub r#ref: String,
     pub application: String,
     pub title: String,
+    pub on_screen: Option<bool>,
+    pub capabilities: WindowCapabilities,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowCapabilities {
+    pub selectable: bool,
+    pub observable: bool,
+    pub input: bool,
+    pub reason: String,
 }
 
 struct TargetBinding {
     scope: SessionScope,
     metadata: WindowMetadata,
-    identity: Arc<FocusTarget>,
+    identity: Option<Arc<FocusTarget>>,
+}
+
+impl TargetBinding {
+    fn identity(&self) -> Result<Arc<FocusTarget>, String> {
+        self.identity
+            .clone()
+            .ok_or_else(|| self.metadata.capabilities.reason.clone())
+    }
 }
 
 struct Session {
@@ -452,6 +471,9 @@ impl SessionPolicy {
             .candidates
             .remove(reference)
             .ok_or("Target reference expired; list windows again")?;
+        if !target.metadata.capabilities.selectable {
+            return Err(target.metadata.capabilities.reason.clone());
+        }
         validate(&target)?;
         let metadata = target.metadata.clone();
         session.pending = None;
@@ -642,8 +664,7 @@ fn inspect_session(state: &ComputerUseSession) -> Result<SessionStatus, String> 
             scope.mode != SessionMode::AgentChoice
                 || super::computer_use::require_agent_permission().is_ok()
         });
-    // Background delivery: the session stays active while the approved window
-    // exists and is not minimized, even when another application is in front.
+    // Visibility alone does not revoke a retained, identity-verified capture target.
     let window_available = permissions_available
         && observed.scope.as_ref().is_some_and(|scope| {
             if scope.mode == SessionMode::AgentChoice {
@@ -659,7 +680,7 @@ fn inspect_session(state: &ComputerUseSession) -> Result<SessionStatus, String> 
                         })
                     })
                     .is_none_or(|(identity, target)| {
-                        identity.verify().is_ok()
+                        identity.is_some_and(|identity| identity.verify().is_ok())
                             && super::computer_use_picker::target(&target).is_ok()
                     })
             } else {
@@ -674,7 +695,7 @@ fn inspect_session(state: &ComputerUseSession) -> Result<SessionStatus, String> 
         if !permissions_available {
             policy.pause("Required OS permission or emergency stop is unavailable");
         } else if !window_available {
-            policy.pause("The approved window is minimized or no longer available");
+            policy.pause("The approved window identity or capture is no longer available");
         }
     }
     Ok(policy.status(Instant::now()))
@@ -841,7 +862,7 @@ fn current_target(
         .as_ref()
         .ok_or("Select a target before observing or acting")?;
     let selected = target.scope.clone();
-    let identity = target.identity.clone();
+    let identity = target.identity()?;
     drop(policy);
     identity.verify()?;
     Ok(selected)
@@ -869,7 +890,7 @@ fn check_execution(
         .lock()
         .map_err(|_| "Desktop session state unavailable")?;
     let session = policy.active(id, scope, now)?;
-    let identity = session.target.as_ref().map(|t| t.identity.clone());
+    let identity = session.target.as_ref().map(|t| t.identity()).transpose()?;
     policy.require_revision(revision)?;
     drop(policy);
     if let Some(identity) = identity {
@@ -1116,46 +1137,54 @@ fn discover_targets(scope: &SessionScope) -> Result<HashMap<String, TargetBindin
             "computer use window discovery: native_candidates={}",
             windows.len()
         );
-        for window in windows.into_iter().take(128) {
-            if candidates.len() == 32 {
-                break;
-            }
-            if window.application.is_empty() || window.application.len() > 256 {
-                log::warn!(
-                    "computer use window discovery rejected window_id={} process_id={}: invalid application length={}",
-                    window.window_id, window.process_id, window.application.len()
-                );
-                continue;
-            }
+        for window in windows {
             let mut selected = scope.clone();
             selected.application = window.application.clone();
             selected.window_id = window.window_id;
             selected.process_id = window.process_id;
-            let identity = match super::computer_use_input::macos::bind_window(selected.clone()) {
-                Ok(identity) => identity,
-                Err(error) => {
-                    log::warn!(
-                        "computer use window discovery rejected window_id={} process_id={}: {error}",
-                        window.window_id, window.process_id
-                    );
-                    continue;
+            let mut capabilities = window.capabilities;
+            let identity = if capabilities.selectable {
+                match super::computer_use_input::macos::bind_window(selected.clone()) {
+                    Ok(identity) => Some(Arc::new(identity)),
+                    Err(error) => {
+                        capabilities = WindowCapabilities {
+                            selectable: false,
+                            observable: false,
+                            input: false,
+                            reason: error,
+                        };
+                        None
+                    }
                 }
+            } else {
+                None
             };
             let reference = random_id()?;
-            let mut title = window.title;
-            while title.len() > 512 {
-                title.pop();
-            }
+            let sanitize = |value: String, limit: usize| {
+                let mut value: String = value.chars().filter(|c| !c.is_control()).collect();
+                while value.len() > limit {
+                    value.pop();
+                }
+                value
+            };
+            let application = sanitize(window.application, 256);
+            capabilities.reason = sanitize(capabilities.reason, 512);
             candidates.insert(
                 reference.clone(),
                 TargetBinding {
                     scope: selected,
                     metadata: WindowMetadata {
                         r#ref: reference,
-                        application: window.application,
-                        title,
+                        application: if application.is_empty() {
+                            "Unidentified application".into()
+                        } else {
+                            application
+                        },
+                        title: sanitize(window.title, 512),
+                        on_screen: window.on_screen,
+                        capabilities,
                     },
-                    identity: Arc::new(identity),
+                    identity,
                 },
             );
         }
@@ -1186,7 +1215,6 @@ fn execute_target_request(
         let candidates = if matches!(execution.request.action, Action::ListWindows {}) {
             discover_targets(scope)?
         } else {
-            super::computer_use_picker::agent_windows()?;
             HashMap::new()
         };
         let mut policy = state
@@ -1207,11 +1235,11 @@ fn execute_target_request(
             Action::SelectWindow { target_ref } => {
                 let metadata =
                     policy.select_target(id, scope, target_ref, Instant::now(), |target| {
-                        target.identity.verify()?;
+                        target.identity()?.verify()?;
                         super::computer_use_capture::validate_visible(&target.scope)?;
                         require_permissions(state)?;
                         super::computer_use_picker::select_agent_target(&target.scope)?;
-                        target.identity.verify()?;
+                        target.identity()?.verify()?;
                         if execution.canceled.load(Ordering::SeqCst)
                             || Instant::now() >= execution.deadline
                         {
@@ -1275,8 +1303,69 @@ mod tests {
                 r#ref: reference.into(),
                 application: "Test".into(),
                 title: "Untrusted title".into(),
+                on_screen: Some(true),
+                capabilities: WindowCapabilities {
+                    selectable: true,
+                    observable: true,
+                    input: true,
+                    reason: "Live checks required".into(),
+                },
             },
-            identity: Arc::new(FocusTarget::retain(|| Ok(|| Ok(()))).unwrap()),
+            identity: Some(Arc::new(FocusTarget::retain(|| Ok(|| Ok(()))).unwrap())),
+        }
+    }
+
+    #[test]
+    fn unavailable_metadata_is_listed_but_cannot_replace_a_target() {
+        let now = Instant::now();
+        let scope = agent_scope();
+        let mut policy = SessionPolicy::default();
+        policy.start("s".into(), scope.clone(), now).unwrap();
+        let mut unavailable = candidate("unavailable");
+        unavailable.identity = None;
+        unavailable.metadata.on_screen = Some(false);
+        unavailable.metadata.capabilities = WindowCapabilities {
+            selectable: false,
+            observable: false,
+            input: false,
+            reason: "AX identity unavailable".into(),
+        };
+        policy
+            .session
+            .as_mut()
+            .unwrap()
+            .candidates
+            .insert("unavailable".into(), unavailable);
+        assert_eq!(policy.session.as_ref().unwrap().candidates.len(), 1);
+        let result = policy.select_target("s", &scope, "unavailable", now, |_| {
+            panic!("unavailable target must never bind")
+        });
+        assert_eq!(result.unwrap_err(), "AX identity unavailable");
+        assert!(policy.status(now).target.is_none());
+        assert_eq!(policy.status(now).target_revision, 0);
+        assert!(policy
+            .select_target("s", &scope, "unavailable", now, |_| Ok(()))
+            .unwrap_err()
+            .contains("expired"));
+    }
+
+    #[test]
+    fn broad_metadata_wire_preserves_capabilities() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../internal/computeruse/testdata/window-discovery.json"
+        ))
+        .unwrap();
+        for entry in fixture["windows"].as_array().unwrap() {
+            let capabilities: WindowCapabilities =
+                serde_json::from_value(entry["capabilities"].clone()).unwrap();
+            let metadata = WindowMetadata {
+                r#ref: entry["ref"].as_str().unwrap().into(),
+                application: entry["application"].as_str().unwrap().into(),
+                title: entry["title"].as_str().unwrap().into(),
+                on_screen: entry["onScreen"].as_bool(),
+                capabilities,
+            };
+            assert_eq!(serde_json::to_value(metadata).unwrap(), *entry);
         }
     }
 
@@ -1354,7 +1443,7 @@ mod tests {
     }
 
     #[test]
-    fn unfocused_selection_and_observation_keep_identity_but_input_remains_focus_bound() {
+    fn offscreen_unfocused_selection_keeps_identity_but_input_remains_gated() {
         use std::sync::atomic::AtomicUsize;
         let now = Instant::now();
         let scope = agent_scope();
@@ -1365,7 +1454,9 @@ mod tests {
         let focused_window = Arc::new(AtomicUsize::new(8));
         let live = live_identity.clone();
         let mut target = candidate(&reference);
-        target.identity = Arc::new(
+        target.metadata.on_screen = Some(false);
+        target.metadata.capabilities.input = false;
+        target.identity = Some(Arc::new(
             FocusTarget::retain(move || {
                 Ok(move || {
                     if live.load(Ordering::SeqCst) == 7 {
@@ -1376,17 +1467,21 @@ mod tests {
                 })
             })
             .unwrap(),
-        );
-        let identity = target.identity.clone();
+        ));
+        let identity = target.identity().unwrap();
         p.session
             .as_mut()
             .unwrap()
             .candidates
             .insert(reference.clone(), target);
         p.select_target("s", &scope, &reference, now, |target| {
-            target.identity.verify()
+            target.identity()?.verify()
         })
         .unwrap();
+        let selected = p.status(now).target.unwrap();
+        assert_eq!(selected.on_screen, Some(false));
+        assert!(selected.capabilities.observable);
+        assert!(!selected.capabilities.input);
         for focused in [8, 7, 9] {
             focused_window.store(focused, Ordering::SeqCst);
             identity.verify().unwrap();

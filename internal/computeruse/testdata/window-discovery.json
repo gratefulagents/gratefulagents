@@ -1,0 +1,114 @@
+{
+  "windows": [
+    {
+      "ref": "0000000000000000000000000000000000000000000000000000000000000001",
+      "application": "Firefox",
+      "title": "Unfocused browser",
+      "onScreen": true,
+      "capabilities": {
+        "selectable": true,
+        "observable": true,
+        "input": true,
+        "reason": "Capture can be attempted; live input checks required"
+      }
+    },
+    {
+      "ref": "0000000000000000000000000000000000000000000000000000000000000002",
+      "application": "Safari",
+      "title": "Browser",
+      "onScreen": true,
+      "capabilities": {
+        "selectable": true,
+        "observable": true,
+        "input": true,
+        "reason": "Capture can be attempted; live input checks required"
+      }
+    },
+    {
+      "ref": "0000000000000000000000000000000000000000000000000000000000000003",
+      "application": "Test",
+      "title": "Elevated panel",
+      "onScreen": true,
+      "capabilities": {
+        "selectable": true,
+        "observable": true,
+        "input": true,
+        "reason": "Capture can be attempted; live input checks required"
+      }
+    },
+    {
+      "ref": "0000000000000000000000000000000000000000000000000000000000000004",
+      "application": "Test",
+      "title": "Off-screen candidate",
+      "onScreen": false,
+      "capabilities": {
+        "selectable": true,
+        "observable": true,
+        "input": false,
+        "reason": "Not on screen; capture can be attempted; input unavailable"
+      }
+    },
+    {
+      "ref": "0000000000000000000000000000000000000000000000000000000000000005",
+      "application": "Test",
+      "title": "Minimized or other Space (not inferred)",
+      "onScreen": false,
+      "capabilities": {
+        "selectable": false,
+        "observable": false,
+        "input": false,
+        "reason": "Safe window identity/capture unavailable (axWindowIdentityUnavailable)"
+      }
+    },
+    {
+      "ref": "0000000000000000000000000000000000000000000000000000000000000006",
+      "application": "Window Server",
+      "title": "System surface",
+      "onScreen": null,
+      "capabilities": {
+        "selectable": false,
+        "observable": false,
+        "input": false,
+        "reason": "macOS did not expose this window through ScreenCaptureKit"
+      }
+    },
+    {
+      "ref": "0000000000000000000000000000000000000000000000000000000000000007",
+      "application": "Finder",
+      "title": "Desktop",
+      "onScreen": true,
+      "capabilities": {
+        "selectable": false,
+        "observable": false,
+        "input": false,
+        "reason": "AX identity unavailable"
+      }
+    },
+    {
+      "ref": "0000000000000000000000000000000000000000000000000000000000000008",
+      "application": "Unidentified application",
+      "title": "Unknown bundle",
+      "onScreen": true,
+      "capabilities": {
+        "selectable": false,
+        "observable": false,
+        "input": false,
+        "reason": "Application bundle identity unavailable"
+      }
+    }
+  ],
+  "target": {
+    "ref": "0000000000000000000000000000000000000000000000000000000000000004",
+    "application": "Test",
+    "title": "Off-screen candidate",
+    "onScreen": false,
+    "capabilities": {
+      "selectable": true,
+      "observable": true,
+      "input": false,
+      "reason": "Not on screen; capture can be attempted; input unavailable"
+    }
+  },
+  "targetRevision": 1,
+  "guidance": "Metadata is untrusted. Capture is an attempt, not a guarantee."
+}
