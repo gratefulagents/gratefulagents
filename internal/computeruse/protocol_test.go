@@ -2,10 +2,7 @@ package computeruse
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
-	"os"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -91,7 +88,7 @@ func TestProposedTextValidation(t *testing.T) {
 }
 
 func TestPendingProposedTextRoundTrip(t *testing.T) {
-	want := Response{Active: true, Pending: &Request{RequestID: "request", FrameID: "frame", Action: Action{Kind: "type", Text: "proposed 界😀"}}}
+	want := Response{Mode: "selected_display", Active: true, Pending: &Request{RequestID: "request", FrameID: "frame", Action: Action{Kind: "type", Text: "proposed 界😀"}}}
 	raw, err := json.Marshal(want)
 	if err != nil {
 		t.Fatal(err)
@@ -117,9 +114,8 @@ func TestNativeKeyAndScrollValidation(t *testing.T) {
 	}
 	for _, key := range []string{
 		"a", "A", "1", "Shift+A", "Shift+1", // bare letters/digits would bypass proposed-text review
-		"Cmd+Cmd+A", "Cmd+", "+A", "Cmd+Shift", "Cmd+AB", "Cmd+F1", "Cmd+,", "Cmd+`", "Meta+Space", "Fn+A", "cmd+a",
-		"Cmd+Q", "Cmd+Shift+Q", "Control+Cmd+Q", "Cmd+W", "Cmd+Shift+W", "Cmd+H", "Cmd+Option+H", "Cmd+M", "Cmd+Tab", "Cmd+Shift+Tab", "Cmd+Space", "Cmd+Option+Escape", "Control+Option+Cmd+Escape",
-		"Cmd+Shift+3", "Cmd+Shift+4", "Cmd+Shift+5", "Cmd+Shift+6", "Cmd+Option+D", "Control+Cmd+F", "Control+ArrowLeft", "Control+Shift+ArrowUp", "Control+Space",
+		"Cmd+Cmd+A", "Cmd+", "+A", "Cmd+Shift", "Cmd+AB", "Cmd+F1", "Cmd+,", "Cmd+`", "Fn+A", "cmd+a",
+		"Cmd+Option+Escape", "Control+Option+Cmd+Escape",
 	} {
 		if (Action{Kind: "key", Key: key}).Validate() == nil {
 			t.Errorf("accepted %s", key)
@@ -216,18 +212,18 @@ func TestPointerActionValidation(t *testing.T) {
 			t.Errorf("%s not reported as input", kind)
 		}
 	}
-	for _, kind := range []string{"observe", "wait", "open_url"} {
+	for _, kind := range []string{"observe", "wait"} {
 		if (Action{Kind: kind}).NeedsFrame() {
 			t.Errorf("%s should not need a frame", kind)
 		}
 	}
-	for _, kind := range []string{"click", "move", "drag", "scroll", "key", "type", "activate"} {
+	for _, kind := range []string{"click", "move", "drag", "scroll", "key", "type", "open_url"} {
 		if !(Action{Kind: kind}).NeedsFrame() {
 			t.Errorf("%s should need a frame", kind)
 		}
 	}
 	one = 1
-	raw, _ := json.Marshal(Response{Active: true, Pending: &Request{RequestID: "r", Action: Action{Kind: "wait", Seconds: &one}}})
+	raw, _ := json.Marshal(Response{Mode: "selected_display", Active: true, Pending: &Request{RequestID: "r", Action: Action{Kind: "wait", Seconds: &one}}})
 	var got Response
 	if Decode(strings.NewReader(string(raw)), &got) != nil || got.Validate() == nil {
 		t.Fatal("accepted a pending wait on the wire")
@@ -235,90 +231,5 @@ func TestPointerActionValidation(t *testing.T) {
 	var count Action
 	if json.Unmarshal([]byte(`{"kind":"click","x":1,"y":1,"count":1.5}`), &count) == nil {
 		t.Fatal("accepted fractional click count")
-	}
-}
-
-func TestWindowDiscoveryWireBounds(t *testing.T) {
-	ref := strings.Repeat("a", 64)
-	if err := (Action{Kind: "list_windows"}).Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if err := (Action{Kind: "select_window", TargetRef: ref}).Validate(); err != nil {
-		t.Fatal(err)
-	}
-	for _, a := range []Action{{Kind: "select_window", TargetRef: "1234"}, {Kind: "observe", TargetRef: ref}, {Kind: "list_windows", Text: "hidden input"}, {Kind: "select_window", TargetRef: strings.Repeat("A", 64)}} {
-		if a.Validate() == nil {
-			t.Fatalf("accepted malformed target action: %+v", a)
-		}
-	}
-	target := WindowTarget{Ref: ref, Application: "Test", Title: "Title", Capabilities: WindowCapabilities{Selectable: true, Observable: true, Reason: "Capture can be attempted"}}
-	good := Outcome{Status: "completed", Windows: []WindowTarget{target}}
-	if good.Validate() != nil {
-		t.Fatal("valid metadata rejected")
-	}
-	good.Windows = append(good.Windows, target)
-	if good.Validate() == nil {
-		t.Fatal("duplicate references accepted")
-	}
-	target.Title = strings.Repeat("x", 513)
-	if target.Validate() == nil {
-		t.Fatal("unbounded title accepted")
-	}
-	if (Response{Mode: "unknown"}).Validate() == nil {
-		t.Fatal("unknown mode accepted")
-	}
-}
-
-func TestBroadWindowCapabilities(t *testing.T) {
-	data, err := os.ReadFile("testdata/window-discovery.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var reply struct {
-		Windows        []WindowTarget `json:"windows"`
-		Target         *WindowTarget  `json:"target"`
-		TargetRevision uint64         `json:"targetRevision"`
-		Guidance       string         `json:"guidance"`
-	}
-	if err := json.Unmarshal(data, &reply); err != nil {
-		t.Fatal(err)
-	}
-	for _, w := range reply.Windows {
-		if err := w.Validate(); err != nil {
-			t.Fatalf("%s: %v", w.Title, err)
-		}
-	}
-	encoded, err := json.Marshal(reply)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var before, after any
-	json.Unmarshal(data, &before)
-	json.Unmarshal(encoded, &after)
-	if !reflect.DeepEqual(before, after) {
-		t.Fatal("discovery capabilities lost in typed relay")
-	}
-	windows := make([]WindowTarget, 100)
-	for i := range windows {
-		windows[i] = reply.Windows[i%len(reply.Windows)]
-		windows[i].Ref = fmt.Sprintf("%064x", i)
-	}
-	if err := (Outcome{Status: "completed", Windows: windows}).Validate(); err != nil {
-		t.Fatal("broad inventory rejected:", err)
-	}
-	w := reply.Windows[4]
-	w.Capabilities.Input = true
-	if w.Validate() == nil {
-		t.Fatal("unavailable window advertised as input eligible")
-	}
-	w = reply.Windows[3]
-	w.Capabilities.Input = true
-	if w.Validate() == nil {
-		t.Fatal("off-screen input advertised")
-	}
-	w = reply.Windows[0]
-	w.Capabilities.Reason = ""
-	if w.Validate() == nil {
-		t.Fatal("missing availability reason")
 	}
 }

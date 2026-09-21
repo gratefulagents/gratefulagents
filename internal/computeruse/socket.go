@@ -85,10 +85,12 @@ func Listen(ctx context.Context, b *Broker, uid string) (io.Closer, error) {
 				defer func() { c.Close(); <-slots }()
 				_ = c.SetDeadline(time.Now().Add(3 * time.Second))
 				var exchange Exchange
-				response := Response{Reason: "computer use request rejected"}
+				response := Response{Mode: "selected_display", Reason: "computer use request rejected"}
 				if Decode(c, &exchange) == nil {
 					if result, err := b.Exchange(exchange); err == nil {
 						response = result
+					} else if errors.Is(err, ErrLegacyScope) {
+						response.Reason = ErrLegacyScope.Error()
 					}
 				}
 				_ = json.NewEncoder(c).Encode(response)
@@ -100,8 +102,11 @@ func Listen(ctx context.Context, b *Broker, uid string) (io.Closer, error) {
 
 func Bridge(ctx context.Context, uid string, stdin io.Reader, stdout io.Writer) error {
 	var exchange Exchange
-	if Decode(stdin, &exchange) != nil || exchange.Validate() != nil {
+	if Decode(stdin, &exchange) != nil {
 		return ErrRejected
+	}
+	if err := exchange.Validate(); err != nil {
+		return err
 	}
 	input, err := json.Marshal(exchange)
 	if err != nil || len(input) > MaxWire {

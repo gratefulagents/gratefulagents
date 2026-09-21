@@ -46,9 +46,11 @@ describe("isInspectorTab", () => {
     expect(isInspectorTab(null)).toBe(false);
   });
 
-  it("offers the run context as its own tab", () => {
+  it("offers run context and computer control as their own tabs", () => {
     expect(isInspectorTab("context")).toBe(true);
+    expect(isInspectorTab("computer")).toBe(true);
     expect(inspectorTabMeta.context.label).toBe("Context");
+    expect(inspectorTabMeta.computer.label).toBe("Computer");
   });
 });
 

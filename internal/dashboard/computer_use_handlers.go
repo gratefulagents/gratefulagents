@@ -72,7 +72,10 @@ func (s *Server) ExchangeComputerUse(ctx context.Context, req *platform.Exchange
 			return nil, computerUseError(connect.CodeInvalidArgument)
 		}
 	}
-	if exchange.Validate() != nil {
+	if err := exchange.Validate(); err != nil {
+		if errors.Is(err, computeruse.ErrLegacyScope) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
 		return nil, computerUseError(connect.CodeInvalidArgument)
 	}
 	if exchange.Operation != "stop" && (isTerminalAgentRunPhase(run.Status.Phase) || !run.DeletionTimestamp.IsZero() || run.Annotations[cancelRequestedAnnotation] != "" || run.Annotations[promoteSucceededAnnotation] != "") {

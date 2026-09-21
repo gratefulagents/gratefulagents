@@ -12,31 +12,33 @@ afterEach(() => setComputerUseApprovalMode("manual"));
 describe("computer use approval mode preference", () => {
   it("defaults to manual and only persists an explicit opt-in", () => {
     expect(getComputerUseApprovalMode()).toBe("manual");
-    expect(localStorage.getItem("computer-use-approval-mode")).toBeNull();
+    expect(localStorage.getItem("computer-use-desktop-approval-mode")).toBeNull();
     setComputerUseApprovalMode("auto");
-    expect(localStorage.getItem("computer-use-approval-mode")).toBe("auto");
+    expect(localStorage.getItem("computer-use-desktop-approval-mode")).toBe("auto");
     setComputerUseApprovalMode("manual");
-    expect(localStorage.getItem("computer-use-approval-mode")).toBeNull();
+    expect(localStorage.getItem("computer-use-desktop-approval-mode")).toBeNull();
+  });
+
+  it("does not inherit old window-session automatic approvals", () => {
+    localStorage.setItem("computer-use-approval-mode", "auto");
+    expect(getComputerUseApprovalMode()).toBe("manual");
+    localStorage.removeItem("computer-use-approval-mode");
   });
 
   it("treats unknown stored values as manual", () => {
-    localStorage.setItem("computer-use-approval-mode", "yolo");
+    localStorage.setItem("computer-use-desktop-approval-mode", "yolo");
     expect(getComputerUseApprovalMode()).toBe("manual");
   });
 
   it("maps modes to the kinds they approve automatically", () => {
-    for (const kind of ["observe", "click", "scroll", "type", "key", "activate"] as const) {
+    for (const kind of ["observe", "click", "scroll", "type", "key"] as const) {
       expect(modeAutoApproves("manual", kind)).toBe(false);
       expect(modeAutoApproves("auto", kind)).toBe(true);
     }
-    expect(modeAutoApproves("assisted", "list_windows")).toBe(true);
-    expect(modeAutoApproves("assisted", "select_window")).toBe(false);
-    expect(modeAutoApproves("manual", "select_window")).toBe(false);
-    expect(modeAutoApproves("auto", "select_window")).toBe(true);
     expect(modeAutoApproves("assisted", "observe")).toBe(true);
-    expect(modeAutoApproves("assisted", "scroll")).toBe(true);
-    expect(modeAutoApproves("assisted", "activate")).toBe(true);
-    expect(modeAutoApproves("assisted", "move")).toBe(true);
+    expect(modeAutoApproves("assisted", "scroll")).toBe(false);
+    expect(modeAutoApproves("assisted", "observe")).toBe(true);
+    expect(modeAutoApproves("assisted", "move")).toBe(false);
     expect(modeAutoApproves("assisted", "click")).toBe(false);
     expect(modeAutoApproves("assisted", "drag")).toBe(false);
     expect(modeAutoApproves("assisted", "type")).toBe(false);
@@ -49,8 +51,8 @@ describe("computer use approval mode preference", () => {
     act(() => setComputerUseApprovalMode("assisted"));
     expect(result.current).toBe("assisted");
     act(() => {
-      localStorage.removeItem("computer-use-approval-mode");
-      window.dispatchEvent(new StorageEvent("storage", { key: "computer-use-approval-mode", newValue: null }));
+      localStorage.removeItem("computer-use-desktop-approval-mode");
+      window.dispatchEvent(new StorageEvent("storage", { key: "computer-use-desktop-approval-mode", newValue: null }));
     });
     expect(result.current).toBe("manual");
   });

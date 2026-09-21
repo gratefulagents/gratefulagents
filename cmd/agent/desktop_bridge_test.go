@@ -29,7 +29,9 @@ func TestDesktopBridgeRoundTrip(t *testing.T) {
 	if err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("socket permissions: %v %v", info, err)
 	}
-	e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "desktop", Operation: "attach"}
+	e := computeruse.Exchange{
+		Namespace: "ns", Run: "run", Owner: "alice", SessionID: "desktop", Operation: "attach_desktop",
+	}
 	raw, _ := json.Marshal(e)
 	var out bytes.Buffer
 	if err := runDesktopBridge(bytes.NewReader(raw), &out); err != nil {

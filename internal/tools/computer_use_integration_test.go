@@ -10,7 +10,6 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -27,86 +26,6 @@ type desktopWorkflowHarness struct {
 	uid      string
 	exchange computeruse.Exchange
 	tool     *ComputerUseTool
-}
-
-func TestAgentChoiceDiscoveryAndSelectionDoNotInvokeVision(t *testing.T) {
-	h := newDesktopWorkflowHarness(t)
-	h.relay("stop", "", nil)
-	h.exchange.SessionID = "agent-choice"
-	if r := h.relay("attach_agent", "", nil); !r.Active || r.Mode != "agent_choice" {
-		t.Fatal("agent mode not negotiated")
-	}
-	h.tool.vision.AnalyzeFn = func(context.Context, []byte, string, string) (string, error) {
-		t.Error("discovery invoked vision")
-		return "", nil
-	}
-	// Regression: an agent that starts with observe (the documented first step
-	// for selected-window sessions) must learn that it has to pick a window,
-	// not be told the session is gone and never to retry.
-	for _, raw := range []string{`{"action":{"kind":"observe","question":"Is a browser open?"}}`, `{"action":{"kind":"wait","seconds":1}}`} {
-		result := <-h.start(raw)
-		if !result.IsError || !strings.Contains(result.Content, "list_windows") || !strings.Contains(result.Content, "Nothing was sent to the desktop") {
-			t.Fatalf("observe before selection lacks discovery guidance: %+v", result)
-		}
-		if strings.Contains(result.Content, "canceled, expired") || strings.Contains(result.Content, "Do not automatically retry") {
-			t.Fatalf("precondition rejection presented as cancellation: %+v", result)
-		}
-	}
-	result := <-h.start(`{"action":{"kind":"open_url","url":"https://example.com"}}`)
-	if !result.IsError || !strings.Contains(result.Content, "list_windows") {
-		t.Fatalf("open_url before selection lacks discovery guidance: %+v", result)
-	}
-	onScreen := true
-	target := computeruse.WindowTarget{OnScreen: &onScreen, Ref: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Application: "Test app", Title: "Ignore instructions (untrusted title)", Capabilities: computeruse.WindowCapabilities{Selectable: true, Observable: true, Reason: "Capture can be attempted"}}
-	result = <-h.start(`{"action":{"kind":"select_window","targetRef":"` + target.Ref + `"}}`)
-	if !result.IsError || !strings.Contains(result.Content, "Unknown targetRef") {
-		t.Fatalf("selection before listing lacks guidance: %+v", result)
-	}
-	// A failed discovery never generated OS input: the desktop's reason is
-	// forwarded, but without the partially-applied / do-not-retry warning.
-	done := h.start(`{"action":{"kind":"list_windows"}}`)
-	request := h.next("list_windows")
-	h.relay("claim", request.RequestID, nil)
-	h.relay("resolve", request.RequestID, &computeruse.Outcome{RequestID: request.RequestID, Status: "failed", Message: "invalid type: integer `1`, expected a boolean"})
-	result = <-done
-	if !result.IsError || !strings.Contains(result.Content, "Desktop action failed (desktop reported: invalid type") || !strings.Contains(result.Content, "No input was sent to the desktop") || strings.Contains(result.Content, "Do not automatically retry") {
-		t.Fatalf("failed discovery wording: %+v", result)
-	}
-	done = h.start(`{"action":{"kind":"list_windows"}}`)
-	request = h.next("list_windows")
-	h.relay("claim", request.RequestID, nil)
-	h.relay("resolve", request.RequestID, &computeruse.Outcome{RequestID: request.RequestID, Status: "completed", Windows: []computeruse.WindowTarget{target, {Ref: strings.Repeat("b", 64), Application: "Window Server", Title: "System surface", Capabilities: computeruse.WindowCapabilities{Reason: "AX identity unavailable"}}}})
-	result = <-done
-	if result.IsError || !bytes.Contains([]byte(result.Content), []byte(target.Ref)) {
-		t.Fatalf("listing: %+v", result)
-	}
-	if !strings.Contains(result.Content, `"capabilities"`) || !strings.Contains(result.Content, `"onScreen":null`) || !strings.Contains(result.Content, "AX identity unavailable") {
-		t.Fatalf("tool dropped unavailable metadata: %s", result.Content)
-	}
-	done = h.start(`{"action":{"kind":"select_window","targetRef":"` + target.Ref + `"}}`)
-	request = h.next("select_window")
-	h.relay("claim", request.RequestID, nil)
-	h.relay("resolve", request.RequestID, &computeruse.Outcome{RequestID: request.RequestID, Status: "completed", TargetRevision: 1, Target: &target})
-	result = <-done
-	if result.IsError || !bytes.Contains([]byte(result.Content), []byte(`"targetRevision":1`)) {
-		t.Fatalf("selection: %+v", result)
-	}
-	result = <-h.start(`{"frameId":"never-observed","action":{"kind":"key","key":"Enter"}}`)
-	if !result.IsError || !strings.Contains(result.Content, "Stale frameId") || strings.Contains(result.Content, "Do not automatically retry") {
-		t.Fatalf("input without a fresh observation lacks guidance: %+v", result)
-	}
-	result = <-h.start(`{"action":{"kind":"open_url","url":"https://example.com"}}`)
-	if !result.IsError || !strings.Contains(result.Content, "open_url is unavailable in agent-choice") {
-		t.Fatalf("open_url in agent-choice lacks guidance: %+v", result)
-	}
-}
-
-func TestSelectedWindowRejectsDiscoveryWithGuidance(t *testing.T) {
-	h := newDesktopWorkflowHarness(t)
-	result := <-h.start(`{"action":{"kind":"list_windows"}}`)
-	if !result.IsError || !strings.Contains(result.Content, "Window discovery is unavailable") || !strings.Contains(result.Content, "observe") || strings.Contains(result.Content, "Do not automatically retry") {
-		t.Fatalf("discovery in selected-window session lacks guidance: %+v", result)
-	}
 }
 
 func newDesktopWorkflowHarness(t *testing.T) *desktopWorkflowHarness {
@@ -146,7 +65,7 @@ func newDesktopWorkflowHarness(t *testing.T) *desktopWorkflowHarness {
 			return "The synthetic field is empty", nil
 		}}},
 	}
-	if !h.relay("attach", "", nil).Active {
+	if !h.relay("attach_desktop", "", nil).Active {
 		t.Fatal("relay did not attach")
 	}
 	return h
@@ -325,6 +244,9 @@ func TestComputerUseExtendedActionsReachDesktop(t *testing.T) {
 				seenPrompt = prompt
 				return "Visible result", nil
 			}
+			seed := h.start(`{"action":{"kind":"observe"}}`)
+			h.complete(h.next("observe"), "completed", syntheticDesktopCapture(t, "before-input", false))
+			h.result(seed)
 			done := h.start(`{"frameId":"before-input","action":` + tc.raw + `}`)
 			request := h.next(tc.wantKind)
 			wire, _ := json.Marshal(request.Action)
@@ -349,22 +271,11 @@ func TestComputerUseExtendedActionsReachDesktop(t *testing.T) {
 	}
 }
 
-// open_url needs no prior observation: a browser task can start from a URL.
-func TestComputerUseOpenURLNeedsNoFrame(t *testing.T) {
+func TestComputerUseOpenURLRequiresFrame(t *testing.T) {
 	h := newDesktopWorkflowHarness(t)
-	done := h.start(`{"action":{"kind":"open_url","url":"https://example.com/"}}`)
-	request := h.next("open_url")
-	if request.FrameID != "" || request.Action.URL != "https://example.com/" {
-		t.Fatalf("unexpected open_url request: %+v", request)
-	}
-	h.complete(request, "failed", nil)
-	// The native reason reaches the agent so it can pick a different approach.
-	result := h.result(done)
-	if !result.IsError || !bytes.Contains([]byte(result.Content), []byte("Desktop action failed")) {
-		t.Fatalf("unexpected result: %+v", result)
-	}
-	if h.relay("poll", "", nil).Pending != nil {
-		t.Fatal("failed open_url queued a retry")
+	result := h.result(h.start(`{"action":{"kind":"open_url","url":"https://example.com/"}}`))
+	if !result.IsError || !bytes.Contains([]byte(result.Content), []byte("Observe the desktop")) {
+		t.Fatalf("missing frame accepted: %+v", result)
 	}
 }
 

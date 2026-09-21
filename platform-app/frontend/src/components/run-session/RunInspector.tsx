@@ -6,6 +6,7 @@ import {
   FileDiff,
   GitPullRequest,
   Info,
+  Monitor,
   PanelRight,
   SquareTerminal,
   Workflow,
@@ -29,9 +30,9 @@ import { cn } from "@/lib/utils";
  * links keep resolving. Only the labels changed. "context" is new: it holds
  * what the header's run-context sheet used to.
  */
-export type InspectorTab = "diff" | "pr" | "graph" | "logs" | "errors" | "trace" | "context";
+export type InspectorTab = "diff" | "pr" | "graph" | "logs" | "errors" | "trace" | "context" | "computer";
 
-const INSPECTOR_TABS: InspectorTab[] = ["diff", "pr", "graph", "logs", "errors", "trace", "context"];
+const INSPECTOR_TABS: InspectorTab[] = ["diff", "pr", "graph", "logs", "errors", "trace", "context", "computer"];
 
 export function isInspectorTab(value: string | null): value is InspectorTab {
   return INSPECTOR_TABS.includes(value as InspectorTab);
@@ -45,6 +46,7 @@ export const inspectorTabMeta: Record<InspectorTab, { label: string; icon: Compo
   errors: { label: "Errors", icon: CircleAlert },
   trace: { label: "Trace", icon: Activity },
   context: { label: "Context", icon: Info },
+  computer: { label: "Computer", icon: Monitor },
 };
 
 export type InspectorTabDef = {

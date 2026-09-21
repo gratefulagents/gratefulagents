@@ -88,29 +88,29 @@ func TestExchangeComputerUseAuthorizationAndRouting(t *testing.T) {
 					t.Error("identity not backend-bound")
 				}
 				if e.Operation == "claim" {
-					return []byte(`{"active":false,"reason":"computer use request rejected","visionAvailable":true}`), nil
+					return []byte(`{"mode":"selected_display","active":false,"reason":"computer use request rejected","visionAvailable":true}`), nil
 				}
-				return []byte(`{"active":true,"visionAvailable":true}`), nil
+				return []byte(`{"mode":"selected_display","active":true,"visionAvailable":true}`), nil
 			}
 			ctx := context.Background()
 			if tc.recorded {
 				ctx = context.WithValue(ctx, requestActorContextKey{}, requestActor{Subject: tc.subject, Role: tc.role})
 			}
-			response, err := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "attach"})
+			response, err := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "attach_desktop"})
 			if tc.code != 0 {
 				if connect.CodeOf(err) != tc.code || calls != 0 {
 					t.Fatalf("code=%v calls=%d", connect.CodeOf(err), calls)
 				}
-			} else if err != nil || response.ResponseJson != `{"active":true,"visionAvailable":true}` || calls != 1 {
+			} else if err != nil || response.ResponseJson != `{"mode":"selected_display","active":true,"visionAvailable":true}` || calls != 1 {
 				t.Fatalf("response=%+v error=%v calls=%d", response, err, calls)
 			}
 			if tc.code == 0 {
 				agentResponse, agentErr := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "agent-session", Operation: "attach_agent"})
-				if agentErr != nil || agentResponse == nil {
+				if connect.CodeOf(agentErr) != connect.CodeFailedPrecondition || agentResponse != nil {
 					t.Fatalf("agent attachment: %v", agentErr)
 				}
 				_, err := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "claim", RequestId: "expired"})
-				if connect.CodeOf(err) != connect.CodeFailedPrecondition || calls != 3 {
+				if connect.CodeOf(err) != connect.CodeFailedPrecondition || calls != 2 {
 					t.Fatalf("rejected claim: code=%v calls=%d", connect.CodeOf(err), calls)
 				}
 			}
@@ -179,9 +179,9 @@ func TestExchangeComputerUseLifecycleTransitions(t *testing.T) {
 			calls := 0
 			execComputerUse = func(context.Context, *kubernetes.Clientset, *rest.Config, string, string, []byte) ([]byte, error) {
 				calls++
-				return []byte(`{"active":true,"visionAvailable":true}`), nil
+				return []byte(`{"mode":"selected_display","active":true,"visionAvailable":true}`), nil
 			}
-			req := &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "attach"}
+			req := &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "attach_desktop"}
 			if _, err := srv.ExchangeComputerUse(ctx, req); err != nil || calls != 1 {
 				t.Fatalf("live attach: %v calls=%d", err, calls)
 			}
@@ -227,7 +227,7 @@ func TestExchangeComputerUseLifecycleTransitions(t *testing.T) {
 				}
 			}
 			currentPod.Store(nextPod)
-			for _, operation := range []string{"attach", "poll", "claim", "resolve"} {
+			for _, operation := range []string{"attach_desktop", "poll", "claim", "resolve"} {
 				req.Operation, req.RequestId, req.OutcomeJson = operation, "", ""
 				if operation == "claim" || operation == "resolve" {
 					req.RequestId = "request"

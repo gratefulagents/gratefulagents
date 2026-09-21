@@ -3,41 +3,22 @@ import { isTauri, platform } from "./platform";
 export interface ComputerUsePermissions {
   supported: boolean;
   accessibility: boolean;
-  agentScreenRecording?: boolean;
+  screenRecording?: boolean;
 }
 
-export type ComputerUsePermission = "accessibility" | "agent_screen_recording";
+export type ComputerUsePermission = "accessibility" | "screen_recording";
 
-export interface WindowTarget {
-  selectionId: string;
-  windowId: number;
-  processId: number;
-  application: string;
-  title: string;
-}
-
-export type DesktopMode = "selected_window" | "agent_choice";
-export interface WindowCapabilities { selectable: boolean; observable: boolean; input: boolean; reason: string }
-export interface WindowMetadata {
-  ref: string; application: string; title: string;
-  onScreen: boolean | null;
-  capabilities: WindowCapabilities;
-}
-
+export interface DisplayTarget { selectionId: string; displayId: number; name: string }
 export interface DesktopScope {
-  mode?: DesktopMode;
+  mode: "selected_display";
   backend: string;
   user: string;
   namespace: string;
   run: string;
-  application: string;
-  windowId: number;
-  processId: number;
+  displayId: number;
 }
 
 export interface DesktopSession {
-  targetRevision?: number;
-  target?: WindowMetadata | null;
   revision: number;
   phase: "stopped" | "active" | "paused";
   sessionId: string | null;
@@ -45,7 +26,7 @@ export interface DesktopSession {
   reason: string;
 }
 
-export interface WindowCapture {
+export interface DisplayCapture {
   frameId: string;
   geometry: { x: number; y: number; width: number; height: number };
   pixelWidth: number;
@@ -58,7 +39,12 @@ async function nativeCommand<T>(command: string, args?: Record<string, unknown>)
     throw new Error("Computer use requires the macOS desktop app");
   }
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(command, args);
+  return invoke<T>(command, args).catch((error: unknown) => {
+    if (/unknown command|command .*not found|unknown field|unknown variant|missing field/i.test(String(error))) {
+      throw new Error("Legacy desktop protocol is unsupported; update desktop/backend/run and reconnect with selected-display capture and desktop-wide input consent");
+    }
+    throw error;
+  });
 }
 
 export async function computerUsePermissions(): Promise<ComputerUsePermissions> {
@@ -79,19 +65,11 @@ export async function relaunchComputerUse(): Promise<void> {
   await nativeCommand("computer_use_relaunch");
 }
 
-export const pickComputerUseWindow = (expectedRevision: number) =>
-  nativeCommand<WindowTarget | null>("computer_use_pick_window", { expectedRevision });
+export const pickComputerUseDisplay = (expectedRevision: number) =>
+  nativeCommand<DisplayTarget | null>("computer_use_pick_display", { expectedRevision });
 export const desktopSessionStatus = () => nativeCommand<DesktopSession>("computer_use_session_status");
-export const startDesktopSession = async (scope: DesktopScope, consentToScreenSharing: boolean, expectedRevision: number, selectionId: string) => {
-  try {
-    return await nativeCommand<DesktopSession>("computer_use_session_start", { scope, consentToScreenSharing, expectedRevision, selectionId });
-  } catch (error) {
-    if (scope.mode === "agent_choice" && /unknown field|unknown variant/i.test(String(error))) {
-      throw new Error("Agent-choice protocol is unsupported by this desktop app; update it and reconnect with fresh consent");
-    }
-    throw error;
-  }
-};
+export const startDesktopSession = (scope: DesktopScope, consentToScreenSharing: boolean, consentToDesktopInput: boolean, expectedRevision: number, selectionId: string) =>
+  nativeCommand<DesktopSession>("computer_use_session_start", { scope, consentToScreenSharing, consentToDesktopInput, expectedRevision, selectionId });
 
 export const heartbeatDesktopSession = (sessionId: string, scope: DesktopScope) =>
   nativeCommand<void>("computer_use_session_heartbeat", { sessionId, scope });
@@ -99,14 +77,12 @@ export const pauseDesktopSession = () => nativeCommand<void>("computer_use_sessi
 export const resumeDesktopSession = (sessionId: string, scope: DesktopScope) =>
   nativeCommand<DesktopSession>("computer_use_session_resume", { sessionId, scope });
 export const stopDesktopSession = () => nativeCommand<void>("computer_use_session_stop");
-export const captureDesktopWindow = (sessionId: string, scope: DesktopScope) =>
-  nativeCommand<WindowCapture>("computer_use_capture_window", { sessionId, scope });
+export const captureDesktopDisplay = (sessionId: string, scope: DesktopScope) =>
+  nativeCommand<DisplayCapture>("computer_use_capture_display", { sessionId, scope });
 
 export type MouseButton = "left" | "right" | "middle";
 
 export type DesktopAction =
-  | { kind: "list_windows" }
-  | { kind: "select_window"; targetRef: string }
   | { kind: "observe"; question?: string }
   | { kind: "click"; x: number; y: number; button?: MouseButton; count?: 1 | 2 | 3 }
   | { kind: "move"; x: number; y: number }
@@ -114,7 +90,6 @@ export type DesktopAction =
   | { kind: "scroll"; deltaX: number; deltaY: number; x?: number; y?: number }
   | { kind: "type"; text: string }
   | { kind: "key"; key: string }
-  | { kind: "activate" }
   | { kind: "open_url"; url: string };
 
 // Mirrors the Go and native validators: absolute http(s), a host, no
@@ -168,11 +143,7 @@ export function parseHotkey(raw: string): Hotkey | null {
       return null;
     }
   }
-  const arrow = h.key.startsWith("Arrow");
-  if (h.cmd && ["Q", "W", "H", "M", "Tab", "Space", "Escape"].includes(h.key)) return null;
-  if (h.cmd && h.shift && ["3", "4", "5", "6"].includes(h.key)) return null;
-  if ((h.cmd && h.option && h.key === "D") || (h.cmd && h.control && h.key === "F")) return null;
-  if (h.control && (arrow || h.key === "Space")) return null;
+  if (h.cmd && h.option && h.key === "Escape") return null;
   return h;
 }
 
@@ -195,20 +166,16 @@ export function hotkeyGlyphs(raw: string): string[] {
 }
 
 export interface DesktopRequest {
-  targetRevision?: number;
   requestId: string;
   frameId?: string;
   action: DesktopAction;
 }
 
 export interface DesktopOutcome {
-  targetRevision?: number;
-  windows?: WindowMetadata[];
-  target?: WindowMetadata;
   requestId: string;
   status: "completed" | "failed" | "denied";
   message: string;
-  capture?: WindowCapture;
+  capture?: DisplayCapture;
 }
 
 export const queueDesktopRequest = (sessionId: string, scope: DesktopScope, request: DesktopRequest) =>

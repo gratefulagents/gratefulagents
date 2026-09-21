@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ComputerUsePanel } from "./ComputerUsePanel";
-import type { DesktopScope, DesktopSession, DesktopRequest, WindowCapture } from "@/lib/computer-use";
+import type { DesktopScope, DesktopSession, DesktopRequest, DisplayCapture } from "@/lib/computer-use";
 import { getComputerUseApprovalMode, setComputerUseApprovalMode } from "@/lib/computer-use-preferences";
 
 const m = vi.hoisted(() => ({
@@ -14,18 +15,18 @@ vi.mock("@/lib/platform", () => ({ get isTauri() { return m.isTauri; }, backendB
 vi.mock("@/lib/client", () => ({ client: { getAgentRun: m.getRun } }));
 vi.mock("@/lib/computer-use", async (importOriginal) => ({
   hotkeyGlyphs: (await importOriginal<typeof import("@/lib/computer-use")>()).hotkeyGlyphs,
-  computerUsePermissions: m.permissions, openComputerUsePermission: m.openPermission, pickComputerUseWindow: m.pick,
+  computerUsePermissions: m.permissions, openComputerUsePermission: m.openPermission, pickComputerUseDisplay: m.pick,
   startDesktopSession: m.start, desktopSessionStatus: m.status,
   heartbeatDesktopSession: m.heartbeat, pauseDesktopSession: m.pause,
-  resumeDesktopSession: m.resume, stopDesktopSession: m.stop, captureDesktopWindow: m.capture,
+  resumeDesktopSession: m.resume, stopDesktopSession: m.stop, captureDesktopDisplay: m.capture,
   queueDesktopRequest: m.queue, armDesktopRequest: m.arm, approveDesktopRequest: m.approve, cancelDesktopRequest: m.cancel,
 }));
 
 vi.mock("@/lib/computer-use-relay", () => ({ exchangeDesktopRelay: m.relay }));
 
-const target = { selectionId: "selection-1", windowId: 42, processId: 99, application: "TextEdit", title: "Notes" };
+const target = { selectionId: "selection-1", displayId: 42, name: "Built-in" };
 const run = { namespace: "default", name: "run-1", myPermission: "owner", phase: "Running" };
-const image: WindowCapture = {
+const image: DisplayCapture = {
   frameId: "frame-1",
   geometry: { x: 0, y: 0, width: 800, height: 600 }, pixelWidth: 1600, pixelHeight: 1200,
   dataUrl: "data:image/png;base64,cHJldmlldw==",
@@ -69,30 +70,46 @@ afterEach(cleanup);
 async function panel(enabled = true) {
   const view = render(<ComputerUsePanel namespace="default" name="run-1" enabled={enabled} model="test-model" />);
   await screen.findByRole("status", { name: "Session stopped" });
-  view.container.querySelector("details")?.setAttribute("open", "");
   return view;
 }
 
-async function selectAndConsent() {
-  const picker = screen.getByRole("button", { name: "Choose window with macOS" });
+async function selectDisplay() {
+  const picker = screen.getByRole("button", { name: "Choose display with macOS" });
   await waitFor(() => expect((picker as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(picker);
-  await screen.findByText("TextEdit — Notes");
-  fireEvent.click(screen.getByRole("checkbox"));
+  await screen.findByText("Built-in · display 42");
 }
 
 async function startSession() {
-  await selectAndConsent();
-  fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
+  await selectDisplay();
+  fireEvent.click(screen.getByRole("button", { name: "Start desktop control" }));
   await screen.findByRole("status", { name: "Session active" });
   await waitFor(() => expect(m.heartbeat).toHaveBeenCalled());
 }
 
 describe("run-bound desktop preview", () => {
+  it("uses Start as explicit capture and desktop input opt-in without setup checkboxes", async () => {
+    await panel();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Window access" })).toBeNull();
+    await selectDisplay();
+    expect(m.start).not.toHaveBeenCalled();
+    expect(m.capture).not.toHaveBeenCalled();
+    expect(screen.getByText(/Starting shares captures/).textContent).toContain("desktop input");
+    const start = screen.getByRole("button", { name: "Start desktop control" });
+    expect(start.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(start);
+    await screen.findByRole("status", { name: "Session active" });
+    expect(m.start).toHaveBeenCalledWith({
+      backend: "https://operator.example", user: "user-1", namespace: "default", run: "run-1",
+      mode: "selected_display", displayId: 42,
+    }, true, true, 0, "selection-1");
+  });
+
   it("surfaces picker timeouts and permits a fresh attempt without starting a session", async () => {
     m.pick.mockRejectedValueOnce(new Error("The macOS window sharing picker timed out after 60 seconds without a selection."));
     await panel();
-    const picker = screen.getByRole("button", { name: "Choose window with macOS" });
+    const picker = screen.getByRole("button", { name: "Choose display with macOS" });
     await waitFor(() => expect(picker.hasAttribute("disabled")).toBe(false));
     fireEvent.click(picker);
     expect((await screen.findByRole("alert")).textContent).toContain("picker timed out");
@@ -100,165 +117,83 @@ describe("run-bound desktop preview", () => {
     expect(m.start).not.toHaveBeenCalled();
     expect(m.capture).not.toHaveBeenCalled();
     fireEvent.click(picker);
-    await screen.findByText("TextEdit — Notes");
+    await screen.findByText("Built-in · display 42");
     expect(screen.queryByRole("alert")).toBeNull();
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
   it("treats explicit picker cancellation as no selection, not an error", async () => {
     m.pick.mockResolvedValueOnce(null);
     await panel();
-    const picker = screen.getByRole("button", { name: "Choose window with macOS" });
+    const picker = screen.getByRole("button", { name: "Choose display with macOS" });
     await waitFor(() => expect(picker.hasAttribute("disabled")).toBe(false));
     fireEvent.click(picker);
     await waitFor(() => expect(m.pick).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(picker.hasAttribute("disabled")).toBe(false));
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByText("No window selected")).toBeTruthy();
+    expect(screen.getByText("No display selected")).toBeTruthy();
     expect(m.start).not.toHaveBeenCalled();
   });
 
-  it("requests broad OS permission only in agent-choice mode after explicit consent", async () => {
+  it("uses only the native selected-display picker and requires explicit start after reselection", async () => {
     await panel();
-    expect(screen.queryByRole("button", { name: "Enable Screen Recording for agent choice" })).toBeNull();
-    fireEvent.change(screen.getByRole("combobox", { name: "Window access" }), { target: { value: "agent_choice" } });
-    const permission = screen.getByRole("button", { name: "Enable Screen Recording for agent choice" });
-    expect(permission.hasAttribute("disabled")).toBe(true);
-    expect(screen.getByText(/Check Sharing consent below/)).toBeTruthy();
-    expect(m.openPermission).not.toHaveBeenCalled();
-    expect(m.pick).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(permission);
-    await waitFor(() => expect(m.openPermission).toHaveBeenCalledWith("agent_screen_recording"));
-    expect(m.start).not.toHaveBeenCalled();
-    expect(m.capture).not.toHaveBeenCalled();
-  });
-
-  it("requires fresh consent for agent choice and connects without the picker", async () => {
-    await panel();
-    await selectAndConsent();
-    fireEvent.change(screen.getByRole("combobox", { name: "Window access" }), { target: { value: "agent_choice" } });
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
-    expect(screen.queryByRole("combobox", { name: "Approved window" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Start supervised session" }).hasAttribute("disabled")).toBe(true);
-    m.start.mockImplementation(async (scope: DesktopScope) => {
-      native = { revision: 0, targetRevision: 0, target: null, phase: "active", sessionId: "session-1", scope, reason: "" };
-      return native;
-    });
-    fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
-    await screen.findByRole("status", { name: "Session active" });
-    expect(m.start).toHaveBeenCalledWith(expect.objectContaining({ mode: "agent_choice", application: "", windowId: 0, processId: 0 }), true, 0, "");
-    expect(screen.getAllByText("Awaiting agent selection").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Local preview" }).hasAttribute("disabled")).toBe(true);
-  });
-
-  it.each([false, true])("selects an approved target and rejects stale delivery: stale=%s", async (stale) => {
-    const chosen = { ref: "a".repeat(64), application: "Test application", title: "Harmless test document", onScreen: false, capabilities: { selectable: true, observable: true, input: false, reason: "Not on screen; capture can be attempted" } };
-    remotePending = { requestId: "listing", targetRevision: 0, action: { kind: "list_windows" } };
-    m.start.mockImplementation(async (scope: DesktopScope) => {
-      native = { revision: 0, targetRevision: 0, target: null, phase: "active", sessionId: "session-1", scope, reason: "" };
-      return native;
-    });
-    m.approve.mockImplementation(async (_id: string, _scope: DesktopScope, requestId: string) => {
-      if (requestId === "listing") return { requestId, status: "completed", message: "Listed", windows: [chosen, { ...chosen, ref: "b".repeat(64), application: "Window Server", title: "System surface", onScreen: null, capabilities: { selectable: false, observable: false, input: false, reason: "AX identity unavailable" } }] };
-      native = { ...native, target: chosen, targetRevision: stale ? 2 : 1, revision: stale ? 2 : 1 };
-      return { requestId, status: "completed", message: "Selected", target: chosen, targetRevision: 1 };
-    });
-    await panel();
-    fireEvent.change(screen.getByRole("combobox", { name: "Window access" }), { target: { value: "agent_choice" } });
-    fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
-    await screen.findByRole("status", { name: "Session active" });
-    fireEvent.click(await screen.findByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Allow for this session" }));
-    await waitFor(() => expect(m.relay.mock.calls.some((call) => call[2] === "resolve" && call[3] === "listing")).toBe(true));
-    expect(screen.getByLabelText("Discovered windows").textContent).toContain("Not on screen");
-    expect(screen.getByLabelText("Discovered windows").textContent).toContain("Input unavailable");
-    expect(screen.getByLabelText("Discovered windows").textContent).toContain("AX identity unavailable");
-    expect(screen.getByLabelText("Discovered windows").textContent).toContain("Visibility unknown");
-    remotePending = { requestId: "selecting", targetRevision: 0, action: { kind: "select_window", targetRef: chosen.ref } };
-    await screen.findByText(/Switch target to Test application/, {}, { timeout: 3000 });
-    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
-    if (stale) {
-      await waitFor(() => expect(m.stop).toHaveBeenCalled());
-      expect(m.relay.mock.calls.some((call) => call[2] === "resolve" && call[3] === "selecting")).toBe(false);
-    } else {
-      await waitFor(() => expect(m.relay.mock.calls.some((call) => call[2] === "resolve" && call[3] === "selecting")).toBe(true));
-      expect(screen.getAllByText("Test application — Harmless test document").length).toBeGreaterThan(0);
-      expect(screen.queryByText("Allowed for this session:")).toBeNull();
-      expect(screen.queryByRole("img")).toBeNull();
-    }
-  });
-
-  it("fails closed when old native start does not acknowledge agent mode", async () => {
-    await panel();
-    fireEvent.change(screen.getByRole("combobox", { name: "Window access" }), { target: { value: "agent_choice" } });
-    fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
-    await waitFor(() => expect(m.stop).toHaveBeenCalled());
-    expect(m.relay.mock.calls.some((call) => call[2] === "attach")).toBe(false);
-  });
-  it("uses only the native single-window picker and requires new consent on reselection", async () => {
-    await panel();
-    await selectAndConsent();
+    await selectDisplay();
     expect(m.pick).toHaveBeenCalledWith(0);
     expect(screen.queryByRole("combobox", { name: "Approved window" })).toBeNull();
     expect(screen.queryByRole("combobox", { name: "Application" })).toBeNull();
     expect(screen.queryByRole("searchbox")).toBeNull();
-    m.pick.mockResolvedValue({ ...target, selectionId: "selection-2", windowId: 43, application: "Firefox", title: "Google" });
-    fireEvent.click(screen.getByRole("button", { name: "Choose window with macOS" }));
-    await screen.findByText("Firefox — Google");
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    m.pick.mockResolvedValue({ ...target, selectionId: "selection-2", displayId: 43, name: "External" });
+    fireEvent.click(screen.getByRole("button", { name: "Choose display with macOS" }));
+    await screen.findByText("External · display 43");
+    expect(screen.queryByRole("checkbox")).toBeNull();
     expect(m.start).not.toHaveBeenCalled();
     expect(m.capture).not.toHaveBeenCalled();
   });
 
   it("handles picker cancellation without an error, selection, or implicit consent", async () => {
     await panel();
-    await selectAndConsent();
+    await selectDisplay();
     m.pick.mockResolvedValue(null);
-    fireEvent.click(screen.getByRole("button", { name: "Choose window with macOS" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose display with macOS" }));
     await waitFor(() => expect(m.pick).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("No window selected")).toBeTruthy();
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByText("No display selected")).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("button", { name: "Start supervised session" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Start desktop control" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("revokes a pending picker on navigation and ignores its late selection", async () => {
     let resolve!: (value: typeof target) => void;
     m.pick.mockImplementation(() => new Promise((done) => { resolve = done; }));
     const view = await panel();
-    fireEvent.click(screen.getByRole("button", { name: "Choose window with macOS" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose display with macOS" }));
     await waitFor(() => expect(m.pick).toHaveBeenCalled());
     view.rerender(<ComputerUsePanel namespace="default" name="run-2" enabled model="test-model" />);
     await waitFor(() => expect(m.stop).toHaveBeenCalled());
     await act(async () => resolve(target));
-    expect(screen.getByText("No window selected")).toBeTruthy();
+    expect(screen.getByText("No display selected")).toBeTruthy();
     expect(m.start).not.toHaveBeenCalled();
   });
 
   it("clears the native grant before a session starts", async () => {
     await panel();
-    await selectAndConsent();
+    await selectDisplay();
     fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
     await waitFor(() => expect(m.stop).toHaveBeenCalledTimes(1));
-    expect(screen.getByText("No window selected")).toBeTruthy();
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByText("No display selected")).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
     expect(m.start).not.toHaveBeenCalled();
     expect(m.capture).not.toHaveBeenCalled();
   });
 
   it("reports picker failure without retaining an earlier selection", async () => {
     await panel();
-    await selectAndConsent();
+    await selectDisplay();
     m.pick.mockRejectedValue(new Error("Picker failed"));
-    fireEvent.click(screen.getByRole("button", { name: "Choose window with macOS" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose display with macOS" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Picker failed");
-    expect(screen.getByText("No window selected")).toBeTruthy();
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByText("No display selected")).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
   it("explains the feature-only minimum on older macOS", async () => {
@@ -269,39 +204,66 @@ describe("run-bound desktop preview", () => {
     expect(m.pick).not.toHaveBeenCalled();
   });
 
-  it("reveals approval requests and keeps stop available when collapsed", async () => {
-    remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "click", x: 10, y: 20 } };
-    const view = await panel();
-    view.container.querySelector("details")?.removeAttribute("open");
-    await startSession();
-    await screen.findByText("Agent requests: click");
-    expect(view.container.querySelector("details")?.open).toBe(true);
-    view.container.querySelector("details")?.removeAttribute("open");
-    const stop = screen.getByRole("button", { name: "Stop computer use" });
-    expect(stop.closest("summary")).not.toBeNull();
-    fireEvent.click(stop);
+  it("keeps heartbeat, pending approvals and Stop alive with only the Chat shortcut mounted", async () => {
+    function Views() {
+      const [open, setOpen] = useState(true);
+      const [host, setHost] = useState<HTMLDivElement | null>(null);
+      const [shortcut, setShortcut] = useState<HTMLDivElement | null>(null);
+      return <>
+        <ComputerUsePanel namespace="default" name="run-1" enabled model="test-model"
+          view={{ panel: host, shortcut, open: () => setOpen(true) }} />
+        <div data-testid="chat" ref={setShortcut} />
+        <button onClick={() => setOpen(false)}>Return to Chat</button>
+        {open && <div data-testid="computer" ref={setHost} />}
+      </>;
+    }
+    render(<Views />);
     await screen.findByRole("status", { name: "Session stopped" });
+    await startSession();
+    fireEvent.click(screen.getByRole("button", { name: "Local preview" }));
+    await screen.findByAltText("Preview of the selected display");
+    const chat = screen.getByTestId("chat");
+    expect(within(chat).queryByRole("region", { name: "Desktop control" })).toBeNull();
+    expect(within(chat).queryByRole("button", { name: "Local preview" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Return to Chat" }));
+    expect(screen.queryByTestId("computer")).toBeNull();
+    const beats = m.heartbeat.mock.calls.length;
+    remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "click", x: 10, y: 20 } };
+    await waitFor(() => expect(m.heartbeat.mock.calls.length).toBeGreaterThan(beats), { timeout: 2500 });
+    const indication = await within(chat).findByRole("button", { name: /Needs your approval/ });
+    expect(m.stop).not.toHaveBeenCalled();
+    expect(m.start).toHaveBeenCalledTimes(1);
     expect(m.approve).not.toHaveBeenCalled();
+    fireEvent.click(indication);
+    await screen.findByText("Agent requests: click");
+    expect(screen.getByAltText("Preview of the selected display").getAttribute("src")).toBe(image.dataUrl);
+    expect(screen.getByRole("status", { name: "Session active" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Return to Chat" }));
+    fireEvent.click(within(chat).getByRole("button", { name: "Stop computer use" }));
+    await within(chat).findByRole("button", { name: /Computer · Stopped/ });
+    expect(m.stop).toHaveBeenCalledTimes(1);
+    expect(m.approve).not.toHaveBeenCalled();
+    expect(m.relay).toHaveBeenCalledWith("session-1", expect.anything(), "stop");
   });
 
-  it("requires window selection and explicit consent, without capturing automatically", async () => {
+  it("requires display selection and explicit consent, without capturing automatically", async () => {
     await panel();
-    expect((screen.getByRole("button", { name: "Start supervised session" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Start desktop control" }) as HTMLButtonElement).disabled).toBe(true);
     expect(m.pick).not.toHaveBeenCalled();
     expect(m.capture).not.toHaveBeenCalled();
     await startSession();
     expect(m.start).toHaveBeenCalledWith({
       backend: "https://operator.example", user: "user-1", namespace: "default", run: "run-1",
-      application: "TextEdit", windowId: 42, processId: 99,
-    }, true, 0, "selection-1");
+      mode: "selected_display", displayId: 42,
+    }, true, true, 0, "selection-1");
     expect(m.capture).not.toHaveBeenCalled();
   });
 
-  it("previews an approved window without uploading it", async () => {
+  it("previews the selected display without uploading it", async () => {
     await panel();
     await startSession();
     fireEvent.click(screen.getByRole("button", { name: "Local preview" }));
-    const preview = await screen.findByAltText("Preview of the approved desktop window");
+    const preview = await screen.findByAltText("Preview of the selected display");
     expect(preview.getAttribute("src")).toBe(image.dataUrl);
     expect(m.capture).toHaveBeenCalledWith("session-1", native.scope);
     expect(m.getRun).toHaveBeenCalledWith({ namespace: "default", name: "run-1" }, { timeoutMs: 4000 });
@@ -309,34 +271,34 @@ describe("run-bound desktop preview", () => {
 
   it("denies start after run ownership changes", async () => {
     await panel();
-    await selectAndConsent();
+    await selectDisplay();
     m.getRun.mockResolvedValue({ ...run, myPermission: "viewer" });
-    fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start desktop control" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Only a run owner or admin");
     expect(m.start).not.toHaveBeenCalled();
   });
 
   it("denies start when the run has ended", async () => {
     await panel();
-    await selectAndConsent();
+    await selectDisplay();
     m.getRun.mockResolvedValue({ ...run, phase: "Succeeded" });
-    fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start desktop control" }));
     await screen.findByRole("alert");
     expect(m.start).not.toHaveBeenCalled();
   });
 
   it("stops rather than renewing the native lease after a backend failure", async () => {
     await panel();
-    await selectAndConsent();
+    await selectDisplay();
     m.relay.mockResolvedValueOnce({ active: true, visionAvailable: true }).mockRejectedValue(new Error("Disconnected"));
-    fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start desktop control" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Disconnected");
     await waitFor(() => expect(m.stop).toHaveBeenCalled());
     // Exactly one renewal, after the backend confirmed attach; none after the failure.
     expect(m.heartbeat).toHaveBeenCalledTimes(1);
   });
 
-  it("clears preview and requires fresh consent after stop", async () => {
+  it("clears preview and requires fresh selection and start after stop", async () => {
     await panel();
     await startSession();
     fireEvent.click(screen.getByRole("button", { name: "Local preview" }));
@@ -344,14 +306,14 @@ describe("run-bound desktop preview", () => {
     fireEvent.click(screen.getByRole("button", { name: "Stop computer use" }));
     await screen.findByRole("status", { name: "Session stopped" });
     expect(screen.queryByRole("img")).toBeNull();
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
   it("does not display a late capture after stop", async () => {
     await panel();
     await startSession();
-    let complete: (capture: WindowCapture) => void = () => {};
-    m.capture.mockImplementation(() => new Promise<WindowCapture>((resolve) => { complete = resolve; }));
+    let complete: (capture: DisplayCapture) => void = () => {};
+    m.capture.mockImplementation(() => new Promise<DisplayCapture>((resolve) => { complete = resolve; }));
     fireEvent.click(screen.getByRole("button", { name: "Local preview" }));
     await waitFor(() => expect(m.capture).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Stop computer use" }));
@@ -467,24 +429,24 @@ describe("run-bound desktop preview", () => {
 
   it("shows the native failure reason for an executed action in the timeline", async () => {
     remotePending = { requestId: "request-1", frameId: "frame-1", action: { kind: "key", key: "Cmd+L" } };
-    m.approve.mockResolvedValue({ requestId: "request-1", status: "failed", message: "Approved window is not the frontmost application window" });
+    m.approve.mockImplementation(async () => { native = { ...native, phase: "paused", revision: native.revision + 1 }; return { requestId: "request-1", status: "failed", message: "OS keyboard focus changed during input" }; });
     await panel();
     await startSession();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
     fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     await screen.findByText("key — failed");
-    expect(screen.getByRole("list", { name: "Recent computer actions" }).textContent).toContain("Approved window is not the frontmost application window");
-    expect(screen.getByRole("alert").textContent).toContain("Approved window is not the frontmost application window");
+    expect(screen.getByRole("list", { name: "Recent computer actions" }).textContent).toContain("OS keyboard focus changed during input");
+    expect(screen.getByRole("alert").textContent).toContain("OS keyboard focus changed during input");
   });
 
-  it("describes open_url as a background browser action that needs no frame", async () => {
+  it("describes open_url as a default browser desktop action", async () => {
     remotePending = { requestId: "request-1", action: { kind: "open_url", url: "https://www.google.com/search?q=gratefulagents" } };
     m.approve.mockResolvedValue({ requestId: "request-1", status: "completed", message: "Opened" });
     await panel();
     await startSession();
     await screen.findByText("Agent requests: open_url");
     expect(screen.getByText("https://www.google.com/search?q=gratefulagents")).toBeTruthy();
-    expect(screen.getByText(/without bringing it forward/)).toBeTruthy();
+    expect(screen.getByText(/system default browser/)).toBeTruthy();
     expect(screen.getByText("Enters input")).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
     fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
@@ -541,11 +503,11 @@ describe("run-bound desktop preview", () => {
     expect(screen.getByText("Enters input")).toBeTruthy();
   });
 
-  it("describes hover as read-only with a dashed pointer marker", async () => {
+  it("describes hover as input with a dashed pointer marker", async () => {
     await proposeAfterPreview({ kind: "move", x: 400, y: 300 });
     expect(screen.getByText("Move the pointer to pixel (400, 300) without clicking (hover).")).toBeTruthy();
     expect(screen.getByLabelText("Proposed pointer location").getAttribute("style")).toContain("left: 25%");
-    expect(screen.getByText("Read-only")).toBeTruthy();
+    expect(screen.getByText("Enters input")).toBeTruthy();
   });
 
   it("describes a drag with start and destination markers only when the whole path is in frame", async () => {
@@ -566,7 +528,7 @@ describe("run-bound desktop preview", () => {
     await proposeAfterPreview({ kind: "scroll", deltaX: 0, deltaY: 300, x: 160, y: 120 });
     expect(screen.getByText(/with the pointer at \(160, 120\)/)).toBeTruthy();
     expect(screen.getByLabelText("Proposed scroll location").getAttribute("style")).toContain("left: 10%");
-    expect(screen.getByText("Read-only")).toBeTruthy();
+    expect(screen.getByText("Enters input")).toBeTruthy();
   });
 
   it("renders hotkeys as text plus Mac glyphs", async () => {
@@ -584,8 +546,8 @@ describe("run-bound desktop preview", () => {
   it("fails closed when the configured vision analyzer is unavailable", async () => {
     m.relay.mockResolvedValue({ active: true, visionAvailable: false });
     await panel();
-    await selectAndConsent();
-    fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
+    await selectDisplay();
+    fireEvent.click(screen.getByRole("button", { name: "Start desktop control" }));
     expect((await screen.findByRole("alert")).textContent).toContain("no supported vision analyzer");
     expect(m.heartbeat).not.toHaveBeenCalled();
     expect(m.stop).toHaveBeenCalled();
@@ -624,8 +586,8 @@ describe("run-bound desktop preview", () => {
     await screen.findByRole("status", { name: "Session stopped" });
     expect(screen.queryByRole("img")).toBeNull();
     expect(screen.queryByRole("region", { name: "Action awaiting approval" })).toBeNull();
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
-    expect(screen.getByText("No window selected")).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.getByText("No display selected")).toBeTruthy();
     expect(m.stop).toHaveBeenCalled();
   });
 
@@ -657,8 +619,8 @@ describe("run-bound desktop preview", () => {
       return relay(...args);
     });
     await panel();
-    await selectAndConsent();
-    fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
+    await selectDisplay();
+    fireEvent.click(screen.getByRole("button", { name: "Start desktop control" }));
     await screen.findByText("Press Enter.");
     await waitFor(() => expect(m.relay).toHaveBeenCalledWith("session-1", native.scope, "poll"));
     fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed/ }));
@@ -685,18 +647,17 @@ describe("run-bound desktop preview", () => {
 
   it("blocks reconnect when canceling a connection cannot confirm native stop", async () => {
     await panel();
-    await selectAndConsent();
+    await selectDisplay();
     let complete: () => void = () => {};
     m.relay.mockImplementationOnce(() => new Promise((resolve) => {
       complete = () => resolve({ active: true, visionAvailable: true });
     }));
-    fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start desktop control" }));
     await waitFor(() => expect(m.relay).toHaveBeenCalled());
     m.stop.mockRejectedValueOnce(new Error("IPC failed"));
     fireEvent.click(screen.getByRole("button", { name: "Cancel connection" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Cannot confirm native stop");
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect(screen.getByRole("button", { name: "Start supervised session" }).hasAttribute("disabled")).toBe(true);
+      expect(screen.getByRole("button", { name: "Start desktop control" }).hasAttribute("disabled")).toBe(true);
     await act(async () => complete());
     expect(screen.queryByRole("status", { name: "Session active" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Retry native stop" }));
@@ -776,7 +737,7 @@ describe("run-bound desktop preview", () => {
 
   it("revokes a native session that started after the panel was invalidated", async () => {
     await panel();
-    await selectAndConsent();
+    await selectDisplay();
     let complete: () => void = () => {};
     m.start.mockImplementationOnce((scope: DesktopScope) => new Promise((resolve) => {
       complete = () => {
@@ -784,7 +745,7 @@ describe("run-bound desktop preview", () => {
         resolve(native);
       };
     }));
-    fireEvent.click(screen.getByRole("button", { name: "Start supervised session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start desktop control" }));
     await waitFor(() => expect(m.start).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Cancel connection" }));
     await waitFor(() => expect(m.stop).toHaveBeenCalledTimes(1));

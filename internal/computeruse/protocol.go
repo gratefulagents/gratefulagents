@@ -33,30 +33,11 @@ const (
 
 var ErrRejected = errors.New("computer use request rejected")
 
-// Precondition rejections: Request refused the action before anything reached
-// the desktop, so no OS events were generated. They wrap ErrRejected so
-// existing callers still match, while the tool can give the agent the exact
-// next step instead of a generic "canceled" message.
 var (
-	// ErrNoTarget: agent-choice session without a selected window; the agent
-	// must list_windows and select_window before observing or acting.
-	ErrNoTarget = fmt.Errorf("%w: no window selected", ErrRejected)
-	// ErrDiscoveryUnavailable: list_windows/select_window in a selected-window
-	// session, or with a frameId attached.
-	ErrDiscoveryUnavailable = fmt.Errorf("%w: window discovery unavailable", ErrRejected)
-	// ErrUnknownTarget: select_window with a targetRef that is not in the
-	// latest list_windows result.
-	ErrUnknownTarget = fmt.Errorf("%w: unknown target reference", ErrRejected)
-	// ErrStaleFrame: input in an agent-choice session whose frameId does not
-	// match the latest observation of the current target.
-	ErrStaleFrame = fmt.Errorf("%w: stale frame", ErrRejected)
-	// ErrOpenURLUnavailable: open_url is application-wide and not permitted in
-	// agent-choice sessions.
-	ErrOpenURLUnavailable = fmt.Errorf("%w: open_url unavailable in agent-choice sessions", ErrRejected)
-	// ErrBusy: another request is still pending on this session.
-	ErrBusy = fmt.Errorf("%w: another request is pending", ErrRejected)
+	ErrLegacyScope = fmt.Errorf("%w: legacy window protocol is unsupported; update desktop, backend and run, then reconnect with selected-display capture and desktop-wide input consent", ErrRejected)
+	ErrStaleFrame  = fmt.Errorf("%w: stale frame; observe the selected display again", ErrRejected)
+	ErrBusy        = fmt.Errorf("%w: another request is pending", ErrRejected)
 )
-var targetReference = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
 
 // ClaimTimeoutFor returns how long a claimed request of this kind may stay unresolved.
@@ -81,33 +62,8 @@ func visibleText(s string) bool {
 	})
 }
 
-type WindowTarget struct {
-	Ref          string             `json:"ref"`
-	Application  string             `json:"application"`
-	Title        string             `json:"title"`
-	OnScreen     *bool              `json:"onScreen"`
-	Capabilities WindowCapabilities `json:"capabilities"`
-}
-
-type WindowCapabilities struct {
-	Selectable bool   `json:"selectable"`
-	Observable bool   `json:"observable"`
-	Input      bool   `json:"input"`
-	Reason     string `json:"reason"`
-}
-
-func (w WindowTarget) Validate() error {
-	if len(w.Capabilities.Reason) == 0 || len(w.Capabilities.Reason) > 512 ||
-		w.Capabilities.Observable != w.Capabilities.Selectable || (w.Capabilities.Input && (!w.Capabilities.Selectable || w.OnScreen == nil || !*w.OnScreen)) ||
-		!targetReference.MatchString(w.Ref) || w.Application == "" || len(w.Application) > 256 || len(w.Title) > 512 {
-		return ErrRejected
-	}
-	return nil
-}
-
 type Action struct {
-	TargetRef string `json:"targetRef,omitempty"`
-	Kind      string `json:"kind"`
+	Kind string `json:"kind"`
 	// X/Y are frame pixels for click, move, drag start, and optional scroll position.
 	X *float64 `json:"x,omitempty"`
 	Y *float64 `json:"y,omitempty"`
@@ -124,7 +80,7 @@ type Action struct {
 	Key     string `json:"key,omitempty"`
 	Text    string `json:"text,omitempty"`
 	// URL is an absolute http(s) address for open_url, loaded by the approved
-	// browser in the background.
+	// default browser.
 	URL      string `json:"url,omitempty"`
 	Question string `json:"question,omitempty"`
 }
@@ -133,7 +89,7 @@ type Action struct {
 // prior observation and therefore requires its frameId.
 func (a Action) NeedsFrame() bool {
 	switch a.Kind {
-	case "observe", "wait", "open_url", "list_windows", "select_window":
+	case "observe", "wait":
 		return false
 	}
 	return true
@@ -151,10 +107,10 @@ func WebURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
-// IsInput reports whether the action delivers OS events to the approved window.
+// IsInput reports whether the action delivers OS events to the selected display.
 func (a Action) IsInput() bool {
 	switch a.Kind {
-	case "observe", "wait", "list_windows", "select_window":
+	case "observe", "wait":
 		return false
 	}
 	return true
@@ -187,10 +143,8 @@ var namedKeys = map[string]bool{"Enter": true, "Tab": true, "Escape": true, "Bac
 // ParseHotkey accepts "Mod+...+Key" in any modifier order. Base keys are the
 // named navigation/editing keys, Space, A-Z, and 0-9. Letters and digits need
 // Control, Option, or Cmd so this action cannot become a text input channel
-// that bypasses proposed-text review. Combinations that leave the approved
-// window or the session (quit, close, hide, minimize, app/space switching,
-// Spotlight, screenshots, force quit, the emergency stop, fullscreen, Dock)
-// are rejected here and again natively.
+// that bypasses proposed-text review. Desktop navigation is allowed, but
+// emergency-stop and force-quit chords are reserved here and natively.
 func ParseHotkey(key string) (Hotkey, error) {
 	var h Hotkey
 	if len(key) == 0 || len(key) > 40 {
@@ -238,25 +192,13 @@ func ParseHotkey(key string) (Hotkey, error) {
 }
 
 func (h Hotkey) denied() bool {
-	arrow := strings.HasPrefix(h.Key, "Arrow")
-	switch {
-	case h.Cmd && (h.Key == "Q" || h.Key == "W" || h.Key == "H" || h.Key == "M" || h.Key == "Tab" || h.Key == "Space" || h.Key == "Escape"):
-		return true
-	case h.Cmd && h.Shift && (h.Key == "3" || h.Key == "4" || h.Key == "5" || h.Key == "6"):
-		return true
-	case h.Cmd && h.Option && h.Key == "D", h.Cmd && h.Control && h.Key == "F":
-		return true
-	case h.Control && arrow, h.Control && h.Key == "Space":
-		return true
-	}
-	return false
+	return h.Cmd && h.Option && h.Key == "Escape"
 }
 
 type Request struct {
-	TargetRevision uint64 `json:"targetRevision,omitempty"`
-	RequestID      string `json:"requestId"`
-	FrameID        string `json:"frameId,omitempty"`
-	Action         Action `json:"action"`
+	RequestID string `json:"requestId"`
+	FrameID   string `json:"frameId,omitempty"`
+	Action    Action `json:"action"`
 }
 
 type Geometry struct {
@@ -275,13 +217,10 @@ type Capture struct {
 }
 
 type Outcome struct {
-	TargetRevision uint64         `json:"targetRevision,omitempty"`
-	Windows        []WindowTarget `json:"windows,omitempty"`
-	Target         *WindowTarget  `json:"target,omitempty"`
-	RequestID      string         `json:"requestId"`
-	Status         string         `json:"status"`
-	Message        string         `json:"message"`
-	Capture        *Capture       `json:"capture,omitempty"`
+	RequestID string   `json:"requestId"`
+	Status    string   `json:"status"`
+	Message   string   `json:"message"`
+	Capture   *Capture `json:"capture,omitempty"`
 }
 
 // Exchange identity is supplied by the authenticated dashboard, never by the desktop.
@@ -317,19 +256,16 @@ func Decode(r io.Reader, out any) error {
 }
 
 func (r Response) Validate() error {
-	if r.Mode != "" && r.Mode != "selected_window" && r.Mode != "agent_choice" {
-		return ErrRejected
+	if r.Mode != "selected_display" {
+		return ErrLegacyScope
 	}
 	switch r.Reason {
-	case "", "session inactive", "session stopped", "computer use request rejected":
+	case "", "session inactive", "session stopped", "computer use request rejected", ErrLegacyScope.Error():
 	default:
 		return ErrRejected
 	}
 	if r.Pending != nil {
 		p := r.Pending
-		if r.Mode != "agent_choice" && (p.TargetRevision != 0 || p.Action.Kind == "list_windows" || p.Action.Kind == "select_window") {
-			return ErrRejected
-		}
 		if !r.Active || p.Action.Kind == "wait" || !identifier.MatchString(p.RequestID) || (p.FrameID != "" && !identifier.MatchString(p.FrameID)) || p.Action.Validate() != nil {
 			return ErrRejected
 		}
@@ -338,8 +274,8 @@ func (r Response) Validate() error {
 }
 
 func (a Action) Validate() error {
-	if (a.Kind == "select_window" && !targetReference.MatchString(a.TargetRef)) || (a.Kind != "select_window" && a.TargetRef != "") {
-		return ErrRejected
+	if a.Kind == "list_windows" || a.Kind == "select_window" || a.Kind == "activate" {
+		return ErrLegacyScope
 	}
 	// Question belongs to observation only; the tool keeps any verification
 	// question for its follow-up observation and never sends it with input.
@@ -362,7 +298,7 @@ func (a Action) Validate() error {
 		return ErrRejected
 	}
 	switch a.Kind {
-	case "observe", "list_windows", "select_window":
+	case "observe":
 		if point {
 			return ErrRejected
 		}
@@ -408,10 +344,6 @@ func (a Action) Validate() error {
 		if point || a.Text == "" || len(a.Text) > 4000 || !visibleText(a.Text) || len(utf16.Encode([]rune(a.Text))) > 1000 {
 			return ErrRejected
 		}
-	case "activate":
-		if point {
-			return ErrRejected
-		}
 	case "open_url":
 		if point {
 			return ErrRejected
@@ -430,7 +362,9 @@ func (e Exchange) Validate() error {
 		return ErrRejected
 	}
 	switch e.Operation {
-	case "attach", "attach_agent", "poll", "stop":
+	case "attach", "attach_agent":
+		return ErrLegacyScope
+	case "attach_desktop", "poll", "stop":
 		if e.RequestID != "" || e.Outcome != nil {
 			return ErrRejected
 		}
@@ -452,19 +386,6 @@ func (e Exchange) Validate() error {
 }
 
 func (o Outcome) Validate() error {
-	if o.Status != "completed" && (o.Target != nil || len(o.Windows) != 0) {
-		return ErrRejected
-	}
-	seen := map[string]bool{}
-	for _, w := range o.Windows {
-		if w.Validate() != nil || seen[w.Ref] {
-			return ErrRejected
-		}
-		seen[w.Ref] = true
-	}
-	if o.Target != nil && o.Target.Validate() != nil {
-		return ErrRejected
-	}
 	if len(o.Message) > 2048 {
 		return ErrRejected
 	}
