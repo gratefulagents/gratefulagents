@@ -9,7 +9,11 @@ import (
 
 func TestDesktopMigrationRejectsLegacyConsent(t *testing.T) {
 	b := New("ns", "run")
-	defer b.Close()
+	t.Cleanup(func() {
+		if err := b.Close(); err != nil {
+			t.Errorf("close broker: %v", err)
+		}
+	})
 	for _, op := range []string{"attach", "attach_agent"} {
 		_, err := b.Exchange(Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "old", Operation: op})
 		if !errors.Is(err, ErrLegacyScope) || b.Active() {
