@@ -88,7 +88,7 @@ export function ComputerUseSettings() {
     <SettingsSection
       icon={<Monitor />}
       title="Computer use"
-      description="Let an agent observe and act in the current approved Mac window while you supervise."
+      description="Let an agent observe and act in the selected Mac display and control the desktop while you supervise."
     >
       <div className="space-y-4 text-sm">
         <p className="text-[12px] leading-relaxed text-muted-foreground">
@@ -124,18 +124,17 @@ export function ComputerUseSettings() {
               <PermissionRow
                 icon={<Monitor />}
                 name="Screen Recording"
-                detail="Optional: required only for Agent chooses windows, to discover window names and capture the selected window."
-                granted={permissions.agentScreenRecording === true}
+                detail="Required to capture the entire selected display, including all visible applications."
+                granted={permissions.screenRecording === true}
                 disabled={busy}
-                onOpen={() => void openPermission("agent_screen_recording")}
+                onOpen={() => void openPermission("screen_recording")}
               />
             </dl>
             <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-              Selected window only uses the native macOS sharing picker and does not require broad Screen Recording permission.
-              Agent chooses windows requires the separate Screen Recording permission above. Granting it does not start a session
-              or authorize control: choose that mode and give sharing consent in a run's Computer use panel.
+              Selected-display desktop control requires both permissions above. Keyboard input follows OS focus and can affect other displays; there is no window isolation. Granting it does not start a session
+              or authorize control: select a display and give capture plus desktop-wide input consent in a run's Computer use panel.
               After enabling it in System Settings, relaunch if macOS requests it, then reconnect.
-              Stop sharing from macOS or the supervisor to revoke session access. OS permissions can be revoked in System Settings.
+              Stop from the supervisor or native tray to revoke session access. OS permissions can be revoked in System Settings.
             </p>
             {missing && (
               <p className={cn("rounded-md px-3 py-2 text-[11.5px] leading-relaxed", toneSoft.warning)} role="note">
@@ -167,8 +166,8 @@ export function ComputerUseSettings() {
             <p className={cn("flex items-start gap-1.5 rounded-md px-3 py-2 text-[11.5px] leading-relaxed", toneSoft.warning)} role="note">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
               <span>
-                Skip all approvals is on: the agent can send, submit, delete, or purchase on your behalf in the approved window,
-                and on-screen instructions may steer it. Only use with non-sensitive windows and stay at the keyboard.
+                Skip all approvals is on: the agent can send, submit, delete, or purchase on your behalf across your desktop,
+                and on-screen instructions may steer it. Only use with non-sensitive desktop content and stay at the keyboard.
               </span>
             </p>
           )}

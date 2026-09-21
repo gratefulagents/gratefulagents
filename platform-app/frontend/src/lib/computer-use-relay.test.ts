@@ -4,9 +4,9 @@ import { exchangeDesktopRelay, parseDesktopRelay } from "./computer-use-relay";
 const m = vi.hoisted(() => ({ exchange: vi.fn(), backend: "https://operator.example" }));
 vi.mock("./client", () => ({ client: { exchangeComputerUse: m.exchange } }));
 vi.mock("./platform", () => ({ backendBaseUrl: () => m.backend }));
-const scope = { backend: "https://operator.example", user: "local-user", namespace: "default", run: "run-1", application: "TextEdit", windowId: 42, processId: 99 };
-const status = { active: true, visionAvailable: true };
-const wrap = (action: unknown, extra = {}) => JSON.stringify({ ...status, mode: "agent_choice", pending: { requestId: "request-1", frameId: "frame-1", action, ...extra } });
+const scope = { backend: "https://operator.example", user: "local-user", namespace: "default", run: "run-1", mode: "selected_display" as const, displayId: 42 };
+const status = { mode: "selected_display", active: true, visionAvailable: true };
+const wrap = (action: unknown, extra = {}) => JSON.stringify({ ...status, pending: { requestId: "request-1", frameId: "frame-1", action, ...extra } });
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -15,21 +15,10 @@ beforeEach(() => {
 });
 
 describe("computer use relay contract", () => {
-  it("negotiates explicit agent mode and rejects an old relay", async () => {
-    const agentScope = { ...scope, mode: "agent_choice" as const, application: "", windowId: 0, processId: 0 };
-    await expect(exchangeDesktopRelay("s", agentScope, "attach")).rejects.toThrow(/update.*reconnect/);
-    expect(m.exchange).toHaveBeenCalledWith(expect.objectContaining({ operation: "attach_agent" }), { timeoutMs: 4000 });
-    m.exchange.mockResolvedValue({ responseJson: JSON.stringify({ ...status, mode: "agent_choice" }) });
-    expect((await exchangeDesktopRelay("s", agentScope, "attach")).mode).toBe("agent_choice");
-  });
-
-  it("validates target references, revisions and modes", () => {
-    const action = { kind: "select_window", targetRef: "a".repeat(64) };
-    expect(parseDesktopRelay(wrap(action, { frameId: undefined, targetRevision: 2 })).pending?.action).toEqual(action);
-    expect(parseDesktopRelay(wrap({ kind: "list_windows" }, { frameId: undefined })).pending?.action.kind).toBe("list_windows");
-    for (const targetRef of ["42", "A".repeat(64), "a".repeat(65)]) expect(() => parseDesktopRelay(wrap({ ...action, targetRef }))).toThrow();
-    for (const targetRevision of [-1, 1.1, "1", Number.MAX_SAFE_INTEGER + 1]) expect(() => parseDesktopRelay(wrap(action, { targetRevision }))).toThrow();
-    expect(() => parseDesktopRelay(JSON.stringify({ ...status, mode: "unknown" }))).toThrow();
+  it("rejects legacy modes, actions and request fields", () => {
+    for (const mode of [undefined, "selected_window", "agent_choice"]) expect(() => parseDesktopRelay(JSON.stringify({ ...status, mode }))).toThrow(/reconnect/);
+    for (const action of [{ kind: "list_windows" }, { kind: "select_window", targetRef: "a".repeat(64) }, { kind: "activate" }]) expect(() => parseDesktopRelay(wrap(action))).toThrow();
+    expect(() => parseDesktopRelay(wrap({ kind: "observe" }, { targetRevision: 0 }))).toThrow(/Legacy/);
   });
   it("sends run/session binding with a bounded RPC timeout, never a caller-supplied owner", async () => {
     expect(await exchangeDesktopRelay("session-1", scope, "claim", "request-1")).toEqual(status);
@@ -68,7 +57,6 @@ describe("computer use relay contract", () => {
     { kind: "move", x: 5, y: 6 },
     { kind: "drag", x: 1, y: 2, toX: 30, toY: 40 },
     { kind: "scroll", deltaX: 0, deltaY: 100, x: 12, y: 13 },
-    { kind: "activate" },
     { kind: "open_url", url: "https://example.com/path?q=1#frag" },
   ])("accepts the native action shape $kind", (action) => {
     expect(parseDesktopRelay(wrap(action)).pending?.action).toEqual(action);
@@ -98,13 +86,7 @@ describe("computer use relay contract", () => {
     { kind: "type", text: "unassigned\u{E0080}" },
     { kind: "key", key: "A" },
     { kind: "key", key: "Shift+A" },
-    { kind: "key", key: "Cmd+Q" },
-    { kind: "key", key: "Cmd+W" },
-    { kind: "key", key: "Cmd+Tab" },
-    { kind: "key", key: "Cmd+Space" },
-    { kind: "key", key: "Cmd+Shift+4" },
     { kind: "key", key: "Control+Option+Cmd+Escape" },
-    { kind: "key", key: "Control+ArrowLeft" },
     { kind: "key", key: "Cmd+Cmd+A" },
     { kind: "key", key: "Cmd+F1" },
     { kind: "key", key: "Fn+A" },
@@ -135,7 +117,7 @@ describe("computer use relay contract", () => {
     expect(() => parseDesktopRelay(wrap({ kind: "key", key: "Enter" }, { frameId: undefined }))).toThrow(/frame/);
     expect(() => parseDesktopRelay(wrap({ kind: "observe" }, { requestId: "../other" }))).toThrow(/binding/);
     expect(parseDesktopRelay(wrap({ kind: "observe" }, { frameId: undefined })).pending).toBeDefined();
-    expect(parseDesktopRelay(wrap({ kind: "open_url", url: "https://example.com" }, { frameId: undefined })).pending).toBeDefined();
+    expect(() => parseDesktopRelay(wrap({ kind: "open_url", url: "https://example.com" }, { frameId: undefined }))).toThrow(/frame/);
   });
 
   it.each(["{}", "null", "[]", "not json", JSON.stringify({ ...status, active: "yes" }), "x".repeat(16385)])("rejects malformed relay envelopes", (raw) => {

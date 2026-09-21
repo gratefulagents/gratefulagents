@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  AlertTriangle, AppWindow, ChevronDown, Eye, Globe, Keyboard, Monitor, MousePointer2, MousePointerClick,
+  AlertTriangle, AppWindow, Eye, Globe, Keyboard, Monitor, MousePointer2, MousePointerClick,
   Move, MoveVertical, Pause, Play, ShieldAlert, Square, Type as TypeIcon, Zap,
 } from "lucide-react";
+import { createPortal } from "react-dom";
 import { ApprovalModeBadge, ApprovalModeControl } from "@/components/ComputerUseApprovalMode";
 import { useOptionalAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -14,13 +15,13 @@ import { isDonePhase, toneSoft, toneText, type StatusTone } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { backendBaseUrl, isTauri } from "@/lib/platform";
 import {
-  computerUsePermissions, openComputerUsePermission, pickComputerUseWindow, hotkeyGlyphs, startDesktopSession,
+  computerUsePermissions, openComputerUsePermission, pickComputerUseDisplay, hotkeyGlyphs, startDesktopSession,
   desktopSessionStatus, heartbeatDesktopSession, pauseDesktopSession,
-  resumeDesktopSession, stopDesktopSession, captureDesktopWindow,
+  resumeDesktopSession, stopDesktopSession, captureDesktopDisplay,
   queueDesktopRequest, armDesktopRequest, approveDesktopRequest,
   cancelDesktopRequest,
   type DesktopAction, type DesktopSession, type DesktopRequest, type DesktopOutcome,
-  type WindowCapture, type WindowTarget, type WindowMetadata, type DesktopMode,
+  type DisplayCapture, type DisplayTarget,
 } from "@/lib/computer-use";
 import { exchangeDesktopRelay } from "@/lib/computer-use-relay";
 import {
@@ -31,8 +32,6 @@ type ActionKind = DesktopAction["kind"];
 type Activity = { id: string; kind: ActionKind; status: string; summary: string; detail?: string; at: number; auto: boolean };
 
 const ACTION_META: Record<ActionKind, { label: string; icon: ReactNode }> = {
-  list_windows: { label: "List windows", icon: <AppWindow /> },
-  select_window: { label: "Select window", icon: <AppWindow /> },
   observe: { label: "Observe", icon: <Eye /> },
   click: { label: "Click", icon: <MousePointerClick /> },
   move: { label: "Move pointer", icon: <MousePointer2 /> },
@@ -40,7 +39,6 @@ const ACTION_META: Record<ActionKind, { label: string; icon: ReactNode }> = {
   scroll: { label: "Scroll", icon: <MoveVertical /> },
   type: { label: "Type text", icon: <TypeIcon /> },
   key: { label: "Key press", icon: <Keyboard /> },
-  activate: { label: "Activate app", icon: <AppWindow /> },
   open_url: { label: "Open URL", icon: <Globe /> },
 };
 
@@ -62,22 +60,16 @@ function HotkeyKeys({ value }: { value: string }) {
   </span>;
 }
 
-function describeAction(request: DesktopRequest, windows: WindowMetadata[]): ReactNode {
+function describeAction(request: DesktopRequest): ReactNode {
   const { action } = request;
   switch (action.kind) {
-    case "list_windows": return <>Share macOS-exposed window names, titles and availability (no screenshots). Listing never focuses, restores windows or changes Spaces.</>;
-    case "select_window": {
-      const target = windows.find((window) => window.ref === action.targetRef);
-      return <>Switch target to {target ? `${target.application} — ${target.title}` : "an expired target"}. Old frames and target-specific grants will be cleared. {target?.capabilities.reason}</>;
-    }
-    case "observe": return <>Share a fresh capture for analysis: {action.question || "Describe the approved window"}</>;
+    case "observe": return <>Share a fresh capture for analysis: {action.question || "Describe the selected display"}</>;
     case "click": return <>{clickLabel(action)} pixel ({action.x}, {action.y}) in frame {request.frameId}.</>;
     case "move": return <>Move the pointer to pixel ({action.x}, {action.y}) without clicking (hover).</>;
     case "drag": return <>Press the left button at ({action.x}, {action.y}), drag to ({action.toX}, {action.toY}), and release.</>;
     case "scroll": return <>Scroll horizontally {action.deltaX}, vertically {action.deltaY} pixels (positive: right/down){action.x !== undefined ? <> with the pointer at ({action.x}, {action.y})</> : null}.</>;
     case "key": return <><span>Press {action.key}.</span> <HotkeyKeys value={action.key} /></>;
-    case "activate": return <>Bring the approved application to the foreground.</>;
-    case "open_url": return <>Open <span className="break-all font-mono">{action.url}</span> in the approved browser without bringing it forward.</>;
+    case "open_url": return <>Open <span className="break-all font-mono">{action.url}</span> in the system default browser (possibly on another display).</>;
     case "type": return null;
   }
 }
@@ -86,8 +78,6 @@ function describeAction(request: DesktopRequest, windows: WindowMetadata[]): Rea
 // includes the proposed text itself: the run history already carries it.
 function summarizeAction(action: DesktopAction): string {
   switch (action.kind) {
-    case "list_windows": return "Shared eligible window metadata";
-    case "select_window": return "Selected a new target; fresh observation required";
     case "observe": return "Shared a capture for analysis";
     case "click": return `${clickLabel(action)}ed pixel (${action.x}, ${action.y})`;
     case "move": return `Moved the pointer to (${action.x}, ${action.y})`;
@@ -95,27 +85,23 @@ function summarizeAction(action: DesktopAction): string {
     case "scroll": return `Scrolled ${action.deltaX}, ${action.deltaY}px${action.x !== undefined ? ` at (${action.x}, ${action.y})` : ""}`;
     case "type": return `Typed ${action.text.length} character${action.text.length === 1 ? "" : "s"}`;
     case "key": return `Pressed ${action.key}`;
-    case "activate": return "Brought the approved app forward";
     case "open_url": return `Opened ${action.url.length > 80 ? `${action.url.slice(0, 77)}…` : action.url}`;
   }
 }
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-export function ComputerUsePanel({ namespace, name, enabled, model }: {
+export function ComputerUsePanel({ namespace, name, enabled, model, view }: {
   namespace: string; name: string; enabled: boolean; model: string;
+  view?: { panel: HTMLElement | null; shortcut: HTMLElement | null; open: () => void };
 }) {
   const auth = useOptionalAuth();
   const user = auth?.user?.id;
   const [supported, setSupported] = useState<boolean | null>(null);
-  const [selected, setSelected] = useState<WindowTarget | null>(null);
+  const [selected, setSelected] = useState<DisplayTarget | null>(null);
   const sharingOwned = useRef(false);
-  const panelRef = useRef<HTMLDetailsElement>(null);
-  const [consent, setConsent] = useState(false);
-  const [mode, setMode] = useState<DesktopMode>("selected_window");
-  const [candidates, setCandidates] = useState<WindowMetadata[]>([]);
   const [session, setSession] = useState<DesktopSession | null>(null);
-  const [preview, setPreview] = useState<WindowCapture | null>(null);
+  const [preview, setPreview] = useState<DisplayCapture | null>(null);
   const [pending, setPending] = useState<DesktopRequest | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [activity, setActivity] = useState<Activity[]>([]);
@@ -132,11 +118,6 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
   const localSession = useRef<DesktopSession | null>(null);
   const pendingRef = useRef<DesktopRequest | null>(null);
   const inFlight = useRef<string | null>(null);
-  useEffect(() => {
-    if (panelRef.current && (pending || session?.phase === "paused" || error)) {
-      panelRef.current.open = true;
-    }
-  }, [pending, session?.phase, error]);
 
   const sessionId = session?.sessionId;
   const sessionScope = session?.scope;
@@ -156,8 +137,6 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     pendingRef.current = null;
     setPending(null);
     setConfirmed(false);
-    setConsent(false);
-    setCandidates([]);
     setSelected(null);
     setSessionAllowed(new Set());
     setError(message);
@@ -225,12 +204,6 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
           return;
         }
         if (status.revision >= (localSession.current?.revision ?? 0)) {
-          if (status.targetRevision !== localSession.current?.targetRevision) {
-            setPreview(null);
-            setSessionAllowed(new Set());
-            setConfirmed(false);
-            setCandidates([]);
-          }
           if (status.phase !== "active") {
             setPreview(null);
             setConfirmed(false);
@@ -269,7 +242,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
 
   async function start() {
     const target = selected;
-    if ((mode === "selected_window" && !target) || !user || !enabled || !consent || stopRequired) return;
+    if (!target || !user || !enabled || stopRequired) return;
     const current = generation.current;
     const backend = backendBaseUrl();
     const run = await client.getAgentRun({ namespace, name }, { timeoutMs: 4000 });
@@ -283,8 +256,8 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     if (backend !== backendBaseUrl()) throw new Error("Backend changed; grant fresh consent");
     const started = await startDesktopSession({
       backend, user, namespace, run: name,
-      ...(mode === "agent_choice" ? { mode, application: "", windowId: 0, processId: 0 } : { application: target!.application, windowId: target!.windowId, processId: target!.processId }),
-    }, consent, observed.revision, mode === "selected_window" ? target!.selectionId : "");
+      mode: "selected_display", displayId: target.displayId,
+    }, true, true, observed.revision, target.selectionId);
     if (current !== generation.current) {
       // The panel was invalidated while native start was in flight: nothing
       // else holds this session, so revoke it rather than leaking it.
@@ -294,7 +267,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     localSession.current = started;
     try {
       if (!started.sessionId || !started.scope) throw new Error("Native session did not start");
-      if (mode === "agent_choice" && (started.scope.mode !== mode || started.targetRevision !== 0)) throw new Error("Update the desktop app and reconnect to authorize agent-selected windows");
+      if (started.scope.mode !== "selected_display" || started.scope.displayId !== target.displayId) throw new Error("Legacy desktop authorization; update and reconnect with fresh consent");
       const relay = await exchangeDesktopRelay(started.sessionId, started.scope, "attach");
       if (current !== generation.current) {
         await exchangeDesktopRelay(started.sessionId, started.scope, "stop").catch(() => {});
@@ -330,7 +303,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
     if (revoked.current) throw new Error("Desktop session revoked; confirm stop before starting again");
     if (!session?.sessionId || !session.scope) return;
     const current = generation.current;
-    const image = await captureDesktopWindow(session.sessionId, session.scope);
+    const image = await captureDesktopDisplay(session.sessionId, session.scope);
     if (current === generation.current && !revoked.current && backendBaseUrl() === session.scope.backend &&
         localSession.current?.phase === "active" && localSession.current.revision === session.revision) setPreview(image);
   }
@@ -386,7 +359,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
         if (permit === null) {
           // Report local validation failure without ever authorizing an input.
           // The native reason is forwarded so the agent can adapt instead of asking the user to look.
-          outcome = { targetRevision: request.targetRevision, requestId: request.requestId, status: "failed", message: `Native validation rejected the request: ${String(localFailure).slice(0, 1024)}. Obtain a fresh observation and human approval.` };
+          outcome = { requestId: request.requestId, status: "failed", message: `Native validation rejected the request: ${String(localFailure).slice(0, 1024)}. Obtain a fresh observation and human approval.` };
           setError(String(localFailure));
           await cancelDesktopRequest(id, scope, request.requestId).catch(() => {});
         } else {
@@ -395,7 +368,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
         }
       } else {
         await exchangeDesktopRelay(id, scope, "claim", request.requestId);
-        outcome = { targetRevision: request.targetRevision, requestId: request.requestId, status: "denied", message: "Denied by supervisor" };
+        outcome = { requestId: request.requestId, status: "denied", message: "Denied by supervisor" };
       }
       if (!valid()) return;
       if (outcome.requestId !== request.requestId || (outcome.capture && request.action.kind !== "observe")) {
@@ -405,20 +378,11 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
         // The broker rejects a completed observation without its capture.
         outcome = { ...outcome, status: "failed", message: "Native capture returned no image" };
       }
-      if (scope.mode === "agent_choice") {
-        const expected = (request.targetRevision ?? 0) + (request.action.kind === "select_window" && outcome.status === "completed" ? 1 : 0);
-        const status = await desktopSessionStatus();
-        if (!valid()) return;
-        if (status.sessionId !== id || status.phase !== "active" || status.revision < (localSession.current?.revision ?? 0) || status.targetRevision !== expected || (outcome.targetRevision ?? 0) !== expected) throw new Error("Target authorization changed before delivery");
-        if (outcome.target) {
-          setPreview(null);
-          setSessionAllowed(new Set());
-          setCandidates([]);
-          localSession.current = { ...status, scope };
-          setSession(localSession.current);
-        }
-        if (request.action.kind === "list_windows" && outcome.status === "completed") setCandidates(outcome.windows ?? []);
-      }
+      const status = await desktopSessionStatus();
+      if (!valid()) return;
+      if (status.sessionId !== id || status.phase === "stopped") throw new Error("Desktop authorization ended before delivery");
+      // A native failure pauses input but must still reach the agent with its reason.
+      if (outcome.status === "completed" && status.phase !== "active") throw new Error("Desktop authorization paused before delivery");
       if (outcome.capture) setPreview(outcome.capture);
       await exchangeDesktopRelay(id, scope, "resolve", request.requestId, outcome);
       if (!valid()) return;
@@ -430,18 +394,16 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
         detail: outcome.status === "failed" ? outcome.message : undefined,
       }, ...old].slice(0, 20));
       if (outcome.status === "failed") {
-        const readOnly = request.action.kind === "observe" || request.action.kind === "list_windows" || request.action.kind === "select_window";
+        const readOnly = request.action.kind === "observe";
         setError(readOnly
-          ? `${outcome.message} No input was sent to the window.`
+          ? `${outcome.message} No input was sent to the desktop.`
           : `${outcome.message} The action may be partially applied. Do not retry automatically.`);
       }
       pendingRef.current = null;
       setPending(null);
     } catch (cause) {
-      if (valid()) await disconnect((request.action.kind === "list_windows" || request.action.kind === "select_window")
-        ? `Window request failed: ${String(cause).slice(0, 1024)}. No input was sent.`
-        : mayHaveExecuted
-        ? "Action result could not be confirmed. It may already have happened. Session stopped; inspect the app before any retry."
+      if (valid()) await disconnect(mayHaveExecuted
+        ? `Action result could not be confirmed (${String(cause).slice(0, 512)}). It may already have happened. Session stopped; inspect the desktop before any retry.`
         : "The request expired or the connection failed. Session stopped without authorizing further input.");
     } finally {
       if (current === generation.current && inFlight.current === request.requestId) {
@@ -455,9 +417,12 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
   // Viewers and finished runs get no controls unless a session or a pending
   // native stop still needs the operator's attention.
   if (!enabled && !session && !stopRequired && !busy) return null;
-  if (supported === false && !session && !stopRequired) return <p className="border-t p-3 text-xs text-muted-foreground">
-    Computer use requires macOS 15.2 or later. The rest of the app is unchanged.
-  </p>;
+  if (supported === false && !session && !stopRequired) {
+    const unavailable = <p className="p-3 text-xs text-muted-foreground">
+      Computer use requires macOS 15.2 or later. The rest of the app is unchanged.
+    </p>;
+    return view ? view.panel && createPortal(unavailable, view.panel) : unavailable;
+  }
   // Pointer markers are drawn only when the proposal targets the previewed frame.
   const inFrame = (x: number, y: number) => !!preview && x < preview.pixelWidth && y < preview.pixelHeight;
   const pointer = pending && preview && pending.frameId === preview.frameId &&
@@ -477,9 +442,9 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
   const skipAll = approvalMode === "auto";
   const allowedList = [...sessionAllowed].map((kind) => ACTION_META[kind].label);
 
-  return (
-    <details ref={panelRef} className="group/cu border-t text-sm">
-      <summary className="flex cursor-pointer list-none items-center gap-2.5 px-3 py-2 select-none hover:bg-muted/40 md:px-4 [&::-webkit-details-marker]:hidden">
+  const panel = (
+    <section aria-label="Desktop control" className="text-sm">
+      <header className="flex flex-wrap items-center gap-2.5 px-3 py-2 md:px-4">
         <span className="grid size-6 shrink-0 place-items-center rounded-md bg-muted/60 text-muted-foreground ring-1 ring-inset ring-border/60 [&_svg]:size-3.5">
           <Monitor />
         </span>
@@ -491,7 +456,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
         </span>
         {session?.scope && (
           <span className="hidden min-w-0 truncate text-xs text-muted-foreground sm:inline">
-            {session.scope.mode === "agent_choice" ? session.target ? `${session.target.application} — ${session.target.title}` : "Awaiting agent selection" : `${session.scope.application} · window ${session.scope.windowId}`}
+            {`Display ${session.scope.displayId} · desktop input`}
           </span>
         )}
         <ApprovalModeBadge mode={approvalMode} />
@@ -506,18 +471,16 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
             <Square data-icon="inline-start" /> Stop computer use
           </Button>
         )}
-        <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-open/cu:rotate-180" />
-      </summary>
+      </header>
 
-      <div className="max-h-[50vh] space-y-3 overflow-y-auto px-3 pb-3 md:px-4">
+      <div className="space-y-3 px-3 pb-3 md:px-4">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          The agent works inside the current approved Mac window while you supervise. Window selection is not an OS sandbox, and
+          The agent captures the selected display and controls your desktop while you supervise. Keyboard input follows OS focus and can affect other displays; there is no window isolation, and
           on-screen content is untrusted: review the target and effect yourself. You remain responsible for every action taken.
           Emergency stop: <Kbd>⌃⌥⌘⎋</Kbd> or the native tray.
         </p>
 
         {session?.phase === "paused" && <p role="status" className="text-xs text-amber-700">Target unavailable or paused: {session.reason || "Paused by supervisor"}</p>}
-        {busy && pending?.action.kind === "select_window" && <p role="status">Switching target under the local approval policy…</p>}
 
         {error && (
           <p role="alert" className={cn("flex items-start gap-2 rounded-md px-3 py-2 text-xs", toneSoft.danger)}>
@@ -526,20 +489,11 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
           </p>
         )}
 
-        {candidates.length > 0 && <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-3 text-xs" aria-label="Discovered windows">
-          {candidates.map((window) => <div key={window.ref}>
-            <p className="font-medium">{window.application} — {window.title}</p>
-            <p>{window.onScreen === null ? "Visibility unknown" : window.onScreen ? "On screen" : "Not on screen"} · {window.capabilities.selectable ? "Selectable" : "Unavailable"} · {window.capabilities.observable ? "Capture can be attempted" : "Cannot observe"} · {window.capabilities.input ? "Input subject to live checks" : "Input unavailable"}</p>
-            <p className="text-muted-foreground">{window.capabilities.reason}</p>
-          </div>)}
-        </div>}
-        {session?.target && <p className="text-xs text-muted-foreground">{session.target.capabilities.reason}</p>}
-
         {skipAll && (
           <div className={cn("flex flex-wrap items-center gap-2 rounded-md px-3 py-2 text-xs", toneSoft.warning)} role="note">
             <ShieldAlert className="size-3.5 shrink-0" />
             <span className="min-w-0 flex-1">
-              <span className="font-medium">Skipping all approvals.</span> Every agent request — including clicks, typing, and key presses — runs in the approved window without a per-action review.
+              <span className="font-medium">Skipping all approvals.</span> Every agent request — including clicks, typing, and key presses — runs in the selected display without a per-action review.
             </span>
             <Button size="xs" variant="outline" onClick={() => setComputerUseApprovalMode("manual")}>Switch to manual</Button>
           </div>
@@ -547,49 +501,33 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
 
         {!session && (
           <div className="space-y-3">
-            <label className="block text-xs">Window access
-              <select aria-label="Window access" value={mode} disabled={controlsLocked}
-                className="mt-1 block h-8 w-full rounded-md border bg-background px-2 text-sm"
-                onChange={(event) => { setMode(event.target.value as DesktopMode); setConsent(false); }}>
-                <option value="selected_window">Selected window only</option>
-                <option value="agent_choice">Agent chooses windows</option>
-              </select>
-            </label>
-            {mode === "agent_choice" && <p className="text-xs text-muted-foreground">Connect without selecting a window. The agent may list macOS-exposed application/window names and availability and choose or switch targets under your approval policy. Only the selected window is captured, when macOS supports it. Off-screen does not identify minimized windows or other Spaces. Listing never focuses or restores windows or changes Spaces. This mode additionally requires broad macOS Screen Recording permission; selected-window-only mode does not. Use harmless test windows, not private content.</p>}
-            {mode === "agent_choice" && <Button variant="outline" size="xs" disabled={controlsLocked || !consent}
-              onClick={() => void operate(() => openComputerUsePermission("agent_screen_recording"))}>
-              Enable Screen Recording for agent choice
-            </Button>}
-            {mode === "agent_choice" && <p className="text-xs text-muted-foreground">
-              Check Sharing consent below to enable this button, or open Screen Recording in Settings → Computer use.
-              After granting permission in macOS System Settings, relaunch the app if requested, then reconnect.
-            </p>}
-            {mode === "selected_window" && <div className="rounded-lg border p-3">
+            <Button variant="outline" size="xs" disabled={controlsLocked} onClick={() => void operate(() => openComputerUsePermission("screen_recording"))}>Enable Screen Recording</Button>
+            <Button variant="outline" size="xs" disabled={controlsLocked} onClick={() => void operate(() => openComputerUsePermission("accessibility"))}>Enable Accessibility</Button>
+            <div className="rounded-lg border p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-xs font-medium"><span className="mr-1.5 text-muted-foreground">1</span>Approved window</span>
+                <span className="text-xs font-medium"><span className="mr-1.5 text-muted-foreground">1</span>Selected display</span>
                 <Button variant="outline" size="xs" disabled={busy || !enabled || !supported || stopRequired}
                   onClick={() => void operate(async () => {
                     const current = generation.current;
                     sharingOwned.current = true;
                     setSelected(null);
-                    setConsent(false);
                     const observed = await desktopSessionStatus();
                     if (current !== generation.current) return;
-                    const target = await pickComputerUseWindow(observed.revision);
+                    const target = await pickComputerUseDisplay(observed.revision);
                     if (current === generation.current) setSelected(target);
                   })}>
                   <AppWindow data-icon="inline-start" />
-                  Choose window with macOS
+                  Choose display with macOS
                 </Button>
               </div>
 
               <p className="text-xs text-muted-foreground">
-                {selected ? `${selected.application} — ${selected.title || `Window ${selected.windowId}`}` : "No window selected"}
+                {selected ? `${selected.name} · display ${selected.displayId}` : "No display selected"}
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
-                macOS shares only the window you choose. The supervisor is excluded. No full-screen Screen Recording permission is needed.
+                All visible content on the chosen display may be captured, including sensitive apps and this supervisor. Screen Recording and Accessibility permissions are required.
               </p>
-            </div>}
+            </div>
 
 
             <div className="rounded-lg border p-3">
@@ -600,25 +538,17 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
               <p className="text-[11px] text-muted-foreground">{APPROVAL_MODE_META[approvalMode].description} You can change this at any time, including during a session.</p>
             </div>
 
-            <div className="rounded-lg border p-3">
-              <span className="mb-2 block text-xs font-medium"><span className="mr-1.5 text-muted-foreground">3</span>Sharing consent</span>
-              <label className="flex items-start gap-2 text-xs leading-relaxed">
-                <input type="checkbox" className="mt-0.5 shrink-0" checked={consent} disabled={busy || !enabled} onChange={(event) => setConsent(event.target.checked)} />
-                <span className="text-muted-foreground">
-                  {mode === "agent_choice" && <>I explicitly allow the agent to discover eligible window names and titles, share that metadata with this run’s backend and configured model providers, and choose or switch the active window under my local approval policy. </>}
-                  I consent to sharing approved captures with this run’s backend and configured vision service ({model || "configured model"}),
-                  and to input {skipAll ? "executed automatically while approvals are skipped" : approvalMode === "assisted" ? "only after my approval, with read-only observations shared automatically" : "only after my approval"}.
-                  Captures may contain private information; provider retention policies apply. Proposed text and visual analysis are part
-                  of the model conversation/run history; the app does not separately log keystrokes.
-                </span>
-              </label>
-            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Starting shares captures of the entire selected display with this run’s backend and vision service ({model || "configured model"})
+              and authorizes desktop input under your selected approval mode. Captures may include private information; provider retention policies apply.
+              Keyboard input follows OS focus and URLs open in your default browser, possibly on other displays. There is no window isolation.
+            </p>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" disabled={!enabled || (mode === "selected_window" && !selected) || !consent || busy || !supported || stopRequired}
+              <Button size="sm" disabled={!enabled || !selected || busy || !supported || stopRequired}
                 onClick={() => void operate(start)}>
                 {busy ? <Spinner data-icon="inline-start" /> : <Play data-icon="inline-start" />}
-                Start supervised session
+                Start desktop control
               </Button>
               {selected && !busy && <Button size="sm" variant="outline" onClick={() => void disconnect()}>Clear selection</Button>}
               {busy && <Button size="sm" variant="destructive" onClick={() => void disconnect()}>Cancel connection</Button>}
@@ -632,12 +562,12 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
             {session.scope && (
               <span className="flex min-w-0 items-center gap-1.5 text-xs">
                 <AppWindow className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate">{session.scope.mode === "agent_choice" ? session.target ? `${session.target.application} — ${session.target.title}` : "Awaiting agent selection" : `${session.scope.application} · window ${session.scope.windowId}`}</span>
+                <span className="truncate">{`Display ${session.scope.displayId} · desktop input`}</span>
               </span>
             )}
             <ApprovalModeControl variant="compact" disabled={stopRequired || !enabled} className="ml-1" />
             <div className="ml-auto flex flex-wrap gap-1.5">
-              <Button size="sm" variant="outline" disabled={controlsLocked || session.phase !== "active" || (session.scope?.mode === "agent_choice" && !session.target)} onClick={() => void operate(capture)}>
+              <Button size="sm" variant="outline" disabled={controlsLocked || session.phase !== "active"} onClick={() => void operate(capture)}>
                 <Eye data-icon="inline-start" />
                 Local preview
               </Button>
@@ -675,7 +605,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
         {preview && (
           <figure className="space-y-1">
             <div className="relative inline-block max-w-full overflow-hidden rounded-md border bg-muted/30">
-              <img src={preview.dataUrl} alt="Preview of the approved desktop window" className="max-h-80 w-auto max-w-full" />
+              <img src={preview.dataUrl} alt="Preview of the selected display" className="max-h-80 w-auto max-w-full" />
               {pointer && pointerTo && <svg aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" viewBox={`0 0 ${preview.pixelWidth} ${preview.pixelHeight}`} preserveAspectRatio="none">
                 <line x1={pointer.x!} y1={pointer.y!} x2={pointerTo.x} y2={pointerTo.y} stroke="var(--tone-danger)" strokeWidth={Math.max(2, preview.pixelWidth / 300)} strokeDasharray={`${preview.pixelWidth / 60} ${preview.pixelWidth / 120}`} vectorEffect="non-scaling-stroke" />
               </svg>}
@@ -713,7 +643,7 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
                     <p className="text-xs text-muted-foreground">Type exactly the text below into the focused field:</p>
                     <pre aria-label="Proposed text" className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-2 font-mono text-xs">{pending.action.text}</pre>
                   </>
-                  : <p className="text-xs text-muted-foreground">{describeAction(pending, candidates)}</p>}
+                  : <p className="text-xs text-muted-foreground">{describeAction(pending)}</p>}
               </div>
             </div>
 
@@ -782,6 +712,23 @@ export function ComputerUsePanel({ namespace, name, enabled, model }: {
           </div>
         )}
       </div>
-    </details>
+    </section>
   );
+
+  if (!view) return panel;
+  // The run owns this controller; responsive inspector/chat hosts may unmount
+  // without ending the native session or interrupting its lease/relay polling.
+  return <>
+    {view.panel && createPortal(panel, view.panel)}
+    {view.shortcut && createPortal(
+      <div className="flex shrink-0 items-center gap-2 border-t px-3 py-1.5 text-xs md:px-4" aria-label="Computer status">
+        <Button size="xs" variant="ghost" onClick={view.open}>
+          <Monitor data-icon="inline-start" /> Computer · {phaseLabel}
+          {pending && !pendingAuto ? " · Needs your approval" : error ? " · Needs attention" : ""}
+        </Button>
+        {(session || stopRequired) && <Button size="xs" variant="destructive" className="ml-auto" onClick={() => void disconnect()}>
+          <Square data-icon="inline-start" /> {stopRequired ? "Retry native stop" : "Stop computer use"}
+        </Button>}
+      </div>, view.shortcut)}
+  </>;
 }

@@ -1,22 +1,9 @@
 #import <AppKit/AppKit.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <ImageIO/ImageIO.h>
-#include "computer_use_process.h"
-#include "computer_use_window.h"
-
 #include <stdint.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
 
 typedef void (*GAReply)(void *, const char *);
-
-static void replyJSON(GAReply reply, void *context, id value) {
-    NSData *data = [NSJSONSerialization dataWithJSONObject:value options:NSJSONWritingFragmentsAllowed error:nil];
-    NSString *json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    reply(context, json.UTF8String);
-}
-
 @interface GACompletion : NSObject
 @property GAReply reply;
 @property void *context;
@@ -28,565 +15,106 @@ static void replyJSON(GAReply reply, void *context, id value) {
         if (!_reply) return;
         GAReply reply = _reply;
         _reply = NULL;
-        replyJSON(reply, _context, value);
+        NSData *data = [NSJSONSerialization dataWithJSONObject:value options:NSJSONWritingFragmentsAllowed error:nil];
+        reply(_context, [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding].UTF8String);
     }
 }
 @end
+static uint64_t selectedToken;
+static CGDirectDisplayID selectedDisplay;
+static NSString *selectedUUID;
+static NSAlert *picker;
+static GACompletion *picking;
+static GACompletion *capturing;
 
-typedef NS_ENUM(NSUInteger, GASnapshotRejection) {
-    GASnapshotInvalidated,
-    GASnapshotMissingFilter,
-    GASnapshotMissingWindow,
-    GASnapshotMissingApplication,
-    GASnapshotTerminatedApplication,
-    GASnapshotMissingLiveApplication,
-    GASnapshotTerminatedLiveApplication,
-    GASnapshotProcessIdentityUnavailable,
-    GASnapshotProcessIdentityChanged,
-    GASnapshotBundleMismatch,
-    GASnapshotCGInventoryUnavailable,
-    GASnapshotCGWindowMissing,
-    GASnapshotAXWindowIdentityUnavailable,
-    GASnapshotCGWindowPidMismatch,
-    GASnapshotBoundsMalformed,
-    GASnapshotBoundsEmpty,
-    GASnapshotBoundsInfinite,
-    GASnapshotBoundsNull,
-    GASnapshotRejectionCount
-};
-
-static NSString * const GASnapshotRejectionKeys[GASnapshotRejectionCount] = {
-    [GASnapshotInvalidated] = @"invalidated",
-    [GASnapshotMissingFilter] = @"missingFilter",
-    [GASnapshotMissingWindow] = @"missingWindow",
-    [GASnapshotMissingApplication] = @"missingApplication",
-    [GASnapshotTerminatedApplication] = @"terminatedApplication",
-    [GASnapshotMissingLiveApplication] = @"missingLiveApplication",
-    [GASnapshotTerminatedLiveApplication] = @"terminatedLiveApplication",
-    [GASnapshotProcessIdentityUnavailable] = @"processIdentityUnavailable",
-    [GASnapshotProcessIdentityChanged] = @"processIdentityChanged",
-    [GASnapshotBundleMismatch] = @"bundleMismatch",
-    [GASnapshotCGInventoryUnavailable] = @"cgInventoryUnavailable",
-    [GASnapshotCGWindowMissing] = @"cgWindowMissing",
-    [GASnapshotAXWindowIdentityUnavailable] = @"axWindowIdentityUnavailable",
-    [GASnapshotCGWindowPidMismatch] = @"cgWindowPidMismatch",
-    [GASnapshotBoundsMalformed] = @"boundsMalformed",
-    [GASnapshotBoundsEmpty] = @"boundsEmpty",
-    [GASnapshotBoundsInfinite] = @"boundsInfinite",
-    [GASnapshotBoundsNull] = @"boundsNull",
-};
-
-API_AVAILABLE(macos(15.2))
-@interface GAWindowShare : NSObject <SCContentSharingPickerObserver, SCStreamDelegate> {
-    AXUIElementRef _axWindow;
+bool ga_display_supported(void) { if (@available(macOS 15.2, *)) return true; return false; }
+static NSString *displayUUID(CGDirectDisplayID display) {
+    CFUUIDRef uuid = CGDisplayCreateUUIDFromDisplayID(display);
+    if (!uuid) return nil;
+    NSString *value = CFBridgingRelease(CFUUIDCreateString(NULL, uuid));
+    CFRelease(uuid);
+    return value;
 }
-@property uint64_t token;
-@property BOOL valid;
-@property (strong) SCContentFilter *filter;
-@property (strong) SCWindow *window;
-@property (strong) NSRunningApplication *application;
-@property GAProcessIdentity processIdentity;
-@property (strong) SCStream *stream;
-@property (strong) GACompletion *selection;
-- (void)invalidate;
-- (NSDictionary *)snapshot;
-- (NSDictionary *)snapshotWithRejection:(GASnapshotRejection *)rejection;
-@end
-
-static GAWindowShare *current API_AVAILABLE(macos(15.2));
-static NSDictionary<NSNumber *, GAWindowShare *> *agentWindows API_AVAILABLE(macos(15.2));
-static uint64_t agentInventoryRevision;
-
-@implementation GAWindowShare
-- (void)dealloc {
-    if (_axWindow) CFRelease(_axWindow);
+bool ga_display_valid(uint64_t token, uint32_t display) {
+    @synchronized(GACompletion.class) {
+        return token && token == selectedToken && display == selectedDisplay && CGDisplayIsActive(display)
+            && [selectedUUID isEqual:displayUUID(display)] && CGPreflightScreenCaptureAccess();
+    }
 }
-
-- (void)invalidate {
-    _valid = NO;
-    if (_axWindow) CFRelease(_axWindow);
-    _axWindow = NULL;
-    _filter = nil;
-    _window = nil;
-    _application = nil;
-    [_selection finish:NSNull.null];
-    _selection = nil;
+void ga_display_revoke(uint64_t token) {
+    @synchronized(GACompletion.class) {
+        if (token && token != selectedToken) return;
+        selectedToken = 0;
+        selectedDisplay = 0;
+        selectedUUID = nil;
+        [picking finish:NSNull.null]; picking = nil;
+        [capturing finish:@{@"error": @"Display sharing revoked"}]; capturing = nil;
+        NSAlert *old = picker; picker = nil;
+        dispatch_async(dispatch_get_main_queue(), ^{ if (old) { if (NSApp.modalWindow == old.window) [NSApp abortModal]; [old.window orderOut:nil]; } });
+    }
+}
+void ga_display_pick(uint64_t token, GAReply reply, void *context) {
+    GACompletion *completion = [GACompletion new]; completion.reply = reply; completion.context = context;
+    @synchronized(GACompletion.class) { selectedToken = token; picking = completion; }
     dispatch_async(dispatch_get_main_queue(), ^{
-        @synchronized(GAWindowShare.class) {
-            [SCContentSharingPicker.sharedPicker removeObserver:self];
-            if (current == self) SCContentSharingPicker.sharedPicker.active = NO;
-            [self.stream stopCaptureWithCompletionHandler:nil];
-            self.stream = nil;
+        @synchronized(GACompletion.class) { if (token != selectedToken) { [completion finish:NSNull.null]; return; } }
+        NSArray<NSScreen *> *screens = NSScreen.screens;
+        if (!CGPreflightScreenCaptureAccess() || !screens.count) { [completion finish:@{@"error": @"Screen Recording permission and an active display are required"}]; return; }
+        NSAlert *alert = [NSAlert new];
+        alert.messageText = @"Select a display for desktop control";
+        alert.informativeText = @"All visible content on this display may be shared, including sensitive apps. Pointer input stays on this display. Keyboard input follows OS focus and can affect other displays. This is not window isolation.";
+        [alert addButtonWithTitle:@"Select display"]; [alert addButtonWithTitle:@"Cancel"];
+        NSPopUpButton *choices = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 380, 28) pullsDown:NO];
+        for (NSScreen *screen in screens) [choices addItemWithTitle:[NSString stringWithFormat:@"%@ (display %@)", screen.localizedName, screen.deviceDescription[@"NSScreenNumber"]]];
+        alert.accessoryView = choices;
+        @synchronized(GACompletion.class) { if (token != selectedToken) { [completion finish:NSNull.null]; return; } picker = alert; }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 120 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            @synchronized(GACompletion.class) { if (picker == alert) ga_display_revoke(token); }
+        });
+        NSModalResponse response = [alert runModal];
+        [alert.window orderOut:nil];
+        @synchronized(GACompletion.class) {
+            if (picker == alert) picker = nil;
+            if (token != selectedToken || response != NSAlertFirstButtonReturn) { [completion finish:NSNull.null]; return; }
+            NSScreen *screen = screens[choices.indexOfSelectedItem];
+            selectedDisplay = [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
+            selectedUUID = displayUUID(selectedDisplay);
+            [completion finish:@{@"displayId": @(selectedDisplay), @"name": screen.localizedName}];
+            picking = nil;
         }
     });
 }
-
-- (NSDictionary *)snapshot {
-    return [self snapshotWithRejection:NULL];
-}
-
-- (NSDictionary *)snapshotWithRejection:(GASnapshotRejection *)rejection {
-    if (rejection) *rejection = GASnapshotRejectionCount;
-    if (!_valid) {
-        if (rejection) *rejection = GASnapshotInvalidated;
-        return nil;
-    }
-    if (!_filter) {
-        if (rejection) *rejection = GASnapshotMissingFilter;
-        return nil;
-    }
-    if (!_window) {
-        if (rejection) *rejection = GASnapshotMissingWindow;
-        return nil;
-    }
-    if (!_application) {
-        if (rejection) *rejection = GASnapshotMissingApplication;
-        return nil;
-    }
-    if (_application.terminated) {
-        if (rejection) *rejection = GASnapshotTerminatedApplication;
-        return nil;
-    }
-    GAProcessIdentity identity;
-    NSRunningApplication *live = [NSRunningApplication runningApplicationWithProcessIdentifier:_application.processIdentifier];
-    if (!live) {
-        if (rejection) *rejection = GASnapshotMissingLiveApplication;
-        return nil;
-    }
-    if (live.terminated) {
-        if (rejection) *rejection = GASnapshotTerminatedLiveApplication;
-        return nil;
-    }
-    if (!ga_process_identity_read(_application.processIdentifier, &identity)) {
-        if (rejection) *rejection = GASnapshotProcessIdentityUnavailable;
-        return nil;
-    }
-    if (!ga_process_identity_equal(identity, _processIdentity)) {
-        if (rejection) *rejection = GASnapshotProcessIdentityChanged;
-        return nil;
-    }
-    if (![live.bundleIdentifier isEqual:_window.owningApplication.bundleIdentifier]) {
-        if (rejection) *rejection = GASnapshotBundleMismatch;
-        return nil;
-    }
-    // CG metadata (IDs, PIDs, bounds, order) needs no Screen Recording grant.
-    // Never use window titles or images from this list to authorize a target.
-    NSArray *windows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID));
-    if (!windows) {
-        if (rejection) *rejection = GASnapshotCGInventoryUnavailable;
-        return nil;
-    }
-    NSDictionary *selected = nil;
-    for (NSDictionary *info in windows) {
-        if ([info[(__bridge NSString *)kCGWindowNumber] unsignedIntValue] == _window.windowID) {
-            selected = info;
-            break;
-        }
-    }
-    if (!selected) {
-        if (rejection) *rejection = GASnapshotCGWindowMissing;
-        return nil;
-    }
-    if ([selected[(__bridge NSString *)kCGWindowOwnerPID] intValue] != _application.processIdentifier) {
-        if (rejection) *rejection = GASnapshotCGWindowPidMismatch;
-        return nil;
-    }
-    CGRect bounds;
-    if (!CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)selected[(__bridge NSString *)kCGWindowBounds], &bounds)) {
-        if (rejection) *rejection = GASnapshotBoundsMalformed;
-        return nil;
-    }
-    if (CGRectIsEmpty(bounds) || CGRectIsInfinite(bounds) || CGRectIsNull(bounds)) {
-        if (rejection) {
-            // Null/infinite rectangles may also be empty; keep their diagnostic distinct.
-            if (CGRectIsNull(bounds)) *rejection = GASnapshotBoundsNull;
-            else if (CGRectIsInfinite(bounds)) *rejection = GASnapshotBoundsInfinite;
-            else *rejection = GASnapshotBoundsEmpty;
-        }
-        return nil;
-    }
-    GAWindowEligibility eligibility;
-    AXUIElementRef window = ga_ax_window_copy(_application.processIdentifier, _window.windowID, bounds, _axWindow, &eligibility);
-    if (!window) {
-        if (rejection) *rejection = GASnapshotAXWindowIdentityUnavailable;
-        return nil;
-    }
-    // Bind once: focus changes must not replace the consented AX identity.
-    if (!_axWindow) _axWindow = window;
-    else CFRelease(window);
-    BOOL onScreen = [selected[(__bridge NSString *)kCGWindowIsOnscreen] boolValue];
-    pid_t front = NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
-    return @{
-        @"windowId": @(_window.windowID), @"processId": @(_application.processIdentifier),
-        @"application": _window.owningApplication.applicationName,
-        // Comparisons have type int in Objective-C, so @(a == b) would box an
-        // integer (serialized as 1/0) rather than a JSON boolean; the Rust
-        // Snapshot decoder expects true/false.
-        @"onScreen": selected[(__bridge NSString *)kCGWindowIsOnscreen] ? (onScreen ? @YES : @NO) : NSNull.null,
-        @"inputAvailable": onScreen ? @YES : @NO,
-        @"capabilities": @{@"selectable": @YES, @"observable": @YES, @"input": onScreen ? @YES : @NO,
-            @"reason": onScreen ? @"Capture can be attempted; input requires fresh identity, frame, permission, approval and action-specific focus checks" : @"Not on screen; capture can be attempted, but input is unavailable. Listing does not restore windows or change Spaces"},
-        @"title": _window.title ?: @"", @"frontmost": (eligibility == GAWindowFocused) ? @YES : @NO,
-        @"focusAllowed": (front == _application.processIdentifier || front == getpid()) ? @YES : @NO,
-        @"geometry": @{@"x": @((int32_t)bounds.origin.x), @"y": @((int32_t)bounds.origin.y),
-                        @"width": @((uint32_t)bounds.size.width), @"height": @((uint32_t)bounds.size.height)}
-    };
-}
-
-- (void)contentSharingPicker:(SCContentSharingPicker *)picker didUpdateWithFilter:(SCContentFilter *)filter forStream:(SCStream *)stream {
-    @synchronized(GAWindowShare.class) {
-        if (current != self || !_valid) return;
-        // A changed filter never reauthorizes a running session, even for the same ID.
-        if (_filter || stream || filter.style != SCShareableContentStyleWindow || filter.includedWindows.count != 1) {
-            [self invalidate];
-            return;
-        }
-        SCWindow *window = filter.includedWindows.firstObject;
-        SCRunningApplication *owner = window.owningApplication;
-        NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:owner.processID];
-        GAProcessIdentity identity;
-        if (!owner || owner.processID == getpid() || !owner.applicationName.length || !owner.bundleIdentifier.length ||
-            !app || app.terminated || !ga_process_identity_read(owner.processID, &identity) ||
-            ![app.bundleIdentifier isEqual:owner.bundleIdentifier] ||
-            [owner.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier]) {
-            [_selection finish:@{@"error": @"The supervisor or unidentified application cannot be shared"}];
-            [self invalidate];
-            return;
-        }
-        _filter = filter;
-        _window = window;
-        _application = app;
-        _processIdentity = identity;
-        NSDictionary *snapshot = [self snapshot];
-        if (!snapshot) {
-            [_selection finish:@{@"error": @"The selected window is unavailable"}];
-            [self invalidate];
-            return;
-        }
-        [_selection finish:snapshot];
-        _selection = nil;
-    }
-}
-- (void)contentSharingPicker:(SCContentSharingPicker *)picker didCancelForStream:(SCStream *)stream {
-    @synchronized(GAWindowShare.class) { [self invalidate]; }
-}
-- (void)contentSharingPickerStartDidFailWithError:(NSError *)error {
-    @synchronized(GAWindowShare.class) {
-        NSString *message = [NSString stringWithFormat:@"macOS could not open the window sharing picker (%@, code %ld). Quit and reopen gratefulagents, then try again.", error.domain, (long)error.code];
-        [_selection finish:@{@"error": message}];
-        [self invalidate];
-    }
-}
-- (void)streamDidBecomeInactive:(SCStream *)stream {
-    @synchronized(GAWindowShare.class) { [self invalidate]; }
-}
-- (void)stream:(SCStream *)stream didStopWithError:(NSError *)error {
-    @synchronized(GAWindowShare.class) { [self invalidate]; }
-}
-@end
-
-bool ga_window_sharing_supported(void) {
-    if (@available(macOS 15.2, *)) return true;
-    return false;
-}
-
-void ga_window_sharing_revoke(uint64_t token) {
+void ga_display_capture(uint64_t token, uint32_t display, uint32_t width, uint32_t height, GAReply reply, void *context) {
+    GACompletion *completion = [GACompletion new]; completion.reply = reply; completion.context = context;
+    if (!ga_display_valid(token, display)) { [completion finish:@{@"error": @"Selected display is unavailable; reconnect"}]; return; }
+    @synchronized(GACompletion.class) { capturing = completion; }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ [completion finish:@{@"error": @"Display capture timed out"}]; });
     if (@available(macOS 15.2, *)) {
-        @synchronized(GAWindowShare.class) {
-            if (token == 0 || current.token == token) [current invalidate];
-            if (token == 0) { agentWindows = nil; agentInventoryRevision++; }
-        }
-    }
-}
-
-void ga_window_sharing_pick(uint64_t token, GAReply reply, void *context) {
-    if (@available(macOS 15.2, *)) {
-        GAWindowShare *share = [GAWindowShare new];
-        share.token = token;
-        share.valid = YES;
-        share.selection = [GACompletion new];
-        share.selection.reply = reply;
-        share.selection.context = context;
-        @synchronized(GAWindowShare.class) {
-            [current invalidate];
-            current = share;
-        }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            @synchronized(GAWindowShare.class) {
-                if (current != share || !share.valid) return;
-                SCContentSharingPicker *picker = SCContentSharingPicker.sharedPicker;
-                SCContentSharingPickerConfiguration *config = [SCContentSharingPickerConfiguration new];
-                config.allowedPickerModes = SCContentSharingPickerModeSingleWindow;
-                config.allowsChangingSelectedContent = NO;
-                if (NSBundle.mainBundle.bundleIdentifier) config.excludedBundleIDs = @[NSBundle.mainBundle.bundleIdentifier];
-                NSMutableArray *ids = [NSMutableArray new];
-                for (NSWindow *window in NSApp.windows) {
-                    if (window.windowNumber > 0) [ids addObject:@(window.windowNumber)];
-                }
-                config.excludedWindowIDs = ids;
-                picker.defaultConfiguration = config;
-                picker.maximumStreamCount = @1;
-                [picker addObserver:share];
-                picker.active = YES;
-                [picker presentPickerUsingContentStyle:SCShareableContentStyleWindow];
-            }
-        });
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            @synchronized(GAWindowShare.class) {
-                if (share.selection) {
-                    // A missing OS callback is not a user cancellation. Complete
-                    // with an error before invalidation clears the pending reply.
-                    [share.selection finish:@{@"error": @"The macOS window sharing picker timed out after 60 seconds without a selection. If no picker appeared, quit and reopen gratefulagents, then try again. Agent chooses windows uses a separate Screen Recording permission and does not need this picker."}];
-                    [share invalidate];
-                }
-            }
-        });
-    } else {
-        replyJSON(reply, context, @{@"error": @"Computer use requires macOS 15.2 or later"});
-    }
-}
-
-char *ga_window_sharing_snapshot(uint64_t token) {
-    @autoreleasepool {
-        if (@available(macOS 15.2, *)) {
-            @synchronized(GAWindowShare.class) {
-                NSDictionary *snapshot = current.token == token ? [current snapshot] : nil;
-                if (!snapshot) return NULL;
-                NSData *data = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:nil];
-                return strdup([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding].UTF8String);
-            }
-        }
-        return NULL;
-    }
-}
-
-void ga_window_sharing_free(char *value) { free(value); }
-
-void ga_window_sharing_capture(uint64_t token, uint32_t width, uint32_t height, GAReply reply, void *context) {
-    GACompletion *completion = [GACompletion new];
-    completion.reply = reply;
-    completion.context = context;
-    if (@available(macOS 15.2, *)) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            @synchronized(GAWindowShare.class) {
-                GAWindowShare *share = current;
-                if (share.token != token || ![share snapshot] || !width || !height || width > 1920 || height > 1080) {
-                    [completion finish:@{@"error": @"Window sharing is unavailable or revoked"}];
-                    return;
-                }
-                SCContentFilter *filter = share.filter;
-                SCStreamConfiguration *config = [SCStreamConfiguration new];
-                config.width = width;
-                config.height = height;
-                config.showsCursor = NO;
-                config.capturesAudio = NO;
-                config.ignoreShadowsSingleWindow = YES;
-                config.includeChildWindows = NO;
-                config.scalesToFit = YES;
-                void (^capture)(void) = ^{
-                    @synchronized(GAWindowShare.class) {
-                        if (!share.valid || current != share) {
-                            [completion finish:@{@"error": @"Window sharing was revoked"}];
-                            return;
-                        }
-                        [SCScreenshotManager captureImageWithFilter:filter configuration:config completionHandler:^(CGImageRef image, NSError *error) {
-                            @synchronized(GAWindowShare.class) {
-                                if (error || !image || !share.valid || current != share || ![share snapshot] ||
-                                    CGImageGetWidth(image) != width || CGImageGetHeight(image) != height) {
-                                    [share invalidate];
-                                    [completion finish:@{@"error": @"Window capture failed or sharing was revoked; select the window again"}];
-                                    return;
-                                }
-                                NSMutableData *png = [NSMutableData new];
-                                CGImageDestinationRef destination = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)png, CFSTR("public.png"), 1, NULL);
-                                BOOL encoded = NO;
-                                if (destination) {
-                                    CGImageDestinationAddImage(destination, image, NULL);
-                                    encoded = CGImageDestinationFinalize(destination);
-                                    CFRelease(destination);
-                                }
-                                [completion finish:encoded ? @{@"dataUrl": [@"data:image/png;base64," stringByAppendingString:[png base64EncodedStringWithOptions:0]]} : @{@"error": @"Cannot encode window capture"}];
-                            }
-                        }];
-                    }
-                };
-                if (share.stream) {
-                    capture();
-                } else {
-                    // Keep an OS sharing session solely to receive user/system stop notifications.
-                    // Screenshots always use the original picker filter, never a reconstructed one.
-                    SCStreamConfiguration *monitor = [SCStreamConfiguration new];
-                    monitor.width = 2;
-                    monitor.height = 2;
-                    monitor.minimumFrameInterval = CMTimeMake(1, 1);
-                    monitor.showsCursor = NO;
-                    monitor.capturesAudio = NO;
-                    monitor.includeChildWindows = NO;
-                    share.stream = [[SCStream alloc] initWithFilter:filter configuration:monitor delegate:share];
-                    [share.stream startCaptureWithCompletionHandler:^(NSError *error) {
-                        if (error) {
-                            @synchronized(GAWindowShare.class) { [share invalidate]; }
-                            [completion finish:@{@"error": @"macOS could not start window sharing"}];
-                        } else capture();
-                    }];
-                }
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                    [completion finish:@{@"error": @"Window capture timed out"}];
-                });
-            }
-        });
-    } else {
-        [completion finish:@{@"error": @"Computer use requires macOS 15.2 or later"}];
-    }
-}
-
-void ga_agent_windows(GAReply reply, void *context) {
-    GACompletion *completion = [GACompletion new];
-    completion.reply = reply;
-    completion.context = context;
-    if (@available(macOS 15.2, *)) {
-        if (!CGPreflightScreenCaptureAccess()) {
-            [completion finish:@{@"error": @"Agent-choice Screen Recording permission is required"}];
-            return;
-        }
-        __block uint64_t revision;
-        @synchronized(GAWindowShare.class) { revision = ++agentInventoryRevision; }
-        [SCShareableContent getShareableContentExcludingDesktopWindows:NO onScreenWindowsOnly:NO completionHandler:^(SCShareableContent *content, NSError *error) {
-            @synchronized(GAWindowShare.class) {
-                if (error || !content || revision != agentInventoryRevision || !CGPreflightScreenCaptureAccess()) {
-                    [completion finish:@{@"error": @"Window discovery failed or was revoked"}];
-                    return;
-                }
-                NSMutableDictionary *inventory = [NSMutableDictionary new];
-                NSMutableArray *metadata = [NSMutableArray new];
-                NSUInteger raw = content.windows.count, inspected = 0;
-                NSUInteger missingOwner = 0, supervisorPid = 0, missingName = 0, missingBundle = 0;
-                NSUInteger processIdentityUnavailable = 0, bundleMismatch = 0, supervisorBundle = 0;
-                NSUInteger invalidSnapshot = 0, nonFrontmost = 0;
-                NSUInteger snapshotRejections[GASnapshotRejectionCount] = {0};
-                NSArray *cgWindows = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID));
-                if (!cgWindows) {
-                    [completion finish:@{@"error": @"Core Graphics window inventory unavailable; cannot safely exclude supervisor controls"}];
-                    return;
-                }
-                NSMutableDictionary *cgByID = [NSMutableDictionary new];
-                for (NSDictionary *info in cgWindows) cgByID[info[(__bridge NSString *)kCGWindowNumber]] = info;
-                NSMutableSet *seen = [NSMutableSet new];
-                for (SCWindow *window in content.windows) {
-                    [seen addObject:@(window.windowID)];
-                    inspected++;
-                    SCRunningApplication *owner = window.owningApplication;
-                    NSDictionary *cg = cgByID[@(window.windowID)];
-                    NSNumber *ownerPID = cg[(__bridge NSString *)kCGWindowOwnerPID] ?: (owner ? @(owner.processID) : nil);
-                    pid_t pid = ownerPID.intValue;
-                    // Unknown ownership cannot reliably exclude the supervisor's consent controls.
-                    if (!ownerPID || pid < 0) { missingOwner++; continue; }
-                    if (pid == getpid() || (owner && owner.processID == getpid())) { supervisorPid++; continue; }
-                    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
-                    if ([owner.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier] ||
-                        [app.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier]) { supervisorBundle++; continue; }
-                    NSString *reason = nil;
-                    GAProcessIdentity identity;
-                    if (!owner || owner.processID != pid) { missingOwner++; reason = @"Window owner identity unavailable"; }
-                    else if (!owner.applicationName.length) { missingName++; reason = @"Application name unavailable"; }
-                    else if (!owner.bundleIdentifier.length) { missingBundle++; reason = @"Application bundle identity unavailable"; }
-                    else if (!app || app.terminated || !ga_process_identity_read(pid, &identity)) { processIdentityUnavailable++; reason = @"Live process identity unavailable"; }
-                    else if (![app.bundleIdentifier isEqual:owner.bundleIdentifier]) { bundleMismatch++; reason = @"Application bundle identity changed"; }
-                    NSDictionary *snapshot = nil;
-                    if (!reason) {
-                        GAWindowShare *share = [GAWindowShare new];
-                        share.valid = YES;
-                        share.window = window;
-                        share.application = app;
-                        share.processIdentity = identity;
-                        share.filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:window];
-                        GASnapshotRejection rejection;
-                        snapshot = [share snapshotWithRejection:&rejection];
-                        if (!snapshot) {
-                            invalidSnapshot++;
-                            snapshotRejections[rejection]++;
-                            reason = [NSString stringWithFormat:@"Safe window identity/capture unavailable (%@); refresh discovery after making the window available", GASnapshotRejectionKeys[rejection]];
-                        } else {
-                            if (![snapshot[@"frontmost"] boolValue]) nonFrontmost++;
-                            inventory[@(window.windowID)] = share;
-                        }
-                    }
-                    if (!snapshot) {
-                        snapshot = @{@"windowId": @(window.windowID), @"processId": @(pid),
-                            @"application": owner.applicationName.length ? owner.applicationName : @"Unidentified application",
-                            @"title": window.title ?: @"", @"onScreen": cg[(__bridge NSString *)kCGWindowIsOnscreen] ? ([cg[(__bridge NSString *)kCGWindowIsOnscreen] boolValue] ? @YES : @NO) : NSNull.null,
-                            @"capabilities": @{@"selectable": @NO, @"observable": @NO, @"input": @NO, @"reason": reason}};
-                    }
-                    [metadata addObject:snapshot];
-                }
-                for (NSDictionary *cg in cgWindows) {
-                    NSNumber *windowID = cg[(__bridge NSString *)kCGWindowNumber];
-                    if ([seen containsObject:windowID]) continue;
-                    raw++; inspected++;
-                    NSNumber *ownerPID = cg[(__bridge NSString *)kCGWindowOwnerPID];
-                    pid_t pid = ownerPID.intValue;
-                    if (!ownerPID || pid < 0) { missingOwner++; continue; }
-                    if (pid == getpid()) { supervisorPid++; continue; }
-                    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
-                    if ([app.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier]) { supervisorBundle++; continue; }
-                    missingOwner++;
-                    [metadata addObject:@{@"windowId": windowID, @"processId": @(pid),
-                        @"application": cg[(__bridge NSString *)kCGWindowOwnerName] ?: @"Unidentified application",
-                        @"title": cg[(__bridge NSString *)kCGWindowName] ?: @"",
-                        @"onScreen": cg[(__bridge NSString *)kCGWindowIsOnscreen] ? ([cg[(__bridge NSString *)kCGWindowIsOnscreen] boolValue] ? @YES : @NO) : NSNull.null,
-                        @"capabilities": @{@"selectable": @NO, @"observable": @NO, @"input": @NO,
-                            @"reason": @"macOS did not expose this window through ScreenCaptureKit; safe capture and input unavailable"}}];
-                }
-                NSMutableDictionary *snapshotDiagnostics = [NSMutableDictionary new];
-                for (NSUInteger reason = 0; reason < GASnapshotRejectionCount; reason++) {
-                    snapshotDiagnostics[GASnapshotRejectionKeys[reason]] = @(snapshotRejections[reason]);
-                }
-                agentWindows = inventory;
-                [completion finish:@{@"windows": metadata, @"diagnostics": @{
-                    @"raw": @(raw), @"inspected": @(inspected),
-                    @"missingOwner": @(missingOwner), @"supervisorPid": @(supervisorPid),
-                    @"missingName": @(missingName), @"missingBundle": @(missingBundle),
-                    @"processIdentityUnavailable": @(processIdentityUnavailable), @"bundleMismatch": @(bundleMismatch),
-                    @"supervisorBundle": @(supervisorBundle), @"invalidSnapshot": @(invalidSnapshot),
-                    @"snapshotRejections": snapshotDiagnostics,
-                    @"nonFrontmost": @(nonFrontmost), @"eligible": @(inventory.count),
-                    @"capUninspected": @(raw - inspected)
-                }}];
-            }
+        [SCShareableContent getShareableContentExcludingDesktopWindows:NO onScreenWindowsOnly:YES completionHandler:^(SCShareableContent *content, NSError *error) {
+            if (!ga_display_valid(token, display)) { [completion finish:@{@"error": @"Display sharing revoked"}]; return; }
+            SCDisplay *selected = nil;
+            for (SCDisplay *candidate in content.displays) if (candidate.displayID == display) selected = candidate;
+            if (!selected || error) { [completion finish:@{@"error": error.localizedDescription ?: @"Selected display disconnected"}]; return; }
+            SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:selected excludingWindows:@[]];
+            SCStreamConfiguration *configuration = [SCStreamConfiguration new];
+            configuration.width = width; configuration.height = height; configuration.showsCursor = NO;
+            [SCScreenshotManager captureImageWithFilter:filter configuration:configuration completionHandler:^(CGImageRef image, NSError *captureError) {
+                if (!ga_display_valid(token, display)) { [completion finish:@{@"error": @"Display sharing revoked"}]; return; }
+                if (!image || captureError) { [completion finish:@{@"error": captureError.localizedDescription ?: @"Display capture unavailable"}]; return; }
+                if (CGImageGetWidth(image) != width || CGImageGetHeight(image) != height) { [completion finish:@{@"error": @"Display capture dimensions changed"}]; return; }
+                NSMutableData *data = [NSMutableData new];
+                CGImageDestinationRef destination = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)data, CFSTR("public.png"), 1, NULL);
+                if (!destination) { [completion finish:@{@"error": @"Cannot encode display capture"}]; return; }
+                CGImageDestinationAddImage(destination, image, NULL);
+                bool encoded = CGImageDestinationFinalize(destination); CFRelease(destination);
+                if (!encoded || data.length > 8 * 1024 * 1024) { [completion finish:@{@"error": @"Display capture exceeds bounded PNG size"}]; return; }
+                [completion finish:@{@"dataUrl": [@"data:image/png;base64," stringByAppendingString:[data base64EncodedStringWithOptions:0]]}];
+                @synchronized(GACompletion.class) { if (capturing == completion) capturing = nil; }
+            }];
         }];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            @synchronized(GAWindowShare.class) {
-                if (revision == agentInventoryRevision) agentInventoryRevision++;
-                [completion finish:@{@"error": @"Window discovery timed out"}];
-            }
-        });
-    } else [completion finish:@{@"error": @"Computer use requires macOS 15.2 or later"}];
+    } else [completion finish:@{@"error": @"Desktop capture requires macOS 15.2 or later"}];
 }
 
-char *ga_agent_window_snapshot(uint32_t window_id) {
-    @autoreleasepool {
-        if (@available(macOS 15.2, *)) {
-            @synchronized(GAWindowShare.class) {
-                NSDictionary *snapshot = CGPreflightScreenCaptureAccess() ? [agentWindows[@(window_id)] snapshot] : nil;
-                if (!snapshot) return NULL;
-                NSData *data = [NSJSONSerialization dataWithJSONObject:snapshot options:0 error:nil];
-                return strdup([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding].UTF8String);
-            }
-        }
-        return NULL;
-    }
-}
-
-bool ga_agent_window_select(uint64_t token, uint32_t window_id) {
-    if (@available(macOS 15.2, *)) {
-        @synchronized(GAWindowShare.class) {
-            GAWindowShare *share = agentWindows[@(window_id)];
-            if (!CGPreflightScreenCaptureAccess() || ![share snapshot]) return false;
-            [current invalidate];
-            share.token = token;
-            current = share;
-            return true;
-        }
-    }
-    return false;
+void ga_desktop_prepare_keyboard(void) {
+    dispatch_sync(dispatch_get_main_queue(), ^{ if (NSApp.active) [NSApp hide:nil]; });
 }

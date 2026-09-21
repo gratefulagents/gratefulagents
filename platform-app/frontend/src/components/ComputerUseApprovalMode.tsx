@@ -34,7 +34,7 @@ export function ApprovalModeBadge({ mode, className }: { mode: ComputerUseApprov
 }
 
 const SKIP_ALL_WARNING =
-  "Agent requests in a supervised session will execute in the approved window without asking you first. " +
+  "Agent requests in a supervised session will execute across your desktop (keyboard follows OS focus, including other displays) without asking you first. " +
   "Nothing prevents a send, submit, deletion, or purchase once the agent decides to do it, and on-screen content " +
   "may steer it. Use only with test windows that contain no private data, keep the emergency stop within reach, " +
   "and remember that you remain responsible for every action taken.";

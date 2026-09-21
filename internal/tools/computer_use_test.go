@@ -26,7 +26,7 @@ func TestComputerUsePolicyAndVisionInjection(t *testing.T) {
 	if tool.IsEnabled(nil) {
 		t.Fatal("enabled while detached")
 	}
-	e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach"}
+	e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
 	if _, err := b.Exchange(e); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestComputerUsePolicyAndVisionInjection(t *testing.T) {
 		t.Fatalf("missing proposed text schema bounds: %+v", text)
 	}
 	action := schema.Properties.Action.Properties
-	if kinds := strings.Join(action.Kind.Enum, ","); kinds != "list_windows,select_window,observe,click,move,drag,scroll,type,key,activate,open_url,wait" {
+	if kinds := strings.Join(action.Kind.Enum, ","); kinds != "observe,click,move,drag,scroll,type,key,open_url,wait" {
 		t.Fatalf("unexpected action kinds: %s", kinds)
 	}
 	if action.Key.Pattern == "" || !strings.Contains(action.Key.Description, "Cmd+A") || !strings.Contains(action.Key.Description, "Shift+Tab") {
@@ -91,7 +91,7 @@ func TestComputerUsePolicyAndVisionInjection(t *testing.T) {
 	if strings.Join(action.Button.Enum, ",") != "left,right,middle" || action.Count.Minimum != 1 || action.Count.Maximum != 3 {
 		t.Fatal("schema missing click button/count bounds")
 	}
-	for _, guidance := range []string{"double/triple click", "drag from x,y to toX,toY", "wait seconds (1-10)", "letters/digits need Control, Option, or Cmd", "follow-up observation should verify", "open_url to load an absolute http(s) URL", "without bringing it to the front"} {
+	for _, guidance := range []string{"double/triple click", "drag from x,y to toX,toY", "wait seconds (1-10)", "letters/digits need Control, Option, or Cmd", "follow-up observation should verify", "system default browser", "Keyboard events follow OS focus"} {
 		if !strings.Contains(tool.Description(), guidance) {
 			t.Errorf("description missing %q", guidance)
 		}
@@ -103,7 +103,7 @@ func TestComputerUseObservationMemoryOnly(t *testing.T) {
 		t.Run(map[bool]string{false: "success", true: "provider-error"}[failure], func(t *testing.T) {
 			b := computeruse.New("ns", "run")
 			defer b.Close()
-			e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach"}
+			e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
 			if _, err := b.Exchange(e); err != nil {
 				t.Fatal(err)
 			}
@@ -185,10 +185,11 @@ func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			b := computeruse.New("ns", "run")
 			defer b.Close()
-			e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach"}
+			e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
 			if _, err := b.Exchange(e); err != nil {
 				t.Fatal(err)
 			}
+			seedDesktopFrame(t, b, e)
 			tool := &ComputerUseTool{broker: b, vision: &sdkvision.Tool{AnalyzeFn: func(context.Context, []byte, string, string) (string, error) {
 				if tc.status != "completed" || tc.name == "observation-denied" {
 					t.Error("vision invoked without completed observation")
@@ -284,7 +285,7 @@ func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
 func TestComputerUseRejectsInvalidNativeActions(t *testing.T) {
 	b := computeruse.New("ns", "run")
 	defer b.Close()
-	e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach"}
+	e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
 	if _, err := b.Exchange(e); err != nil {
 		t.Fatal(err)
 	}
@@ -293,9 +294,9 @@ func TestComputerUseRejectsInvalidNativeActions(t *testing.T) {
 		`{"kind":"type","text":""}`,
 		`{"kind":"type","text":"` + strings.Repeat("😀", 501) + `"}`,
 		`{"kind":"type","text":"PRIVATE\u0085"}`,
-		`{"kind":"key","key":"Cmd+Q"}`,
+		`{"kind":"key","key":"Cmd+Option+Escape"}`,
 		`{"kind":"key","key":"A"}`,
-		`{"kind":"key","key":"Cmd+Tab"}`,
+
 		`{"kind":"click","x":1,"y":1,"button":"back"}`,
 		`{"kind":"click","x":1,"y":1,"count":4}`,
 		`{"kind":"drag","x":1,"y":1,"toX":1,"toY":1}`,
@@ -331,7 +332,7 @@ func TestComputerUseVisionSessionInvalidation(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			b := computeruse.New("ns", "run")
 			defer b.Close()
-			e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach"}
+			e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
 			if _, err := b.Exchange(e); err != nil {
 				t.Fatal(err)
 			}
@@ -394,7 +395,7 @@ func TestComputerUseVisionSessionInvalidation(t *testing.T) {
 					t.Fatal(err)
 				}
 				if mode == "replacement" {
-					e.Operation = "attach"
+					e.Operation = "attach_desktop"
 					if _, err := b.Exchange(e); err != nil {
 						t.Fatal(err)
 					}
@@ -422,7 +423,7 @@ func TestComputerUseVisionSessionInvalidation(t *testing.T) {
 
 func TestComputerUseSafetyGuidance(t *testing.T) {
 	tool := &ComputerUseTool{}
-	for _, text := range []string{"no keystroke logs", "may appear in model conversation/run history", "provider retention policies apply", "Do not automatically retry", "OS events may be partially applied", "fresh observation and approval", "top-left", "not desktop points", "Vision may be imperfect"} {
+	for _, text := range []string{"run history", "vision provider", "Do not automatically retry", "OS events may be partially applied", "fresh observation and approval", "top-left", "not desktop points", "Vision may be imperfect"} {
 		if !strings.Contains(tool.Description(), text) {
 			t.Fatalf("description missing %q", text)
 		}
@@ -432,10 +433,11 @@ func TestComputerUseSafetyGuidance(t *testing.T) {
 func TestComputerUseClaimedCancellationWarnsAgainstRetry(t *testing.T) {
 	b := computeruse.New("ns", "run")
 	defer b.Close()
-	e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach"}
+	e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
 	if _, err := b.Exchange(e); err != nil {
 		t.Fatal(err)
 	}
+	seedDesktopFrame(t, b, e)
 	tool := &ComputerUseTool{broker: b, vision: &sdkvision.Tool{AnalyzeFn: func(context.Context, []byte, string, string) (string, error) {
 		t.Error("input invoked vision")
 		return "", nil
@@ -485,7 +487,7 @@ func TestComputerUseClaimedCancellationWarnsAgainstRetry(t *testing.T) {
 
 func TestComputerUseWorkflowDescription(t *testing.T) {
 	description := (&ComputerUseTool{}).Description()
-	for _, requirement := range []string{"not a headless Browser session", "locally selected mode", "requests a fresh observation", "not that the task succeeded"} {
+	for _, requirement := range []string{"supervised Mac desktop", "local approvals", "fresh approved observation", "delivery alone is not success"} {
 		if !strings.Contains(description, requirement) {
 			t.Errorf("missing workflow guidance: %s", requirement)
 		}
@@ -549,5 +551,47 @@ func TestOutcomeReasonIsBoundedPrintableText(t *testing.T) {
 	long := outcomeReason(strings.Repeat("a", 600))
 	if len(long) > 512+len(" (desktop reported: ).") || !strings.HasSuffix(long, ").") {
 		t.Fatalf("unbounded reason: %d", len(long))
+	}
+}
+
+func seedDesktopFrame(t *testing.T, b *computeruse.Broker, e computeruse.Exchange) {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() {
+		_, err := b.Request(context.Background(), computeruse.Action{Kind: "observe"}, "")
+		done <- err
+	}()
+	var request *computeruse.Request
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		e.Operation = "poll"
+		r, err := b.Exchange(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Pending != nil {
+			request = r.Pending
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if request == nil {
+		t.Fatal("seed observation did not queue")
+	}
+	e.Operation, e.RequestID = "claim", request.RequestID
+	if _, err := b.Exchange(e); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 3))); err != nil {
+		t.Fatal(err)
+	}
+	e.Operation = "resolve"
+	e.Outcome = &computeruse.Outcome{RequestID: request.RequestID, Status: "completed", Capture: &computeruse.Capture{FrameID: "frame", DataURL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), PixelWidth: 2, PixelHeight: 3, Geometry: computeruse.Geometry{Width: 2, Height: 3}}}
+	if _, err := b.Exchange(e); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

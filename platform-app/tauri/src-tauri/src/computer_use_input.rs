@@ -1,13 +1,15 @@
-use super::computer_use_capture::{WindowCapture, WindowGeometry};
+use super::computer_use_capture::{DisplayBounds, DisplayCapture};
 use super::computer_use_session::SessionScope;
 use std::time::{Duration, Instant};
 
 pub const FRAME_TTL: Duration = Duration::from_secs(30);
 
+#[cfg(any(target_os = "macos", test))]
 pub struct FocusTarget {
     checks: std::sync::mpsc::Sender<std::sync::mpsc::SyncSender<Result<(), String>>>,
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl FocusTarget {
     #[cfg(any(target_os = "macos", test))]
     pub(super) fn retain<F, V>(capture: F) -> Result<Self, String>
@@ -59,23 +61,9 @@ impl FocusTarget {
     }
 }
 
-pub fn bind_focus(scope: &SessionScope, action: &Action) -> Result<Option<FocusTarget>, String> {
-    if !matches!(action, Action::Type { .. } | Action::Key { .. }) {
-        return Ok(None);
-    }
-    #[cfg(target_os = "macos")]
-    {
-        macos::bind_focus(scope.clone()).map(Some)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = scope;
-        Err("Desktop input requires macOS".into())
-    }
-}
-
+#[cfg(any(target_os = "macos", test))]
 fn verify_focus(action: &Action, focus: Option<&FocusTarget>) -> Result<(), String> {
-    if matches!(action, Action::Type { .. } | Action::Key { .. }) {
+    if matches!(action, Action::Type { .. }) {
         focus.ok_or("No approved input target")?.verify()?;
     }
     Ok(())
@@ -89,12 +77,6 @@ fn verify_focus(action: &Action, focus: Option<&FocusTarget>) -> Result<(), Stri
     deny_unknown_fields
 )]
 pub enum Action {
-    #[serde(rename = "list_windows")]
-    ListWindows {},
-    #[serde(rename = "select_window")]
-    SelectWindow {
-        target_ref: String,
-    },
     Observe {
         question: Option<String>,
     },
@@ -130,8 +112,7 @@ pub enum Action {
     Key {
         key: String,
     },
-    Activate {},
-    /// Open a web URL in the approved browser without bringing it forward.
+    /// Open a web URL in the system default browser.
     #[serde(rename = "open_url")]
     OpenUrl {
         url: String,
@@ -147,13 +128,6 @@ pub enum MouseButton {
 }
 
 impl Action {
-    /// Keyboard actions need the approved window to be key; they bring the
-    /// approved application forward. Pointer actions and URL opening are
-    /// delivered to the approved process in the background.
-    pub fn needs_foreground(&self) -> bool {
-        matches!(self, Action::Type { .. } | Action::Key { .. })
-    }
-
     /// Frame pixel coordinates that must map inside the captured frame before
     /// the request is queued and again before execution.
     pub fn points(&self) -> Vec<(f64, f64)> {
@@ -193,34 +167,9 @@ pub fn web_url(raw: &str) -> Result<url::Url, String> {
     Ok(parsed)
 }
 
-/// Browsers that `open_url` may target, by bundle identifier. The approved
-/// window's process must be one of these; other applications are refused.
-pub const BROWSER_BUNDLES: &[&str] = &[
-    "org.mozilla.firefox",
-    "org.mozilla.firefoxdeveloperedition",
-    "org.mozilla.nightly",
-    "com.apple.Safari",
-    "com.google.Chrome",
-    "com.google.Chrome.canary",
-    "com.microsoft.edgemac",
-    "com.brave.Browser",
-    "company.thebrowser.Browser",
-    "com.vivaldi.Vivaldi",
-    "com.operasoftware.Opera",
-    "org.chromium.Chromium",
-    "com.kagi.kagimacOS",
-    "app.zen-browser.zen",
-];
-
-pub fn browser_bundle(bundle: &str) -> bool {
-    BROWSER_BUNDLES.contains(&bundle)
-}
-
 #[derive(Clone, PartialEq, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QueuedRequest {
-    #[serde(default)]
-    pub target_revision: u64,
     pub request_id: String,
     pub frame_id: Option<String>,
     pub action: Action,
@@ -237,17 +186,10 @@ impl QueuedRequest {
         {
             return Err("Invalid request or frame identifier".into());
         }
+        if !matches!(self.action, Action::Observe { .. }) && self.frame_id.is_none() {
+            return Err("Observe the selected display before input".into());
+        }
         match &self.action {
-            Action::ListWindows {} if self.frame_id.is_none() => Ok(()),
-            Action::SelectWindow { target_ref }
-                if target_ref.len() == 64
-                    && target_ref
-                        .bytes()
-                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-                    && self.frame_id.is_none() =>
-            {
-                Ok(())
-            }
             Action::Observe { question } if question.as_ref().is_none_or(|q| q.len() <= 4096) => {
                 Ok(())
             }
@@ -295,7 +237,6 @@ impl QueuedRequest {
                 Ok(())
             }
             Action::Key { key } if parse_hotkey(key).is_some() => Ok(()),
-            Action::Activate {} => Ok(()),
             Action::OpenUrl { url } => web_url(url).map(|_| ()),
             _ => Err("Unsupported or out-of-bounds desktop action".into()),
         }
@@ -389,9 +330,7 @@ fn ansi_key_code(character: char) -> Option<u16> {
 /// Cmd/Command/Meta in any order, mirroring the agent-side and relay
 /// validators. Letters and digits need Control, Option or Cmd so a key press
 /// cannot become a text channel that bypasses proposed-text review.
-/// Combinations that quit, close, hide or minimize the approved window, switch
-/// applications or spaces, open Spotlight, take screenshots, force quit,
-/// toggle fullscreen, show the Dock, or match the emergency stop are rejected.
+/// Emergency-stop and force-quit chords are reserved; desktop navigation is allowed.
 pub fn parse_hotkey(key: &str) -> Option<Hotkey> {
     if key.is_empty() || key.len() > 40 {
         return None;
@@ -440,18 +379,7 @@ pub fn parse_hotkey(key: &str) -> Option<Hotkey> {
         }
         _ => hotkey.code = named_key_code(base)?,
     }
-    let arrow = base.starts_with("Arrow");
-    let upper = hotkey.character.map(|c| c.to_ascii_uppercase());
-    let denied = if hotkey.cmd {
-        matches!(upper, Some('Q' | 'W' | 'H' | 'M'))
-            || matches!(base, "Tab" | "Space" | "Escape")
-            || (hotkey.shift && matches!(upper, Some('3' | '4' | '5' | '6')))
-            || (hotkey.option && upper == Some('D'))
-            || (hotkey.control && upper == Some('F'))
-    } else {
-        false
-    } || (hotkey.control && (arrow || base == "Space"));
-    if denied {
+    if hotkey.cmd && hotkey.option && base == "Escape" {
         return None;
     }
     hotkey.flags = (if hotkey.shift { FLAG_SHIFT } else { 0 })
@@ -500,7 +428,7 @@ pub fn hidden_character(c: char) -> bool {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DisplayGeometry {
     pub id: u32,
-    pub bounds: WindowGeometry,
+    pub bounds: DisplayBounds,
     pub pixel_width: usize,
     pub pixel_height: usize,
     pub rotation: f64,
@@ -509,7 +437,7 @@ pub struct DisplayGeometry {
 #[derive(Clone)]
 pub struct Frame {
     pub id: String,
-    pub geometry: WindowGeometry,
+    pub geometry: DisplayBounds,
     pub pixel_width: u32,
     pub pixel_height: u32,
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -518,7 +446,7 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub fn from_capture(capture: &WindowCapture, now: Instant) -> Self {
+    pub fn from_capture(capture: &DisplayCapture, now: Instant) -> Self {
         Self {
             id: capture.frame_id.clone(),
             geometry: capture.geometry.clone(),
@@ -532,7 +460,7 @@ impl Frame {
     #[cfg(any(target_os = "macos", test))]
     pub fn validate_snapshot(
         &self,
-        geometry: &WindowGeometry,
+        geometry: &DisplayBounds,
         displays: &[DisplayGeometry],
         now: Instant,
     ) -> Result<(), String> {
@@ -540,7 +468,7 @@ impl Frame {
             || &self.geometry != geometry
             || self.displays != displays
         {
-            return Err("Preview expired or window/display changed".into());
+            return Err("Preview expired or display changed".into());
         }
         Ok(())
     }
@@ -577,49 +505,16 @@ impl Frame {
     }
 }
 
-pub fn snapshot(scope: &SessionScope) -> Result<Frame, String> {
-    #[cfg(target_os = "macos")]
-    {
-        super::computer_use_capture::validate_visible(scope)?;
-        let created = Instant::now();
-        let geometry = super::computer_use_capture::target_geometry(scope)?;
-        Ok(Frame {
-            id: String::new(),
-            pixel_width: geometry.width,
-            pixel_height: geometry.height,
-            geometry,
-            displays: macos::displays()?,
-            created,
-        })
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = scope;
-        Err("Desktop input requires macOS".into())
-    }
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn check_input(
-    check_live: &dyn Fn() -> Result<(), String>,
-    validate_input: &dyn Fn() -> Result<(), String>,
-) -> Result<(), String> {
-    check_live()?;
-    validate_input()
-}
-
 pub fn execute(
     scope: &SessionScope,
     action: &Action,
     frame: Option<&Frame>,
-    focus: Option<&FocusTarget>,
     check: &dyn Fn() -> Result<(), String>,
 ) -> Result<(), String> {
     check()?;
-    verify_focus(action, focus)?;
     #[cfg(target_os = "macos")]
     {
-        macos::execute(scope, action, frame, focus, check)
+        macos::execute(scope, action, frame, check)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -653,17 +548,18 @@ pub mod macos {
         pub size: Size,
     }
 
+    extern "C" {
+        fn ga_desktop_prepare_keyboard();
+    }
+
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
         fn CFRelease(value: Ref);
         fn CFStringCreateWithCString(allocator: Ref, text: *const c_char, encoding: u32) -> Ref;
         fn CFEqual(a: Ref, b: Ref) -> bool;
-        fn CFGetTypeID(value: Ref) -> usize;
     }
     #[link(name = "ApplicationServices", kind = "framework")]
     extern "C" {
-        fn AXUIElementCreateApplication(pid: i32) -> Ref;
-        fn AXUIElementGetTypeID() -> usize;
         fn AXUIElementCreateSystemWide() -> Ref;
         fn AXUIElementCopyAttributeValue(element: Ref, attribute: Ref, value: *mut Ref) -> i32;
         fn AXUIElementCopyElementAtPosition(element: Ref, x: f32, y: f32, value: *mut Ref) -> i32;
@@ -684,7 +580,7 @@ pub mod macos {
         fn CGEventSetLocation(event: Ref, point: Point);
         fn CGEventSetIntegerValueField(event: Ref, field: u32, value: i64);
         fn CGEventCreateScrollWheelEvent(source: Ref, units: u32, count: u32, ...) -> Ref;
-        fn CGEventPostToPid(pid: i32, event: Ref);
+        fn CGEventPost(tap: u32, event: Ref);
         fn CGEventSourceFlagsState(state: i32) -> u64;
         fn CGEventSourceButtonState(state: i32, button: u32) -> bool;
         fn CGGetActiveDisplayList(max: u32, ids: *mut u32, count: *mut u32) -> i32;
@@ -727,118 +623,42 @@ pub mod macos {
     fn equals(value: Ref, expected: &str) -> bool {
         unsafe { CFEqual(value, string(expected).0) }
     }
-    fn app(scope: &SessionScope) -> Result<Owned, String> {
-        let app = Owned::new(unsafe { AXUIElementCreateApplication(scope.process_id as i32) })?;
-        if unsafe { AXUIElementSetMessagingTimeout(app.0, 0.2) } != 0 {
-            return Err("Cannot bound Accessibility requests".into());
-        }
-        Ok(app)
+    fn focused_application() -> Result<Owned, String> {
+        let system = Owned::new(unsafe { AXUIElementCreateSystemWide() })?;
+        unsafe { AXUIElementSetMessagingTimeout(system.0, 0.2) };
+        attr(system.0, "AXFocusedApplication")
     }
-    pub fn secure(scope: &SessionScope) -> Result<(), String> {
+    pub fn secure(_scope: &SessionScope) -> Result<(), String> {
         if unsafe { IsSecureEventInputEnabled() } {
             return Err("Secure input is active".into());
         }
-        let app = app(scope)?;
-        // Some applications (Firefox before its Accessibility tree is
-        // instantiated) report no focused element; pointer actions verify the
-        // element under the pointer instead, so only a readable secure field
-        // is refused here.
-        match attr(app.0, "AXFocusedUIElement") {
-            Ok(focused) => non_password(focused.0),
-            Err(_) => Ok(()),
-        }
-    }
-    /// Touches the application's Accessibility tree so lazily instantiated
-    /// implementations (Firefox) start answering, then retries the focused
-    /// element a few times.
-    fn focused_element_warm(scope: &SessionScope) -> Result<Owned, String> {
-        let mut last = Err("Cannot verify focused Accessibility element".to_string());
-        for attempt in 0..4 {
-            if attempt > 0 {
-                if let Ok(app) = app(scope) {
-                    let _ = attr(app.0, "AXWindows");
-                    let _ = attr(app.0, "AXFocusedWindow");
-                }
-                std::thread::sleep(Duration::from_millis(120));
-            }
-            last = focused_element(scope);
-            if last.is_ok() {
-                break;
+        if let Ok(app) = focused_application() {
+            if let Ok(focused) = attr(app.0, "AXFocusedUIElement") {
+                non_password(focused.0)?;
             }
         }
-        last
+        Ok(())
     }
-    fn focused_element(scope: &SessionScope) -> Result<Owned, String> {
-        if unsafe { IsSecureEventInputEnabled() } {
-            return Err("Secure input is active".into());
-        }
-        let app = app(scope)?;
-        let focused = attr(app.0, "AXFocusedUIElement")?;
-        if unsafe { CFGetTypeID(focused.0) != AXUIElementGetTypeID() }
-            || unsafe { AXUIElementSetMessagingTimeout(focused.0, 0.2) } != 0
-        {
-            return Err("Cannot verify focused Accessibility element".into());
-        }
-        let mut pid = 0;
-        if unsafe { AXUIElementGetPid(focused.0, &mut pid) } != 0 || pid as u32 != scope.process_id
-        {
-            return Err("Focused element is outside the approved process".into());
-        }
-        let window = attr(app.0, "AXFocusedWindow")?;
-        let owner = attr(focused.0, "AXWindow")?;
-        if !unsafe { CFEqual(window.0, owner.0) } {
-            return Err("Focused element is outside the approved window".into());
-        }
-        non_password(focused.0)?;
-        Ok(focused)
-    }
-    fn process_identity(
-        scope: &SessionScope,
-    ) -> Result<super::super::computer_use_process::ProcessIdentity, String> {
-        objc2::rc::autoreleasepool(|_| unsafe {
-            let pid = i32::try_from(scope.process_id)
-                .ok()
-                .filter(|pid| *pid > 0)
-                .ok_or("Cannot verify selected process identity")?;
-            let app: *mut objc2::runtime::AnyObject = objc2::msg_send![objc2::class!(NSRunningApplication), runningApplicationWithProcessIdentifier: pid];
-            if app.is_null() {
-                return Err("Selected process ended".into());
-            }
-            super::super::computer_use_process::ProcessIdentity::read(scope.process_id)
-        })
-    }
-
-    pub fn bind_window(scope: SessionScope) -> Result<FocusTarget, String> {
+    pub fn bind_focus() -> Result<FocusTarget, String> {
         FocusTarget::retain(move || {
-            super::super::computer_use_capture::validate_visible(&scope)?;
-            let identity = process_identity(&scope)?;
-            let geometry = super::super::computer_use_capture::target_geometry(&scope)?;
-            let intended = copy_window(&scope, &geometry, ptr::null())?;
+            let app = focused_application()?;
+            let intended = attr(app.0, "AXFocusedUIElement")?;
+            let mut pid = 0;
+            if unsafe { AXUIElementGetPid(app.0, &mut pid) } != 0
+                || pid as u32 == std::process::id()
+            {
+                return Err(
+                    "Return OS focus to the intended app, not the desktop supervisor".into(),
+                );
+            }
+            non_password(intended.0)?;
             Ok(move || {
-                if process_identity(&scope)? != identity {
-                    return Err("Selected process identity changed".into());
+                let app = focused_application()?;
+                let current = attr(app.0, "AXFocusedUIElement")?;
+                if !current.same(&intended) {
+                    return Err("OS keyboard focus changed during input".into());
                 }
-                super::super::computer_use_capture::validate_visible(&scope)?;
-                let geometry = super::super::computer_use_capture::target_geometry(&scope)?;
-                copy_window(&scope, &geometry, intended.0)?;
-                Ok(())
-            })
-        })
-    }
-    pub fn bind_focus(scope: SessionScope) -> Result<FocusTarget, String> {
-        FocusTarget::retain(move || {
-            // Queueing happens while the supervisor is usually frontmost; the
-            // approved window only needs to be its application's key window.
-            super::super::computer_use_capture::validate_visible(&scope)?;
-            let geometry = super::super::computer_use_capture::target_geometry(&scope)?;
-            approved_window(&scope, &geometry)?;
-            let intended = focused_element_warm(&scope)?;
-            Ok(move || {
-                let current = focused_element(&scope)?;
-                if !intended.same(&current) {
-                    return Err("Approved input target changed; queue a new request".into());
-                }
-                Ok(())
+                non_password(current.0)
             })
         })
     }
@@ -874,7 +694,7 @@ pub mod macos {
             let rect = unsafe { CGDisplayBounds(*id) };
             result.push(DisplayGeometry {
                 id: *id,
-                bounds: WindowGeometry {
+                bounds: DisplayBounds {
                     x: rect.origin.x as i32,
                     y: rect.origin.y as i32,
                     width: rect.size.width as u32,
@@ -888,198 +708,72 @@ pub mod macos {
         result.sort_by_key(|d| d.id);
         Ok(result)
     }
-    extern "C" {
-        fn ga_ax_window_matches(window: Ref, pid: i32, window_id: u32, bounds: Rect) -> bool;
-        fn ga_ax_window_copy(
-            pid: i32,
-            window_id: u32,
-            bounds: Rect,
-            retained: Ref,
-            eligibility: *mut i32,
-        ) -> Ref;
-    }
-    fn window_bounds(geometry: &WindowGeometry) -> Rect {
-        Rect {
-            origin: Point {
-                x: f64::from(geometry.x),
-                y: f64::from(geometry.y),
-            },
-            size: Size {
-                width: f64::from(geometry.width),
-                height: f64::from(geometry.height),
-            },
-        }
-    }
-    fn copy_window(
-        scope: &SessionScope,
-        geometry: &WindowGeometry,
-        retained: Ref,
-    ) -> Result<Owned, String> {
-        Owned::new(unsafe {
-            ga_ax_window_copy(
-                scope.process_id as i32,
-                scope.window_id,
-                window_bounds(geometry),
-                retained,
-                ptr::null_mut(),
-            )
-        })
-    }
-    fn window_matches(window: Ref, scope: &SessionScope, geometry: &WindowGeometry) -> bool {
-        unsafe {
-            ga_ax_window_matches(
-                window,
-                scope.process_id as i32,
-                scope.window_id,
-                window_bounds(geometry),
-            )
-        }
-    }
-    /// The exact approved CG window must be its application's AX focused window,
-    /// whether or not the application itself is active.
-    fn approved_window(scope: &SessionScope, geometry: &WindowGeometry) -> Result<(), String> {
-        let focused_window = attr(app(scope)?.0, "AXFocusedWindow")?;
-        if !window_matches(focused_window.0, scope, geometry) {
-            return Err("Focused AX window identity differs from the approved window".into());
-        }
-        if !super::super::computer_use_capture::available_target(scope)?.frontmost {
-            return Err("Approved window is not the focused application window".into());
-        }
-        Ok(())
-    }
-    fn foreground(scope: &SessionScope, geometry: &WindowGeometry) -> Result<(), String> {
-        let system = Owned::new(unsafe { AXUIElementCreateSystemWide() })?;
-        unsafe { AXUIElementSetMessagingTimeout(system.0, 0.2) };
-        let focused_app = attr(system.0, "AXFocusedApplication")?;
-        let mut pid = 0;
-        if unsafe { AXUIElementGetPid(focused_app.0, &mut pid) } != 0
-            || pid as u32 != scope.process_id
-        {
-            return Err("Approved process is not foreground".into());
-        }
-        approved_window(scope, geometry)
-    }
-    /// Hit-tests within the approved application only, so another window on
-    /// top (typically the supervisor) does not fail the check: events are
-    /// posted to the approved process, never to whatever is visually in front.
     fn destination(
-        scope: &SessionScope,
-        geometry: &WindowGeometry,
+        _scope: &SessionScope,
+        geometry: &DisplayBounds,
         point: Point,
     ) -> Result<(), String> {
-        let application = app(scope)?;
+        if point.x < f64::from(geometry.x)
+            || point.y < f64::from(geometry.y)
+            || point.x >= f64::from(geometry.x) + f64::from(geometry.width)
+            || point.y >= f64::from(geometry.y) + f64::from(geometry.height)
+        {
+            return Err("Pointer is outside the selected display".into());
+        }
+        let system = Owned::new(unsafe { AXUIElementCreateSystemWide() })?;
+        unsafe { AXUIElementSetMessagingTimeout(system.0, 0.2) };
         let mut hit = ptr::null();
         if unsafe {
-            AXUIElementCopyElementAtPosition(
-                application.0,
-                point.x as f32,
-                point.y as f32,
-                &mut hit,
-            )
+            AXUIElementCopyElementAtPosition(system.0, point.x as f32, point.y as f32, &mut hit)
         } != 0
         {
-            return Err("Cannot verify pointer destination inside the approved application".into());
+            return Err("Cannot verify pointer destination".into());
         }
-        let mut hit = Owned::new(hit)?;
+        let hit = Owned::new(hit)?;
         let mut pid = 0;
-        if unsafe { AXUIElementGetPid(hit.0, &mut pid) } != 0 || pid as u32 != scope.process_id {
-            return Err("Pointer destination is outside the approved process".into());
+        if unsafe { AXUIElementGetPid(hit.0, &mut pid) } != 0 || pid <= 0 {
+            return Err("Cannot verify pointer destination owner".into());
         }
-        for _ in 0..16 {
-            non_password(hit.0)?;
-            if window_matches(hit.0, scope, geometry) {
-                return Ok(());
-            }
-            hit = attr(hit.0, "AXParent")?;
+        if pid as u32 == std::process::id() {
+            return Err("Agent input cannot operate the desktop supervisor's consent UI".into());
         }
-        Err("Cannot bind pointer destination to the approved window".into())
+        non_password(hit.0)?;
+        Ok(())
     }
-    fn bundle_identifier(scope: &SessionScope) -> Result<String, String> {
-        objc2::rc::autoreleasepool(|_| unsafe {
-            let app: *mut objc2::runtime::AnyObject = objc2::msg_send![objc2::class!(NSRunningApplication), runningApplicationWithProcessIdentifier: scope.process_id as i32];
-            if app.is_null() {
-                return Err("Approved process is no longer running".into());
-            }
-            let bundle: *mut objc2::runtime::AnyObject = objc2::msg_send![app, bundleIdentifier];
-            if bundle.is_null() {
-                return Err("Approved application has no bundle identifier".into());
-            }
-            let utf8: *const c_char = objc2::msg_send![bundle, UTF8String];
-            if utf8.is_null() {
-                return Err("Approved application has no bundle identifier".into());
-            }
-            Ok(std::ffi::CStr::from_ptr(utf8)
-                .to_string_lossy()
-                .into_owned())
-        })
-    }
-    /// `open -g -b <bundle> <url>`: the running approved browser loads the URL
-    /// (new tab per its own setting) without being brought to the foreground.
-    fn open_url(
-        scope: &SessionScope,
-        url: &str,
-        check: &dyn Fn() -> Result<(), String>,
-    ) -> Result<(), String> {
+    fn open_url(url: &str, check: &dyn Fn() -> Result<(), String>) -> Result<(), String> {
         let parsed = web_url(url)?;
-        let bundle = bundle_identifier(scope)?;
-        if !browser_bundle(&bundle) {
-            return Err(format!(
-                "open_url requires the approved window to belong to a web browser (got {bundle})"
-            ));
-        }
-        super::super::computer_use_capture::validate_input(scope)?;
         check()?;
         let status = std::process::Command::new("/usr/bin/open")
-            .arg("-g")
-            .arg("-b")
-            .arg(&bundle)
             .arg(parsed.as_str())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
-            .map_err(|error| format!("Cannot run open: {error}"))?;
+            .map_err(|e| format!("Cannot open URL: {e}"))?;
         if !status.success() {
-            return Err(format!("open refused the URL for {bundle} ({status})"));
+            return Err(format!("Default browser refused URL ({status})"));
         }
         check()
     }
-    fn activate(scope: &SessionScope) -> Result<(), String> {
-        objc2::rc::autoreleasepool(|_| unsafe {
-            let app: *mut objc2::runtime::AnyObject = objc2::msg_send![objc2::class!(NSRunningApplication), runningApplicationWithProcessIdentifier: scope.process_id as i32];
-            if app.is_null() {
-                return Err("Approved process is no longer running".into());
-            }
-            let ok: bool = objc2::msg_send![app, activateWithOptions: 2usize];
-            if !ok {
-                return Err("macOS refused approved-process activation".into());
-            }
-            Ok(())
-        })
-    }
     struct Release {
         event: Option<Owned>,
-        pid: i32,
     }
     impl Drop for Release {
         fn drop(&mut self) {
             if let Some(event) = self.event.take() {
-                unsafe { CGEventPostToPid(self.pid, event.0) };
+                unsafe { CGEventPost(0, event.0) };
             }
         }
     }
     fn pair(
-        scope: &SessionScope,
+        _scope: &SessionScope,
         down: Owned,
         up: Owned,
         check: &dyn Fn() -> Result<(), String>,
     ) -> Result<(), String> {
         check()?;
-        let release = Release {
-            event: Some(up),
-            pid: scope.process_id as i32,
-        };
-        unsafe { CGEventPostToPid(release.pid, down.0) };
+        let release = Release { event: Some(up) };
+        unsafe { CGEventPost(0, down.0) };
         // Never authorize key-up separately: stop must not leave a synthetic key held.
         drop(release);
         check()
@@ -1132,55 +826,46 @@ pub mod macos {
         scope: &SessionScope,
         action: &Action,
         frame: Option<&Frame>,
-        focus: Option<&FocusTarget>,
         check: &dyn Fn() -> Result<(), String>,
     ) -> Result<(), String> {
-        // Broad inventory retains off-screen targets, so every input check must
-        // separately revalidate visibility. Cleanup releases bypass this check.
-        let check = &|| {
-            check_input(check, &|| {
-                super::super::computer_use_capture::validate_input(scope)
-            })
-        };
         check()?;
         if !unsafe { CGPreflightPostEventAccess() } {
             return Err("macOS input permission is unavailable".into());
         }
-        if let Action::OpenUrl { url } = action {
-            return open_url(scope, url, check);
-        }
-        let foreground_needed = action.needs_foreground();
-        let present = |scope: &SessionScope| {
-            if foreground_needed {
-                super::super::computer_use_capture::validate_focus(scope)
-            } else {
-                super::super::computer_use_capture::validate_input(scope)
-            }
-        };
-        present(scope)?;
         let geometry = super::super::computer_use_capture::target_geometry(scope)?;
         let display = displays()?;
-        if let Some(frame) = frame {
-            frame.validate_snapshot(&geometry, &display, Instant::now())?;
-        }
+        let frame = frame.ok_or("A fresh display observation is required before input")?;
+        frame.validate_snapshot(&geometry, &display, Instant::now())?;
         secure(scope)?;
-        present(scope)?;
-        check()?;
-        if foreground_needed {
-            // Keyboard events need a key window; pointer events are posted to
-            // the approved process without bringing it forward.
-            activate(scope)?;
+        let keyboard = matches!(action, Action::Type { .. } | Action::Key { .. });
+        if keyboard {
+            unsafe {
+                ga_desktop_prepare_keyboard();
+            }
+            for _ in 0..10 {
+                check()?;
+                let app = focused_application()?;
+                let mut pid = 0;
+                if unsafe { AXUIElementGetPid(app.0, &mut pid) } == 0
+                    && pid as u32 != std::process::id()
+                {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
         }
+        let bound_focus = if matches!(action, Action::Type { .. }) {
+            Some(bind_focus()?)
+        } else {
+            None
+        };
+        let focus = bound_focus.as_ref();
         // While a synthetic drag holds the left button, the session button
         // state may report it as pressed; that guard checks modifiers only.
         let guard_with = |buttons_released: bool| {
             check()?;
-            if let Some(frame) = frame {
-                frame.validate_snapshot(&geometry, &display, Instant::now())?;
-            }
-            if scope.mode == super::super::computer_use_session::SessionMode::AgentChoice {
-                super::super::computer_use::require_agent_permission()?;
-            }
+            frame.validate_snapshot(&geometry, &display, Instant::now())?;
+            super::super::computer_use::require_screen_permission()?;
             let permissions = super::super::computer_use::computer_use_permissions();
             if !permissions.accessibility
                 || !permissions.supported
@@ -1196,31 +881,26 @@ pub mod macos {
             if super::super::computer_use_capture::target_geometry(scope)? != geometry
                 || displays()? != display
             {
-                return Err("Window or display changed during input".into());
-            }
-            if foreground_needed {
-                foreground(scope, &geometry)?;
-            } else {
-                approved_window(scope, &geometry)?;
+                return Err("Display changed during input".into());
             }
             secure(scope)?;
+            if keyboard {
+                let app = focused_application()?;
+                let mut pid = 0;
+                if unsafe { AXUIElementGetPid(app.0, &mut pid) } != 0
+                    || pid as u32 == std::process::id()
+                {
+                    return Err(
+                        "Return keyboard focus to the intended app, not the supervisor".into(),
+                    );
+                }
+            }
             verify_focus(action, focus)?;
             check()
         };
         let guard = || guard_with(true);
-        if foreground_needed {
-            // Activation is asynchronous. Fail closed if it has not settled within the permit.
-            for _ in 0..10 {
-                check()?;
-                if foreground(scope, &geometry).is_ok() {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-        }
         guard()?;
         match action {
-            Action::Activate {} => Ok(()),
             Action::Click {
                 x,
                 y,
@@ -1228,9 +908,7 @@ pub mod macos {
                 count,
                 ..
             } => {
-                let (x, y) = frame
-                    .ok_or("Click requires a captured frame")?
-                    .point(*x, *y)?;
+                let (x, y) = frame.point(*x, *y)?;
                 let point = Point { x, y };
                 let click_guard = || {
                     guard()?;
@@ -1250,19 +928,16 @@ pub mod macos {
                 Ok(())
             }
             Action::Move { x, y } => {
-                let (x, y) = frame
-                    .ok_or("Pointer move requires a captured frame")?
-                    .point(*x, *y)?;
+                let (x, y) = frame.point(*x, *y)?;
                 let point = Point { x, y };
                 let event = mouse_event(MOUSE_MOVED, point, 0, 0)?;
                 guard()?;
                 destination(scope, &geometry, point)?;
                 check()?;
-                unsafe { CGEventPostToPid(scope.process_id as i32, event.0) };
+                unsafe { CGEventPost(0, event.0) };
                 guard()
             }
             Action::Drag { x, y, to_x, to_y } => {
-                let frame = frame.ok_or("Drag requires a captured frame")?;
                 let (sx, sy) = frame.point(*x, *y)?;
                 let (ex, ey) = frame.point(*to_x, *to_y)?;
                 let start = Point { x: sx, y: sy };
@@ -1278,27 +953,27 @@ pub mod macos {
                 // drags instead of dropping at an unreviewed position.
                 let mut release = Release {
                     event: Some(mouse_event(up_kind, start, number, 1)?),
-                    pid: scope.process_id as i32,
                 };
-                unsafe { CGEventPostToPid(release.pid, down.0) };
+                unsafe { CGEventPost(0, down.0) };
                 const STEPS: u32 = 12;
                 for step in 1..=STEPS {
-                    check()?;
-                    physical_modifiers_released()?;
+                    guard_with(false)?;
                     let t = f64::from(step) / f64::from(STEPS);
                     let point = Point {
                         x: sx + (ex - sx) * t,
                         y: sy + (ey - sy) * t,
                     };
+                    destination(scope, &geometry, point)?;
+                    check()?;
                     let dragged = mouse_event(LEFT_DRAGGED, point, number, 1)?;
-                    unsafe { CGEventPostToPid(release.pid, dragged.0) };
+                    unsafe { CGEventPost(0, dragged.0) };
                     std::thread::sleep(Duration::from_millis(12));
                 }
                 guard_with(false)?;
                 destination(scope, &geometry, end)?;
                 check()?;
                 let up = mouse_event(up_kind, end, number, 1)?;
-                unsafe { CGEventPostToPid(release.pid, up.0) };
+                unsafe { CGEventPost(0, up.0) };
                 release.event = None;
                 guard()
             }
@@ -1319,9 +994,7 @@ pub mod macos {
                 })?;
                 let point = match (x, y) {
                     (Some(x), Some(y)) => {
-                        let (x, y) = frame
-                            .ok_or("Positioned scroll requires a captured frame")?
-                            .point(*x, *y)?;
+                        let (x, y) = frame.point(*x, *y)?;
                         Point { x, y }
                     }
                     _ => Point {
@@ -1336,11 +1009,16 @@ pub mod macos {
                 guard()?;
                 destination(scope, &geometry, point)?;
                 check()?;
-                unsafe { CGEventPostToPid(scope.process_id as i32, event.0) };
+                let moved = mouse_event(MOUSE_MOVED, point, 0, 0)?;
+                unsafe { CGEventPost(0, moved.0) };
+                guard()?;
+                destination(scope, &geometry, point)?;
+                check()?;
+                unsafe { CGEventPost(0, event.0) };
                 guard()
             }
             Action::Type { text } => {
-                // The full guard enumerates windows and displays and round-trips
+                // The full guard enumerates displays and round-trips
                 // through Accessibility; running it twice per character cannot
                 // finish realistic text inside the permit. Every key pair still
                 // re-checks cancellation, deadline, revision, permissions, physical
@@ -1351,6 +1029,12 @@ pub mod macos {
                     if !unsafe { CGPreflightPostEventAccess() } {
                         return Err("macOS input permission is unavailable".into());
                     }
+                    frame.validate_snapshot(
+                        &super::super::computer_use_capture::target_geometry(scope)?,
+                        &displays()?,
+                        Instant::now(),
+                    )?;
+                    secure(scope)?;
                     physical_input_released()?;
                     verify_focus(action, focus)?;
                     check()
@@ -1397,10 +1081,8 @@ pub mod macos {
                 }
                 pair(scope, down, up, &guard)
             }
-            Action::ListWindows {} | Action::SelectWindow { .. } | Action::Observe { .. } => {
-                Err("Observe uses capture, not input".into())
-            }
-            Action::OpenUrl { .. } => unreachable!("handled before pointer setup"),
+            Action::Observe { .. } => Err("Observe uses capture, not input".into()),
+            Action::OpenUrl { url } => open_url(url, &guard),
         }
     }
 }
@@ -1408,84 +1090,39 @@ pub mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn input_visibility_change_after_admission_stops_ordinary_events() {
-        use std::cell::Cell;
 
-        for hide_after in [0, 1, 6, 11] {
-            let on_screen = Cell::new(true);
-            let live_checks = Cell::new(0);
-            let check_live = || {
-                live_checks.set(live_checks.get() + 1);
-                Ok(())
-            };
-            let validate_input = || {
-                if on_screen.get() {
-                    Ok(())
+    #[test]
+    fn typing_aborts_when_execution_time_os_focus_changes() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        let changed = Arc::new(AtomicBool::new(false));
+        let observed = changed.clone();
+        let target = FocusTarget::retain(move || {
+            Ok(move || {
+                if observed.load(Ordering::SeqCst) {
+                    Err("OS focus changed".into())
                 } else {
-                    Err("Window is not on screen".into())
+                    Ok(())
                 }
-            };
-            let check = || check_input(&check_live, &validate_input);
-            check().unwrap();
-            let mut sent = 0;
-            let result = (|| -> Result<(), String> {
-                for step in 0..12 {
-                    if step == hide_after {
-                        on_screen.set(false);
-                    }
-                    check()?;
-                    sent += 1;
-                }
-                Ok(())
-            })();
-            assert_eq!(result, Err("Window is not on screen".into()));
-            assert_eq!(sent, hide_after);
-            assert_eq!(live_checks.get(), hide_after + 2);
-        }
-    }
-
-    #[test]
-    fn focus_change_before_execution_or_between_characters_rejects_input() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::Arc;
-        for action in [
-            Action::Type { text: "abc".into() },
-            Action::Key {
-                key: "Enter".into(),
+            })
+        })
+        .unwrap();
+        let action = Action::Type {
+            text: "test".into(),
+        };
+        assert!(verify_focus(&action, None).is_err());
+        assert!(verify_focus(&action, Some(&target)).is_ok());
+        changed.store(true, Ordering::SeqCst);
+        assert!(verify_focus(&action, Some(&target)).is_err());
+        assert!(verify_focus(
+            &Action::Key {
+                key: "Cmd+Tab".into()
             },
-        ] {
-            assert!(verify_focus(&action, None).is_err());
-            for change_after in [0, 1] {
-                let current = Arc::new(AtomicUsize::new(1));
-                let observed = current.clone();
-                let target = FocusTarget::retain(move || {
-                    let intended = std::rc::Rc::new(observed.load(Ordering::SeqCst));
-                    Ok(move || {
-                        if *intended == observed.load(Ordering::SeqCst) {
-                            Ok(())
-                        } else {
-                            Err("Approved input target changed".into())
-                        }
-                    })
-                })
-                .unwrap();
-                let mut sent = 0;
-                for index in 0..3 {
-                    if index == change_after {
-                        current.store(2, Ordering::SeqCst);
-                    }
-                    if verify_focus(&action, Some(&target)).is_err() {
-                        break;
-                    }
-                    sent += 1;
-                }
-                assert_eq!(sent, change_after);
-                current.store(1, Ordering::SeqCst);
-                assert!(verify_focus(&action, Some(&target)).is_err());
-            }
-        }
-        assert!(verify_focus(&Action::Activate {}, None).is_ok());
+            None
+        )
+        .is_ok());
     }
 
     #[test]
@@ -1584,15 +1221,14 @@ mod tests {
                 text: "a\nb".into(),
             },
             Action::Key {
-                key: "Meta+Space".into(),
+                key: "Cmd+Cmd+A".into(),
             },
             Action::Key { key: "A".into() },
             Action::Key {
-                key: "Cmd+Q".into(),
+                key: "Cmd+Option+Escape".into(),
             },
         ] {
             assert!(QueuedRequest {
-                target_revision: 0,
                 request_id: "a".into(),
                 frame_id: Some("f".into()),
                 action
@@ -1604,7 +1240,7 @@ mod tests {
             r#"{"requestId":"s","action":{"kind":"scroll","deltaX":0,"deltaY":100}}"#,
         )
         .unwrap();
-        assert!(scroll.validate().is_ok());
+        assert!(scroll.validate().is_err());
         assert!(parse_hotkey("Shift+Tab").is_some());
         for bad in [
             r#"{"requestId":"a","frameId":"f","action":{"kind":"wait","seconds":1}}"#,
@@ -1627,8 +1263,8 @@ mod tests {
                 r#"{"kind":"scroll","deltaX":0,"deltaY":100,"x":5,"y":6}"#,
                 true,
             ),
-            (r#"{"kind":"scroll","deltaX":0,"deltaY":100}"#, false),
-            (r#"{"kind":"key","key":"Cmd+Shift+Z"}"#, false),
+            (r#"{"kind":"scroll","deltaX":0,"deltaY":100}"#, true),
+            (r#"{"kind":"key","key":"Cmd+Shift+Z"}"#, true),
         ] {
             let with_frame: QueuedRequest = serde_json::from_str(&format!(
                 r#"{{"requestId":"a","frameId":"f","action":{raw}}}"#
@@ -1639,94 +1275,6 @@ mod tests {
                 serde_json::from_str(&format!(r#"{{"requestId":"a","action":{raw}}}"#)).unwrap();
             assert_eq!(without_frame.validate().is_err(), frame_required, "{raw}");
         }
-    }
-
-    #[test]
-    fn open_url_accepts_only_web_addresses_for_browsers_and_needs_no_frame() {
-        for good in [
-            "https://www.google.com",
-            "http://example.com/path?q=1#frag",
-            "https://user-less.example:8443/a%20b",
-        ] {
-            assert!(web_url(good).is_ok(), "{good}");
-            let request: QueuedRequest = serde_json::from_str(&format!(
-                r#"{{"requestId":"a","action":{{"kind":"open_url","url":"{good}"}}}}"#
-            ))
-            .unwrap();
-            assert!(request.validate().is_ok(), "{good}");
-            assert!(!request.action.needs_foreground());
-            assert!(request.action.points().is_empty());
-        }
-        for bad in [
-            "",
-            "google.com",
-            "file:///etc/passwd",
-            "javascript:alert(1)",
-            "ftp://example.com",
-            "https://",
-            "https://user:pw@example.com",
-            "https://user@example.com",
-            "https://example.com/a b",
-            "https://example.com/\n",
-            &format!("https://example.com/{}", "a".repeat(2048)),
-        ] {
-            assert!(web_url(bad).is_err(), "{bad:?}");
-            assert!(QueuedRequest {
-                target_revision: 0,
-                request_id: "a".into(),
-                frame_id: None,
-                action: Action::OpenUrl {
-                    url: bad.to_string()
-                },
-            }
-            .validate()
-            .is_err());
-        }
-        assert!(serde_json::from_str::<QueuedRequest>(
-            r#"{"requestId":"a","action":{"kind":"open_url","url":"https://x.y","x":1}}"#
-        )
-        .is_err());
-        assert!(browser_bundle("org.mozilla.firefox"));
-        assert!(browser_bundle("com.apple.Safari"));
-        assert!(!browser_bundle("com.apple.TextEdit"));
-        assert!(!browser_bundle(""));
-    }
-
-    #[test]
-    fn only_keyboard_actions_bring_the_application_forward() {
-        for background in [
-            Action::Click {
-                x: 1.0,
-                y: 1.0,
-                button: Some(MouseButton::Right),
-                count: None,
-            },
-            Action::Move { x: 1.0, y: 1.0 },
-            Action::Drag {
-                x: 1.0,
-                y: 1.0,
-                to_x: 2.0,
-                to_y: 2.0,
-            },
-            Action::Scroll {
-                delta_x: 0.0,
-                delta_y: 1.0,
-                x: None,
-                y: None,
-            },
-            Action::Activate {},
-            Action::Observe { question: None },
-            Action::OpenUrl {
-                url: "https://example.com".into(),
-            },
-        ] {
-            assert!(!background.needs_foreground());
-        }
-        assert!(Action::Type { text: "a".into() }.needs_foreground());
-        assert!(Action::Key {
-            key: "Cmd+L".into()
-        }
-        .needs_foreground());
     }
 
     #[test]
@@ -1745,6 +1293,10 @@ mod tests {
             "Command+S",
             "Cmd+1",
             "Cmd+Shift+7",
+            "Cmd+Tab",
+            "Cmd+Space",
+            "Cmd+Q",
+            "Control+ArrowLeft",
         ] {
             assert!(parse_hotkey(key).is_some(), "{key}");
         }
@@ -1762,32 +1314,11 @@ mod tests {
             "Cmd+F1",
             "Cmd+,",
             "Cmd+`",
-            "Meta+Space",
             "Fn+A",
             "cmd+a",
             "",
-            "Cmd+Q",
-            "Cmd+Shift+Q",
-            "Control+Cmd+Q",
-            "Cmd+W",
-            "Cmd+Shift+W",
-            "Cmd+H",
-            "Cmd+Option+H",
-            "Cmd+M",
-            "Cmd+Tab",
-            "Cmd+Shift+Tab",
-            "Cmd+Space",
             "Cmd+Option+Escape",
             "Control+Option+Cmd+Escape",
-            "Cmd+Shift+3",
-            "Cmd+Shift+4",
-            "Cmd+Shift+5",
-            "Cmd+Shift+6",
-            "Cmd+Option+D",
-            "Control+Cmd+F",
-            "Control+ArrowLeft",
-            "Control+Shift+ArrowUp",
-            "Control+Space",
         ] {
             assert!(parse_hotkey(key).is_none(), "{key}");
         }
@@ -1814,7 +1345,7 @@ mod tests {
     fn pointer_actions_map_every_target_into_the_frame() {
         let frame = Frame {
             id: "f".into(),
-            geometry: WindowGeometry {
+            geometry: DisplayBounds {
                 x: 100,
                 y: 200,
                 width: 400,
@@ -1883,7 +1414,6 @@ mod tests {
     #[test]
     fn proposed_text_must_render_exactly_as_typed() {
         let request = |text: &str| QueuedRequest {
-            target_revision: 0,
             request_id: "a".into(),
             frame_id: Some("f".into()),
             action: Action::Type { text: text.into() },
@@ -1917,7 +1447,7 @@ mod tests {
     fn maps_downsampled_pixels_to_negative_desktop_points() {
         let frame = Frame {
             id: "f".into(),
-            geometry: WindowGeometry {
+            geometry: DisplayBounds {
                 x: -1200,
                 y: 50,
                 width: 2400,

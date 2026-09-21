@@ -1,16 +1,14 @@
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WindowTarget {
+pub struct DisplayTarget {
     pub selection_id: String,
-    pub window_id: u32,
-    pub process_id: u32,
-    pub application: String,
-    pub title: String,
+    pub display_id: u32,
+    pub name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WindowGeometry {
+pub struct DisplayBounds {
     // Core Graphics bounds use desktop points, not the PNG's Retina pixel coordinates.
     pub x: i32,
     pub y: i32,
@@ -20,54 +18,19 @@ pub struct WindowGeometry {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WindowCapture {
+pub struct DisplayCapture {
     pub frame_id: String,
     #[serde(skip)]
     pub displays: Vec<super::computer_use_input::DisplayGeometry>,
-    pub geometry: WindowGeometry,
+    pub geometry: DisplayBounds,
     pub pixel_width: u32,
     pub pixel_height: u32,
     pub data_url: String,
 }
 
-pub fn available_target(
-    scope: &super::computer_use_session::SessionScope,
-) -> Result<super::computer_use_picker::Snapshot, String> {
-    if scope.mode == super::computer_use_session::SessionMode::AgentChoice {
-        super::computer_use_picker::agent_target(scope)
-    } else {
-        super::computer_use_picker::target(scope)
-    }
-}
-
 pub fn validate_target(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
-    available_target(scope).map(|_| ())
+    super::computer_use_picker::target(scope).map(|_| ())
 }
-
-/// Validate capture identity independently of visibility or input readiness.
-pub fn validate_visible(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
-    validate_target(scope)
-}
-
-#[cfg(any(target_os = "macos", test))]
-pub fn validate_input(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
-    if available_target(scope)?.input_available {
-        Ok(())
-    } else {
-        Err("Window is not on screen or input identity is unavailable; restore it manually and observe again".into())
-    }
-}
-
-#[cfg(any(target_os = "macos", test))]
-pub fn validate_focus(scope: &super::computer_use_session::SessionScope) -> Result<(), String> {
-    validate_input(scope)?;
-    if available_target(scope)?.focus_allowed {
-        Ok(())
-    } else {
-        Err("Focus left the approved application and supervisor".into())
-    }
-}
-
 #[cfg(any(target_os = "macos", test))]
 pub fn output_dimensions(width: u32, height: u32) -> Result<(u32, u32), String> {
     if width == 0
@@ -76,7 +39,7 @@ pub fn output_dimensions(width: u32, height: u32) -> Result<(u32, u32), String> 
         || height > 8192
         || u64::from(width) * u64::from(height) > 16_777_216
     {
-        return Err("Window is too large or empty for bounded capture".into());
+        return Err("Display is too large or empty for bounded capture".into());
     }
     let scale = (1920.0 / f64::from(width))
         .min(1080.0 / f64::from(height))
@@ -90,17 +53,19 @@ pub fn output_dimensions(width: u32, height: u32) -> Result<(u32, u32), String> 
 #[cfg(target_os = "macos")]
 pub fn target_geometry(
     scope: &super::computer_use_session::SessionScope,
-) -> Result<WindowGeometry, String> {
-    let geometry = available_target(scope)?.geometry;
+) -> Result<DisplayBounds, String> {
+    let geometry = super::computer_use_picker::target(scope)?;
     output_dimensions(geometry.width, geometry.height)?;
     Ok(geometry)
 }
 
-pub fn capture(scope: &super::computer_use_session::SessionScope) -> Result<WindowCapture, String> {
+pub fn capture(
+    scope: &super::computer_use_session::SessionScope,
+) -> Result<DisplayCapture, String> {
     #[cfg(target_os = "macos")]
     {
         use super::computer_use_input::macos;
-        validate_visible(scope)?;
+        validate_target(scope)?;
         macos::secure(scope)?;
         let before = target_geometry(scope)?;
         let display_before = macos::displays()?;
@@ -108,19 +73,17 @@ pub fn capture(scope: &super::computer_use_session::SessionScope) -> Result<Wind
         let data_url = super::computer_use_picker::capture(scope, pixel_width, pixel_height)?;
         let after = target_geometry(scope)?;
         let displays = macos::displays()?;
-        validate_visible(scope)?;
+        validate_target(scope)?;
         macos::secure(scope)?;
         if before != after || display_before != displays {
-            return Err(
-                "The window/display changed during capture; request a fresh preview".into(),
-            );
+            return Err("The display changed during capture; request a fresh preview".into());
         }
-        validate_visible(scope)?;
+        validate_target(scope)?;
         macos::secure(scope)?;
         if target_geometry(scope)? != after || macos::displays()? != displays {
-            return Err("Window/display changed before capture delivery".into());
+            return Err("Display changed before capture delivery".into());
         }
-        Ok(WindowCapture {
+        Ok(DisplayCapture {
             frame_id: super::computer_use_session::random_id()?,
             displays,
             geometry: after,
@@ -132,7 +95,7 @@ pub fn capture(scope: &super::computer_use_session::SessionScope) -> Result<Wind
     #[cfg(not(target_os = "macos"))]
     {
         let _ = scope;
-        Err("Window capture requires macOS".into())
+        Err("Display capture requires macOS".into())
     }
 }
 
@@ -142,9 +105,9 @@ mod tests {
 
     #[test]
     fn capture_wire_shape_excludes_native_display_metadata() {
-        let capture = WindowCapture {
+        let capture = DisplayCapture {
             frame_id: "frame".into(),
-            geometry: WindowGeometry {
+            geometry: DisplayBounds {
                 x: -1,
                 y: 2,
                 width: 3,
@@ -174,19 +137,16 @@ mod tests {
     #[test]
     fn unsupported_platform_cannot_list_or_capture_windows() {
         let scope = super::super::computer_use_session::SessionScope {
-            mode: super::super::computer_use_session::SessionMode::SelectedWindow,
+            mode: super::super::computer_use_session::SessionMode::SelectedDisplay,
             backend: "https://operator.example".into(),
             user: "u".into(),
             namespace: "default".into(),
             run: "r".into(),
-            application: "TextEdit".into(),
-            window_id: 1,
-            process_id: 2,
+            display_id: 1,
         };
         assert!(super::super::computer_use_picker::begin().is_err());
         assert!(validate_target(&scope).is_err());
-        assert!(validate_focus(&scope).is_err());
-        assert!(validate_visible(&scope).is_err());
+        assert!(validate_target(&scope).is_err());
         assert!(capture(&scope).is_err());
     }
 }

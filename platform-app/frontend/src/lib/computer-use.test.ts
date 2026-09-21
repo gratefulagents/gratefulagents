@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  computerUsePermissions, openComputerUsePermission, pickComputerUseWindow,
+  computerUsePermissions, openComputerUsePermission, pickComputerUseDisplay,
   desktopSessionStatus, startDesktopSession, heartbeatDesktopSession,
-  pauseDesktopSession, resumeDesktopSession, stopDesktopSession, captureDesktopWindow,
+  pauseDesktopSession, resumeDesktopSession, stopDesktopSession, captureDesktopDisplay,
   queueDesktopRequest, armDesktopRequest, approveDesktopRequest, cancelDesktopRequest,
   hotkeyGlyphs, isWebUrl, parseHotkey,
 } from "./computer-use";
@@ -18,19 +18,24 @@ beforeEach(() => {
   vi.resetAllMocks();
   native.isTauri = true;
   native.platform.mockResolvedValue("macos");
+  native.invoke.mockResolvedValue(undefined);
 });
 
 const scope = {
   backend: "https://operator.example", user: "user-1", namespace: "default", run: "run-1",
-  application: "TextEdit", windowId: 42, processId: 99,
+  mode: "selected_display" as const, displayId: 42,
 };
 
 describe("computer use bridge", () => {
-  it("gives update/reconnect guidance when an old native app rejects agent mode", async () => {
+  it("rejects old desktop binaries with clear picker migration guidance", async () => {
+    native.invoke.mockRejectedValue(new Error("Command computer_use_pick_display not found"));
+    await expect(pickComputerUseDisplay(0)).rejects.toThrow(/update.*reconnect/);
+  });
+  it("gives update/reconnect guidance when an old native app rejects display mode", async () => {
     native.invoke.mockRejectedValue(new Error("unknown field mode"));
-    await expect(startDesktopSession({ ...scope, mode: "agent_choice", application: "", windowId: 0, processId: 0 }, true, 0, "")).rejects.toThrow(/update.*reconnect/);
+    await expect(startDesktopSession(scope, true, true, 0, "")).rejects.toThrow(/update.*reconnect/);
     native.invoke.mockRejectedValue(new Error("Screen Recording permission is required"));
-    await expect(startDesktopSession({ ...scope, mode: "agent_choice" }, true, 0, "")).rejects.toThrow("Screen Recording");
+    await expect(startDesktopSession(scope, true, true, 0, "")).rejects.toThrow("Screen Recording");
   });
   it("binds single-action approval commands to the native session, request and permit", async () => {
     const request = { requestId: "r", frameId: "f", action: { kind: "type" as const, text: "Proposed text" } };
@@ -46,28 +51,28 @@ describe("computer use bridge", () => {
     ]);
   });
   it("preserves native command names, session bindings and consent revision", async () => {
-    await pickComputerUseWindow(7);
+    await pickComputerUseDisplay(7);
     await desktopSessionStatus();
-    await startDesktopSession(scope, true, 7, "selection-1");
+    await startDesktopSession(scope, true, true, 7, "selection-1");
     await heartbeatDesktopSession("session-1", scope);
     await pauseDesktopSession();
     await resumeDesktopSession("session-1", scope);
-    await captureDesktopWindow("session-1", scope);
+    await captureDesktopDisplay("session-1", scope);
     await stopDesktopSession();
     expect(native.invoke.mock.calls).toEqual([
-      ["computer_use_pick_window", { expectedRevision: 7 }],
+      ["computer_use_pick_display", { expectedRevision: 7 }],
       ["computer_use_session_status", undefined],
-      ["computer_use_session_start", { scope, consentToScreenSharing: true, expectedRevision: 7, selectionId: "selection-1" }],
+      ["computer_use_session_start", { scope, consentToScreenSharing: true, consentToDesktopInput: true, expectedRevision: 7, selectionId: "selection-1" }],
       ["computer_use_session_heartbeat", { sessionId: "session-1", scope }],
       ["computer_use_session_pause", undefined],
       ["computer_use_session_resume", { sessionId: "session-1", scope }],
-      ["computer_use_capture_window", { sessionId: "session-1", scope }],
+      ["computer_use_capture_display", { sessionId: "session-1", scope }],
       ["computer_use_session_stop", undefined],
     ]);
   });
   it("preserves native picker cancellation as null", async () => {
     native.invoke.mockResolvedValue(null);
-    expect(await pickComputerUseWindow(0)).toBeNull();
+    expect(await pickComputerUseDisplay(0)).toBeNull();
   });
 
   it("gets native macOS permissions", async () => {
@@ -85,9 +90,9 @@ describe("computer use bridge", () => {
     });
     await expect(openComputerUsePermission("accessibility")).rejects.toThrow(/macOS/);
     for (const command of [
-      () => pickComputerUseWindow(0), desktopSessionStatus, pauseDesktopSession, stopDesktopSession,
-      () => startDesktopSession(scope, true, 0, "selection-1"), () => heartbeatDesktopSession("s", scope),
-      () => resumeDesktopSession("s", scope), () => captureDesktopWindow("s", scope),
+      () => pickComputerUseDisplay(0), desktopSessionStatus, pauseDesktopSession, stopDesktopSession,
+      () => startDesktopSession(scope, true, true, 0, "selection-1"), () => heartbeatDesktopSession("s", scope),
+      () => resumeDesktopSession("s", scope), () => captureDesktopDisplay("s", scope),
       () => queueDesktopRequest("s", scope, { requestId: "r", action: { kind: "observe" } }),
       () => armDesktopRequest("s", scope, "r"), () => approveDesktopRequest("s", scope, "r", "permit"),
       () => cancelDesktopRequest("s", scope, "r"),
@@ -122,17 +127,14 @@ describe("hotkey grammar", () => {
     "rejects bare text keys and malformed combinations %#", (key) => expect(parseHotkey(key)).toBeNull(),
   );
 
-  it.each(["Cmd+Q", "Cmd+Shift+Q", "Control+Cmd+Q", "Cmd+W", "Cmd+H", "Cmd+M", "Cmd+Tab", "Cmd+Shift+Tab", "Cmd+Space", "Cmd+Option+Escape",
-    "Control+Option+Cmd+Escape", "Cmd+Shift+3", "Cmd+Shift+5", "Cmd+Option+D", "Control+Cmd+F", "Control+ArrowUp", "Control+Shift+ArrowLeft", "Control+Space"])(
-    "denies combinations that leave the approved window or stop the session: %s", (key) => expect(parseHotkey(key)).toBeNull(),
-  );
-
+  it.each(["Cmd+Option+Escape", "Control+Option+Cmd+Escape"])("reserves emergency and force-quit chord %s", (key) => expect(parseHotkey(key)).toBeNull());
+  it.each(["Cmd+Q", "Cmd+Tab", "Cmd+Space", "Control+ArrowLeft"])("allows desktop hotkey %s", (key) => expect(parseHotkey(key)).not.toBeNull());
   it("renders Mac glyphs in the conventional modifier order", () => {
     expect(hotkeyGlyphs("Shift+Cmd+z")).toEqual(["⇧", "⌘", "Z"]);
     expect(hotkeyGlyphs("Cmd+Shift+Option+ArrowLeft")).toEqual(["⌥", "⇧", "⌘", "←"]);
     expect(hotkeyGlyphs("Cmd+Control+A")).toEqual(["⌃", "⌘", "A"]);
     expect(hotkeyGlyphs("Enter")).toEqual(["↩"]);
-    expect(hotkeyGlyphs("Cmd+Q")).toEqual(["Cmd+Q"]);
+    expect(hotkeyGlyphs("Cmd+Q")).toEqual(["⌘", "Q"]);
   });
 });
 

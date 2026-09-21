@@ -10,6 +10,7 @@ import { DiffRepoSelector } from "@/components/diff/DiffRepoSelector";
 import { NewFilesBrowser } from "@/components/diff/NewFilesBrowser";
 import { MarkdownViewer } from "@/components/MarkdownViewer";
 import { PlanApprovalPanel } from "@/components/PlanApprovalPanel";
+import { isTauri } from "@/lib/platform";
 import { ComputerUsePanel } from "@/components/ComputerUsePanel";
 import { SubagentGraphView } from "@/components/SubagentGraphView";
 import { EvidenceGatesCard } from "@/components/VerificationEvidenceCard";
@@ -238,6 +239,8 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     return "diff";
   });
   const splitViewport = useSplitViewport();
+  const [computerPanel, setComputerPanel] = useState<HTMLDivElement | null>(null);
+  const [computerShortcut, setComputerShortcut] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
     try {
       localStorage.setItem("gratefulagents.inspectorOpen", String(inspectorOpen));
@@ -300,6 +303,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
       "errors",
       ...(run?.traceId ? (["trace"] as const) : []),
       "context",
+      ...(isTauri ? (["computer"] as const) : []),
     ],
     [hasPullRequestTab, run?.traceId],
   );
@@ -1222,8 +1226,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
                 </div>
               )}
 
-              <ComputerUsePanel key={`${namespace}/${name}/${run.model}`} namespace={namespace} name={name}
-                enabled={isOwnerOrAdmin && !isTerminal} model={run.model} />
+              <div ref={setComputerShortcut} />
 
               {showPlanningBanner && (
                 <div className="flex items-center gap-2 border-t px-3 py-2 text-xs text-muted-foreground md:px-4">
@@ -1338,6 +1341,8 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
 
   const persistentPanes = (
     <>
+          <div ref={setComputerPanel} hidden={activeInspectorTab !== "computer"}
+            className="min-h-0 flex-1 overflow-y-auto" />
           {visitedTabs.has("graph") && (
             <div
               hidden={activeInspectorTab !== "graph"}
@@ -1388,7 +1393,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   );
 
   const inspectorPane =
-    activeInspectorTab === "graph" || activeInspectorTab === "diff" ? null : (
+    activeInspectorTab === "graph" || activeInspectorTab === "diff" || activeInspectorTab === "computer" ? null : (
     <>
           {activeInspectorTab === "pr" && (
             <RunPullRequestPanel
@@ -1480,6 +1485,9 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     <SubagentContextProvider graph={subagentGraph} onOpenGraph={openGraphTab}>
     <MotionConfig reducedMotion="user">
     <RunActionsProvider value={runActions}>
+    <ComputerUsePanel key={`${namespace}/${name}/${run.model}`} namespace={namespace} name={name}
+      enabled={isOwnerOrAdmin && !isTerminal} model={run.model}
+      view={{ panel: computerPanel, shortcut: computerShortcut, open: () => openInspector("computer") }} />
     <div className="flex h-full gap-px overflow-hidden bg-muted/30">
       {confirmDialog && (
         <ConfirmDialog

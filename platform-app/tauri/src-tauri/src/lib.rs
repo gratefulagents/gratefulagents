@@ -20,8 +20,6 @@ mod computer_use;
 mod computer_use_capture;
 mod computer_use_input;
 mod computer_use_picker;
-#[cfg(target_os = "macos")]
-mod computer_use_process;
 mod computer_use_session;
 mod copilot_oauth;
 mod deep_link;
@@ -202,6 +200,8 @@ pub fn run() {
             computer_use::computer_use_relaunch,
             computer_use_session::computer_use_pick_window,
             computer_use_session::computer_use_capture_window,
+            computer_use_session::computer_use_pick_display,
+            computer_use_session::computer_use_capture_display,
             computer_use_session::computer_use_queue_request,
             computer_use_session::computer_use_arm_request,
             computer_use_session::computer_use_approve_request,

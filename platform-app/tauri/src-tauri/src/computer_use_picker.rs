@@ -1,340 +1,76 @@
-#[cfg(target_os = "macos")]
-use super::computer_use_capture::WindowGeometry;
-use super::computer_use_capture::WindowTarget;
+use super::computer_use_capture::{DisplayBounds, DisplayTarget};
 use super::computer_use_session::SessionScope;
 use std::sync::Mutex;
-
 static SELECTION: Mutex<Option<Selection>> = Mutex::new(None);
-
 struct Selection {
     token: u64,
-    target: WindowTarget,
+    target: DisplayTarget,
 }
-
 impl Drop for Selection {
     fn drop(&mut self) {
         revoke(self.token);
     }
 }
-
 pub fn clear() {
     SELECTION.lock().unwrap_or_else(|e| e.into_inner()).take();
     revoke(0);
 }
-
-pub fn bind(selection_id: &str, scope: &SessionScope) -> Result<(), String> {
-    let selected = SELECTION
-        .lock()
-        .map_err(|_| "Window sharing state unavailable")?;
-    let selected = selected
-        .as_ref()
-        .ok_or("Select a window using the macOS picker")?;
-    if selected.target.selection_id != selection_id {
-        return Err("Window selection changed; grant fresh consent".into());
-    }
-    matches_scope(&selected.target, scope)?;
-    snapshot(selected.token).map(|_| ())
-}
-
-fn matches_scope(target: &WindowTarget, scope: &SessionScope) -> Result<(), String> {
-    if target.window_id != scope.window_id
-        || target.process_id != scope.process_id
-        || target.application != scope.application
-        || scope.process_id == std::process::id()
-    {
-        return Err(
-            "Window selection does not match the approved application/process/window".into(),
-        );
-    }
-    Ok(())
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Snapshot {
-    pub window_id: u32,
-    pub process_id: u32,
-    pub application: String,
+fn revoke(token: u64) {
     #[cfg(target_os = "macos")]
-    pub title: String,
-    #[cfg(target_os = "macos")]
-    pub geometry: WindowGeometry,
-    #[cfg(any(target_os = "macos", test))]
-    #[serde(deserialize_with = "lenient_bool")]
-    // True only when the exact CG target is its application's AX focused window.
-    pub frontmost: bool,
-    #[cfg(any(target_os = "macos", test))]
-    #[serde(deserialize_with = "lenient_bool")]
-    pub focus_allowed: bool,
-    #[cfg(any(target_os = "macos", test))]
-    #[serde(default, deserialize_with = "lenient_bool")]
-    pub input_available: bool,
-}
-
-/// Accepts JSON `true`/`false` and also `1`/`0`. Objective-C boxes comparison
-/// results as integers (`@(a == b)` is `numberWithInt:`), and a single such
-/// slip in the native snapshot previously failed every `list_windows` with
-/// "invalid type: integer `1`, expected a boolean".
-fn lenient_bool<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
-    struct Visitor;
-    impl serde::de::Visitor<'_> for Visitor {
-        type Value = bool;
-        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.write_str("a boolean or 0/1")
-        }
-        fn visit_bool<E: serde::de::Error>(self, v: bool) -> Result<bool, E> {
-            Ok(v)
-        }
-        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<bool, E> {
-            match v {
-                0 => Ok(false),
-                1 => Ok(true),
-                _ => Err(E::invalid_value(serde::de::Unexpected::Unsigned(v), &self)),
-            }
-        }
-        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<bool, E> {
-            match v {
-                0 => Ok(false),
-                1 => Ok(true),
-                _ => Err(E::invalid_value(serde::de::Unexpected::Signed(v), &self)),
-            }
-        }
-    }
-    deserializer.deserialize_any(Visitor)
-}
-
-pub fn target(scope: &SessionScope) -> Result<Snapshot, String> {
-    let selected = SELECTION
-        .lock()
-        .map_err(|_| "Window sharing state unavailable")?;
-    let selected = selected
-        .as_ref()
-        .ok_or("Window sharing was revoked; select the window again")?;
-    matches_scope(&selected.target, scope)?;
-    let snapshot = snapshot(selected.token)?;
-    if snapshot.window_id != scope.window_id
-        || snapshot.process_id != scope.process_id
-        || snapshot.application != scope.application
-    {
-        return Err("The shared window identity changed".into());
-    }
-    Ok(snapshot)
-}
-
-#[cfg(any(target_os = "macos", test))]
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiscoveredWindow {
-    pub window_id: u32,
-    pub process_id: u32,
-    pub application: String,
-    pub title: String,
-    pub on_screen: Option<bool>,
-    pub capabilities: super::computer_use_session::WindowCapabilities,
-}
-
-#[cfg(any(target_os = "macos", test))]
-#[derive(serde::Deserialize)]
-struct AgentWindowsReply {
-    windows: Vec<DiscoveredWindow>,
-    diagnostics: DiscoveryDiagnostics,
-}
-
-#[cfg(any(target_os = "macos", test))]
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DiscoveryDiagnostics {
-    raw: u64,
-    inspected: u64,
-    missing_owner: u64,
-    supervisor_pid: u64,
-    missing_name: u64,
-    missing_bundle: u64,
-    process_identity_unavailable: u64,
-    bundle_mismatch: u64,
-    supervisor_bundle: u64,
-    invalid_snapshot: u64,
-    snapshot_rejections: SnapshotRejections,
-    non_frontmost: u64,
-    eligible: u64,
-    cap_uninspected: u64,
-}
-
-#[cfg(any(target_os = "macos", test))]
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SnapshotRejections {
-    invalidated: u64,
-    missing_filter: u64,
-    missing_window: u64,
-    missing_application: u64,
-    terminated_application: u64,
-    missing_live_application: u64,
-    terminated_live_application: u64,
-    process_identity_unavailable: u64,
-    process_identity_changed: u64,
-    bundle_mismatch: u64,
-    cg_inventory_unavailable: u64,
-    cg_window_missing: u64,
-    ax_window_identity_unavailable: u64,
-    cg_window_pid_mismatch: u64,
-    bounds_malformed: u64,
-    bounds_empty: u64,
-    bounds_infinite: u64,
-    bounds_null: u64,
-}
-
-#[cfg(any(target_os = "macos", test))]
-impl DiscoveryDiagnostics {
-    fn log(&self) {
-        let s = &self.snapshot_rejections;
-        log::info!(
-            "computer use window discovery native: raw={} inspected={} missing_owner={} supervisor_pid={} missing_name={} missing_bundle={} process_identity_unavailable={} bundle_mismatch={} supervisor_bundle={} invalid_snapshot={} non_frontmost={} eligible={} cap_uninspected={} snapshot_invalidated={} snapshot_missing_filter={} snapshot_missing_window={} snapshot_missing_application={} snapshot_terminated_application={} snapshot_missing_live_application={} snapshot_terminated_live_application={} snapshot_process_identity_unavailable={} snapshot_process_identity_changed={} snapshot_bundle_mismatch={} snapshot_cg_inventory_unavailable={} snapshot_cg_window_missing={} snapshot_ax_window_identity_unavailable={} snapshot_cg_window_pid_mismatch={} snapshot_bounds_malformed={} snapshot_bounds_empty={} snapshot_bounds_infinite={} snapshot_bounds_null={}",
-            self.raw, self.inspected, self.missing_owner, self.supervisor_pid,
-            self.missing_name, self.missing_bundle, self.process_identity_unavailable,
-            self.bundle_mismatch, self.supervisor_bundle, self.invalid_snapshot,
-            self.non_frontmost, self.eligible, self.cap_uninspected,
-            s.invalidated,
-            s.missing_filter,
-            s.missing_window,
-            s.missing_application,
-            s.terminated_application,
-            s.missing_live_application,
-            s.terminated_live_application,
-            s.process_identity_unavailable,
-            s.process_identity_changed,
-            s.bundle_mismatch,
-            s.cg_inventory_unavailable,
-            s.cg_window_missing,
-            s.ax_window_identity_unavailable,
-            s.cg_window_pid_mismatch,
-            s.bounds_malformed,
-            s.bounds_empty,
-            s.bounds_infinite,
-            s.bounds_null,
-        );
-    }
-}
-
-#[cfg(any(target_os = "macos", test))]
-pub fn agent_windows() -> Result<Vec<DiscoveredWindow>, String> {
-    super::computer_use::require_agent_permission()?;
-    #[cfg(target_os = "macos")]
-    {
-        let value =
-            native::request(|reply, context| unsafe { native::ga_agent_windows(reply, context) })?;
-        let reply: AgentWindowsReply = serde_json::from_value(value).map_err(|e| e.to_string())?;
-        reply.diagnostics.log();
-        Ok(reply.windows)
+    unsafe {
+        native::ga_display_revoke(token);
     }
     #[cfg(not(target_os = "macos"))]
-    {
-        Err("Window discovery requires macOS".into())
-    }
+    let _ = token;
 }
-
-pub fn agent_target(scope: &SessionScope) -> Result<Snapshot, String> {
-    super::computer_use::require_agent_permission()?;
+#[cfg(target_os = "macos")]
+pub fn supported() -> bool {
+    unsafe { native::ga_display_supported() }
+}
+pub fn bind(selection_id: &str, scope: &SessionScope) -> Result<(), String> {
+    {
+        let selection = SELECTION
+            .lock()
+            .map_err(|_| "Display selection unavailable")?;
+        let selection = selection
+            .as_ref()
+            .ok_or("Select a display and grant fresh desktop consent")?;
+        if selection.target.selection_id != selection_id
+            || selection.target.display_id != scope.display_id
+        {
+            return Err("Display selection changed; reconnect with fresh desktop consent".into());
+        }
+    }
+    target(scope).map(|_| ())
+}
+pub fn target(scope: &SessionScope) -> Result<DisplayBounds, String> {
     #[cfg(target_os = "macos")]
     {
-        let value = unsafe { native::ga_agent_window_snapshot(scope.window_id) };
-        if value.is_null() {
-            return Err("Discovered window is unavailable; list windows again".into());
-        }
-        let result: Result<Snapshot, _> =
-            serde_json::from_slice(unsafe { std::ffi::CStr::from_ptr(value) }.to_bytes());
-        unsafe {
-            native::ga_window_sharing_free(value);
-        }
-        let snapshot = result.map_err(|e| e.to_string())?;
-        if snapshot.window_id != scope.window_id
-            || snapshot.process_id != scope.process_id
-            || snapshot.application != scope.application
+        super::computer_use::require_screen_permission()?;
+        let selected = SELECTION
+            .lock()
+            .map_err(|_| "Display selection unavailable")?;
+        let selected = selected.as_ref().ok_or("Display sharing was revoked")?;
+        if selected.target.display_id != scope.display_id
+            || !unsafe { native::ga_display_valid(selected.token, scope.display_id) }
         {
-            return Err("Discovered window identity changed".into());
+            return Err("Selected display disconnected or changed identity; reconnect".into());
         }
-        Ok(snapshot)
+        super::computer_use_input::macos::displays()?
+            .into_iter()
+            .find(|d| d.id == scope.display_id)
+            .map(|d| d.bounds)
+            .ok_or_else(|| "Selected display disconnected".into())
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = scope;
-        Err("Window discovery requires macOS".into())
+        Err("Display capture requires macOS".into())
     }
 }
-
-pub fn select_agent_target(scope: &SessionScope) -> Result<(), String> {
-    let snapshot = agent_target(scope)?;
-    #[cfg(target_os = "macos")]
-    {
-        let mut selected = SELECTION
-            .lock()
-            .map_err(|_| "Window sharing state unavailable")?;
-        let token = next_token();
-        if !unsafe { native::ga_agent_window_select(token, scope.window_id) } {
-            return Err("Discovered window was revoked or is unavailable".into());
-        }
-        *selected = Some(Selection {
-            token,
-            target: WindowTarget {
-                selection_id: String::new(),
-                window_id: snapshot.window_id,
-                process_id: snapshot.process_id,
-                application: snapshot.application,
-                title: snapshot.title,
-            },
-        });
-        Ok(())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = snapshot;
-        Err("Window selection requires macOS".into())
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn next_token() -> u64 {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    NEXT.fetch_add(1, Ordering::SeqCst)
-}
-
-#[cfg(target_os = "macos")]
-pub fn supported() -> bool {
-    unsafe { native::ga_window_sharing_supported() }
-}
-
-fn revoke(token: u64) {
-    #[cfg(target_os = "macos")]
-    unsafe {
-        native::ga_window_sharing_revoke(token)
-    };
-    #[cfg(not(target_os = "macos"))]
-    let _ = token;
-}
-
-fn snapshot(token: u64) -> Result<Snapshot, String> {
-    #[cfg(target_os = "macos")]
-    unsafe {
-        let value = native::ga_window_sharing_snapshot(token);
-        if value.is_null() {
-            return Err("Window sharing was revoked or the window is unavailable".into());
-        }
-        let result = serde_json::from_slice(std::ffi::CStr::from_ptr(value).to_bytes())
-            .map_err(|e| e.to_string());
-        native::ga_window_sharing_free(value);
-        result
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = token;
-        Err("Computer use requires macOS 15.2 or later".into())
-    }
-}
-
 pub struct Picked {
     token: u64,
-    pub target: Option<WindowTarget>,
+    target: Option<DisplayTarget>,
 }
 impl Drop for Picked {
     fn drop(&mut self) {
@@ -344,7 +80,7 @@ impl Drop for Picked {
     }
 }
 impl Picked {
-    pub fn install(mut self) -> Option<WindowTarget> {
+    pub fn install(mut self) -> Option<DisplayTarget> {
         let target = self.target.take()?;
         *SELECTION.lock().unwrap_or_else(|e| e.into_inner()) = Some(Selection {
             token: self.token,
@@ -354,19 +90,19 @@ impl Picked {
         Some(target)
     }
 }
-
 pub struct Picking {
     picked: Picked,
     #[cfg(target_os = "macos")]
     response: std::sync::mpsc::Receiver<Result<serde_json::Value, String>>,
 }
-
 pub fn begin() -> Result<Picking, String> {
     #[cfg(target_os = "macos")]
     {
-        let token = next_token();
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let token = NEXT.fetch_add(1, Ordering::SeqCst);
         let response = native::begin(|reply, context| unsafe {
-            native::ga_window_sharing_pick(token, reply, context)
+            native::ga_display_pick(token, reply, context)
         });
         Ok(Picking {
             picked: Picked {
@@ -378,10 +114,9 @@ pub fn begin() -> Result<Picking, String> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Err("Computer use requires macOS 15.2 or later".into())
+        Err("Display selection requires macOS".into())
     }
 }
-
 impl Picking {
     pub fn wait(self) -> Result<Picked, String> {
         #[cfg(target_os = "macos")]
@@ -389,14 +124,10 @@ impl Picking {
             let mut picked = self.picked;
             let value = native::wait(self.response)?;
             if !value.is_null() {
-                let snapshot: Snapshot =
-                    serde_json::from_value(value).map_err(|e| e.to_string())?;
-                picked.target = Some(WindowTarget {
+                picked.target = Some(DisplayTarget {
                     selection_id: super::computer_use_session::random_id()?,
-                    window_id: snapshot.window_id,
-                    process_id: snapshot.process_id,
-                    application: snapshot.application,
-                    title: snapshot.title,
+                    display_id: value["displayId"].as_u64().ok_or("No display ID")? as u32,
+                    name: value["name"].as_str().ok_or("No display name")?.into(),
                 });
             }
             Ok(picked)
@@ -404,29 +135,27 @@ impl Picking {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = self.picked;
-            Err("Computer use requires macOS 15.2 or later".into())
+            Err("Display selection requires macOS".into())
         }
     }
 }
-
 #[cfg(target_os = "macos")]
 pub fn capture(scope: &SessionScope, width: u32, height: u32) -> Result<String, String> {
-    let token = {
-        let selected = SELECTION
-            .lock()
-            .map_err(|_| "Window sharing state unavailable")?;
-        let selected = selected.as_ref().ok_or("Window sharing was revoked")?;
-        matches_scope(&selected.target, scope)?;
-        selected.token
-    };
+    target(scope)?;
+    let token = SELECTION
+        .lock()
+        .map_err(|_| "Display selection unavailable")?
+        .as_ref()
+        .ok_or("Display sharing revoked")?
+        .token;
     let value = native::request(|reply, context| unsafe {
-        native::ga_window_sharing_capture(token, width, height, reply, context)
+        native::ga_display_capture(token, scope.display_id, width, height, reply, context)
     })?;
-    snapshot(token)?;
+    target(scope)?;
     value["dataUrl"]
         .as_str()
         .map(str::to_owned)
-        .ok_or_else(|| "No window capture received".into())
+        .ok_or_else(|| "No display capture received".into())
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -436,16 +165,13 @@ mod native {
     pub type Reply = extern "C" fn(*mut c_void, *const c_char);
     #[cfg(target_os = "macos")]
     extern "C" {
-        pub fn ga_window_sharing_supported() -> bool;
-        pub fn ga_agent_windows(reply: Reply, context: *mut c_void);
-        pub fn ga_agent_window_snapshot(window_id: u32) -> *mut c_char;
-        pub fn ga_agent_window_select(token: u64, window_id: u32) -> bool;
-        pub fn ga_window_sharing_revoke(token: u64);
-        pub fn ga_window_sharing_pick(token: u64, reply: Reply, context: *mut c_void);
-        pub fn ga_window_sharing_snapshot(token: u64) -> *mut c_char;
-        pub fn ga_window_sharing_free(value: *mut c_char);
-        pub fn ga_window_sharing_capture(
+        pub fn ga_display_supported() -> bool;
+        pub fn ga_display_revoke(token: u64);
+        pub fn ga_display_pick(token: u64, reply: Reply, context: *mut c_void);
+        pub fn ga_display_valid(token: u64, display_id: u32) -> bool;
+        pub fn ga_display_capture(
             token: u64,
+            display_id: u32,
             width: u32,
             height: u32,
             reply: Reply,
@@ -510,10 +236,10 @@ mod native {
         #[test]
         fn callback_copies_json_before_native_storage_is_released() {
             let receiver = begin(|reply, context| {
-                let json = CString::new(r#"{"windowId":42}"#).unwrap();
+                let json = CString::new(r#"{"displayId":42}"#).unwrap();
                 reply(context, json.as_ptr());
             });
-            assert_eq!(wait(receiver).unwrap()["windowId"], 42);
+            assert_eq!(wait(receiver).unwrap()["displayId"], 42);
         }
 
         #[test]
@@ -523,321 +249,6 @@ mod native {
             drop(receiver);
             let (reply, context) = callback.unwrap();
             reply(context, c"null".as_ptr());
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn broad_discovery_never_uses_visibility_or_ax_as_admission() {
-        let source = include_str!("computer_use_picker.m");
-        let discovery = source
-            .split("void ga_agent_windows(")
-            .nth(1)
-            .unwrap()
-            .split("char *ga_agent_window_snapshot")
-            .next()
-            .unwrap();
-        assert!(discovery
-            .contains("getShareableContentExcludingDesktopWindows:NO onScreenWindowsOnly:NO"));
-        assert!(discovery.contains("CGWindowListCopyWindowInfo(kCGWindowListOptionAll"));
-        assert!(!source.contains("kCGWindowListOptionOnScreenOnly"));
-        assert!(!source.contains("kCGWindowListExcludeDesktopElements"));
-        assert!(discovery.contains("pid == getpid()"));
-        assert!(discovery
-            .contains("owner.bundleIdentifier isEqual:NSBundle.mainBundle.bundleIdentifier"));
-        assert!(discovery.contains("if (!snapshot) {\n                        snapshot ="));
-        assert!(discovery.contains("for (NSDictionary *cg in cgWindows)"));
-        assert!(!discovery.contains("metadata.count =="));
-        for forbidden in ["activate", "unminimize", "AXRaise", "setValue"] {
-            assert!(!discovery.contains(forbidden));
-        }
-        let input = include_str!("computer_use_input.rs");
-        assert!(input.contains("super::super::computer_use_capture::validate_input(scope)?;"));
-    }
-
-    #[test]
-    fn unavailable_discovery_metadata_needs_no_live_snapshot_geometry() {
-        for on_screen in [
-            serde_json::json!(true),
-            serde_json::json!(false),
-            serde_json::Value::Null,
-        ] {
-            let raw = serde_json::json!({"windowId": 10, "processId": 0, "application": "Window Server", "title": "System surface", "onScreen": on_screen, "capabilities": {"selectable": false, "observable": false, "input": false, "reason": "AX identity unavailable"}});
-            let window: DiscoveredWindow = serde_json::from_value(raw.clone()).unwrap();
-            assert!(!window.capabilities.selectable);
-            assert_eq!(window.window_id, 10);
-            assert_eq!(window.process_id, 0);
-            assert_eq!(window.application, "Window Server");
-            assert_eq!(window.title, "System surface");
-            assert_eq!(window.on_screen, on_screen.as_bool());
-            assert!(serde_json::from_value::<Snapshot>(raw).is_err());
-        }
-    }
-
-    #[test]
-    fn native_snapshot_uses_shared_ax_eligibility_without_a_layer_gate() {
-        // The portable C fixtures exercise identity/focus decisions. Guard the
-        // Objective-C call site too: filtering by layer before that helper would
-        // silently reject focused floating windows despite those tests passing.
-        let source = include_str!("computer_use_picker.m");
-        let snapshot = source
-            .split("- (NSDictionary *)snapshotWithRejection:(GASnapshotRejection *)rejection {")
-            .nth(1)
-            .unwrap()
-            .split("- (void)contentSharingPicker:")
-            .next()
-            .unwrap();
-        assert!(!snapshot.contains("kCGWindowLayer"));
-        assert!(snapshot.contains(
-            "ga_ax_window_copy(_application.processIdentifier, _window.windowID, bounds, _axWindow, &eligibility)"
-        ));
-        assert!(snapshot.contains("if (!window)"));
-        assert!(snapshot.contains("if (!_axWindow) _axWindow = window;"));
-        assert!(source.contains("if (![snapshot[@\"frontmost\"] boolValue]) nonFrontmost++;"));
-        assert!(!source.contains("{ nonFrontmost++; continue; }"));
-        let input = include_str!("computer_use_input.rs");
-        let binding = input
-            .split("pub fn bind_window(")
-            .nth(1)
-            .unwrap()
-            .split("pub fn bind_focus(")
-            .next()
-            .unwrap();
-        assert!(!binding.contains("AXFocusedWindow"));
-        assert!(!binding.contains("approved_window("));
-        assert!(binding.contains("copy_window(&scope, &geometry, intended.0)?"));
-        assert!(binding.contains("process_identity(&scope)? != identity"));
-        let approved = input
-            .split("fn approved_window(")
-            .nth(1)
-            .unwrap()
-            .split("fn foreground(")
-            .next()
-            .unwrap();
-        assert!(approved.contains("attr(app(scope)?.0, \"AXFocusedWindow\")?"));
-        assert!(approved.contains("!window_matches(focused_window.0, scope, geometry)"));
-        assert!(approved.contains("available_target(scope)?.frontmost"));
-        assert!(input.contains("approved_window(scope, &geometry)?;"));
-        assert!(snapshot.contains("@\"frontmost\": (eligibility == GAWindowFocused) ? @YES : @NO"));
-    }
-
-    #[test]
-    fn discovery_reply_decodes_counts_through_native_callback() {
-        let mut cases = vec![
-            (0, [0; 8], 0, 0, [0; 18]),
-            (0, [0, 1, 0, 0, 3, 0, 0, 0], 0, 0, [0; 18]),
-            (0, [1, 2, 3, 4, 5, 6, 7, 0], 0, 0, [1; 18]),
-            (2, [0, 1, 0, 0, 0, 0, 0, 0], 2, 0, [0; 18]),
-            (
-                1,
-                [1, 2, 3, 4, 5, 6, 7, 0],
-                1,
-                0,
-                std::array::from_fn(|i| i as u64 + 1),
-            ),
-            (64, [0; 8], 32, 0, [0; 18]),
-            (64, [1, 2, 3, 4, 5, 6, 7, 0], 9, 12, [1; 18]),
-        ];
-        for reason in 0..18 {
-            let mut snapshot_rejected = [0; 18];
-            snapshot_rejected[reason] = 2;
-            cases.push((0, [0, 1, 0, 0, 0, 0, 0, 0], 0, 0, snapshot_rejected));
-        }
-        for (eligible, mut rejected, non_frontmost, cap_uninspected, snapshot_rejected) in cases {
-            rejected[7] = snapshot_rejected.iter().sum();
-            let inspected: u64 = eligible + rejected.iter().sum::<u64>();
-            let windows: Vec<_> = (0..eligible)
-                .map(|id| {
-                    serde_json::json!({
-                        "windowId": id, "processId": 99, "application": "Private app",
-                        "title": "Private title", "frontmost": id >= non_frontmost, "focusAllowed": false,
-                        "onScreen": true, "capabilities": {"selectable": true, "observable": true, "input": id >= non_frontmost, "reason": "Live checks required"},
-                        "geometry": {"x": 0, "y": 0, "width": 10, "height": 10}
-                    })
-                })
-                .collect();
-            let value = serde_json::json!({
-                "windows": windows,
-                "diagnostics": {
-                    "raw": inspected + cap_uninspected, "inspected": inspected,
-                    "missingOwner": rejected[0], "supervisorPid": rejected[1],
-                    "missingName": rejected[2], "missingBundle": rejected[3],
-                    "processIdentityUnavailable": rejected[4], "bundleMismatch": rejected[5],
-                    "supervisorBundle": rejected[6], "invalidSnapshot": rejected[7],
-                    "snapshotRejections": {
-                        "invalidated": snapshot_rejected[0],
-                        "missingFilter": snapshot_rejected[1],
-                        "missingWindow": snapshot_rejected[2],
-                        "missingApplication": snapshot_rejected[3],
-                        "terminatedApplication": snapshot_rejected[4],
-                        "missingLiveApplication": snapshot_rejected[5],
-                        "terminatedLiveApplication": snapshot_rejected[6],
-                        "processIdentityUnavailable": snapshot_rejected[7],
-                        "processIdentityChanged": snapshot_rejected[8],
-                        "bundleMismatch": snapshot_rejected[9],
-                        "cgInventoryUnavailable": snapshot_rejected[10],
-                        "cgWindowMissing": snapshot_rejected[11],
-                        "axWindowIdentityUnavailable": snapshot_rejected[12],
-                        "cgWindowPidMismatch": snapshot_rejected[13],
-                        "boundsMalformed": snapshot_rejected[14],
-                        "boundsEmpty": snapshot_rejected[15],
-                        "boundsInfinite": snapshot_rejected[16],
-                        "boundsNull": snapshot_rejected[17]
-                    },
-                    "nonFrontmost": non_frontmost, "eligible": eligible,
-                    "capUninspected": cap_uninspected
-                }
-            });
-            let json = std::ffi::CString::new(value.to_string()).unwrap();
-            let response = native::request(|reply, context| reply(context, json.as_ptr())).unwrap();
-            let reply: AgentWindowsReply = serde_json::from_value(response).unwrap();
-            let d = reply.diagnostics;
-            d.log();
-            assert_eq!(reply.windows.len() as u64, eligible);
-            assert_eq!(d.eligible, eligible);
-            assert_eq!(d.non_frontmost, non_frontmost);
-            assert_eq!(
-                reply
-                    .windows
-                    .iter()
-                    .filter(|w| !w.capabilities.input)
-                    .count() as u64,
-                non_frontmost
-            );
-            assert_eq!(d.inspected, inspected);
-            assert_eq!(d.cap_uninspected, cap_uninspected);
-            assert_eq!(d.raw, d.inspected + d.cap_uninspected);
-            let counts = [
-                d.missing_owner,
-                d.supervisor_pid,
-                d.missing_name,
-                d.missing_bundle,
-                d.process_identity_unavailable,
-                d.bundle_mismatch,
-                d.supervisor_bundle,
-                d.invalid_snapshot,
-            ];
-            let snapshot_counts = [
-                d.snapshot_rejections.invalidated,
-                d.snapshot_rejections.missing_filter,
-                d.snapshot_rejections.missing_window,
-                d.snapshot_rejections.missing_application,
-                d.snapshot_rejections.terminated_application,
-                d.snapshot_rejections.missing_live_application,
-                d.snapshot_rejections.terminated_live_application,
-                d.snapshot_rejections.process_identity_unavailable,
-                d.snapshot_rejections.process_identity_changed,
-                d.snapshot_rejections.bundle_mismatch,
-                d.snapshot_rejections.cg_inventory_unavailable,
-                d.snapshot_rejections.cg_window_missing,
-                d.snapshot_rejections.ax_window_identity_unavailable,
-                d.snapshot_rejections.cg_window_pid_mismatch,
-                d.snapshot_rejections.bounds_malformed,
-                d.snapshot_rejections.bounds_empty,
-                d.snapshot_rejections.bounds_infinite,
-                d.snapshot_rejections.bounds_null,
-            ];
-            assert_eq!(snapshot_counts, snapshot_rejected);
-            assert_eq!(snapshot_counts.iter().sum::<u64>(), d.invalid_snapshot);
-            assert_eq!(counts, rejected);
-            assert_eq!(counts.iter().sum::<u64>() + d.eligible, d.inspected);
-            if eligible > 0 {
-                assert_eq!(reply.windows[0].application, "Private app");
-                assert_eq!(reply.windows[0].process_id, 99);
-            }
-            for path in ["/diagnostics", "/diagnostics/snapshotRejections"] {
-                for key in value.pointer(path).unwrap().as_object().unwrap().keys() {
-                    for invalid in [
-                        serde_json::json!(-1),
-                        serde_json::json!(0.5),
-                        serde_json::json!(true),
-                        serde_json::json!("0"),
-                        serde_json::Value::Null,
-                    ] {
-                        let mut malformed = value.clone();
-                        malformed.pointer_mut(path).unwrap()[key] = invalid;
-                        assert!(serde_json::from_value::<AgentWindowsReply>(malformed).is_err());
-                    }
-                    let mut missing = value.clone();
-                    missing
-                        .pointer_mut(path)
-                        .unwrap()
-                        .as_object_mut()
-                        .unwrap()
-                        .remove(key);
-                    assert!(serde_json::from_value::<AgentWindowsReply>(missing).is_err());
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn discovery_reply_requires_windows_and_diagnostics_envelope() {
-        for raw in ["[]", "null", r#"{"windows":[]}"#, r#"{"diagnostics":{}}"#] {
-            assert!(serde_json::from_str::<AgentWindowsReply>(raw).is_err());
-        }
-    }
-
-    #[test]
-    fn snapshot_accepts_boolean_and_integer_flags() {
-        for (raw, expected) in [
-            (
-                r#"{"windowId":1,"processId":2,"application":"A","title":"t","geometry":{"x":0,"y":0,"width":10,"height":10},"frontmost":true,"focusAllowed":false}"#,
-                (true, false),
-            ),
-            (
-                r#"{"windowId":1,"processId":2,"application":"A","title":"t","geometry":{"x":0,"y":0,"width":10,"height":10},"frontmost":1,"focusAllowed":0}"#,
-                (true, false),
-            ),
-        ] {
-            let snapshot: Snapshot = serde_json::from_str(raw).expect(raw);
-            assert_eq!(snapshot.focus_allowed, expected.1);
-            assert_eq!(snapshot.frontmost, expected.0);
-            assert!(!snapshot.input_available);
-        }
-        let rejected = r#"{"windowId":1,"processId":2,"application":"A","title":"t","geometry":{"x":0,"y":0,"width":10,"height":10},"frontmost":true,"focusAllowed":2}"#;
-        assert!(serde_json::from_str::<Snapshot>(rejected).is_err());
-    }
-
-    #[test]
-    fn picker_identity_binds_every_target_field_and_excludes_supervisor() {
-        let target = WindowTarget {
-            selection_id: "s".into(),
-            window_id: 42,
-            process_id: 99,
-            application: "TextEdit".into(),
-            title: "Notes".into(),
-        };
-        let scope = SessionScope {
-            mode: super::super::computer_use_session::SessionMode::SelectedWindow,
-            backend: "https://example.com".into(),
-            user: "u".into(),
-            namespace: "n".into(),
-            run: "r".into(),
-            application: target.application.clone(),
-            window_id: 42,
-            process_id: 99,
-        };
-        assert!(matches_scope(&target, &scope).is_ok());
-        #[cfg(not(target_os = "macos"))]
-        {
-            assert!(agent_windows().is_err());
-            assert!(agent_target(&scope).is_err());
-            assert!(select_agent_target(&scope).is_err());
-        }
-        for field in 0..4 {
-            let mut changed = scope.clone();
-            match field {
-                0 => changed.window_id += 1,
-                1 => changed.process_id += 1,
-                2 => changed.application = "Other".into(),
-                _ => changed.process_id = std::process::id(),
-            }
-            assert!(matches_scope(&target, &changed).is_err());
         }
     }
 }

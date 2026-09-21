@@ -9,7 +9,7 @@ import type { DesktopAction } from "./computer-use";
  * approvals") and Copilot agent mode ("Manual / Assisted / Allow all"):
  *
  * - `manual`   every request waits for an explicit per-action approval (default).
- * - `assisted` read-only requests (observe, scroll, activate) run automatically;
+ * - `assisted` read-only requests (observe) run automatically;
  *              anything that enters input (click, type, key) still asks.
  * - `auto`     every request runs as soon as it arrives.
  *
@@ -33,7 +33,7 @@ export const APPROVAL_MODE_META: Record<ComputerUseApprovalMode, {
   assisted: {
     label: "Automatically approve read-only",
     short: "Assisted",
-    description: "Screen observations, scrolling, pointer hovering, and bringing the app forward run automatically. Clicks, drags, typing, and key presses still ask you first.",
+    description: "Only screen observations run automatically. All input, including scrolling, hovering, clicks, URLs, typing and keys, asks first.",
   },
   auto: {
     label: "Skip all approvals",
@@ -43,7 +43,7 @@ export const APPROVAL_MODE_META: Record<ComputerUseApprovalMode, {
 };
 
 /** Actions that never enter input; assisted mode approves these automatically. */
-const READ_ONLY_KINDS: ReadonlySet<DesktopAction["kind"]> = new Set(["list_windows", "observe", "scroll", "move", "activate"]);
+const READ_ONLY_KINDS: ReadonlySet<DesktopAction["kind"]> = new Set(["observe"]);
 
 export function isReadOnlyAction(kind: DesktopAction["kind"]): boolean {
   return READ_ONLY_KINDS.has(kind);
@@ -54,7 +54,7 @@ export function modeAutoApproves(mode: ComputerUseApprovalMode, kind: DesktopAct
   return mode === "auto" || (mode === "assisted" && isReadOnlyAction(kind));
 }
 
-const MODE_KEY = "computer-use-approval-mode";
+const MODE_KEY = "computer-use-desktop-approval-mode";
 const CHANGE_EVENT = "gratefulagents-computer-use-preferences";
 
 function isMode(value: unknown): value is ComputerUseApprovalMode {

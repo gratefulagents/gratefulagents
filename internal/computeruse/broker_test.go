@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"errors"
 	"image"
 	"image/png"
 	"strings"
@@ -16,7 +15,7 @@ func attached(t *testing.T) (*Broker, Exchange) {
 	t.Helper()
 	b := New("ns", "run")
 	t.Cleanup(func() { b.Close() })
-	e := Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach"}
+	e := Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
 	if r, err := b.Exchange(e); err != nil || !r.Active {
 		t.Fatalf("attach: %+v %v", r, err)
 	}
@@ -25,6 +24,9 @@ func attached(t *testing.T) (*Broker, Exchange) {
 
 func queued(t *testing.T, b *Broker, ctx context.Context) (Request, <-chan delivery) {
 	t.Helper()
+	b.mu.Lock()
+	b.frameID = "frame"
+	b.mu.Unlock()
 	done := make(chan delivery, 1)
 	go func() {
 		o, err := b.Request(ctx, Action{Kind: "type", Text: "proposed text"}, "frame")
@@ -70,7 +72,7 @@ func TestIdentityAndLease(t *testing.T) {
 	if r, err := b.Exchange(e); err != nil || r.Active {
 		t.Fatalf("poll reattached: %+v %v", r, err)
 	}
-	e.Operation = "attach"
+	e.Operation = "attach_desktop"
 	b.SetVisionAvailable(func() bool { return true })
 	if r, err := b.Exchange(e); err != nil || !r.Active || !r.VisionAvailable {
 		t.Fatalf("explicit attach: %+v %v", r, err)
@@ -303,7 +305,7 @@ func TestSessionContextSurvivesResolveNotInvalidation(t *testing.T) {
 				t.Fatal("session context not canceled")
 			}
 			if mode != "close" {
-				e.Operation = "attach"
+				e.Operation = "attach_desktop"
 				if _, err := b.Exchange(e); err != nil {
 					t.Fatal(err)
 				}
@@ -331,110 +333,5 @@ func TestWaitNeverReachesDesktop(t *testing.T) {
 	e.Operation = "poll"
 	if r, err := b.Exchange(e); err != nil || r.Pending != nil {
 		t.Fatalf("wait left a pending request: %+v %v", r, err)
-	}
-}
-
-func TestAgentChoiceAuthorizationAndTargetRevisions(t *testing.T) {
-	b, legacy := attached(t)
-	escalate := legacy
-	escalate.Operation = "attach_agent"
-	if _, err := b.Exchange(escalate); err == nil {
-		t.Fatal("silently broadened legacy session")
-	}
-	for _, kind := range []string{"list_windows", "select_window"} {
-		a := Action{Kind: kind}
-		if kind == "select_window" {
-			a.TargetRef = strings.Repeat("a", 64)
-		}
-		if _, err := b.Request(context.Background(), a, ""); !errors.Is(err, ErrDiscoveryUnavailable) {
-			t.Fatalf("restricted discovery accepted: %v", err)
-		}
-	}
-	legacy.Operation = "stop"
-	if _, err := b.Exchange(legacy); err != nil {
-		t.Fatal(err)
-	}
-	e := legacy
-	e.SessionID = "agent-session"
-	e.Operation = "attach_agent"
-	if r, err := b.Exchange(e); err != nil || r.Mode != "agent_choice" || !r.Active {
-		t.Fatalf("agent attach: %+v %v", r, err)
-	}
-	if _, err := b.Request(context.Background(), Action{Kind: "observe"}, ""); !errors.Is(err, ErrNoTarget) || !errors.Is(err, ErrRejected) {
-		t.Fatalf("observed without a target: %v", err)
-	}
-	if _, err := b.Request(context.Background(), Action{Kind: "select_window", TargetRef: strings.Repeat("a", 64)}, ""); !errors.Is(err, ErrUnknownTarget) {
-		t.Fatalf("selected an unlisted target: %v", err)
-	}
-	run := func(action Action, frame string, out Outcome, bad *Outcome) {
-		t.Helper()
-		done := make(chan error, 1)
-		go func() { _, err := b.Request(context.Background(), action, frame); done <- err }()
-		var request Request
-		deadline := time.Now().Add(time.Second)
-		for time.Now().Before(deadline) {
-			b.mu.Lock()
-			if b.pending != nil {
-				request = b.pending.request
-			}
-			b.mu.Unlock()
-			if request.RequestID != "" {
-				break
-			}
-			time.Sleep(time.Millisecond)
-		}
-		if request.RequestID == "" {
-			t.Fatal("request did not queue")
-		}
-		claim := e
-		claim.Operation = "claim"
-		claim.RequestID = request.RequestID
-		if _, err := b.Exchange(claim); err != nil {
-			t.Fatal(err)
-		}
-		claim.Operation = "resolve"
-		if bad != nil {
-			copy := *bad
-			copy.RequestID = request.RequestID
-			claim.Outcome = &copy
-			if _, err := b.Exchange(claim); err == nil {
-				t.Fatal("accepted stale/incorrect outcome")
-			}
-		}
-		out.RequestID = request.RequestID
-		claim.Outcome = &out
-		if _, err := b.Exchange(claim); err != nil {
-			t.Fatal(err)
-		}
-		if err := <-done; err != nil {
-			t.Fatal(err)
-		}
-	}
-	first := WindowTarget{Ref: strings.Repeat("a", 64), Application: "Test One", Title: "Untrusted title", Capabilities: WindowCapabilities{Selectable: true, Observable: true, Reason: "Capture can be attempted"}}
-	second := WindowTarget{Ref: strings.Repeat("b", 64), Application: "Test Two", Title: "Other", Capabilities: WindowCapabilities{Selectable: true, Observable: true, Reason: "Capture can be attempted"}}
-	run(Action{Kind: "list_windows"}, "", Outcome{Status: "completed", Windows: []WindowTarget{first, second}}, nil)
-	run(Action{Kind: "select_window", TargetRef: first.Ref}, "", Outcome{Status: "completed", TargetRevision: 1, Target: &first}, &Outcome{Status: "completed", TargetRevision: 0, Target: &first})
-	if _, err := b.Request(context.Background(), Action{Kind: "key", Key: "Enter"}, "old-frame"); !errors.Is(err, ErrStaleFrame) {
-		t.Fatalf("input accepted before observation: %v", err)
-	}
-	if _, err := b.Request(context.Background(), Action{Kind: "open_url", URL: "https://example.com"}, ""); !errors.Is(err, ErrOpenURLUnavailable) {
-		t.Fatalf("open_url in agent-choice: %v", err)
-	}
-	b.mu.Lock()
-	b.frameID = "first-frame"
-	b.mu.Unlock()
-	run(Action{Kind: "list_windows"}, "", Outcome{Status: "completed", TargetRevision: 1, Windows: []WindowTarget{second}}, nil)
-	run(Action{Kind: "select_window", TargetRef: second.Ref}, "", Outcome{Status: "completed", TargetRevision: 2, Target: &second}, &Outcome{Status: "completed", TargetRevision: 1, Target: &second})
-	if _, err := b.Request(context.Background(), Action{Kind: "key", Key: "Enter"}, "first-frame"); err == nil {
-		t.Fatal("old frame authorized new target")
-	}
-	if _, err := b.Request(context.Background(), Action{Kind: "select_window", TargetRef: first.Ref}, ""); err == nil {
-		t.Fatal("retired reference accepted")
-	}
-	b.mu.Lock()
-	b.leaseUntil = time.Now().Add(-time.Second)
-	b.mu.Unlock()
-	if _, err := b.Request(context.Background(), Action{Kind: "list_windows"}, ""); err == nil {
-		t.Fatal("expired discovery accepted")
 	}
 }

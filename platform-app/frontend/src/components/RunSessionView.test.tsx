@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 
@@ -14,6 +16,24 @@ const run = create(AgentRunSchema, {
   sandboxRef: "sandbox-1",
   sendReady: true,
 });
+
+const computer = vi.hoisted(() => ({ mount: vi.fn(), unmount: vi.fn() }));
+vi.mock("@/lib/platform", async (original) => ({
+  ...await original<typeof import("@/lib/platform")>(), isTauri: true,
+}));
+vi.mock("@/components/ComputerUsePanel", () => ({
+  ComputerUsePanel: ({ view }: { view: { panel: HTMLElement | null; shortcut: HTMLElement | null; open: () => void } }) => {
+    const [count, setCount] = useState(0);
+    useEffect(() => {
+      computer.mount();
+      return () => { computer.unmount(); };
+    }, []);
+    return <>
+      {view.shortcut && createPortal(<button onClick={view.open}>Computer shortcut</button>, view.shortcut)}
+      {view.panel && createPortal(<button onClick={() => setCount(count + 1)}>Desktop state {count}</button>, view.panel)}
+    </>;
+  },
+}));
 
 const runErrors = vi.hoisted(() => ({
   errors: [] as unknown[],
@@ -99,6 +119,24 @@ afterEach(() => {
 });
 
 describe("RunSessionView inspector", () => {
+  it("places Computer outside Chat and preserves its controller across tabs and inspector closure", async () => {
+    renderView();
+    expect(screen.queryByRole("button", { name: /Desktop state/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Computer shortcut" }));
+    expect(screen.getByRole("tab", { name: "Computer" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: "Desktop state 0" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Changes" }));
+    expect(screen.queryByRole("button", { name: /Desktop state/ })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Computer" }));
+    expect(screen.getByRole("button", { name: "Desktop state 1" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close inspector" }));
+    expect(screen.queryByRole("button", { name: /Desktop state/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Computer shortcut" }));
+    expect(screen.getByRole("button", { name: "Desktop state 1" })).toBeTruthy();
+    expect(computer.mount).toHaveBeenCalledTimes(1);
+    expect(computer.unmount).not.toHaveBeenCalled();
+  });
+
   it("toggles the inspector with Mod+.", async () => {
     renderView();
     expect(screen.queryByRole("tablist", { name: "Inspector sections" })).toBeNull();
