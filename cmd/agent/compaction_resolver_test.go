@@ -109,3 +109,26 @@ func TestResolveCompactionConfigPerLegOfModelSwitch(t *testing.T) {
 		t.Fatalf("gpt-5.5 leg = %d/%d, want 244800/136000 from codex metadata", codex.TriggerTokens, codex.TargetTokens)
 	}
 }
+
+func TestGPT6CompactionResolution(t *testing.T) {
+	for _, model := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna"} {
+		t.Run(model, func(t *testing.T) {
+			r := newCompactionModelResolver(runConfig{Provider: ""}, nil)
+			trigger, target, ok := r(context.Background(), model)
+			if !ok || trigger != 244800 || target != 136000 {
+				t.Fatalf("fallback = %d/%d/%v", trigger, target, ok)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"models":[{"slug":"` + model + `","context_window":1050000}]}`))
+			}))
+			defer server.Close()
+			metadata := sdkopenai.NewCompactionMetadataResolver(server.URL, sdkopenai.NewAPIKeyAuthSession("test-key"))
+			r = newCompactionModelResolver(runConfig{Provider: "openai"}, metadata)
+			trigger, target, ok = r(context.Background(), "openai/"+model)
+			if !ok || trigger != 945000 || target != 525000 {
+				t.Fatalf("provider metadata = %d/%d/%v, want 945000/525000/true", trigger, target, ok)
+			}
+		})
+	}
+}
