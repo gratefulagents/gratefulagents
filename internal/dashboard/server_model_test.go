@@ -41,6 +41,9 @@ func TestEffectiveModelForProviderOpenAI(t *testing.T) {
 			provider: "openai",
 			wantErr:  true,
 		},
+		{name: "gpt-6-astra is preserved", model: "gpt-6-astra", provider: "openai", want: "gpt-6-astra"},
+		{name: "gpt-6-sol is preserved", model: "gpt-6-sol", provider: "openai", want: "gpt-6-sol"},
+		{name: "gpt-6-luna is preserved", model: "gpt-6-luna", provider: "openai", want: "gpt-6-luna"},
 		{
 			name:     "codex model is preserved",
 			model:    "gpt-5.3-codex",

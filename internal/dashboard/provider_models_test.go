@@ -542,3 +542,13 @@ func TestPickerModelIDsMirrorsCodexPicker(t *testing.T) {
 		t.Fatalf("pickerModelIDs() = %v, want %v", got, want)
 	}
 }
+
+func TestPickerModelIDsGPT6(t *testing.T) {
+	got := pickerModelIDs([]openai.ModelMetadata{
+		{ID: "gpt-6-sol"}, {ID: "gpt-6-luna"}, {ID: "gpt-6-astra"}, {ID: "gpt-6-sol"},
+	})
+	want := []string{"gpt-6-astra", "gpt-6-luna", "gpt-6-sol"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("models = %v, want %v", got, want)
+	}
+}

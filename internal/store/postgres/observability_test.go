@@ -297,3 +297,30 @@ func TestObservabilityAttemptEstimatesHistoricalDaybreakCost(t *testing.T) {
 		t.Fatalf("custom provider cost was estimated as OpenAI: %v", got.cost)
 	}
 }
+
+func TestObservabilityGPT6HistoricalCost(t *testing.T) {
+	for _, tc := range []struct {
+		model          string
+		standard, long float64
+	}{
+		{"gpt-6-astra", 2.7925, 4.33502},
+		{"gpt-6-sol", .5585, .867004},
+		{"gpt-6-luna", .027925, .0433502},
+	} {
+		for _, input := range []int{272000, 272001} {
+			detail := map[string]any{
+				"provider": "openai", "model": tc.model, "attempt_status": "completed",
+				"input_tokens": float64(input), "output_tokens": float64(50000),
+				"cache_read_input_tokens": float64(270000), "cache_creation_input_tokens": float64(1000),
+			}
+			want := tc.standard
+			if input > 272000 {
+				want = tc.long
+			}
+			got := observabilityAttemptFromDetail(observabilityRowKey{}, detail)
+			if got == nil || math.Abs(got.cost-want) > 1e-9 || math.Abs(got.repricedUSD-want) > 1e-9 {
+				t.Fatalf("%s input=%d: %+v, want cost/correction %g", tc.model, input, got, want)
+			}
+		}
+	}
+}
