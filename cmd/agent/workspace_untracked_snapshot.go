@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	pathpkg "path"
@@ -35,7 +36,7 @@ const (
 	encryptedWorkspaceArchiveMagic   = "GAWS\x01"
 
 	// Bound in-memory authenticated payloads and S3 object downloads. A
-	// checkpoint that exceeds this limit fails before publishing its manifest,
+	// checkpoint that exceeds the encrypted limit fails before publishing its manifest,
 	// leaving the previous complete generation intact.
 	maxEncryptedWorkspaceArchiveBytes = 512 << 20
 	maxWorkspaceArchiveInputBytes     = 256 << 20
@@ -162,16 +163,23 @@ func decryptWorkspaceArchive(key, envelope []byte) ([]byte, error) {
 }
 
 // buildUntrackedWorkspaceArchive returns a deterministic gzip+tar payload for
-// every non-ignored path that is absent from HEAD. This includes ordinary
-// untracked files, staged new files, and rename destinations. Ignored files
-// remain local by policy. Returning an error instead of selectively skipping a
-// path prevents a checkpoint from appearing successful while losing data.
+// selected paths absent from HEAD, including staged additions and rename
+// destinations. Oversized folders and root files remain local with a warning;
+// other errors still prevent the checkpoint from advancing.
 func buildUntrackedWorkspaceArchive(ctx context.Context, dir string) (archive []byte, contentHash string, fileCount int, err error) {
+	return buildUntrackedWorkspaceArchiveWithBudget(ctx, dir, maxWorkspaceArchiveInputBytes)
+}
+
+func buildUntrackedWorkspaceArchiveWithBudget(ctx context.Context, dir string, budget int64) (archive []byte, contentHash string, fileCount int, err error) {
 	paths, err := snapshotNewPaths(ctx, dir)
 	if err != nil {
 		return nil, "", 0, err
 	}
-	if len(paths) == 0 {
+	entries, err := selectWorkspaceArchiveEntries(dir, paths, budget)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	if len(entries) == 0 {
 		return nil, "", 0, nil
 	}
 
@@ -191,18 +199,9 @@ func buildUntrackedWorkspaceArchive(ctx context.Context, dir string) (archive []
 		return zw.Close()
 	}
 
-	var inputBytes int64
-	for _, rel := range paths {
-		if err := validateWorkspaceArchivePath(rel); err != nil {
-			_ = closeWriters()
-			return nil, "", 0, err
-		}
+	for _, entry := range entries {
+		rel, info := entry.path, entry.info
 		full := filepath.Join(dir, filepath.FromSlash(rel))
-		info, err := os.Lstat(full)
-		if err != nil {
-			_ = closeWriters()
-			return nil, "", 0, fmt.Errorf("reading untracked workspace path %q: %w", rel, err)
-		}
 
 		header := &tar.Header{
 			Name:       rel,
@@ -217,11 +216,6 @@ func buildUntrackedWorkspaceArchive(ctx context.Context, dir string) (archive []
 		case info.Mode().IsRegular():
 			header.Typeflag = tar.TypeReg
 			header.Size = info.Size()
-			inputBytes += info.Size()
-			if inputBytes > maxWorkspaceArchiveInputBytes {
-				_ = closeWriters()
-				return nil, "", 0, fmt.Errorf("untracked workspace files total more than %d bytes; checkpoint not advanced", maxWorkspaceArchiveInputBytes)
-			}
 			if err := tw.WriteHeader(header); err != nil {
 				_ = closeWriters()
 				return nil, "", 0, fmt.Errorf("archiving untracked workspace path %q: %w", rel, err)
@@ -246,13 +240,8 @@ func buildUntrackedWorkspaceArchive(ctx context.Context, dir string) (archive []
 				return nil, "", 0, fmt.Errorf("untracked workspace path %q changed size during checkpoint", rel)
 			}
 		case info.Mode()&os.ModeSymlink != 0:
-			target, err := os.Readlink(full)
-			if err != nil {
-				_ = closeWriters()
-				return nil, "", 0, fmt.Errorf("reading untracked symlink %q: %w", rel, err)
-			}
 			header.Typeflag = tar.TypeSymlink
-			header.Linkname = target
+			header.Linkname = entry.linkTarget
 			if err := tw.WriteHeader(header); err != nil {
 				_ = closeWriters()
 				return nil, "", 0, fmt.Errorf("archiving untracked symlink %q: %w", rel, err)
@@ -271,6 +260,117 @@ func buildUntrackedWorkspaceArchive(ctx context.Context, dir string) (archive []
 	}
 	sum := sha256.Sum256(compressed.Bytes())
 	return compressed.Bytes(), hex.EncodeToString(sum[:]), fileCount, nil
+}
+
+type workspaceArchiveEntry struct {
+	path       string
+	info       os.FileInfo
+	linkTarget string
+}
+
+func selectWorkspaceArchiveEntries(dir string, paths []string, budget int64) ([]workspaceArchiveEntry, error) {
+	entries := make([]workspaceArchiveEntry, 0, len(paths))
+	directoryBytes := make(map[string]int64)
+	var total int64
+	for _, rel := range paths {
+		if err := validateWorkspaceArchivePath(rel); err != nil {
+			return nil, err
+		}
+		full := filepath.Join(dir, filepath.FromSlash(rel))
+		info, err := os.Lstat(full)
+		if err != nil {
+			return nil, fmt.Errorf("reading untracked workspace path %q: %w", rel, err)
+		}
+		entry := workspaceArchiveEntry{path: rel, info: info}
+		var size int64
+		switch {
+		case info.Mode().IsRegular():
+			size = info.Size()
+		case info.Mode()&os.ModeSymlink != 0:
+			entry.linkTarget, err = os.Readlink(full)
+			if err != nil {
+				return nil, fmt.Errorf("reading untracked symlink %q: %w", rel, err)
+			}
+		default:
+			return nil, fmt.Errorf("untracked workspace path %q has unsupported file type %s; checkpoint not advanced", rel, info.Mode().Type())
+		}
+		entries = append(entries, entry)
+		total += size
+		for parent := pathpkg.Dir(rel); parent != "."; parent = pathpkg.Dir(parent) {
+			directoryBytes[parent] += size
+		}
+	}
+
+	skipped := make(map[string]bool)
+	skip := func(rel string, size int64, directory bool) {
+		skipped[rel] = true
+		total -= size
+		for parent := pathpkg.Dir(rel); parent != "."; parent = pathpkg.Dir(parent) {
+			directoryBytes[parent] -= size
+		}
+		if directory {
+			rel += "/"
+		}
+		log.Printf("WARN: workspace checkpoint in %q skipping %q (%d remaining input bytes; archive budget %d bytes): size limit; skipped files remain local and are NOT durable or restored on a replacement pod", dir, rel, size, budget)
+	}
+	directories := make([]string, 0, len(directoryBytes))
+	for rel := range directoryBytes {
+		directories = append(directories, rel)
+	}
+	// Remove deep oversized subtrees before deciding whether their parents fit.
+	sort.Slice(directories, func(i, j int) bool {
+		a, b := strings.Count(directories[i], "/"), strings.Count(directories[j], "/")
+		if a != b {
+			return a > b
+		}
+		return directories[i] < directories[j]
+	})
+	for _, rel := range directories {
+		if directoryBytes[rel] > budget {
+			skip(rel, directoryBytes[rel], true)
+		}
+	}
+
+	type group struct {
+		path      string
+		size      int64
+		directory bool
+	}
+	var groups []group
+	for rel, size := range directoryBytes {
+		if pathpkg.Dir(rel) == "." && !skipped[rel] {
+			groups = append(groups, group{rel, size, true})
+		}
+	}
+	for _, entry := range entries {
+		if pathpkg.Dir(entry.path) == "." && entry.info.Mode().IsRegular() {
+			groups = append(groups, group{entry.path, entry.info.Size(), false})
+		}
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].size != groups[j].size {
+			return groups[i].size > groups[j].size
+		}
+		return groups[i].path < groups[j].path
+	})
+	for _, group := range groups {
+		if total <= budget {
+			break
+		}
+		skip(group.path, group.size, group.directory)
+	}
+
+	selected := entries[:0]
+	for _, entry := range entries {
+		omit := skipped[entry.path]
+		for parent := pathpkg.Dir(entry.path); parent != "."; parent = pathpkg.Dir(parent) {
+			omit = omit || skipped[parent]
+		}
+		if !omit {
+			selected = append(selected, entry)
+		}
+	}
+	return selected, nil
 }
 
 func snapshotNewPaths(ctx context.Context, dir string) ([]string, error) {

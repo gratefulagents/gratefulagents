@@ -54,6 +54,16 @@ Owners and admins can use **Retry** only after a run has failed or been stopped.
 
 For a failed run, the default retry instruction asks the agent to continue from where it failed. For a stopped run, it asks the agent to continue from where it stopped. Review the error, activity, and diff before retrying so you can send corrective guidance if the failure was not transient.
 
+### Workspace checkpoint size limits
+
+Workspace checkpoints preserve tracked changes and encrypt selected new files, including staged additions and rename destinations. Ordinary Git-ignored files remain local. The new-file archive has a **256 MiB uncompressed regular-file content budget per repository**; this is not a limit on the repository's entire disk usage.
+
+Selection uses file sizes, not a list of known cache or dependency directory names. Oversized subdirectories are skipped deepest-first so sibling source files can still fit. If the remaining total exceeds the budget, the largest remaining top-level folders or root files are skipped until it fits, with lexical path order breaking size ties. A folder is skipped as a unit; even small files inside it are omitted. Files already present in `HEAD` are handled separately and are not subject to this new-file selection.
+
+Each skipped path produces a warning in the worker logs with its byte count and the archive budget. **Skipped files remain on the current pod but are not durable and will not be restored on a replacement pod**, even if staged in Git. A skipped rename destination is likewise not restored; its tracked source deletion can still be checkpointed. A later checkpoint does not carry forward a skipped file's contents from an earlier checkpoint. Keep important work within the budget or persist it separately before relying on resume.
+
+Size-based skips do not fail the entire checkpoint. Invalid paths, unsupported file types, read errors, and other checkpoint failures still fail rather than being silently ignored. The encrypted-object size limit also remains in force.
+
 ## Extend runtime
 
 **Extend runtime…** appears only for eligible runs. Choose a duration, such as `30m`, `1h`, `2h`, or `4h`, then select **Extend**. Paused eligible runs resume automatically after their runtime is extended.
