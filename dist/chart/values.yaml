@@ -173,7 +173,7 @@ githubApp:
   webhookSecret: ""
 
 ## S3-compatible object storage for activity logs and artifacts.
-## Leave endpoint empty to use the bundled MinIO (minio.enabled below).
+## Leave endpoint empty to use the bundled Silo (minio.enabled below).
 ##
 objectStorage:
   endpoint: ""
@@ -234,12 +234,14 @@ postgres:
     storageClassName: ""
   resources: {}
 
-## Bundled MinIO (S3-compatible activity log/artifact storage).
+## Bundled Silo (S3-compatible activity log/artifact storage).
+## Keep the minio values key and resource names stable to preserve existing PVCs.
 ##
 minio:
   enabled: true
-  image: minio/minio:latest
-  mcImage: quay.io/minio/mc:latest
+  image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
+  # Bucket initialization requires the standard image's shell and bundled mcli.
+  mcImage: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
   rootUser: sample-user
   rootPassword: sample-password
   bucket: sample-activity-logs

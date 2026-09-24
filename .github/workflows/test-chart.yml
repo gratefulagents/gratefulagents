@@ -5,12 +5,14 @@ on:
     branches: [main]
     paths:
       - "dist/chart/**"
+      - "config/test/minio.yaml"
       - "configs/modetemplates/**"
       - "configs/roleinstructions/**"
       - ".github/workflows/test-chart.yml"
   pull_request:
     paths:
       - "dist/chart/**"
+      - "config/test/minio.yaml"
       - "configs/modetemplates/**"
       - "configs/roleinstructions/**"
       - ".github/workflows/test-chart.yml"
@@ -66,6 +68,26 @@ jobs:
           grep -A1 -- 'name: SECURITY_TOOLS_ALLOW_UNPINNED_IMAGE' "$rendered" | grep -q 'value: "true"'
           grep -A1 -- 'name: SECURITY_TOOLS_JOB_TTL_SECONDS' "$rendered" | grep -q 'value: "600"'
           grep -q -- 'max_connections=500' "$rendered"
+
+      - name: Verify bundled Silo server and bucket initialization
+        run: |
+          rendered="$(mktemp)"
+          helm template test ./dist/chart --namespace gratefulagents-system \
+            --show-only templates/dependencies/minio.yaml > "$rendered"
+          for manifest in "$rendered" config/test/minio.yaml; do
+            test "$(grep -c 'image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z' "$manifest")" -eq 2
+            grep -Fq 'args: ["server", "/data"]' "$manifest"
+            grep -Fq 'command: ["/bin/sh", "-c"]' "$manifest"
+            grep -q 'until mcli alias set ' "$manifest"
+            grep -q 'mcli mb --ignore-existing ' "$manifest"
+            ! grep -Eq 'image: (minio/|quay.io/minio/)' "$manifest"
+          done
+          grep -q 'claimName: test-gratefulagents-minio-data' "$rendered"
+          grep -q 'name: test-gratefulagents-minio-create-bucket' "$rendered"
+          helm template test ./dist/chart --namespace gratefulagents-system \
+            --set minio.enabled=false > "$rendered"
+          ! grep -q 'pgsty/silo' "$rendered"
+          ! grep -q 'name: test-gratefulagents-minio-create-bucket' "$rendered"
 
       - name: Render security-tools image from manager release
         run: |
