@@ -239,7 +239,7 @@ postgres:
 minio:
   enabled: true
   image: minio/minio:latest
-  mcImage: minio/mc:latest
+  mcImage: quay.io/minio/mc:latest
   rootUser: sample-user
   rootPassword: sample-password
   bucket: sample-activity-logs
