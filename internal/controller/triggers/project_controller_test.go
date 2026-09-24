@@ -126,7 +126,7 @@ func TestProjectReconcilerRemovesDisabledAndStaleGeneratedChildren(t *testing.T)
 	}
 	stale := &triggersv1alpha1.Cron{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      projectGeneratedChildName(project.Name, "disabled"),
+			Name:      projectGeneratedChildName(project.Name, "removed"),
 			Namespace: project.Namespace,
 			Labels: map[string]string{
 				projectGeneratedRuntimeLabel: "true",
@@ -145,12 +145,78 @@ func TestProjectReconcilerRemovesDisabledAndStaleGeneratedChildren(t *testing.T)
 	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(project)}); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
+	// A child whose trigger was removed from the project is deleted.
 	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(stale), &triggersv1alpha1.Cron{}); err == nil {
-		t.Fatal("stale disabled Cron still exists")
+		t.Fatal("stale removed Cron still exists")
+	}
+	// A disabled trigger's child is kept but suspended: disabling must not be
+	// a destructive teardown of the child and its runtime state.
+	disabled := &triggersv1alpha1.Cron{}
+	if err := k8sClient.Get(context.Background(), types.NamespacedName{Namespace: project.Namespace, Name: projectGeneratedChildName(project.Name, "disabled")}, disabled); err != nil {
+		t.Fatalf("Get(disabled Cron) error = %v", err)
+	}
+	if !disabled.Spec.Suspend {
+		t.Fatal("disabled trigger's Cron is not suspended")
 	}
 	active := &triggersv1alpha1.Cron{}
 	if err := k8sClient.Get(context.Background(), types.NamespacedName{Namespace: project.Namespace, Name: projectGeneratedChildName(project.Name, "active")}, active); err != nil {
 		t.Fatalf("Get(active Cron) error = %v", err)
+	}
+	if active.Spec.Suspend {
+		t.Fatal("active trigger's Cron is suspended")
+	}
+}
+
+func TestProjectReconcilerResumesReenabledTrigger(t *testing.T) {
+	t.Parallel()
+	scheme := projectTestScheme(t)
+	disabled := false
+	project := &triggersv1alpha1.Project{
+		ObjectMeta: metav1.ObjectMeta{Name: "project", Namespace: "default", UID: types.UID("project-uid")},
+		Spec: triggersv1alpha1.ProjectSpec{Triggers: []triggersv1alpha1.ProjectTrigger{
+			{Name: "toggle", Type: triggersv1alpha1.ProjectTriggerTypeCron, Enabled: &disabled, Cron: &triggersv1alpha1.CronProjectTriggerConfig{Schedule: "0 1 * * *", Prompt: "toggle"}},
+		}},
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&triggersv1alpha1.Project{}).
+		WithObjects(project).
+		Build()
+
+	reconciler := &ProjectReconciler{Client: k8sClient, Scheme: scheme}
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(project)}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	childKey := types.NamespacedName{Namespace: project.Namespace, Name: projectGeneratedChildName(project.Name, "toggle")}
+	child := &triggersv1alpha1.Cron{}
+	if err := k8sClient.Get(context.Background(), childKey, child); err != nil {
+		t.Fatalf("Get(disabled Cron) error = %v", err)
+	}
+	if !child.Spec.Suspend {
+		t.Fatal("disabled trigger's Cron is not suspended")
+	}
+	originalUID := child.UID
+
+	fresh := &triggersv1alpha1.Project{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(project), fresh); err != nil {
+		t.Fatalf("Get(Project) error = %v", err)
+	}
+	enabled := true
+	fresh.Spec.Triggers[0].Enabled = &enabled
+	if err := k8sClient.Update(context.Background(), fresh); err != nil {
+		t.Fatalf("Update(Project) error = %v", err)
+	}
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(project)}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if err := k8sClient.Get(context.Background(), childKey, child); err != nil {
+		t.Fatalf("Get(re-enabled Cron) error = %v", err)
+	}
+	if child.Spec.Suspend {
+		t.Fatal("re-enabled trigger's Cron is still suspended")
+	}
+	if child.UID != originalUID {
+		t.Fatal("re-enabling the trigger recreated the Cron instead of resuming it")
 	}
 }
 
