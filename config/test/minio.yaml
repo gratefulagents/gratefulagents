@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: sample-minio
-          image: minio/minio:latest
+          image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
           args: ["server", "/data"]
           env:
             - name: MINIO_ROOT_USER
@@ -54,12 +54,12 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: mc
-          image: quay.io/minio/mc:latest
+          image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z
           command: ["/bin/sh", "-c"]
           args:
             - |
-              until mc alias set sample-minio http://sample-minio:9000 sample-user sample-password; do
+              until mcli alias set sample-minio http://sample-minio:9000 sample-user sample-password; do
                 sleep 2
               done
-              mc mb --ignore-existing sample-minio/sample-activity-logs
+              mcli mb --ignore-existing sample-minio/sample-activity-logs
   backoffLimit: 3

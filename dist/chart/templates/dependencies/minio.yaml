@@ -113,8 +113,8 @@ spec:
                   command: ["/bin/sh", "-c"]
                   args:
                     - |
-                      until mc alias set bundled http://{{ $name }}.{{ .Release.Namespace }}.svc:9000 {{ .Values.minio.rootUser }} {{ .Values.minio.rootPassword }}; do
+                      until mcli alias set bundled http://{{ $name }}.{{ .Release.Namespace }}.svc:9000 {{ .Values.minio.rootUser }} {{ .Values.minio.rootPassword }}; do
                         sleep 2
                       done
-                      mc mb --ignore-existing bundled/{{ .Values.minio.bucket }}
+                      mcli mb --ignore-existing bundled/{{ .Values.minio.bucket }}
 {{- end }}
