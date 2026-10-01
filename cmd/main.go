@@ -301,6 +301,7 @@ func main() {
 
 	if err := (&platformcontroller.AgentRunReconciler{
 		Client:       mgr.GetClient(),
+		APIReader:    mgr.GetAPIReader(),
 		ModeResolver: mode.NewResolver(mgr.GetClient()),
 		StateStore:   sharedStateStore,
 	}).SetupWithManager(mgr); err != nil {

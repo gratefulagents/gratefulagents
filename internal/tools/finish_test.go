@@ -55,3 +55,15 @@ func TestFinishSummaryHolderEmptyByDefault(t *testing.T) {
 		t.Fatalf("Summary() = %q, want empty", got)
 	}
 }
+
+func TestFinishSummaryHolderResetClearsPreviousPassSummary(t *testing.T) {
+	t.Parallel()
+	sink, holder, _ := newFinishSink(t)
+	if err := sink.Finish(context.Background(), "Pass one done."); err != nil {
+		t.Fatalf("Finish() error = %v", err)
+	}
+	holder.Reset()
+	if got := holder.Summary(); got != "" {
+		t.Fatalf("Summary() after Reset = %q, want empty", got)
+	}
+}

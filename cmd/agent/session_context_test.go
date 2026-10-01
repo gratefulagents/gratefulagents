@@ -191,7 +191,7 @@ func TestOutOfBandMessageItemsFoldsSystemAndAssistantNotes(t *testing.T) {
 		{ID: 9, Role: "user", Content: "current user message"},
 	}
 
-	items := outOfBandMessageItems(messages, 5, 6, sessionclient.WorkingState{})
+	items := outOfBandMessageItems(messages, 5, sessionclient.WorkingState{}, 6)
 	if len(items) != 2 {
 		t.Fatalf("len(items) = %d, want 2 (out-of-band system + assistant notes)", len(items))
 	}
@@ -218,10 +218,10 @@ func TestOutOfBandMessageItemsSkipsSeenSelfAndUserMessages(t *testing.T) {
 		{ID: 7, Role: "user", Content: "queued user message gets its own turn"},
 	}
 
-	if items := outOfBandMessageItems(messages, 5, 6, sessionclient.WorkingState{}); items != nil {
+	if items := outOfBandMessageItems(messages, 5, sessionclient.WorkingState{}, 6); items != nil {
 		t.Fatalf("items = %#v, want nil (seen, self-append, and user messages all skipped)", items)
 	}
-	if items := outOfBandMessageItems(nil, 0, 0, sessionclient.WorkingState{}); items != nil {
+	if items := outOfBandMessageItems(nil, 0, sessionclient.WorkingState{}, 0); items != nil {
 		t.Fatalf("items = %#v, want nil for no messages", items)
 	}
 }

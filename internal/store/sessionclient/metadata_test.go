@@ -669,3 +669,23 @@ func TestPollForUserMessagesChecksImmediately(t *testing.T) {
 		t.Fatalf("pollCalls = %d, want 1", testStore.pollCalls)
 	}
 }
+
+func TestReadMetricsRoundTripAndInvalidMetadata(t *testing.T) {
+	sessionID := uuid.New()
+	testStore := &metadataTestStore{session: &store.Session{ID: sessionID}}
+	client := &Client{store: testStore, sessionID: sessionID}
+	if got, err := client.ReadMetrics(context.Background()); err != nil || got != (SessionMetrics{}) {
+		t.Fatalf("initial metrics=%+v err=%v", got, err)
+	}
+	want := SessionMetrics{CostUSD: 3.25, InputTokens: 100, OutputTokens: 30, ToolCallCount: 4}
+	if err := client.WriteMetrics(context.Background(), want); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := client.ReadMetrics(context.Background()); err != nil || got != want {
+		t.Fatalf("metrics=%+v err=%v", got, err)
+	}
+	testStore.session.Metadata = json.RawMessage(`{"metrics":"bad"}`)
+	if _, err := client.ReadMetrics(context.Background()); err == nil {
+		t.Fatal("malformed metrics must not silently become zero")
+	}
+}

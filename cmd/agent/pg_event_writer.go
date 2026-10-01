@@ -69,7 +69,13 @@ const (
 	pgEventWriterDropWarnInterval = 30 * time.Second
 )
 
-var pgEventWriterCloseTimeout = 5 * time.Second
+var (
+	pgEventWriterCloseTimeout = 5 * time.Second
+	// pgEventWriterWriteAttempts and pgEventWriterRetryBackoff bound the
+	// retries of one failed store write before its events count as unflushed.
+	pgEventWriterWriteAttempts = 5
+	pgEventWriterRetryBackoff  = 200 * time.Millisecond
+)
 
 func newPGEventWriter(ss store.StateStore, sessionID uuid.UUID) *pgEventWriter {
 	drainCtx, cancelDrain := context.WithCancel(context.Background())
@@ -209,14 +215,40 @@ func (w *pgEventWriter) writeBatch(batchWriter activityEventBatchWriter, batch [
 		eventType, summary := describePGEvent(raw)
 		inputs = append(inputs, store.ActivityEventInput{EventType: eventType, Summary: summary, Detail: raw})
 	}
-	ctx, cancel := context.WithTimeout(w.drainCtx, 5*time.Second)
-	_, err := batchWriter.WriteActivityEvents(ctx, w.sessionID, inputs)
-	cancel()
+	err := w.writeWithRetry(func(ctx context.Context) error {
+		_, err := batchWriter.WriteActivityEvents(ctx, w.sessionID, inputs)
+		return err
+	})
 	w.mu.Lock()
 	w.inFlight = 0
+	if err != nil && !w.expired {
+		w.unflushed += int64(len(batch))
+	}
 	w.mu.Unlock()
 	if err != nil {
 		log.Printf("WARN: pgEventWriter: writing %d event(s): %v", len(batch), err)
+	}
+}
+
+// writeWithRetry retries a failed store write with bounded exponential
+// backoff while the drain context is alive, so a transient Postgres error does
+// not silently lose the crash-safe copy of the events. The events stay in
+// flight (ahead of everything buffered) for the whole retry, preserving order.
+func (w *pgEventWriter) writeWithRetry(write func(context.Context) error) error {
+	backoff := pgEventWriterRetryBackoff
+	for attempt := 1; ; attempt++ {
+		ctx, cancel := context.WithTimeout(w.drainCtx, 5*time.Second)
+		err := write(ctx)
+		cancel()
+		if err == nil || attempt >= pgEventWriterWriteAttempts || w.drainCtx.Err() != nil {
+			return err
+		}
+		select {
+		case <-w.drainCtx.Done():
+			return err
+		case <-time.After(backoff):
+		}
+		backoff *= 2
 	}
 }
 
@@ -228,11 +260,15 @@ func (w *pgEventWriter) writeOneByOne(batch []json.RawMessage) {
 			return
 		}
 		eventType, summary := describePGEvent(raw)
-		ctx, cancel := context.WithTimeout(w.drainCtx, 5*time.Second)
-		_, err := w.store.WriteActivityEvent(ctx, w.sessionID, eventType, summary, raw)
-		cancel()
+		err := w.writeWithRetry(func(ctx context.Context) error {
+			_, err := w.store.WriteActivityEvent(ctx, w.sessionID, eventType, summary, raw)
+			return err
+		})
 		w.mu.Lock()
 		w.inFlight--
+		if err != nil && !w.expired {
+			w.unflushed++
+		}
 		w.mu.Unlock()
 		if err != nil {
 			log.Printf("WARN: pgEventWriter: %v", err)

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
@@ -17,21 +18,23 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/projectstate"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	agentsandboxextensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
-	approvalRequestedAnnotation = "platform.gratefulagents.dev/approval-requested"
-	cancelRequestedAnnotation   = "platform.gratefulagents.dev/cancel-requested"
+	cancelRequestedAnnotation = "platform.gratefulagents.dev/cancel-requested"
 	// promoteSucceededAnnotation asks the controller to tear the run down like
 	// a cancellation but record the terminal phase as Succeeded — the user
 	// explicitly promoted the run to success from the dashboard.
@@ -41,16 +44,26 @@ const (
 	teamStepLabel              = "platform.gratefulagents.dev/team-step"
 	teamRoleLabel              = "platform.gratefulagents.dev/team-role"
 	runModeAnnotation          = "platform.gratefulagents.dev/run-mode"
-	approvalMaterializingStep  = "approval-materializing"
 	podVisibilityGrace         = 2 * time.Minute
+	ownerRunLabel              = "platform.gratefulagents.dev/owner-run"
+	ownerRunUIDLabel           = "platform.gratefulagents.dev/owner-run-uid"
+	runtimeProfileRefIndex     = "spec.runtimeProfileRef.name"
+	// drainRequeueAfter paces drain waits. A fixed interval avoids the
+	// controller's exponential backoff, which otherwise stretches waits for a
+	// terminating pod or claim to minutes.
+	drainRequeueAfter = 3 * time.Second
 )
 
 var errRunnerPodDrainPending = errors.New("runner pod drain pending")
 
 type AgentRunReconciler struct {
 	client.Client
+	// APIReader, when set, confirms cache misses with an uncached read before
+	// a missing object is treated as gone.
+	APIReader    client.Reader
 	ModeResolver *mode.Resolver
 	StateStore   store.StateStore
+	admissionMu  sync.Mutex
 }
 
 // +kubebuilder:rbac:groups=platform.gratefulagents.dev,resources=agentruns,verbs=get;list;watch;update;patch
@@ -85,7 +98,7 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 		}
 		if !drained {
-			return ctrl.Result{Requeue: true}, nil
+			return ctrl.Result{RequeueAfter: drainRequeueAfter}, nil
 		}
 		if r.StateStore != nil {
 			if err := r.StateStore.DeleteAgentRunData(ctx, run.Name, run.Namespace, projectStateIDForRun(run)); err != nil {
@@ -126,25 +139,13 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	if changed, err := r.syncResolvedGitRemoteWrites(ctx, run); err != nil {
-		return ctrl.Result{}, err
-	} else if changed {
-		return ctrl.Result{Requeue: true}, nil
-	}
-
 	if handled, err := r.handleCancelRequest(ctx, run); err != nil {
 		if errors.Is(err, errRunnerPodDrainPending) {
-			return ctrl.Result{Requeue: true}, nil
+			return ctrl.Result{RequeueAfter: drainRequeueAfter}, nil
 		}
 		return ctrl.Result{}, err
 	} else if handled {
 		return ctrl.Result{}, nil
-	}
-
-	if handled, err := r.consumeInteractionAnnotations(ctx, run); err != nil {
-		return ctrl.Result{}, err
-	} else if handled {
-		return ctrl.Result{Requeue: true}, nil
 	}
 
 	if changed, err := r.syncTeamStatus(ctx, run); err != nil {
@@ -155,7 +156,7 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if handled, err := r.handleWakeRequest(ctx, run); err != nil {
 		if errors.Is(err, errRunnerPodDrainPending) {
-			return ctrl.Result{Requeue: true}, nil
+			return ctrl.Result{RequeueAfter: drainRequeueAfter}, nil
 		}
 		return ctrl.Result{}, err
 	} else if handled {
@@ -164,7 +165,7 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if handled, err := r.handleRestartRequest(ctx, run); err != nil {
 		if errors.Is(err, errRunnerPodDrainPending) {
-			return ctrl.Result{Requeue: true}, nil
+			return ctrl.Result{RequeueAfter: drainRequeueAfter}, nil
 		}
 		return ctrl.Result{}, err
 	} else if handled {
@@ -175,10 +176,19 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.reconcileTerminalRun(ctx, run)
 	}
 
-	// Resume a paused run when its limits allow it again: the timeout has
-	// been extended and/or the cost cap raised.
 	if run.Status.Phase == platformv1alpha1.AgentRunPhasePaused {
-		resumeAllowed := run.Status.StartedAt != nil && !runPastTimeout(run) && costCapSatisfied(run)
+		return r.reconcilePausedRun(ctx, run)
+	}
+
+	// All workflow modes use the unified reconcile path.
+	return r.reconcileRun(ctx, run)
+}
+
+// reconcilePausedRun drains a paused run's worker and resumes the run once
+// its limits allow it again: the timeout has been extended and/or the cost cap
+// raised.
+func (r *AgentRunReconciler) reconcilePausedRun(ctx context.Context, run *platformv1alpha1.AgentRun) (ctrl.Result, error) {
+	if run.Status.Sandbox != nil {
 		// Always drain the old worker before either staying paused or resuming.
 		// Otherwise a limit extension can provision a replacement while the old
 		// pod is still publishing its final encrypted checkpoint.
@@ -187,43 +197,42 @@ func (r *AgentRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 		}
 		if !drained {
-			return ctrl.Result{Requeue: true}, nil
+			return ctrl.Result{RequeueAfter: drainRequeueAfter}, nil
 		}
-		if run.Status.Sandbox != nil {
-			// Clear the drained sandbox and, when the latest persisted limits
-			// permit it, leave Paused in the same status patch. Publishing an
-			// intermediate Paused/nil state lets owner controllers consume a
-			// run as terminal immediately before this controller resumes it.
-			if err := retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
-				fresh.Status.Sandbox = nil
-				if fresh.Status.Phase == platformv1alpha1.AgentRunPhasePaused &&
-					fresh.Status.StartedAt != nil && !runPastTimeout(fresh) && costCapSatisfied(fresh) {
-					fresh.Status.Phase = platformv1alpha1.AgentRunPhaseProvisioning
-					fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Resuming", AdmittedAt: queueAdmittedAt(&fresh.Status)}
-				}
-			}); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{Requeue: true}, nil
-		}
-		if resumeAllowed {
-			if err := retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
-				fresh.Status.Phase = platformv1alpha1.AgentRunPhaseProvisioning
-				fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Resuming", AdmittedAt: queueAdmittedAt(&fresh.Status)}
-			}); err != nil {
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{Requeue: true}, nil
-		}
+	}
+	if err := cleanupClusterRoleBindings(ctx, r.Client, run); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if run.Status.Sandbox == nil && !pausedRunResumable(run) && !pausedReasonNeedsUpdate(run, pausedRunBlocker(run)) {
 		return ctrl.Result{}, nil
 	}
-
-	if isDelegatedChildRun(run) {
-		return r.reconcileChildRun(ctx, run)
+	// Clear the drained sandbox and, when the latest persisted limits permit
+	// it, leave Paused in the same status patch. Publishing an intermediate
+	// Paused/nil state lets owner controllers consume a run as terminal
+	// immediately before this controller resumes it.
+	if err := retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
+		if fresh.Status.Phase != platformv1alpha1.AgentRunPhasePaused {
+			return
+		}
+		fresh.Status.Sandbox = nil
+		if pausedRunResumable(fresh) {
+			now := metav1.Now()
+			fresh.Status.LastWakeTime = &now
+			fresh.Status.Phase = platformv1alpha1.AgentRunPhaseProvisioning
+			fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Resuming", AdmittedAt: &now}
+			return
+		}
+		if blocker := pausedRunBlocker(fresh); pausedReasonNeedsUpdate(fresh, blocker) {
+			if fresh.Status.Queue == nil {
+				fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Paused"}
+			}
+			fresh.Status.Queue.BlockedReason = blocker
+		}
+	}); err != nil {
+		return ctrl.Result{}, err
 	}
-
-	// All workflow modes use the unified reconcile path.
-	return r.reconcileRun(ctx, run)
+	return ctrl.Result{Requeue: true}, nil
 }
 
 func (r *AgentRunReconciler) ensureInitialized(ctx context.Context, run *platformv1alpha1.AgentRun) (bool, error) {
@@ -292,7 +301,7 @@ func (r *AgentRunReconciler) ensureInitialized(ctx context.Context, run *platfor
 			fresh.Status.StartedAt = &now
 			return
 		}
-		fresh.Status.Phase = initialPhaseForRun(fresh)
+		fresh.Status.Phase = platformv1alpha1.AgentRunPhasePending
 		fresh.Status.CurrentStep = initialCurrentStepForReconcile(fresh)
 		fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Queued"}
 		fresh.Status.StartedAt = &now
@@ -302,102 +311,139 @@ func (r *AgentRunReconciler) ensureInitialized(ctx context.Context, run *platfor
 	return true, nil
 }
 
-func (r *AgentRunReconciler) consumeInteractionAnnotations(ctx context.Context, run *platformv1alpha1.AgentRun) (bool, error) {
-	approvalRequested := strings.EqualFold(strings.TrimSpace(run.Annotations[approvalRequestedAnnotation]), "true")
-	if !approvalRequested {
-		return false, nil
-	}
-
-	metaPatch := client.MergeFrom(run.DeepCopy())
-	if run.Annotations == nil {
-		run.Annotations = map[string]string{}
-	}
-	delete(run.Annotations, approvalRequestedAnnotation)
-	if err := r.Patch(ctx, run, metaPatch); err != nil {
-		return false, fmt.Errorf("clearing AgentRun interaction annotations: %w", err)
-	}
-	return true, nil
-}
-
-func shouldResumeIntoPending(run *platformv1alpha1.AgentRun) bool {
-	return run != nil
-}
-
-func executeRunMaterialized(run *platformv1alpha1.AgentRun) bool {
-	if run == nil {
-		return false
-	}
-	if strings.TrimSpace(run.Spec.Repository.BranchName) == "" {
-		return false
-	}
-	return run.Spec.SpecArtifactRef != nil && strings.TrimSpace(run.Spec.SpecArtifactRef.Name) != ""
-}
-
 // reconcileRun is the unified reconcile path for all workflow modes.
 // With persistent pods, the same pod handles plan → execute → chat in-process.
-// The controller only needs to: create pod once, monitor health, timeout.
+// The controller only needs to: create the sandbox once, monitor health, timeout.
 func (r *AgentRunReconciler) reconcileRun(ctx context.Context, run *platformv1alpha1.AgentRun) (ctrl.Result, error) {
 	if run.Status.Sandbox != nil {
-		if run.Status.Sandbox.ClaimRef != nil || strings.EqualFold(run.Status.Sandbox.Provider, agentSandboxProvider) {
-			return r.monitorAgentSandbox(ctx, run, 3*time.Second)
-		}
-		if run.Status.Sandbox.SandboxRef != nil {
-			return r.monitorPod(ctx, run, 3*time.Second)
-		}
+		return r.monitorAgentSandbox(ctx, run, 3*time.Second)
 	}
-	// Only create a pod for active (non-terminal, non-blocked) phases.
+	// Only create a sandbox for active (non-terminal, non-blocked) phases.
 	switch run.Status.Phase {
 	case platformv1alpha1.AgentRunPhasePending, platformv1alpha1.AgentRunPhaseAdmitted,
 		platformv1alpha1.AgentRunPhaseProvisioning, platformv1alpha1.AgentRunPhaseRunning,
 		platformv1alpha1.AgentRunPhaseQuestion, platformv1alpha1.AgentRunPhaseBlocked,
 		platformv1alpha1.AgentRunPhaseWaitingApproval:
-		// Active — create or re-attach pod.
 	default:
 		return ctrl.Result{}, nil
 	}
 
+	if runPastTimeout(run) {
+		return ctrl.Result{}, r.markRunPaused(ctx, run)
+	}
+	if started := provisioningAttemptStart(run); started != nil && time.Since(started.Time) > podStartupDeadline() {
+		return ctrl.Result{}, r.markRunFailed(ctx, run, fmt.Errorf("sandbox not provisioned within %s", podStartupDeadline()))
+	}
 	runtimeProfile, err := resolveRuntimeProfileForRun(ctx, r.Client, run)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("resolving RuntimeProfile for sandbox provisioning: %w", err)
+	}
+	if runtimeProfile != nil && runtimeProfile.Spec.Admission != nil {
+		// Serialize the capacity check through publishing admission. The live
+		// confirmation below prevents informer lag from granting the slot twice.
+		r.admissionMu.Lock()
+		defer r.admissionMu.Unlock()
 	}
 	if admissionResult, err := r.enforceRuntimeProfileAdmission(ctx, run, runtimeProfile); err != nil {
 		return ctrl.Result{}, err
 	} else if admissionResult != nil {
 		return *admissionResult, nil
 	}
+	if err := markProvisioningAttempt(ctx, r.Client, run); err != nil {
+		return ctrl.Result{}, err
+	}
 	sandboxStatus, err := createPlanSandbox(ctx, r.Client, run, runtimeProfile)
-	if err != nil {
-		if errors.Is(err, errRunSandboxDrainRequired) {
-			drained, drainErr := r.releaseRunSandbox(ctx, run)
-			if drainErr != nil {
-				return ctrl.Result{}, drainErr
-			}
-			if !drained {
-				return ctrl.Result{Requeue: true}, nil
-			}
-			if run.Status.Sandbox != nil {
-				if clearErr := clearRunSandboxStatus(ctx, r.Client, run); clearErr != nil {
-					return ctrl.Result{}, clearErr
-				}
-			}
-			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
-		}
-		if errors.Is(err, errRunPodReplaced) || errors.Is(err, errRunSandboxReplaced) {
-			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
-		}
+	if err == nil {
+		return r.patchSandboxQueued(ctx, run, sandboxStatus)
+	}
+	if isPermanentProvisioningError(err) {
 		return ctrl.Result{}, r.markRunFailed(ctx, run, err)
 	}
-	return r.patchSandboxQueued(ctx, run, sandboxStatus, platformv1alpha1.AgentRunPhaseAdmitted)
+	// Everything else (API timeouts, throttling, optimistic-lock conflicts,
+	// stale objects from a previous incarnation awaiting garbage collection,
+	// a previous sandbox still draining) is retried until the provisioning
+	// deadline instead of permanently failing a healthy run.
+	switch {
+	case errors.Is(err, errRunSandboxDrainRequired):
+		drained, drainErr := r.releaseRunSandbox(ctx, run)
+		if drainErr != nil {
+			return ctrl.Result{}, drainErr
+		}
+		if !drained {
+			return ctrl.Result{RequeueAfter: drainRequeueAfter}, nil
+		}
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	case errors.Is(err, errRunSandboxReplaced), errors.Is(err, errStaleRunResource):
+		ctrl.LoggerFrom(ctx).Info("waiting to provision sandbox", "reason", err.Error())
+		return ctrl.Result{RequeueAfter: drainRequeueAfter}, nil
+	default:
+		return ctrl.Result{}, fmt.Errorf("provisioning sandbox: %w", err)
+	}
 }
 
-func (r *AgentRunReconciler) reconcileChildRun(ctx context.Context, run *platformv1alpha1.AgentRun) (ctrl.Result, error) {
-	return r.reconcileRun(ctx, run)
+const provisioningQueueState = "Provisioning"
+
+// provisioningAttemptStart returns when the current, not yet successful
+// sandbox provisioning attempt began, or nil when none is recorded.
+func provisioningAttemptStart(run *platformv1alpha1.AgentRun) *metav1.Time {
+	if run.Status.Queue == nil || run.Status.Queue.State != provisioningQueueState {
+		return nil
+	}
+	return run.Status.Queue.AdmittedAt
 }
 
-func (r *AgentRunReconciler) patchSandboxQueued(ctx context.Context, run *platformv1alpha1.AgentRun, sandboxStatus *platformv1alpha1.AgentRunSandboxStatus, phase platformv1alpha1.AgentRunPhase) (ctrl.Result, error) {
-	if err := retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
+// Reserve admission before creating compute, including when a later API write
+// fails. The same timestamp bounds provisioning retries for this attempt.
+func markProvisioningAttempt(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) error {
+	return retryAgentRunStatusPatch(ctx, c, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
+		if runStopped(fresh) || fresh.Status.Sandbox != nil || provisioningAttemptStart(fresh) != nil {
+			return
+		}
 		now := metav1.Now()
-		fresh.Status.Phase = phase
+		fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: provisioningQueueState, AdmittedAt: &now}
+	})
+}
+
+// startupElapsed is how long the run has been waiting for its sandbox worker:
+// measured from admission (set when the claim is created), falling back to the
+// run start.
+func startupElapsed(run *platformv1alpha1.AgentRun) time.Duration {
+	start := run.CreationTimestamp
+	if run.Status.StartedAt != nil {
+		start = *run.Status.StartedAt
+	}
+	if admitted := queueAdmittedAt(&run.Status); admitted != nil {
+		start = *admitted
+	}
+	if start.IsZero() {
+		return 0
+	}
+	return time.Since(start.Time)
+}
+
+func (r *AgentRunReconciler) patchSandboxQueued(ctx context.Context, run *platformv1alpha1.AgentRun, sandboxStatus *platformv1alpha1.AgentRunSandboxStatus) (ctrl.Result, error) {
+	if err := retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
+		if fresh.UID != run.UID || !fresh.Status.LastWakeTime.Equal(run.Status.LastWakeTime) {
+			return
+		}
+		if isTerminalPhase(fresh.Status.Phase) || fresh.Status.Phase == platformv1alpha1.AgentRunPhasePaused {
+			// The run stopped while the sandbox was being created. Record the
+			// sandbox so the terminal/paused drain releases it, but never move
+			// the run back into an active phase.
+			if fresh.Status.Sandbox == nil && sandboxStatus != nil {
+				fresh.Status.Sandbox = sandboxStatus.DeepCopy()
+			}
+			return
+		}
+		if fresh.Status.Sandbox != nil {
+			return
+		}
+		if fresh.Status.Phase != run.Status.Phase && (fresh.Status.Phase == platformv1alpha1.AgentRunPhaseQuestion || fresh.Status.Phase == platformv1alpha1.AgentRunPhaseBlocked || fresh.Status.Phase == platformv1alpha1.AgentRunPhaseWaitingApproval) {
+			fresh.Status.Sandbox = sandboxStatus.DeepCopy()
+			return
+		}
+		now := metav1.Now()
+		fresh.Status.Phase = platformv1alpha1.AgentRunPhaseAdmitted
 		fresh.Status.CurrentStep = initialCurrentStepForReconcile(fresh)
 		fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Queued", AdmittedAt: &now}
 		if sandboxStatus != nil {
@@ -422,24 +468,7 @@ func initialCurrentStepForReconcile(run *platformv1alpha1.AgentRun) string {
 	return awaitingUserStep
 }
 
-func (r *AgentRunReconciler) monitorPod(ctx context.Context, run *platformv1alpha1.AgentRun, requeueAfter time.Duration) (ctrl.Result, error) {
-	podName := ""
-	if run.Status.Sandbox != nil && run.Status.Sandbox.SandboxRef != nil {
-		podName = run.Status.Sandbox.SandboxRef.Name
-	}
-	if podName == "" {
-		return ctrl.Result{}, nil
-	}
-	return r.monitorPodName(ctx, run, podName, requeueAfter)
-}
-
 func (r *AgentRunReconciler) monitorPodName(ctx context.Context, run *platformv1alpha1.AgentRun, podName string, requeueAfter time.Duration) (ctrl.Result, error) {
-	if runPastTimeout(run) && !isTerminalPhase(run.Status.Phase) && run.Status.Phase != platformv1alpha1.AgentRunPhasePaused {
-		// Check the deadline before pod lookup so a stale startup reference cannot
-		// requeue forever after the run's runtime limit has elapsed.
-		return ctrl.Result{}, r.markRunPaused(ctx, run, effectiveTimeout(run))
-	}
-
 	pod := &corev1.Pod{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: podName}, pod); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -518,18 +547,42 @@ func isRunAwaitingPod(run *platformv1alpha1.AgentRun) bool {
 	return !started.IsZero() && time.Since(started) <= podVisibilityGrace
 }
 
+// patchRunning promotes a run whose worker pod is running. It only moves
+// startup phases (or repairs a stale Running queue state); interactive phases
+// the worker set (Question, Blocked, WaitingApproval), Paused, and terminal
+// phases are left alone even when the cached run that triggered the call was
+// stale.
 func (r *AgentRunReconciler) patchRunning(ctx context.Context, run *platformv1alpha1.AgentRun) error {
 	return retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
+		if fresh.UID != run.UID || !fresh.Status.LastWakeTime.Equal(run.Status.LastWakeTime) {
+			return
+		}
+		switch fresh.Status.Phase {
+		case platformv1alpha1.AgentRunPhasePending, platformv1alpha1.AgentRunPhaseAdmitted,
+			platformv1alpha1.AgentRunPhaseProvisioning, platformv1alpha1.AgentRunPhaseRunning:
+		default:
+			return
+		}
 		fresh.Status.Phase = platformv1alpha1.AgentRunPhaseRunning
 		fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Running", AdmittedAt: queueAdmittedAt(&fresh.Status)}
 	})
 }
 
+// runStopped reports whether the run already reached a phase the controller
+// must not overwrite from a pod observation: terminal, or Paused by the worker
+// (cost cap) or by the runtime window.
+func runStopped(run *platformv1alpha1.AgentRun) bool {
+	return isTerminalPhase(run.Status.Phase) || run.Status.Phase == platformv1alpha1.AgentRunPhasePaused
+}
+
 func (r *AgentRunReconciler) patchSucceeded(ctx context.Context, run *platformv1alpha1.AgentRun) error {
-	if err := cleanupClusterRoleBindings(ctx, r.Client, run); err != nil {
-		return err
-	}
 	return retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
+		if fresh.UID != run.UID || !fresh.Status.LastWakeTime.Equal(run.Status.LastWakeTime) {
+			return
+		}
+		if runStopped(fresh) {
+			return
+		}
 		now := metav1.Now()
 		fresh.Status.Phase = platformv1alpha1.AgentRunPhaseSucceeded
 		fresh.Status.CompletedAt = &now
@@ -538,10 +591,13 @@ func (r *AgentRunReconciler) patchSucceeded(ctx context.Context, run *platformv1
 }
 
 func (r *AgentRunReconciler) markRunFailed(ctx context.Context, run *platformv1alpha1.AgentRun, cause error) error {
-	if err := cleanupClusterRoleBindings(ctx, r.Client, run); err != nil {
-		return err
-	}
 	return retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
+		if fresh.UID != run.UID || !fresh.Status.LastWakeTime.Equal(run.Status.LastWakeTime) {
+			return
+		}
+		if runStopped(fresh) {
+			return
+		}
 		now := metav1.Now()
 		fresh.Status.Phase = platformv1alpha1.AgentRunPhaseFailed
 		fresh.Status.LastError = cause.Error()
@@ -550,12 +606,18 @@ func (r *AgentRunReconciler) markRunFailed(ctx context.Context, run *platformv1a
 	})
 }
 
-func (r *AgentRunReconciler) markRunPaused(ctx context.Context, run *platformv1alpha1.AgentRun, timeout time.Duration) error {
+func (r *AgentRunReconciler) markRunPaused(ctx context.Context, run *platformv1alpha1.AgentRun) error {
 	return retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
+		if fresh.UID != run.UID || !fresh.Status.LastWakeTime.Equal(run.Status.LastWakeTime) {
+			return
+		}
+		if runStopped(fresh) || !runPastTimeout(fresh) {
+			return
+		}
 		fresh.Status.Phase = platformv1alpha1.AgentRunPhasePaused
 		fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{
 			State:         "Paused",
-			BlockedReason: fmt.Sprintf("paused after %s timeout — extend maxRuntime to resume", timeout),
+			BlockedReason: timeoutPauseReason(effectiveTimeout(fresh)),
 			AdmittedAt:    queueAdmittedAt(&fresh.Status),
 		}
 	})
@@ -569,7 +631,7 @@ func (r *AgentRunReconciler) markRunPaused(ctx context.Context, run *platformv1a
 // terminal runs stop paying the discovery lists on every reconcile.
 func (r *AgentRunReconciler) reconcileTerminalRun(ctx context.Context, run *platformv1alpha1.AgentRun) (ctrl.Result, error) {
 	if run.Status.Sandbox == nil {
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, cleanupClusterRoleBindings(ctx, r.Client, run)
 	}
 	if run.Status.CompletedAt != nil {
 		if remaining := terminalSandboxTTL() - time.Since(run.Status.CompletedAt.Time); remaining > 0 {
@@ -581,7 +643,13 @@ func (r *AgentRunReconciler) reconcileTerminalRun(ctx context.Context, run *plat
 		return ctrl.Result{}, err
 	}
 	if !drained {
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: drainRequeueAfter}, nil
+	}
+	// Runs usually end through a worker-written terminal status, which never
+	// passes through patchSucceeded/markRunFailed: release the per-run
+	// ClusterRoleBindings (including any cluster-admin grant) here too.
+	if err := cleanupClusterRoleBindings(ctx, r.Client, run); err != nil {
+		return ctrl.Result{}, err
 	}
 	if err := clearRunSandboxStatus(ctx, r.Client, run); err != nil {
 		return ctrl.Result{}, err
@@ -595,8 +663,12 @@ func retryAgentRunStatusPatch(ctx context.Context, c client.Client, key client.O
 		if err := c.Get(ctx, key, fresh); err != nil {
 			return err
 		}
-		patch := client.MergeFromWithOptions(fresh.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		before := fresh.DeepCopy()
+		patch := client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})
 		mutate(fresh)
+		if equality.Semantic.DeepEqual(before.Status, fresh.Status) {
+			return nil
+		}
 		return c.Status().Patch(ctx, fresh, patch)
 	})
 }
@@ -850,29 +922,6 @@ func resolvedGitRemoteWrites(runtimeProfile *platformv1alpha1.RuntimeProfile) st
 	return string(platformv1alpha1.NormalizeGitRemoteWrites(runtimeProfile.Spec.Security.GitRemoteWrites))
 }
 
-func (r *AgentRunReconciler) syncResolvedGitRemoteWrites(ctx context.Context, run *platformv1alpha1.AgentRun) (bool, error) {
-	if run == nil || run.Status.Phase == "" || run.Spec.RuntimeProfileRef == nil || strings.TrimSpace(run.Spec.RuntimeProfileRef.Name) == "" {
-		return false, nil
-	}
-	profile, err := resolveRuntimeProfileForRun(ctx, r.Client, run)
-	if err != nil {
-		return false, fmt.Errorf("resolving RuntimeProfile policy status: %w", err)
-	}
-	resolved := resolvedGitRemoteWrites(profile)
-	if run.Status.Policy != nil && run.Status.Policy.ResolvedGitRemoteWrites == resolved {
-		return false, nil
-	}
-	if err := retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
-		if fresh.Status.Policy == nil {
-			fresh.Status.Policy = &platformv1alpha1.AgentRunResolvedPolicy{}
-		}
-		fresh.Status.Policy.ResolvedGitRemoteWrites = resolved
-	}); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
 func applyStatusPolicyDefaults(run *platformv1alpha1.AgentRun, runtimeProfile *platformv1alpha1.RuntimeProfile, mcpPolicy *platformv1alpha1.MCPPolicy) {
 	if run == nil {
 		return
@@ -916,29 +965,83 @@ func isTerminalPhase(phase platformv1alpha1.AgentRunPhase) bool {
 	}
 }
 
-// costCapSatisfied reports whether the run is within its spec.limits.maxCostUsd
-// ceiling. Runs the agent paused at the cap resume once the cap is raised
-// above the recorded spend. Missing or invalid values never block.
-func costCapSatisfied(run *platformv1alpha1.AgentRun) bool {
-	if run == nil || run.Spec.Limits == nil {
-		return true
+// costCapBlocker returns why the run's recorded spend blocks it from running,
+// or "" when it is within spec.limits.maxCostUsd. An invalid cap blocks, like
+// the worker, which refuses to run without a valid ceiling.
+func costCapBlocker(run *platformv1alpha1.AgentRun) string {
+	if run == nil {
+		return ""
 	}
-	capRaw := strings.TrimSpace(run.Spec.Limits.MaxCostUsd)
-	if capRaw == "" {
-		return true
+	capUSD, set, err := run.Spec.Limits.CostCapUSD()
+	if !set {
+		return ""
 	}
-	capUSD, err := strconv.ParseFloat(capRaw, 64)
-	if err != nil || capUSD <= 0 {
-		return true
+	if err != nil {
+		return fmt.Sprintf("invalid spec.limits.maxCostUsd: %v — fix it to resume", err)
 	}
 	if run.Status.Metrics == nil {
-		return true
+		return ""
 	}
 	spent, err := strconv.ParseFloat(strings.TrimSpace(run.Status.Metrics.CostUsd), 64)
-	if err != nil {
-		return true
+	if err != nil || spent < capUSD {
+		return ""
 	}
-	return spent < capUSD
+	return fmt.Sprintf("Cost cap reached: $%.4f spent of the $%.2f limit — increase spec.limits.maxCostUsd to resume.", spent, capUSD)
+}
+
+const timeoutPauseReasonPrefix = "paused after "
+
+func timeoutPauseReason(timeout time.Duration) string {
+	return fmt.Sprintf("%s%s timeout — extend maxRuntime to resume", timeoutPauseReasonPrefix, timeout)
+}
+
+// pausedForTimeout reports whether the controller paused the run because its
+// runtime window elapsed (as opposed to the worker pausing at the cost cap).
+func pausedForTimeout(run *platformv1alpha1.AgentRun) bool {
+	return run != nil && run.Status.Queue != nil && strings.HasPrefix(run.Status.Queue.BlockedReason, timeoutPauseReasonPrefix)
+}
+
+// pausedRunBlocker returns the limit still keeping a paused run from
+// resuming, or "" when none remains. The runtime window only blocks runs that
+// were paused for it; time spent paused on the cost cap does not count as
+// runtime.
+func pausedRunBlocker(run *platformv1alpha1.AgentRun) string {
+	if pausedForTimeout(run) && runPastTimeout(run) {
+		// The pause reason records the exhausted limit. Compare an extension
+		// against that limit, not wall time spent waiting for the user to edit it.
+		limit, _, _ := strings.Cut(strings.TrimPrefix(run.Status.Queue.BlockedReason, timeoutPauseReasonPrefix), " timeout")
+		pausedLimit, err := time.ParseDuration(limit)
+		if err != nil || effectiveTimeout(run) <= pausedLimit {
+			return run.Status.Queue.BlockedReason
+		}
+	}
+	return costCapBlocker(run)
+}
+
+func pausedRunResumable(run *platformv1alpha1.AgentRun) bool {
+	return run != nil && run.Status.StartedAt != nil && pausedRunBlocker(run) == ""
+}
+
+// pausedReasonNeedsUpdate reports whether the recorded blocked reason no
+// longer describes the remaining blocker. A worker-written cost-cap message is
+// kept while the cost cap is still what blocks the run.
+func pausedReasonNeedsUpdate(run *platformv1alpha1.AgentRun, blocker string) bool {
+	if run == nil || blocker == "" {
+		return false
+	}
+	current := ""
+	if run.Status.Queue != nil {
+		current = run.Status.Queue.BlockedReason
+	}
+	if current == blocker {
+		return false
+	}
+	return !(isCostCapReason(blocker) && isCostCapReason(current) && !strings.HasPrefix(blocker, "invalid "))
+}
+
+func isCostCapReason(reason string) bool {
+	lower := strings.ToLower(reason)
+	return strings.Contains(lower, "cost cap") || strings.Contains(lower, "maxcostusd")
 }
 
 func (r *AgentRunReconciler) handleWakeRequest(ctx context.Context, run *platformv1alpha1.AgentRun) (bool, error) {
@@ -986,21 +1089,11 @@ func (r *AgentRunReconciler) handleWakeRequest(ctx context.Context, run *platfor
 		default:
 			return
 		}
-		freshPhase := fresh.Status.Phase
-		now := metav1.Now()
-		fresh.Status.Phase = platformv1alpha1.AgentRunPhasePending
-		fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Waking", AdmittedAt: queueAdmittedAt(&fresh.Status)}
-		fresh.Status.Sandbox = nil
-		fresh.Status.CompletedAt = nil
-		fresh.Status.CompletionRequested = false
-		fresh.Status.LastError = ""
-		fresh.Status.CurrentStep = initialCurrentStepForReconcile(fresh)
-		fresh.Status.WakeRequestsHandled = fresh.Spec.WakeRequests
-		fresh.Status.LastWakeTime = &now
-		fresh.Status.LastWakeReason = "wake-request"
-		if freshPhase == platformv1alpha1.AgentRunPhaseFailed {
+		if fresh.Status.Phase == platformv1alpha1.AgentRunPhaseFailed {
 			fresh.Status.RetryCount++
 		}
+		resetForNewAttempt(fresh, "Waking", "wake-request")
+		fresh.Status.WakeRequestsHandled = fresh.Spec.WakeRequests
 		woke = true
 	}); err != nil {
 		return false, fmt.Errorf("patching AgentRun wake status: %w", err)
@@ -1068,17 +1161,13 @@ func (r *AgentRunReconciler) handleRestartRequest(ctx context.Context, run *plat
 	}
 
 	if err := retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
-		now := metav1.Now()
-		fresh.Status.Phase = platformv1alpha1.AgentRunPhasePending
-		fresh.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Restarting", AdmittedAt: queueAdmittedAt(&fresh.Status)}
-		fresh.Status.Sandbox = nil
-		fresh.Status.CompletedAt = nil
-		fresh.Status.CompletionRequested = false
-		fresh.Status.LastError = ""
-		fresh.Status.CurrentStep = initialCurrentStepForReconcile(fresh)
+		if isTerminalPhase(fresh.Status.Phase) {
+			// Terminal runs consume the counter without action.
+			fresh.Status.RestartRequestsHandled = restartRequests
+			return
+		}
+		resetForNewAttempt(fresh, "Restarting", "restart-request")
 		fresh.Status.RestartRequestsHandled = restartRequests
-		fresh.Status.LastWakeTime = &now
-		fresh.Status.LastWakeReason = "restart-request"
 	}); err != nil {
 		return false, fmt.Errorf("patching AgentRun restart status: %w", err)
 	}
@@ -1097,7 +1186,9 @@ func (r *AgentRunReconciler) releaseRunSandbox(ctx context.Context, run *platfor
 	// Discover claims by immutable controller ownership. Derived names and
 	// status references can point at another run after legacy name collisions.
 	claimList := &agentsandboxextensionsv1alpha1.SandboxClaimList{}
-	if err := r.List(ctx, claimList, client.InNamespace(run.Namespace)); err != nil {
+	if err := r.List(ctx, claimList, client.InNamespace(run.Namespace), client.MatchingLabels{
+		ownerRunLabel: runNameLabelValue(run.Name),
+	}); err != nil {
 		return false, fmt.Errorf("listing sandbox claims during drain: %w", err)
 	}
 	ownedClaims := make(map[string]*agentsandboxextensionsv1alpha1.SandboxClaim)
@@ -1110,7 +1201,7 @@ func (r *AgentRunReconciler) releaseRunSandbox(ctx context.Context, run *platfor
 
 	ownedPods := &corev1.PodList{}
 	if err := r.List(ctx, ownedPods, client.InNamespace(run.Namespace), client.MatchingLabels{
-		"platform.gratefulagents.dev/owner-run-uid": string(run.UID),
+		ownerRunUIDLabel: string(run.UID),
 	}); err != nil {
 		return false, fmt.Errorf("listing owned runner pods during drain: %w", err)
 	}
@@ -1188,50 +1279,20 @@ func queueAdmittedAt(s *platformv1alpha1.AgentRunStatus) *metav1.Time {
 	return nil
 }
 
-func sandboxPodName(run *platformv1alpha1.AgentRun) string {
-	if run == nil || run.Status.Sandbox == nil || run.Status.Sandbox.SandboxRef == nil {
-		return ""
-	}
-	return strings.TrimSpace(run.Status.Sandbox.SandboxRef.Name)
-}
-
-func isChatLikeRun(run *platformv1alpha1.AgentRun) bool {
-	return run != nil
-}
-
-func shouldQueueFreshTurnFromReply(run *platformv1alpha1.AgentRun) bool {
-	if run == nil {
-		return false
-	}
-	// Autonomous runs (auto, ultrawork, pipeline, etc.) always queue fresh turns.
-	if run.Status.ModeSnapshot != nil && run.Status.ModeSnapshot.Autonomous {
-		return true
-	}
-	// Chat-like runs only queue on terminal phase (pod restart).
-	if isTerminalPhase(run.Status.Phase) {
-		return true
-	}
-	return false
-}
-
-func prepareRunForNewAttempt(run *platformv1alpha1.AgentRun, currentStep string) {
-	if run == nil {
-		return
-	}
-	currentStep = strings.TrimSpace(currentStep)
-	if currentStep == "" {
-		if run.Status.ModeSnapshot != nil && run.Status.ModeSnapshot.Autonomous {
-			currentStep = "auto"
-		} else {
-			currentStep = awaitingUserStep
-		}
-	}
+// resetForNewAttempt moves a run back to Pending for a fresh provisioning
+// attempt (wake or restart), dropping the previous attempt's compute and
+// completion state and restarting the runtime window.
+func resetForNewAttempt(run *platformv1alpha1.AgentRun, queueState, reason string) {
+	now := metav1.Now()
 	run.Status.Phase = platformv1alpha1.AgentRunPhasePending
-	run.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Queued"}
+	run.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: queueState, AdmittedAt: queueAdmittedAt(&run.Status)}
 	run.Status.Sandbox = nil
-	run.Status.LastError = ""
 	run.Status.CompletedAt = nil
-	run.Status.CurrentStep = currentStep
+	run.Status.CompletionRequested = false
+	run.Status.LastError = ""
+	run.Status.CurrentStep = initialCurrentStepForReconcile(run)
+	run.Status.LastWakeTime = &now
+	run.Status.LastWakeReason = reason
 }
 
 func (r *AgentRunReconciler) syncTeamStatus(ctx context.Context, run *platformv1alpha1.AgentRun) (bool, error) {
@@ -1259,37 +1320,36 @@ func (r *AgentRunReconciler) syncTeamStatus(ctx context.Context, run *platformv1
 }
 
 func (r *AgentRunReconciler) syncTeamParentStatus(ctx context.Context, parent *platformv1alpha1.AgentRun) (bool, error) {
-	children, err := r.listOwnedTeamChildren(ctx, parent)
-	if err != nil {
-		return false, err
-	}
-
-	nextSummary := buildTeamSummary(parent, children)
-	nextChildren := make([]platformv1alpha1.AgentRunChildStatus, 0, len(children))
-	for _, child := range children {
-		nextChildren = append(nextChildren, summarizeTeamChild(child))
-	}
-
-	if teamSummaryEqual(parent.Status.TeamSummary, nextSummary) && teamChildrenEqual(parent.Status.Children, nextChildren) {
-		return false, nil
-	}
-
+	changed := false
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		fresh := &platformv1alpha1.AgentRun{}
 		if err := r.Get(ctx, client.ObjectKeyFromObject(parent), fresh); err != nil {
 			return err
 		}
+		children, err := r.listOwnedTeamChildren(ctx, fresh)
+		if err != nil {
+			return err
+		}
+		nextSummary := buildTeamSummary(fresh, children)
+		nextChildren := make([]platformv1alpha1.AgentRunChildStatus, 0, len(children))
+		for _, child := range children {
+			nextChildren = append(nextChildren, summarizeTeamChild(child))
+		}
 		if teamSummaryEqual(fresh.Status.TeamSummary, nextSummary) && teamChildrenEqual(fresh.Status.Children, nextChildren) {
 			return nil
 		}
-		patch := client.MergeFrom(fresh.DeepCopy())
+		patch := client.MergeFromWithOptions(fresh.DeepCopy(), client.MergeFromWithOptimisticLock{})
 		fresh.Status.TeamSummary = nextSummary
 		fresh.Status.Children = nextChildren
-		return r.Status().Patch(ctx, fresh, patch)
+		if err := r.Status().Patch(ctx, fresh, patch); err != nil {
+			return err
+		}
+		changed = true
+		return nil
 	}); err != nil {
 		return false, fmt.Errorf("patching team parent status: %w", err)
 	}
-	return true, nil
+	return changed, nil
 }
 
 func (r *AgentRunReconciler) listOwnedTeamChildren(ctx context.Context, parent *platformv1alpha1.AgentRun) ([]platformv1alpha1.AgentRun, error) {
@@ -1462,31 +1522,81 @@ func projectStateIDForRun(run *platformv1alpha1.AgentRun) string {
 	return projectstate.ProjectID(run.Namespace, run.Spec.Repository.URL)
 }
 
+// agentRunRuntimeProfileRef indexes AgentRuns by the RuntimeProfile they
+// reference so profile fan-out and admission counting avoid namespace-wide
+// lists.
+func agentRunRuntimeProfileRef(obj client.Object) []string {
+	run, ok := obj.(*platformv1alpha1.AgentRun)
+	if !ok || run.Spec.RuntimeProfileRef == nil {
+		return nil
+	}
+	if name := strings.TrimSpace(run.Spec.RuntimeProfileRef.Name); name != "" {
+		return []string{name}
+	}
+	return nil
+}
+
 func (r *AgentRunReconciler) requestsForRuntimeProfile(ctx context.Context, obj client.Object) []reconcile.Request {
 	profile, ok := obj.(*platformv1alpha1.RuntimeProfile)
 	if !ok || profile == nil {
 		return nil
 	}
 	var runs platformv1alpha1.AgentRunList
-	if err := r.List(ctx, &runs, client.InNamespace(profile.Namespace)); err != nil {
+	if err := r.List(ctx, &runs, client.InNamespace(profile.Namespace), client.MatchingFields{runtimeProfileRefIndex: profile.Name}); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "listing AgentRuns for RuntimeProfile", "namespace", profile.Namespace, "runtimeProfile", profile.Name)
 		return nil
 	}
-	requests := make([]reconcile.Request, 0)
+	requests := make([]reconcile.Request, 0, len(runs.Items))
 	for i := range runs.Items {
-		ref := runs.Items[i].Spec.RuntimeProfileRef
-		if ref != nil && ref.Name == profile.Name {
-			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&runs.Items[i])})
+		if isTerminalPhase(runs.Items[i].Status.Phase) {
+			continue
 		}
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&runs.Items[i])})
 	}
 	return requests
 }
 
+// requestsForRunPod maps a sandbox worker pod to its AgentRun. agent-sandbox
+// makes the Sandbox the pod's controller, so Owns() never sees these pods; the
+// owner-run labels stamped through the SandboxTemplate identify the run.
+func (r *AgentRunReconciler) requestsForRunPod(ctx context.Context, obj client.Object) []reconcile.Request {
+	uid := obj.GetLabels()[ownerRunUIDLabel]
+	if uid == "" {
+		return nil
+	}
+	if name := obj.GetLabels()[ownerRunLabel]; name != "" {
+		run := &platformv1alpha1.AgentRun{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: obj.GetNamespace(), Name: name}, run); err == nil && string(run.UID) == uid {
+			return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(run)}}
+		}
+	}
+	// Long run names carry a hashed owner-run label; fall back to the UID.
+	var runs platformv1alpha1.AgentRunList
+	if err := r.List(ctx, &runs, client.InNamespace(obj.GetNamespace())); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "listing AgentRuns for runner pod", "namespace", obj.GetNamespace(), "pod", obj.GetName())
+		return nil
+	}
+	for i := range runs.Items {
+		if string(runs.Items[i].UID) == uid {
+			return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(&runs.Items[i])}}
+		}
+	}
+	return nil
+}
+
 func (r *AgentRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &platformv1alpha1.AgentRun{}, runtimeProfileRefIndex, agentRunRuntimeProfileRef); err != nil {
+		return fmt.Errorf("indexing AgentRuns by RuntimeProfile: %w", err)
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1alpha1.AgentRun{}).
-		Watches(&platformv1alpha1.RuntimeProfile{}, handler.EnqueueRequestsFromMapFunc(r.requestsForRuntimeProfile)).
+		Watches(&platformv1alpha1.RuntimeProfile{}, handler.EnqueueRequestsFromMapFunc(r.requestsForRuntimeProfile),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&agentsandboxextensionsv1alpha1.SandboxClaim{}).
-		Owns(&corev1.Pod{}).
+		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.requestsForRunPod),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(obj client.Object) bool {
+				return obj.GetLabels()[ownerRunUIDLabel] != ""
+			}))).
 		Named("agentrun").
 		WithOptions(controller.Options{MaxConcurrentReconciles: 2}).
 		Complete(r)

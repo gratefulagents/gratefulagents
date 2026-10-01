@@ -179,6 +179,29 @@ func TestComputerUseScreenshotAttachedAsImage(t *testing.T) {
 	}
 }
 
+func TestComputerUsePreservesLargeScreenshotPixels(t *testing.T) {
+	tool, broker := newComputerUseTool(t)
+	shot := testJPEG(t, 2400, 1200)
+	desktop := startFakeDesktop(t, broker, func(computeruse.Action) computeruse.Result {
+		return computeruse.Result{OK: true, Screenshot: shot}
+	})
+	result := runComputerUse(t, tool, `{"action":"screenshot"}`)
+	if result.IsError || len(result.Images) != 1 || result.Images[0].Data != shot.Data || result.Images[0].MediaType != shot.MediaType {
+		t.Fatalf("screenshot bytes changed: error=%v images=%d", result.IsError, len(result.Images))
+	}
+	if !strings.Contains(result.Content, "2400x1200") {
+		t.Fatalf("screenshot geometry = %q", result.Content)
+	}
+	result = runComputerUse(t, tool, `{"action":"left_click","coordinate":[2399,1199]}`)
+	if result.IsError {
+		t.Fatalf("captured pixel coordinate rejected: %s", result.Content)
+	}
+	actions := desktop.seen()
+	if len(actions) != 2 || actions[1].Coordinate[0] != 2399 || actions[1].Coordinate[1] != 1199 {
+		t.Fatalf("click coordinates changed: %+v", actions)
+	}
+}
+
 func TestComputerUseWaitIsLocal(t *testing.T) {
 	tool, b := newComputerUseTool(t)
 	desk := startFakeDesktop(t, b, func(computeruse.Action) computeruse.Result {

@@ -45,7 +45,7 @@ func TestReadModeOverridesUsesResolvedSnapshotNameForLiveInstructions(t *testing
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(run, chat, autopilot).Build()
 	modeInstrCache = modeInstructionsCache{}
 
-	overrides := readModeOverrides(context.Background(), client, run.Name, run.Namespace)
+	overrides := readModeOverrides(context.Background(), client, run)
 	if overrides.ModeInstructions != autopilot.Spec.Instructions {
 		t.Fatalf("ModeInstructions = %q, want resolved autopilot instructions %q", overrides.ModeInstructions, autopilot.Spec.Instructions)
 	}

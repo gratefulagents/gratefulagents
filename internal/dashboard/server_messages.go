@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"log"
 	"strings"
+
+	"github.com/google/uuid"
 
 	"connectrpc.com/connect"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -435,8 +436,8 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 		return s.switchModeViaCommand(ctx, req, targetMode)
 	}
 
-	// Handle /autopilot and /stop as autonomy toggles. They map to a mode switch
-	// between the autonomous "autopilot" template and "chat".
+	// Handle /autopilot as an autonomy toggle: a mode switch into the
+	// autonomous "autopilot" template.
 	if autopilotTarget, ok := parseAutopilotCommand(req.Message); ok {
 		if err := rejectCommandAttachments(); err != nil {
 			return nil, err

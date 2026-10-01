@@ -59,8 +59,8 @@ type runConfig struct {
 	TaskName                  string
 	TaskUID                   string
 	ModelFallbacks            []string                   // ordered fallback models for OpenRouter-style providers
-	AutoMode                  bool                       // true for autonomous mode (no user questions) — resolved from CRD
 	DelegatedChild            bool                       // true if this run was created by a parent team run — resolved from CRD
+	CostPricingUnknown        bool                       // the configured model has no pricing metadata, so tracked spend stays 0
 	KubernetesAdmin           bool                       // true when this run has cluster-admin RBAC and platform introspection tools
 	TaskContext               string                     // Operator task context injected into system prompt.
 	Debug                     bool                       // verbose logging (full instructions, tool I/O)
@@ -190,7 +190,6 @@ func loadRunConfig() (runConfig, error) {
 		TaskUID:                  taskUID,
 		ModelFallbacks:           modelFallbacks,
 		Debug:                    debug,
-		// AutoMode is resolved from the CRD in doRun, not from env vars.
 	}, nil
 }
 

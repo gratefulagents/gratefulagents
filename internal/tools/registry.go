@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"sort"
@@ -10,7 +9,6 @@ import (
 	"github.com/gratefulagents/sdk/pkg/agentsdk"
 	"github.com/gratefulagents/sdk/pkg/agentsdk/policy"
 	sdktools "github.com/gratefulagents/sdk/pkg/agentsdk/tools"
-	sdkvision "github.com/gratefulagents/sdk/pkg/agentsdk/tools/vision"
 	sdkweb "github.com/gratefulagents/sdk/pkg/agentsdk/tools/web"
 )
 
@@ -41,8 +39,7 @@ type Registry struct {
 	browserScreenshotDir string
 	interactiveTerminal  bool
 	asyncShell           bool
-	vision               bool
-	visionAnalyze        sdkvision.AnalyzeFn
+	readFileImages       bool
 	closers              []io.Closer
 }
 
@@ -96,14 +93,9 @@ func WithAsyncShellTools() RegistryOption {
 	return func(r *Registry) { r.asyncShell = true }
 }
 
-// WithVisionTools enables the image analysis tool in the registry. A nil
-// analyzer registers the tool shell so the SDK runtime can attach the selected
-// provider's vision implementation while building the agent.
-func WithVisionTools(analyzeFn func(ctx context.Context, imageData []byte, mimeType, prompt string) (string, error)) RegistryOption {
-	return func(r *Registry) {
-		r.vision = true
-		r.visionAnalyze = sdkvision.AnalyzeFn(analyzeFn)
-	}
+// WithReadFileImages enables native image attachments from read_file.
+func WithReadFileImages() RegistryOption {
+	return func(r *Registry) { r.readFileImages = true }
 }
 
 // WithAllowedMutatingTools allows specific non-read-only tools to remain
@@ -229,8 +221,8 @@ func NewRegistry(workDir string, opts ...RegistryOption) *Registry {
 	if r.asyncShell {
 		sdkOpts = append(sdkOpts, sdktools.WithAsyncShellTools())
 	}
-	if r.vision {
-		sdkOpts = append(sdkOpts, sdktools.WithVisionTools(r.visionAnalyze))
+	if r.readFileImages {
+		sdkOpts = append(sdkOpts, sdktools.WithReadFileImages())
 	}
 	if len(r.allowMutating) > 0 {
 		names := make([]string, 0, len(r.allowMutating))
@@ -242,15 +234,10 @@ func NewRegistry(workDir string, opts ...RegistryOption) *Registry {
 
 	sdkRegistry := sdktools.NewRegistry(workDir, sdkOpts...)
 	for _, tool := range sdkRegistry.Tools() {
-		// The SDK uses one private-network gate to register Browser, WebFetch,
-		// and vision. Browser needs that gate because Chromium cannot enforce
-		// destination-by-destination checks, but the URL-based tools can and
-		// should retain their public-only default.
-		switch typed := tool.(type) {
-		case *sdkweb.FetchTool:
-			typed.AllowPrivateNetworkURLs = false
-		case *sdkvision.Tool:
-			typed.AllowPrivateNetworkURLs = false
+		// Browser needs unrestricted networking, but WebFetch can enforce
+		// destination-by-destination checks and keeps its public-only default.
+		if fetch, ok := tool.(*sdkweb.FetchTool); ok {
+			fetch.AllowPrivateNetworkURLs = false
 		}
 		r.Register(tool)
 	}

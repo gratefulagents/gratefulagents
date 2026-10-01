@@ -40,20 +40,6 @@ func TestLiveRuntimeModelAndProviderKeepsStartupDefaultsWithoutRunModel(t *testi
 	}
 }
 
-func TestAutoModeFromRunAlwaysUsesAutonomousPacing(t *testing.T) {
-	runs := []*platformv1alpha1.AgentRun{
-		nil,
-		{},
-		{Spec: platformv1alpha1.AgentRunSpec{WorkflowMode: platformv1alpha1.WorkflowModeChat}},
-		{Status: platformv1alpha1.AgentRunStatus{ModeSnapshot: &platformv1alpha1.ModeTemplateSpec{Autonomous: false}}},
-	}
-	for _, run := range runs {
-		if !autoModeFromRun(run) {
-			t.Fatalf("autoModeFromRun(%#v) = false, want true", run)
-		}
-	}
-}
-
 func TestResetAutoLoopForSteeringStartsFreshBudgetAndTracker(t *testing.T) {
 	loopCount := agent.DefaultMaxAutoLoops
 	original := &agent.AutoTracker{}
@@ -91,7 +77,7 @@ func TestIsDelegatedChildFromCRD(t *testing.T) {
 			tt.meta.Namespace = "default"
 			run := &platformv1alpha1.AgentRun{ObjectMeta: tt.meta}
 			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(run).Build()
-			if got := isDelegatedChildFromCRD(context.Background(), c, run.Name, run.Namespace); got != tt.want {
+			if got, err := isDelegatedChildFromCRD(context.Background(), c, run.Name, run.Namespace); err != nil || got != tt.want {
 				t.Fatalf("isDelegatedChildFromCRD() = %v, want %v", got, tt.want)
 			}
 		})

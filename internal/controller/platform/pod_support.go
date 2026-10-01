@@ -3,7 +3,8 @@ package platform
 import (
 	"context"
 	"crypto/rand"
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,8 +54,6 @@ const (
 	dindDockerHost      = "tcp://127.0.0.1:2375"
 	defaultDinDImage    = "docker:28-dind"
 )
-
-var errRunPodReplaced = errors.New("stale run pod replaced")
 
 func boolPtr(v bool) *bool { return &v }
 
@@ -119,27 +118,6 @@ func annotatedRunMode(run *platformv1alpha1.AgentRun) string {
 		return ""
 	}
 	return strings.ToLower(strings.TrimSpace(run.Annotations[runModeAnnotation]))
-}
-
-func initialCurrentStepForRun(run *platformv1alpha1.AgentRun) string {
-	if annotatedRunMode(run) == "chat" {
-		return awaitingUserStep
-	}
-	if run == nil {
-		return "pending"
-	}
-	// At init time, snapshot may not be set yet, so check spec.WorkflowMode as initial hint.
-	if run.Spec.WorkflowMode == platformv1alpha1.WorkflowModeAuto {
-		return "auto"
-	}
-	return awaitingUserStep
-}
-
-func initialPhaseForRun(run *platformv1alpha1.AgentRun) platformv1alpha1.AgentRunPhase {
-	if annotatedRunMode(run) == "chat" {
-		return platformv1alpha1.AgentRunPhaseBlocked
-	}
-	return platformv1alpha1.AgentRunPhasePending
 }
 
 func effectiveTimeout(run *platformv1alpha1.AgentRun) time.Duration {
@@ -308,8 +286,17 @@ func ensureRunRBAC(ctx context.Context, c client.Client, run *platformv1alpha1.A
 	}
 
 	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: saName, Namespace: run.Namespace, OwnerReferences: []metav1.OwnerReference{ownerRef}}}
-	if err := c.Create(ctx, sa); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("creating ServiceAccount %s: %w", saName, err)
+	if err := c.Create(ctx, sa); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("creating ServiceAccount %s: %w", saName, err)
+		}
+		existing := &corev1.ServiceAccount{}
+		if getErr := c.Get(ctx, client.ObjectKeyFromObject(sa), existing); getErr != nil {
+			return fmt.Errorf("getting existing ServiceAccount %s: %w", saName, getErr)
+		}
+		if err := runOwnershipConflict(existing, run, "ServiceAccount"); err != nil {
+			return err
+		}
 	}
 
 	if err := ensureWorkerInfraSecret(ctx, c, run.Namespace); err != nil {
@@ -345,6 +332,9 @@ func ensureRunRBAC(ctx context.Context, c client.Client, run *platformv1alpha1.A
 		if getErr := c.Get(ctx, client.ObjectKeyFromObject(role), existing); getErr != nil {
 			return fmt.Errorf("getting existing Role %s: %w", roleName, getErr)
 		}
+		if err := runOwnershipConflict(existing, run, "Role"); err != nil {
+			return err
+		}
 		if !reflect.DeepEqual(existing.Rules, role.Rules) {
 			existing.Rules = role.Rules
 			if updateErr := c.Update(ctx, existing); updateErr != nil {
@@ -359,8 +349,17 @@ func ensureRunRBAC(ctx context.Context, c client.Client, run *platformv1alpha1.A
 		RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: roleName},
 		Subjects:   []rbacv1.Subject{{Kind: rbacv1.ServiceAccountKind, Name: saName, Namespace: run.Namespace}},
 	}
-	if err := c.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("creating RoleBinding %s: %w", rbName, err)
+	if err := c.Create(ctx, rb); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("creating RoleBinding %s: %w", rbName, err)
+		}
+		existing := &rbacv1.RoleBinding{}
+		if getErr := c.Get(ctx, client.ObjectKeyFromObject(rb), existing); getErr != nil {
+			return fmt.Errorf("getting existing RoleBinding %s: %w", rbName, getErr)
+		}
+		if err := runOwnershipConflict(existing, run, "RoleBinding"); err != nil {
+			return err
+		}
 	}
 
 	// Cluster-scoped RBAC: agent pods need read access to cluster-scoped
@@ -380,10 +379,7 @@ func ensureMaintainerSemanticCursorCheckpoint(ctx context.Context, c client.Clie
 	name := triggersv1alpha1.MaintainerSemanticCursorSecretName(run.UID, repository.UID)
 	existing := &corev1.Secret{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: name}, existing); err == nil {
-		if !metav1.IsControlledBy(existing, run) {
-			return fmt.Errorf("secret %s/%s is not controlled by AgentRun %s", run.Namespace, name, run.Name)
-		}
-		return nil
+		return runOwnershipConflict(existing, run, "Secret")
 	} else if !apierrors.IsNotFound(err) {
 		return err
 	}
@@ -405,15 +401,15 @@ func ensureMaintainerCommandCapability(ctx context.Context, c client.Client, run
 	name := triggersv1alpha1.MaintainerCommandCapabilitySecretName(run.Name)
 	existing := &corev1.Secret{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: name}, existing); err == nil {
+		if err := runOwnershipConflict(existing, run, "Secret"); err != nil {
+			return err
+		}
 		key := existing.Data[triggersv1alpha1.MaintainerCommandCapabilitySecretKey]
 		if len(key) < 32 {
-			return fmt.Errorf("secret %s/%s has a missing or invalid %q", run.Namespace, name, triggersv1alpha1.MaintainerCommandCapabilitySecretKey)
-		}
-		if !metav1.IsControlledBy(existing, run) {
-			return fmt.Errorf("secret %s/%s is not controlled by AgentRun %s", run.Namespace, name, run.Name)
+			return permanentProvisioningErrorf("secret %s/%s has a missing or invalid %q", run.Namespace, name, triggersv1alpha1.MaintainerCommandCapabilitySecretKey)
 		}
 		if string(existing.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryNameKey]) != repository.Name || string(existing.Data[triggersv1alpha1.MaintainerCommandCapabilityRepositoryUIDKey]) != string(repository.UID) {
-			return fmt.Errorf("secret %s/%s is bound to a different GitHubRepository", run.Namespace, name)
+			return permanentProvisioningErrorf("secret %s/%s is bound to a different GitHubRepository", run.Namespace, name)
 		}
 		return nil
 	} else if !apierrors.IsNotFound(err) {
@@ -543,51 +539,41 @@ func ensureClusterScopedRBAC(ctx context.Context, c client.Client, run *platform
 		}
 		// Update the existing ClusterRole to pick up any resource list changes.
 		existing := &rbacv1.ClusterRole{}
-		if err := c.Get(ctx, client.ObjectKeyFromObject(cr), existing); err == nil {
-			if !reflect.DeepEqual(existing.Rules, cr.Rules) {
-				existing.Rules = cr.Rules
-				if updateErr := c.Update(ctx, existing); updateErr != nil {
-					return fmt.Errorf("updating ClusterRole %s: %w", clusterReadRoleName, updateErr)
-				}
-			}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(cr), existing); err != nil {
+			return fmt.Errorf("getting ClusterRole %s: %w", clusterReadRoleName, err)
 		}
-	}
-
-	// Per-run ClusterRoleBinding — labeled for cleanup.
-	crbName := saName + "-cluster-binding"
-	crb := clusterRoleBindingForRun(crbName, run, saName, clusterReadRoleName)
-	if err := c.Create(ctx, crb); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("creating ClusterRoleBinding %s: %w", crbName, err)
-	}
-
-	adminCRBName := saName + "-admin-binding"
-	if !run.Spec.KubernetesAdmin {
-		if err := c.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: adminCRBName}}); err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("deleting ClusterRoleBinding %s: %w", adminCRBName, err)
-		}
-		return nil
-	}
-
-	adminCRB := clusterRoleBindingForRun(adminCRBName, run, saName, "cluster-admin")
-	if err := c.Create(ctx, adminCRB); err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			return fmt.Errorf("creating ClusterRoleBinding %s: %w", adminCRBName, err)
-		}
-		existing := &rbacv1.ClusterRoleBinding{}
-		if getErr := c.Get(ctx, client.ObjectKeyFromObject(adminCRB), existing); getErr != nil {
-			return fmt.Errorf("getting existing ClusterRoleBinding %s: %w", adminCRBName, getErr)
-		}
-		if !reflect.DeepEqual(existing.Labels, adminCRB.Labels) || !reflect.DeepEqual(existing.RoleRef, adminCRB.RoleRef) || !reflect.DeepEqual(existing.Subjects, adminCRB.Subjects) {
-			existing.Labels = adminCRB.Labels
-			existing.RoleRef = adminCRB.RoleRef
-			existing.Subjects = adminCRB.Subjects
+		if !reflect.DeepEqual(existing.Rules, cr.Rules) {
+			existing.Rules = cr.Rules
 			if updateErr := c.Update(ctx, existing); updateErr != nil {
-				return fmt.Errorf("updating ClusterRoleBinding %s: %w", adminCRBName, updateErr)
+				return fmt.Errorf("updating ClusterRole %s: %w", clusterReadRoleName, updateErr)
 			}
 		}
 	}
 
-	return nil
+	// Per-run ClusterRoleBindings — labeled for cleanup.
+	if err := ensureRunClusterRoleBinding(ctx, c, run, clusterRoleBindingForRun(clusterRoleBindingName(run, saName, "cluster-binding"), run, saName, clusterReadRoleName)); err != nil {
+		return err
+	}
+	if !run.Spec.KubernetesAdmin {
+		return deleteRunClusterRoleBindings(ctx, c, run, func(crb *rbacv1.ClusterRoleBinding) bool {
+			return crb.RoleRef.Kind == "ClusterRole" && crb.RoleRef.Name == clusterAdminRoleName
+		})
+	}
+	return ensureRunClusterRoleBinding(ctx, c, run, clusterRoleBindingForRun(clusterRoleBindingName(run, saName, "admin-binding"), run, saName, clusterAdminRoleName))
+}
+
+const (
+	clusterAdminRoleName = "cluster-admin"
+	runNamespaceLabel    = "platform.gratefulagents.dev/namespace"
+)
+
+// clusterRoleBindingName derives a cluster-unique binding name. The service
+// account name alone repeats across namespaces (standing runs use fixed
+// names), so a namespace+name hash keeps runs in different namespaces from
+// sharing, overwriting, or deleting each other's bindings.
+func clusterRoleBindingName(run *platformv1alpha1.AgentRun, saName, suffix string) string {
+	sum := sha256.Sum256([]byte(run.Namespace + "/" + run.Name))
+	return saName + "-" + hex.EncodeToString(sum[:4]) + "-" + suffix
 }
 
 func clusterRoleBindingForRun(name string, run *platformv1alpha1.AgentRun, saName, clusterRoleName string) *rbacv1.ClusterRoleBinding {
@@ -595,10 +581,10 @@ func clusterRoleBindingForRun(name string, run *platformv1alpha1.AgentRun, saNam
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
-				"app.kubernetes.io/name":                "gratefulagents",
-				"app.kubernetes.io/component":           "agent-runner",
-				"platform.gratefulagents.dev/owner-run": run.Name,
-				"platform.gratefulagents.dev/namespace": run.Namespace,
+				"app.kubernetes.io/name":      "gratefulagents",
+				"app.kubernetes.io/component": "agent-runner",
+				ownerRunLabel:                 runNameLabelValue(run.Name),
+				runNamespaceLabel:             run.Namespace,
 			},
 		},
 		RoleRef: rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: clusterRoleName},
@@ -610,22 +596,66 @@ func clusterRoleBindingForRun(name string, run *platformv1alpha1.AgentRun, saNam
 	}
 }
 
-// cleanupClusterRoleBindings removes the per-run ClusterRoleBinding when a run
-// is deleted. Called from the reconciler's teardown path.
-func cleanupClusterRoleBindings(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) error {
+func clusterRoleBindingOwnedByRun(crb *rbacv1.ClusterRoleBinding, run *platformv1alpha1.AgentRun) bool {
+	return crb.Labels[ownerRunLabel] == runNameLabelValue(run.Name) && crb.Labels[runNamespaceLabel] == run.Namespace
+}
+
+// ensureRunClusterRoleBinding creates or repairs one of the run's bindings,
+// refusing to touch a same-named binding that another run owns.
+func ensureRunClusterRoleBinding(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun, desired *rbacv1.ClusterRoleBinding) error {
+	err := c.Create(ctx, desired)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("creating ClusterRoleBinding %s: %w", desired.Name, err)
+	}
+	existing := &rbacv1.ClusterRoleBinding{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(desired), existing); err != nil {
+		return fmt.Errorf("getting existing ClusterRoleBinding %s: %w", desired.Name, err)
+	}
+	if !clusterRoleBindingOwnedByRun(existing, run) {
+		return permanentProvisioningErrorf("ClusterRoleBinding %s belongs to another AgentRun", desired.Name)
+	}
+	if reflect.DeepEqual(existing.Labels, desired.Labels) && reflect.DeepEqual(existing.RoleRef, desired.RoleRef) && reflect.DeepEqual(existing.Subjects, desired.Subjects) {
+		return nil
+	}
+	existing.Labels = desired.Labels
+	existing.RoleRef = desired.RoleRef
+	existing.Subjects = desired.Subjects
+	if err := c.Update(ctx, existing); err != nil {
+		return fmt.Errorf("updating ClusterRoleBinding %s: %w", desired.Name, err)
+	}
+	return nil
+}
+
+// deleteRunClusterRoleBindings deletes the run's bindings accepted by match
+// (all of them when match is nil). Discovery is label-based, so bindings created under earlier
+// naming schemes are released too.
+func deleteRunClusterRoleBindings(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun, match func(*rbacv1.ClusterRoleBinding) bool) error {
 	var crbList rbacv1.ClusterRoleBindingList
 	if err := c.List(ctx, &crbList, client.MatchingLabels{
-		"platform.gratefulagents.dev/owner-run": run.Name,
-		"platform.gratefulagents.dev/namespace": run.Namespace,
+		ownerRunLabel:     runNameLabelValue(run.Name),
+		runNamespaceLabel: run.Namespace,
 	}); err != nil {
-		return err
+		return fmt.Errorf("listing ClusterRoleBindings for AgentRun %s/%s: %w", run.Namespace, run.Name, err)
 	}
 	for i := range crbList.Items {
-		if err := c.Delete(ctx, &crbList.Items[i]); err != nil && !apierrors.IsNotFound(err) {
-			return err
+		crb := &crbList.Items[i]
+		if match != nil && !match(crb) {
+			continue
+		}
+		if err := c.Delete(ctx, crb, client.Preconditions{UID: &crb.UID}); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting ClusterRoleBinding %s: %w", crb.Name, err)
 		}
 	}
 	return nil
+}
+
+// cleanupClusterRoleBindings removes every per-run ClusterRoleBinding once the
+// run no longer needs cluster access (terminal, paused, or deleted).
+func cleanupClusterRoleBindings(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) error {
+	return deleteRunClusterRoleBindings(ctx, c, run, nil)
 }
 
 // effectiveProvider derives the LLM provider for a run. If the model field
@@ -1110,25 +1140,52 @@ func slackTokensEnvs(run *platformv1alpha1.AgentRun) []corev1.EnvVar {
 // same MCP implementation can safely use different credentials. Entries
 // default to optional so a missing Secret never blocks pod startup unless the
 // server demands it.
-func resolveMCPServerSecretEnvs(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) []corev1.EnvVar {
+func resolveMCPServerSecretEnvs(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) ([]corev1.EnvVar, error) {
 	if run == nil || c == nil {
-		return nil
+		return nil, nil
 	}
-	refs := mcpattach.EffectiveMCPServerRefs(ctx, c, run)
+	refs := append([]platformv1alpha1.NamedRef(nil), run.Spec.MCPServerRefs...)
+	for _, ref := range run.Spec.SkillRefs {
+		name := strings.TrimSpace(ref.Name)
+		if name == "" {
+			continue
+		}
+		skill := &platformv1alpha1.Skill{}
+		if err := c.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: name}, skill); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, fmt.Errorf("getting Skill %s/%s for MCP secret env: %w", run.Namespace, name, err)
+		}
+		if skill.Spec.Requires != nil {
+			refs = append(refs, skill.Spec.Requires.MCPServers...)
+		}
+	}
 	if len(refs) == 0 {
-		return nil
+		return nil, nil
 	}
 	var envs []corev1.EnvVar
 	seen := map[string]bool{}
+	seenServers := map[string]bool{}
 	for _, ref := range refs {
 		srv := &platformv1alpha1.MCPServer{}
 		key := client.ObjectKey{Namespace: run.Namespace, Name: strings.TrimSpace(ref.Name)}
 		if key.Name == "" {
 			continue
 		}
-		if err := c.Get(ctx, key, srv); err != nil {
-			log.Log.V(1).Info("skipping MCPServer secretEnv (fetch failed)", "server", key.Name, "error", err)
+		if seenServers[key.Name] {
 			continue
+		}
+		seenServers[key.Name] = true
+		if err := c.Get(ctx, key, srv); err != nil {
+			if apierrors.IsNotFound(err) {
+				log.Log.V(1).Info("skipping MCPServer secretEnv (server not found)", "server", key.Name)
+				continue
+			}
+			// The sandbox template is rendered once; dropping credentials on a
+			// transient read error would leave the worker without them for
+			// its whole lifetime.
+			return nil, fmt.Errorf("getting MCPServer %s/%s for secret env: %w", key.Namespace, key.Name, err)
 		}
 		if srv.Spec.MCPServerConfig == nil {
 			continue
@@ -1156,7 +1213,7 @@ func resolveMCPServerSecretEnvs(ctx context.Context, c client.Client, run *platf
 			})
 		}
 	}
-	return envs
+	return envs, nil
 }
 
 func maybeAppendEnv(envs []corev1.EnvVar, env *corev1.EnvVar) []corev1.EnvVar {
@@ -1644,91 +1701,11 @@ func buildCommonPodSpec(run *platformv1alpha1.AgentRun, saName string, command [
 	return podSpec
 }
 
-func createPlanPod(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) (string, error) {
-	podName := sanitizeDNSLabel("run", run.Name)
-	saName := sanitizeDNSLabel("run", run.Name)
-	if err := ensureRunRBAC(ctx, c, run, saName); err != nil {
-		return "", err
-	}
-
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
-		Name:      podName,
-		Namespace: run.Namespace,
-		Labels: map[string]string{
-			"app.kubernetes.io/name":                    "gratefulagents",
-			"app.kubernetes.io/component":               "agent-runner",
-			"platform.gratefulagents.dev/owner-run":     run.Name,
-			"platform.gratefulagents.dev/owner-run-uid": string(run.UID),
-		},
-		OwnerReferences: []metav1.OwnerReference{{
-			APIVersion:         platformv1alpha1.GroupVersion.String(),
-			Kind:               "AgentRun",
-			Name:               run.Name,
-			UID:                run.UID,
-			Controller:         boolPtr(true),
-			BlockOwnerDeletion: boolPtr(true),
-		}},
-	}}
-
-	envs := runExecutionEnvVars(run)
-	// Secret-backed env declared by attached MCP servers (incl. skill-required ones).
-	envs = append(envs, resolveMCPServerSecretEnvs(ctx, c, run)...)
-	pod.Spec = buildCommonPodSpec(ctxlessRun(run), saName, []string{"/opt/gratefulagents/bin/agent", "run"}, envs, nil, nil)
-	sshTunnel, err := resolveSSHTunnel(ctx, c, run)
-	if err != nil {
-		return "", err
-	}
-	ensureSSHTunnelSidecar(&pod.Spec, sshTunnel)
-	if err := c.Create(ctx, pod); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			existing := &corev1.Pod{}
-			key := client.ObjectKey{Name: podName, Namespace: run.Namespace}
-			if getErr := c.Get(ctx, key, existing); getErr != nil {
-				if apierrors.IsNotFound(getErr) {
-					return "", errRunPodReplaced
-				}
-				return "", fmt.Errorf("getting existing run pod: %w", getErr)
-			}
-			if shouldReplaceExistingRunPod(run, existing) {
-				if existing.DeletionTimestamp == nil {
-					if delErr := c.Delete(ctx, existing); delErr != nil && !apierrors.IsNotFound(delErr) {
-						return "", fmt.Errorf("deleting stale run pod: %w", delErr)
-					}
-				}
-				return "", errRunPodReplaced
-			}
-			return podName, nil
-		}
-		return "", fmt.Errorf("creating run pod: %w", err)
-	}
-	return podName, nil
-}
-
-func shouldReplaceExistingRunPod(run *platformv1alpha1.AgentRun, pod *corev1.Pod) bool {
-	if pod == nil {
-		return false
-	}
-	if pod.DeletionTimestamp != nil {
-		return true
-	}
-	switch pod.Status.Phase {
-	case corev1.PodSucceeded, corev1.PodFailed:
-		return true
-	}
-	// Pod is still running — don't replace it.
-	// Mode transitions are handled in-process via Postgres polling, not pod replacement.
-	return false
-}
-
 func triggerExternalIdentifier(run *platformv1alpha1.AgentRun) string {
 	if run == nil || run.Spec.Trigger.ExternalRef == nil {
 		return ""
 	}
 	return strings.TrimSpace(run.Spec.Trigger.ExternalRef.Identifier)
-}
-
-func ctxlessRun(run *platformv1alpha1.AgentRun) *platformv1alpha1.AgentRun {
-	return run
 }
 
 func runtimeScopeEnvs(run *platformv1alpha1.AgentRun) []corev1.EnvVar {

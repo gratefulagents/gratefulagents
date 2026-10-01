@@ -428,7 +428,7 @@ func TestReleaseRunSandboxAbandonsClaimStuckTerminating(t *testing.T) {
 	run.Status.Sandbox = nil
 	controllerTrue := true
 	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
-		Name: "run-claim-sbx", Namespace: "default",
+		Name: "run-claim-sbx", Namespace: "default", Labels: sandboxClaimLabels(run),
 		Finalizers:        []string{"example.com/stuck"},
 		DeletionTimestamp: &metav1.Time{Time: time.Now().Add(-time.Hour)},
 		OwnerReferences: []metav1.OwnerReference{{

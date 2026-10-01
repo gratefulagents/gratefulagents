@@ -1106,13 +1106,15 @@ func (s *Store) ClaimUserMessage(ctx context.Context, sessionID uuid.UUID, messa
 	err := s.pool.QueryRow(ctx, `
 		UPDATE conversation_messages
 		SET delivery_state = 'claimed',
-		    claimed_at = now(),
-		    delivery_sequence = nextval('conversation_delivery_sequence'),
+		    claimed_at = CASE WHEN delivery_state = 'pending' THEN now() ELSE claimed_at END,
+		    delivery_sequence = CASE WHEN delivery_state = 'pending'
+		        THEN nextval('conversation_delivery_sequence') ELSE delivery_sequence END,
 		    claim_token = $3,
-		    metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{delivered_at_unix}',
-		        to_jsonb(extract(epoch FROM now())::bigint), true)
+		    metadata = CASE WHEN delivery_state = 'pending'
+		        THEN jsonb_set(COALESCE(metadata, '{}'::jsonb), '{delivered_at_unix}',
+		            to_jsonb(extract(epoch FROM now())::bigint), true) ELSE metadata END
 		WHERE session_id = $1 AND id = $2 AND role = 'user'
-		  AND delivery_state = 'pending'
+		  AND (delivery_state = 'pending' OR (delivery_state = 'claimed' AND claim_token = $3))
 		RETURNING id, session_id, role, content, metadata, delivery_state,
 		          delivery_sequence, claimed_at, created_at`, sessionID, messageID, claimToken).Scan(
 		&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.Metadata,

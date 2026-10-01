@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -76,8 +77,59 @@ func TestEnsureRunSandboxTemplateRejectsForeignController(t *testing.T) {
 		}},
 	}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(conflicting).Build()
-	if _, err := ensureRunSandboxTemplate(context.Background(), c, run, nil, "run-sa", ""); err == nil || !strings.Contains(err.Error(), "belongs to another AgentRun") {
-		t.Fatalf("ensureRunSandboxTemplate() error = %v, want owner collision", err)
+	// A previous incarnation of the same-named run still owns the template:
+	// wait for garbage collection rather than reuse or permanently fail.
+	_, err := ensureRunSandboxTemplate(context.Background(), c, run, nil, "run-sa", "")
+	if !errors.Is(err, errStaleRunResource) || isPermanentProvisioningError(err) {
+		t.Fatalf("ensureRunSandboxTemplate() error = %v, want transient stale-owner error", err)
+	}
+
+	foreign := conflicting.DeepCopy()
+	foreign.ResourceVersion = ""
+	foreign.OwnerReferences[0].Name = "other-run"
+	c = fake.NewClientBuilder().WithScheme(scheme).WithObjects(foreign).Build()
+	_, err = ensureRunSandboxTemplate(context.Background(), c, run, nil, "run-sa", "")
+	if !isPermanentProvisioningError(err) || !strings.Contains(err.Error(), "not controlled by AgentRun") {
+		t.Fatalf("ensureRunSandboxTemplate() error = %v, want permanent owner collision", err)
+	}
+}
+
+func TestEnsureWorkspacePVCWaitsForStaleIncarnation(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(core): %v", err)
+	}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "ws-run", Namespace: "default", UID: types.UID("new-uid")}}
+	controller := true
+	stale := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: workspacePVCName(run), Namespace: run.Namespace,
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: types.UID("old-uid"), Controller: &controller,
+		}},
+	}}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stale).Build()
+	if _, err := ensureWorkspacePVC(context.Background(), c, run, nil); !errors.Is(err, errStaleRunResource) {
+		t.Fatalf("ensureWorkspacePVC() error = %v, want errStaleRunResource", err)
+	}
+
+	owned := stale.DeepCopy()
+	owned.ResourceVersion = ""
+	owned.OwnerReferences = []metav1.OwnerReference{runOwnerRef(run)}
+	c = fake.NewClientBuilder().WithScheme(scheme).WithObjects(owned).Build()
+	if name, err := ensureWorkspacePVC(context.Background(), c, run, nil); err != nil || name != owned.Name {
+		t.Fatalf("ensureWorkspacePVC() = %q, %v; want reuse of owned PVC", name, err)
+	}
+}
+
+func TestWorkspacePVCNameHashesLongNames(t *testing.T) {
+	prefix := strings.Repeat("a", 70)
+	first := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: prefix + "x", UID: types.UID("uid-1")}}
+	second := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: prefix + "y", UID: types.UID("uid-2")}}
+	if workspacePVCName(first) == workspacePVCName(second) {
+		t.Fatal("long run names sharing a prefix share a workspace PVC")
+	}
+	if got := workspacePVCName(&platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "short"}}); got != "ws-short" {
+		t.Fatalf("short PVC name = %q, want backward-compatible ws-short", got)
 	}
 }
 
@@ -133,12 +185,15 @@ func TestReleaseRunSandboxDeletesOwnedLegacyClaimAndPreservesForeignResources(t 
 	controller := true
 	ownedLegacy := &extensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
 		Name: "legacy-claim-not-in-status", Namespace: run.Namespace, UID: types.UID("owned-claim-uid"), ResourceVersion: "1",
+		Labels: sandboxClaimLabels(run),
 		OwnerReferences: []metav1.OwnerReference{{
 			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: run.UID, Controller: &controller,
 		}},
 	}}
 	foreignClaim := &extensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
 		Name: "foreign-status-claim", Namespace: run.Namespace, UID: types.UID("foreign-claim-uid"), ResourceVersion: "1",
+		// Same owner-run label (legacy name collision): the UID check must still protect it.
+		Labels: sandboxClaimLabels(run),
 		OwnerReferences: []metav1.OwnerReference{{
 			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: "other-run", UID: types.UID("other-run-uid"), Controller: &controller,
 		}},
