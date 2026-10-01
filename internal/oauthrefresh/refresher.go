@@ -9,6 +9,7 @@
 package oauthrefresh
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -18,7 +19,10 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
@@ -49,9 +53,21 @@ type Refresher struct {
 	httpClient *http.Client
 	now        func() time.Time
 
-	// mu guards staleSecrets
+	// mu guards staleSecrets and initialization of refreshGate.
 	mu           sync.Mutex
 	staleSecrets map[oauthSecretRef]string // ref → resourceVersion when marked stale
+	refreshGate  chan struct{}
+	// refreshGate serializes exchanges and guards pending, including across
+	// different provider references to the same Secret.
+	pending map[types.NamespacedName]pendingRefresh
+}
+
+type pendingRefresh struct {
+	uid       types.UID
+	original  []byte
+	accountID []byte
+	updated   []byte
+	provider  string
 }
 
 // New creates a Refresher.
@@ -110,6 +126,25 @@ func (r *Refresher) refreshAll(ctx context.Context) {
 }
 
 func (r *Refresher) refreshSecret(ctx context.Context, ref oauthSecretRef) error {
+	r.mu.Lock()
+	if r.refreshGate == nil {
+		r.refreshGate = make(chan struct{}, 1)
+	}
+	gate := r.refreshGate
+	r.mu.Unlock()
+	select {
+	case gate <- struct{}{}:
+		defer func() { <-gate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if pending, ok := r.pending[ref.NamespacedName]; ok {
+		return r.persistRefresh(ctx, ref, pending)
+	}
+
 	secret := &corev1.Secret{}
 	if err := r.client.Get(ctx, ref.NamespacedName, secret); err != nil {
 		return fmt.Errorf("get secret: %w", err)
@@ -191,15 +226,51 @@ func (r *Refresher) refreshCopilotSecret(ctx context.Context, ref oauthSecretRef
 	return r.writeRefreshedSecret(ctx, ref, secret, updated, "copilot")
 }
 
-// writeRefreshedSecret persists refreshed auth.json back to the Secret. K8s
-// optimistic concurrency (resourceVersion) handles races with other writers.
+// Retain exchanged credentials before attempting any cancellable I/O: a failed
+// write must never cause the consumed refresh token to be exchanged again.
 func (r *Refresher) writeRefreshedSecret(ctx context.Context, ref oauthSecretRef, secret *corev1.Secret, updated []byte, provider string) error {
-	secret.Data[oauth.AuthJSONKey] = updated
-	if err := r.client.Update(ctx, secret); err != nil {
-		return fmt.Errorf("update secret: %w", err)
+	if r.pending == nil {
+		r.pending = make(map[types.NamespacedName]pendingRefresh)
 	}
-	log.Printf("[oauthrefresh] refreshed %s tokens for %s/%s", provider, ref.Namespace, ref.Name)
-	return nil
+	pending := pendingRefresh{
+		uid:       secret.UID,
+		original:  bytes.Clone(secret.Data[oauth.AuthJSONKey]),
+		accountID: bytes.Clone(secret.Data["account-id"]),
+		updated:   bytes.Clone(updated),
+		provider:  provider,
+	}
+	r.pending[ref.NamespacedName] = pending
+	return r.persistRefresh(ctx, ref, pending)
+}
+
+func (r *Refresher) persistRefresh(ctx context.Context, ref oauthSecretRef, pending pendingRefresh) error {
+	return wait.ExponentialBackoffWithContext(ctx, retry.DefaultBackoff, func(ctx context.Context) (bool, error) {
+		secret := &corev1.Secret{}
+		if err := r.client.Get(ctx, ref.NamespacedName, secret); err != nil {
+			if apierrors.IsNotFound(err) {
+				delete(r.pending, ref.NamespacedName)
+			}
+			return false, fmt.Errorf("get secret for persistence: %w", err)
+		}
+		if secret.UID != pending.uid || !bytes.Equal(secret.Data["account-id"], pending.accountID) ||
+			!bytes.Equal(secret.Data[oauth.AuthJSONKey], pending.original) {
+			// Either our write was observed or another writer replaced the
+			// credentials. In both cases the old exchange must not overwrite it.
+			delete(r.pending, ref.NamespacedName)
+			return true, nil
+		}
+		secret.Data[oauth.AuthJSONKey] = bytes.Clone(pending.updated)
+		if err := r.client.Update(ctx, secret); err != nil {
+			if apierrors.IsConflict(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("update secret: %w", err)
+		}
+		// Keep the result until a read observes it: the client cache can lag
+		// successful writes, and a timed-out Update may also have committed.
+		log.Printf("[oauthrefresh] refreshed %s tokens for %s/%s", pending.provider, ref.Namespace, ref.Name)
+		return true, nil
+	})
 }
 
 // refreshConfig builds the SDK refresh configuration shared by every provider,
