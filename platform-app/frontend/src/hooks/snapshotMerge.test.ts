@@ -101,6 +101,14 @@ describe("mergeActivityEntries", () => {
     const next = [entry({})];
     expect(mergeActivityEntries(prev, next)).toBe(next);
   });
+
+  it("returns the snapshot outright when replace is set", () => {
+    const prev = [entry({ message: "a" })];
+    const next = [entry({ message: "a" }), entry({ timestampUnix: 2n, message: "b" })];
+    expect(mergeActivityEntries(prev, next)).not.toBe(next);
+    const merged = mergeActivityEntries(prev, next, { replace: true });
+    expect(merged).toBe(next);
+  });
 });
 
 describe("subagentGraphFingerprint", () => {

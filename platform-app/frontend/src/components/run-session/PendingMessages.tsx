@@ -6,7 +6,8 @@ import type { ChatMessage } from "@/rpc/platform/service_pb";
 /**
  * A message the composer has handed to the server but that no snapshot has
  * echoed back yet. `messageId` is filled in from the send response; the row
- * disappears once a conversation message with that id shows up.
+ * disappears once a conversation message with that id or with the same
+ * `clientMessageId` shows up (the echo often beats the send response).
  */
 export type OutboundMessage = {
   clientMessageId: string;
@@ -22,7 +23,8 @@ export const OUTBOUND_MESSAGE_TTL_MS = 30_000;
 
 /**
  * Drops outbound rows that the conversation now contains (matched by server
- * message id) and, when `now` is given, rows that have outlived their TTL.
+ * message id or client message id) and, when `now` is given, rows that have
+ * outlived their TTL.
  * Returns the same array when nothing changed so callers can skip a re-render.
  */
 export function settleOutboundMessages(
@@ -34,9 +36,11 @@ export function settleOutboundMessages(
     return outbound;
   }
   const ids = new Set(conversation.map((m) => m.id));
+  const clientIds = new Set(conversation.map((m) => m.clientMessageId).filter(Boolean));
   const next = outbound.filter(
     (m) =>
       !(m.messageId !== undefined && ids.has(m.messageId)) &&
+      !clientIds.has(m.clientMessageId) &&
       (now === undefined || now - m.sentAt < OUTBOUND_MESSAGE_TTL_MS),
   );
   return next.length === outbound.length ? outbound : next;

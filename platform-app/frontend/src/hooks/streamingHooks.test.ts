@@ -538,20 +538,20 @@ describe("streaming hooks", () => {
       expect(stateStore[5]).toBe(true); // hasMoreBefore from the reset frame
     });
 
-    it("resumes with sinceEventId and appends a pure resume-continuation reset frame", async () => {
+    it("resumes a durable cursor with sinceEventId and appends a resume=true reset frame", async () => {
       const e1 = dEntry(1n, "a");
       const e2 = dEntry(2n, "b");
       const e3 = dEntry(3n, "c");
       clientMock.watchActivityLog
         .mockReturnValueOnce(
           createAsyncIterable(
-            [{ entries: [e1, e2], isComplete: false, delta: true, reset: true, lastEventId: 2n, firstEventId: 1n, hasMoreBefore: false } as never],
+            [{ entries: [e1, e2], isComplete: false, delta: true, reset: true, lastEventId: 2n, firstEventId: 1n, hasMoreBefore: false, eventIdsDurable: true } as never],
             new Error("disconnect"),
           ),
         )
         .mockReturnValueOnce(
           createAsyncIterable([
-            { entries: [e3], isComplete: true, delta: true, reset: true, lastEventId: 3n, firstEventId: 3n, hasMoreBefore: true } as never,
+            { entries: [e3], isComplete: true, delta: true, reset: true, resume: true, lastEventId: 3n, firstEventId: 3n, hasMoreBefore: true, eventIdsDurable: true } as never,
           ]),
         );
 
@@ -580,7 +580,7 @@ describe("streaming hooks", () => {
       clientMock.watchActivityLog
         .mockReturnValueOnce(
           createAsyncIterable(
-            [{ entries: [e1, e2], isComplete: false, delta: true, reset: true, lastEventId: 2n, firstEventId: 1n, hasMoreBefore: true } as never],
+            [{ entries: [e1, e2], isComplete: false, delta: true, reset: true, lastEventId: 2n, firstEventId: 1n, hasMoreBefore: true, eventIdsDurable: true } as never],
             new Error("disconnect"),
           ),
         )
@@ -628,6 +628,87 @@ describe("streaming hooks", () => {
       expect(merged).toHaveLength(1);
       expect(merged[0]).toBe(f1);
       expect(stateStore[5]).toBe(false);
+    });
+
+    it("replaces on an upward source flip (exec ordinals -> durable ids, resume=false)", async () => {
+      const exec = [dEntry(1n, "a"), dEntry(2n, "b"), dEntry(3n, "c")];
+      const pg = [dEntry(1001n, "a"), dEntry(1002n, "b"), dEntry(1003n, "c"), dEntry(1004n, "d")];
+      clientMock.watchActivityLog.mockReturnValueOnce(
+        frameThenPending([
+          { entries: exec, isComplete: false, delta: true, reset: true, lastEventId: 3n, firstEventId: 1n, hasMoreBefore: false, eventIdsDurable: false } as never,
+          { entries: pg, isComplete: false, delta: true, reset: true, resume: false, lastEventId: 1004n, firstEventId: 1001n, hasMoreBefore: true, eventIdsDurable: true } as never,
+        ]),
+      );
+
+      useActivityLog("ns", "run");
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      const merged = stateStore[0] as unknown[];
+      expect(merged).toEqual(pg);
+      expect(merged[0]).toBe(pg[0]);
+      expect(stateStore[5]).toBe(true);
+    });
+
+    it("reconnects a non-durable cursor with sinceEventId 0 and replaces with the snapshot", async () => {
+      const e1 = dEntry(1n, "a");
+      const e2 = dEntry(2n, "b");
+      const s1 = dEntry(1n, "a");
+      const s2 = dEntry(2n, "b");
+      const s3 = dEntry(3n, "c");
+      clientMock.watchActivityLog
+        .mockReturnValueOnce(
+          createAsyncIterable(
+            [{ entries: [e1, e2], isComplete: false, delta: true, reset: true, lastEventId: 2n, firstEventId: 1n, eventIdsDurable: false } as never],
+            new Error("disconnect"),
+          ),
+        )
+        .mockReturnValueOnce(
+          frameThenPending([
+            { entries: [s1, s2, s3], isComplete: false, delta: true, reset: true, lastEventId: 3n, firstEventId: 1n, eventIdsDurable: false } as never,
+          ]),
+        );
+
+      useActivityLog("ns", "run");
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(1000);
+      await flushMicrotasks();
+
+      expect(clientMock.watchActivityLog).toHaveBeenCalledTimes(2);
+      expect(clientMock.watchActivityLog).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sinceEventId: 0n }),
+        expect.anything(),
+      );
+      const merged = stateStore[0] as unknown[];
+      expect(merged).toHaveLength(3);
+      expect(merged[0]).toBe(s1);
+      expect(merged[2]).toBe(s3);
+    });
+
+    it("fallback snapshot from a non-durable source replaces durable entries", async () => {
+      const e1 = dEntry(101n, "a");
+      const e2 = dEntry(102n, "b");
+      // Same events (same timestamps) re-read from a non-durable source with
+      // synthetic ordinals: a prefix merge would splice them onto e1/e2.
+      const x1 = { ...dEntry(1n, "a"), timestampUnix: 101n };
+      const x2 = { ...dEntry(2n, "b"), timestampUnix: 102n };
+      const x3 = { ...dEntry(3n, "c"), timestampUnix: 103n };
+      clientMock.watchActivityLog.mockReturnValueOnce(
+        createAsyncIterable([
+          { entries: [e1, e2], isComplete: false, delta: true, reset: true, lastEventId: 102n, firstEventId: 101n, eventIdsDurable: true } as never,
+        ]),
+      );
+      clientMock.getActivityLog.mockResolvedValueOnce({ entries: [x1, x2, x3], isComplete: true, eventIdsDurable: false });
+
+      useActivityLog("ns", "run");
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      expect(clientMock.getActivityLog).toHaveBeenCalledTimes(1);
+      const merged = stateStore[0] as unknown[];
+      expect(merged).toHaveLength(3);
+      expect(merged[0]).toBe(x1);
+      expect(merged[1]).toBe(x2);
     });
 
     it("keeps the legacy full-snapshot merge path for non-delta frames", async () => {

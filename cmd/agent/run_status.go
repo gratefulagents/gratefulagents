@@ -98,7 +98,11 @@ func readAgentRun(
 func writeResultToStatus(ctx context.Context, c client.Client, taskName, namespace string, result runResult, eventsLogURL string) error {
 	return patchAgentRunStatus(ctx, c, taskName, namespace, func(run *platformv1alpha1.AgentRun) {
 		run.Status.Artifacts = ensureRunArtifacts(run.Status.Artifacts)
-		run.Status.Artifacts.EventsLogURL = eventsLogURL
+		// Only record a real artifact URL: an empty value would erase the
+		// events log a previous pod of this run published.
+		if eventsLogURL != "" {
+			run.Status.Artifacts.EventsLogURL = eventsLogURL
+		}
 		run.Status.LastError = result.Error
 		run.Status.Phase = platformv1alpha1.AgentRunPhaseSucceeded
 		run.Status.CurrentStep = "review-complete"

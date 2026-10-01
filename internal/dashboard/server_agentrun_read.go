@@ -253,6 +253,7 @@ func activityEventToActivityEntry(ev store.ActivityEvent) *platform.ActivityEntr
 		e := contentEventToActivityEntry(&ce)
 		preserveEventUsageCacheSemantics(ev.Detail, e)
 		e.EventId = ev.ID
+		e.OrderUnixMs = activityOrderUnixMs(ev)
 		return e
 	}
 	return &platform.ActivityEntry{
@@ -261,7 +262,19 @@ func activityEventToActivityEntry(ev store.ActivityEvent) *platform.ActivityEntr
 		Message:       ev.Summary,
 		InputRaw:      string(ev.Detail),
 		EventId:       ev.ID,
+		OrderUnixMs:   activityOrderUnixMs(ev),
 	}
+}
+
+// activityOrderUnixMs is the database-clock time an activity row was
+// recorded at. Conversation messages carry the same clock (created_at,
+// claimed_at), so the client can interleave the two streams without mixing
+// the agent pod's clock with Postgres' or rounding both to whole seconds.
+func activityOrderUnixMs(ev store.ActivityEvent) int64 {
+	if ev.CreatedAt.IsZero() {
+		return 0
+	}
+	return ev.CreatedAt.UnixMilli()
 }
 
 func (s *Server) getAgentRunActivityLog(ctx context.Context, run *platformv1alpha1.AgentRun) *platform.GetActivityLogResponse {
@@ -280,6 +293,15 @@ func buildActivityLogResponse(entries []*platform.ActivityEntry, isComplete bool
 		IsComplete:    isComplete,
 		SubagentGraph: BuildSubagentGraph(coalesced, runName),
 	}
+}
+
+// buildPostgresActivityLogResponse builds a response whose event ids are
+// durable Postgres activity_events ids, valid as a since_event_id cursor
+// across reconnects.
+func buildPostgresActivityLogResponse(entries []*platform.ActivityEntry, isComplete bool, runName string) *platform.GetActivityLogResponse {
+	resp := buildActivityLogResponse(entries, isComplete, runName)
+	resp.EventIdsDurable = true
+	return resp
 }
 
 // latestActivityIDStore is implemented by stores that can return just the
@@ -437,28 +459,37 @@ func (s *Server) getAgentRunActivityLogSourced(ctx context.Context, run *platfor
 	}
 
 	// Postgres is the preferred live source because it is durable and updates
-	// faster than pod exec snapshots while the run is still active.
+	// faster than pod exec snapshots while the run is still active. Once the
+	// run has a session, Postgres is the only live source: an empty or
+	// transiently failing Postgres read must not fall back to the pod's
+	// events.jsonl, whose synthetic ordinals (and per-pod truncation) would
+	// flip the stream's source back and forth and make clients rebuild the
+	// timeline from a different history.
 	if s.stateStore != nil {
 		if sess, err := s.cachedSessionByRun(ctx, run.Name, run.Namespace); err == nil {
 			memoKey := run.Namespace + "/" + run.Name
+			s.activityMemoMu.Lock()
+			memo, ok := s.activityMemo[memoKey]
+			if ok && (memo.s3URL != "" || memo.sessionID != sess.ID) {
+				// An S3-built memo has no Postgres cursor (when the artifact
+				// became unreadable, rebuild from Postgres instead of
+				// appending events onto S3 entries), and a memo for another
+				// session belongs to a deleted run that had the same name.
+				ok = false
+			}
+			if ok {
+				memo.lastAccess = time.Now()
+			}
+			s.activityMemoMu.Unlock()
 			// Cheap probe: when no new events arrived and the terminal state
 			// is unchanged, reuse the previously built response instead of
 			// reloading the full history and rebuilding the subagent graph
 			// on every 500ms watch tick. When new events did arrive, fetch
-			// only the delta and extend the cached entries.
-			if latestID, err := s.latestActivityEventID(ctx, sess.ID, false); err == nil && latestID > 0 {
-				s.activityMemoMu.Lock()
-				memo, ok := s.activityMemo[memoKey]
-				if ok && memo.s3URL != "" {
-					// An S3-built memo has no Postgres cursor; when the
-					// artifact became unreadable, rebuild from Postgres
-					// instead of appending events onto S3 entries.
-					ok = false
-				}
-				if ok {
-					memo.lastAccess = time.Now()
-				}
-				s.activityMemoMu.Unlock()
+			// only the delta and extend the cached entries. Ids are drawn in
+			// per-session commit order (migration 064), so an id cursor never
+			// skips a row that commits later.
+			latestID, probeErr := s.latestActivityEventID(ctx, sess.ID, false)
+			if probeErr == nil && latestID > 0 {
 				// The probe can be up to probeLatestEventTTL stale, so the
 				// memo (advanced by whichever stream fetched a delta first)
 				// may legitimately be ahead of it; events are append-only,
@@ -487,8 +518,9 @@ func (s *Server) getAgentRunActivityLogSourced(ctx context.Context, run *platfor
 							approxBytes += activityEventApproxBytes(ev)
 							entries = append(entries, activityEventToActivityEntry(ev))
 						}
-						resp := buildActivityLogResponse(entries, isTerminal, run.Name)
+						resp := buildPostgresActivityLogResponse(entries, isTerminal, run.Name)
 						s.storeActivityMemo(memoKey, &activityMemoEntry{
+							sessionID:   sess.ID,
 							lastEventID: lastID,
 							isTerminal:  isTerminal,
 							entries:     entries,
@@ -499,32 +531,44 @@ func (s *Server) getAgentRunActivityLogSourced(ctx context.Context, run *platfor
 					}
 				}
 			}
-			events, err := s.stateStore.GetAllActivity(ctx, sess.ID)
-			if err == nil && len(events) > 0 {
-				entries := make([]*platform.ActivityEntry, 0, len(events))
-				var lastID int64
-				var approxBytes int
-				for _, ev := range events {
-					// The high-water mark is the max ID, not the last row: the
-					// delta cursor must not depend on the load's sort order.
-					if ev.ID > lastID {
-						lastID = ev.ID
-					}
-					approxBytes += activityEventApproxBytes(ev)
-					entries = append(entries, activityEventToActivityEntry(ev))
-				}
-				if len(entries) > 0 {
-					resp := buildActivityLogResponse(entries, isTerminal, run.Name)
-					s.storeActivityMemo(memoKey, &activityMemoEntry{
-						lastEventID: lastID,
-						isTerminal:  isTerminal,
-						entries:     entries,
-						resp:        resp,
-						approxBytes: approxBytes,
-					})
-					return resp, activityLogSourcePostgres
-				}
+			var events []store.ActivityEvent
+			loadErr := probeErr
+			if loadErr == nil {
+				events, loadErr = s.stateStore.GetAllActivity(ctx, sess.ID)
 			}
+			if loadErr != nil {
+				// Transient Postgres failure: keep serving the last good
+				// Postgres view rather than switching sources.
+				if ok {
+					return memo.resp, activityLogSourcePostgres
+				}
+				log.Printf("WARN: loading activity for %s/%s from Postgres: %v", run.Namespace, run.Name, loadErr)
+				return &platform.GetActivityLogResponse{}, activityLogSourceNone
+			}
+			entries := make([]*platform.ActivityEntry, 0, len(events))
+			var lastID int64
+			var approxBytes int
+			for _, ev := range events {
+				// The high-water mark is the max ID, not the last row: the
+				// delta cursor must not depend on the load's sort order.
+				if ev.ID > lastID {
+					lastID = ev.ID
+				}
+				approxBytes += activityEventApproxBytes(ev)
+				entries = append(entries, activityEventToActivityEntry(ev))
+			}
+			resp := buildPostgresActivityLogResponse(entries, isTerminal, run.Name)
+			if len(entries) > 0 {
+				s.storeActivityMemo(memoKey, &activityMemoEntry{
+					sessionID:   sess.ID,
+					lastEventID: lastID,
+					isTerminal:  isTerminal,
+					entries:     entries,
+					resp:        resp,
+					approxBytes: approxBytes,
+				})
+			}
+			return resp, activityLogSourcePostgres
 		}
 	}
 
@@ -702,6 +746,7 @@ func conversationFromMessages(msgs []store.Message, _ string) []*platform.ChatMe
 			Role:             msg.Role,
 			Content:          msg.Content,
 			TimestampUnix:    msg.CreatedAt.Unix(),
+			TimestampUnixMs:  msg.CreatedAt.UnixMilli(),
 			DeliverySequence: msg.DeliverySequence,
 			DeliveryState:    msg.DeliveryState,
 		}
@@ -715,10 +760,19 @@ func conversationFromMessages(msgs []store.Message, _ string) []*platform.ChatMe
 			// removal once no pre-typed writers remain.
 			if msg.ClaimedAt != nil {
 				deliveredAt = msg.ClaimedAt.Unix()
+				cm.DeliveredAtUnixMs = msg.ClaimedAt.UnixMilli()
+			} else if deliveredAt > 0 {
+				cm.DeliveredAtUnixMs = deliveredAt * 1000
 			}
 			cm.QueueMode = string(mode)
 			cm.DeliveredAtUnix = deliveredAt
-			cm.Pending = (msg.DeliveryState == "pending" || msg.DeliveryState == "" && deliveredAt == 0) && msg.ID != firstUserID
+			cm.ClientMessageId = clientMessageIDFromMetadata(msg.Metadata)
+			// A message handed back to the queue after its runner died
+			// (RecoverClaimedUserMessages) keeps claimed_at: it was already
+			// part of the conversation, so it stays in place in the
+			// transcript instead of jumping to the queued strip and back.
+			cm.Pending = (msg.DeliveryState == "pending" || msg.DeliveryState == "" && deliveredAt == 0) &&
+				msg.ClaimedAt == nil && msg.ID != firstUserID
 		}
 		out = append(out, cm)
 	}
@@ -1195,12 +1249,14 @@ func applyActivityLogRequestOptions(resp *platform.GetActivityLogResponse, req *
 		graph = remapSubagentGraph(graph, entries)
 	}
 	out := &platform.GetActivityLogResponse{
-		Entries:       entries,
-		IsComplete:    resp.IsComplete,
-		SubagentGraph: graph,
-		Delta:         resp.Delta,
-		Reset_:        resp.Reset_,
-		HasMoreBefore: hasMoreBefore,
+		Entries:         entries,
+		IsComplete:      resp.IsComplete,
+		SubagentGraph:   graph,
+		Delta:           resp.Delta,
+		Reset_:          resp.Reset_,
+		Resume:          resp.Resume,
+		EventIdsDurable: resp.EventIdsDurable,
+		HasMoreBefore:   hasMoreBefore,
 	}
 	if len(entries) > 0 {
 		out.FirstEventId = entries[0].EventId

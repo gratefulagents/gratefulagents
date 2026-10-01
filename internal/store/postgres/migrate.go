@@ -188,13 +188,19 @@ var migration062Up string
 //go:embed migrations/063_reset_machine_accepted_risk.up.sql
 var migration063Up string
 
+//go:embed migrations/064_activity_commit_order.up.sql
+var migration064Up string
+
+//go:embed migrations/065_activity_client_event_id_index.up.sql
+var migration065Up string
+
 // noTxMigrations run statement-by-statement outside a transaction so they can
 // use commands PostgreSQL forbids in transaction blocks, such as
 // CREATE INDEX CONCURRENTLY (which avoids blocking writers during the build).
 // If a statement fails, the version is not recorded and the migration is
 // retried on the next startup — such migrations must be written idempotently
 // (IF EXISTS / IF NOT EXISTS, plus cleanup of invalid leftover indexes).
-var noTxMigrations = map[int]bool{40: true, 49: true, 60: true, 61: true}
+var noTxMigrations = map[int]bool{40: true, 49: true, 60: true, 61: true, 65: true}
 
 // applyNoTxMigration executes each semicolon-terminated statement of a
 // migration directly on the connection (no surrounding transaction), then
@@ -301,6 +307,8 @@ func orderedMigrations() []schemaMigration {
 		{61, migration061Up, false},
 		{62, migration062Up, false},
 		{63, migration063Up, false},
+		{64, migration064Up, false},
+		{65, migration065Up, false},
 	}
 }
 

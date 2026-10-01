@@ -592,15 +592,23 @@ func watchActivityLogDelta(
 					opts.SinceEventId = req.SinceEventId
 				}
 				applied := applyActivityLogRequestOptions(resp, opts)
+				// Only the first frame of a stream resumed from a durable
+				// cursor continues the client's buffer; every other reset
+				// (source flip, id regression) replaces it. Clients must not
+				// infer this from first_event_id > cursor: ids from a
+				// different source are not comparable to their cursor.
+				resume := !sentInitial && deltaCapable && req.SinceEventId > 0
 				frame := &platform.GetActivityLogResponse{
-					Entries:       applied.Entries,
-					IsComplete:    resp.IsComplete,
-					SubagentGraph: applied.SubagentGraph,
-					LastEventId:   maxID,
-					Delta:         true,
-					Reset_:        true,
-					FirstEventId:  applied.FirstEventId,
-					HasMoreBefore: applied.HasMoreBefore,
+					Entries:         applied.Entries,
+					IsComplete:      resp.IsComplete,
+					SubagentGraph:   applied.SubagentGraph,
+					LastEventId:     maxID,
+					Delta:           true,
+					Reset_:          true,
+					Resume:          resume,
+					EventIdsDurable: deltaCapable,
+					FirstEventId:    applied.FirstEventId,
+					HasMoreBefore:   applied.HasMoreBefore,
 				}
 				if err := send(frame); err != nil {
 					return err
@@ -631,10 +639,11 @@ func watchActivityLogDelta(
 			graphFP := subagentGraphFingerprint(resp.SubagentGraph)
 			if len(appended) > 0 || graphFP != lastGraphFP || !reflect.DeepEqual(lastBuilt, resp) {
 				frame := &platform.GetActivityLogResponse{
-					Entries:     appended,
-					IsComplete:  resp.IsComplete,
-					LastEventId: maxID,
-					Delta:       true,
+					Entries:         appended,
+					IsComplete:      resp.IsComplete,
+					LastEventId:     maxID,
+					Delta:           true,
+					EventIdsDurable: true,
 				}
 				if graphFP != lastGraphFP {
 					frame.SubagentGraph = resp.SubagentGraph

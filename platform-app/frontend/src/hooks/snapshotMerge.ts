@@ -28,10 +28,16 @@ function sameEntryContent(prev: ActivityEntry, next: ActivityEntry): boolean {
  * Merge a full activity-log snapshot into the previous entries array.
  * Returns `prev` unchanged when the snapshot carries nothing new (so React
  * can bail out), reuses previous entry references for the stable prefix, and
- * falls back to the raw snapshot on any reset/rewrite.
+ * falls back to the raw snapshot on any reset/rewrite. `replace` forces the
+ * snapshot to win outright, e.g. when it comes from a non-durable source
+ * while `prev` holds durable entries — never splice the two together.
  */
-export function mergeActivityEntries(prev: ActivityEntry[], next: ActivityEntry[]): ActivityEntry[] {
-  if (prev.length === 0 || next.length < prev.length) {
+export function mergeActivityEntries(
+  prev: ActivityEntry[],
+  next: ActivityEntry[],
+  options?: { replace?: boolean },
+): ActivityEntry[] {
+  if (options?.replace || prev.length === 0 || next.length < prev.length) {
     return next;
   }
   for (let i = 0; i < prev.length - 1; i++) {
