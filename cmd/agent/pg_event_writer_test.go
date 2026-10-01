@@ -548,7 +548,7 @@ func TestPGEventWriterByteBudgetDropsOldest(t *testing.T) {
 		defer close(done)
 		_ = writer.Close()
 	}()
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		ss.writeRelease <- struct{}{}
 	}
 	<-done

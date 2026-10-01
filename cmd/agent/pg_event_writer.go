@@ -276,7 +276,12 @@ func (w *pgEventWriter) writeBatch(batchWriter activityEventBatchWriter, batch [
 	inputs := make([]store.ActivityEventInput, 0, len(batch))
 	for _, ev := range batch {
 		eventType, summary := describePGEvent(ev.raw)
-		inputs = append(inputs, store.ActivityEventInput{EventType: eventType, Summary: summary, Detail: ev.raw, ClientEventID: ev.id})
+		inputs = append(inputs, store.ActivityEventInput{
+			EventType:     eventType,
+			Summary:       summary,
+			Detail:        ev.raw,
+			ClientEventID: ev.id,
+		})
 	}
 	err := w.writeWithRetry(func(ctx context.Context) error {
 		_, err := batchWriter.WriteActivityEvents(ctx, w.sessionID, inputs)

@@ -93,7 +93,7 @@ func TestWatchActivityLogDeltaResumeFlag(t *testing.T) {
 				toolResultEvent(2, "t2", "in2", "out2"),
 			})
 			conn := &recordingActivityLogConn{ch: make(chan *platform.GetActivityLogResponse, 8)}
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			go func() {
 				_ = srv.WatchActivityLog(ctx, &platform.GetActivityLogRequest{

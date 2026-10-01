@@ -82,10 +82,11 @@ func TestWriteActivityEventsIdempotentRetry(t *testing.T) {
 		t.Fatalf("CreateSession: %v", err)
 	}
 	a, b := uuid.New(), uuid.New()
-	first := []store.ActivityEventInput{
-		{EventType: "tool_start", Summary: "a", ClientEventID: a},
-		{EventType: "tool_end", Summary: "b", ClientEventID: b},
-	}
+	first := make([]store.ActivityEventInput, 0, 3)
+	first = append(first,
+		store.ActivityEventInput{EventType: "tool_start", Summary: "a", ClientEventID: a},
+		store.ActivityEventInput{EventType: "tool_end", Summary: "b", ClientEventID: b},
+	)
 	ids, err := s.WriteActivityEvents(ctx, sess.ID, first)
 	if err != nil || len(ids) != 2 {
 		t.Fatalf("first attempt = (%v, %v), want 2 ids", ids, err)
