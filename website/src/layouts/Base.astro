@@ -21,7 +21,7 @@ const {
   description,
   bodyClass = '',
   image = '/og-default.png',
-  imageAlt = 'GratefulAgents — self-hosted coding agents for Kubernetes teams',
+  imageAlt = 'GratefulAgents: open-source infrastructure for coding agents on Kubernetes',
   imageWidth = 1200,
   imageHeight = 630,
   imageType = 'image/png',
@@ -29,15 +29,17 @@ const {
   noindex = false,
   structuredData = [],
 } = Astro.props;
-// `secondary` items collapse out of the top bar on small screens, where there
-// is no room for five targets. They stay reachable from the footer.
+
+// `secondary` items drop out of the top bar on narrow screens; the footer
+// keeps them reachable.
 const nav = [
-  {href: '/self-hosted-coding-agents/', label: 'Why self-hosted', secondary: true},
-  {href: '/differences/', label: 'Differences', secondary: true},
-  {href: '/docs/', label: 'User guide', secondary: false},
-  {href: '/docs/getting-started/quick-start/', label: 'Quick start', secondary: true},
+  {href: '/docs/', label: 'Docs', secondary: false},
+  {href: '/self-hosted-coding-agents/', label: 'Why self-host', secondary: true},
+  {href: '/differences/', label: 'Compare', secondary: true},
 ];
 const current = Astro.url.pathname;
+const isCurrent = (href: string) =>
+  href === '/docs/' ? current.startsWith('/docs/') : current === href;
 const siteUrl = Astro.site ?? Astro.url;
 const canonical = new URL(Astro.url.pathname, siteUrl).toString();
 const socialImage = new URL(image, siteUrl).toString();
@@ -67,7 +69,8 @@ const schema = {
 };
 // Prevent trusted page copy from prematurely closing the JSON-LD script element.
 const serializedSchema = JSON.stringify(schema).replace(/</g, '\\u003c');
-const fontUrl = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap';
+const fontUrl =
+  'https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap';
 ---
 
 <!doctype html>
@@ -98,7 +101,7 @@ const fontUrl = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:op
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={socialImage} />
     <meta name="twitter:image:alt" content={imageAlt} />
-    <meta name="theme-color" content="#0e171b" />
+    <meta name="theme-color" content="#f3f0e8" />
 
     <link rel="icon" type="image/png" href="/logo.png" />
     <link rel="apple-touch-icon" href="/logo.png" />
@@ -112,36 +115,54 @@ const fontUrl = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:op
   <body class={bodyClass}>
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="topbar">
-      <a class="brand" href="/">
-        <img src="/logo.png" alt="" width="26" height="26" />
-        <span>grateful<em>agents</em></span>
-      </a>
-      <nav class="topnav" aria-label="Primary">
-        {nav.map((item) => (
-          <a
-            href={item.href}
-            class={item.secondary ? 'nav-secondary' : undefined}
-            aria-current={current === item.href ? 'page' : undefined}
-          >
-            {item.label}
-          </a>
-        ))}
-        <a href={repositoryUrl} class="gh">GitHub&nbsp;&nearr;</a>
-      </nav>
+      <div class="topbar-inner">
+        <a class="brand" href="/" aria-label="GratefulAgents home">
+          <img src="/logo.png" alt="" width="28" height="28" />
+          <span>GratefulAgents</span>
+        </a>
+        <nav class="topnav" aria-label="Primary">
+          {nav.map((item) => (
+            <a
+              href={item.href}
+              class={item.secondary ? 'nav-secondary' : undefined}
+              aria-current={isCurrent(item.href) ? 'page' : undefined}
+            >
+              {item.label}
+            </a>
+          ))}
+          <a href={repositoryUrl} class="nav-gh">GitHub</a>
+        </nav>
+      </div>
     </header>
     <slot />
     <footer class="site-foot">
-      <p class="foot-block">
-        <span><span class="foot-key">Project</span><b>gratefulagents</b></span>
-        <span><span class="foot-key">Why self-hosted</span><a href="/self-hosted-coding-agents/">the case for your own cluster</a></span>
-        <span><span class="foot-key">Compare</span><a href="/differences/">vs Devin &amp; Copilot</a></span>
-        <span><span class="foot-key">License</span><b>AGPL-3.0 · open source</b></span>
-        <span><span class="foot-key">Source</span><a href={repositoryUrl}>github.com/gratefulagents</a></span>
-        <span><span class="foot-key">Security</span><a href={`${repositoryUrl}/security/policy`}>report vulnerabilities</a></span>
-        <span><span class="foot-key">Releases</span><a href={`${repositoryUrl}/releases`}>changelog</a></span>
-        <span><span class="foot-key">Support</span><a href={`${repositoryUrl}/issues`}>GitHub issues</a></span>
-        <span><span class="foot-key">Docs source</span><a href={`${repositoryUrl}/tree/main/user-docs`}>user-docs/</a></span>
-      </p>
+      <div class="foot-inner">
+        <div class="foot-brand">
+          <p class="foot-name">GratefulAgents</p>
+          <p>Open-source infrastructure for coding agents. AGPL-3.0. Early development: expect rough edges and say so in the issue tracker.</p>
+        </div>
+        <nav class="foot-cols" aria-label="Footer">
+          <div>
+            <p class="foot-head">Product</p>
+            <a href="/docs/getting-started/self-hosting-kind/">Install on a laptop</a>
+            <a href="/docs/getting-started/self-hosting-k3s/">Install on a server</a>
+            <a href="/docs/">User guide</a>
+          </div>
+          <div>
+            <p class="foot-head">Reading</p>
+            <a href="/self-hosted-coding-agents/">Why self-host</a>
+            <a href="/differences/">Compared with Devin and Copilot</a>
+            <a href="/llms.txt">llms.txt</a>
+          </div>
+          <div>
+            <p class="foot-head">Project</p>
+            <a href={repositoryUrl}>Source</a>
+            <a href={`${repositoryUrl}/releases`}>Releases</a>
+            <a href={`${repositoryUrl}/issues`}>Issues</a>
+            <a href={`${repositoryUrl}/security/policy`}>Security policy</a>
+          </div>
+        </nav>
+      </div>
     </footer>
   </body>
 </html>

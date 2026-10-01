@@ -8,6 +8,7 @@
 
 export interface DifferenceRow {
   dimension: string;
+  laptop: string;
   devin: string;
   copilot: string;
   gratefulagents: string;
@@ -16,54 +17,77 @@ export interface DifferenceRow {
 export const differenceRows: DifferenceRow[] = [
   {
     dimension: 'Where the agent runs',
+    laptop: 'Your laptop, while it is awake',
     devin: "Cognition's cloud",
     copilot: "GitHub's cloud",
     gratefulagents: 'Your own Kubernetes cluster',
   },
   {
+    dimension: 'Parallel runs',
+    laptop: 'As many terminals as one machine can take',
+    devin: "Set by the vendor's plan",
+    copilot: "Set by GitHub's plan",
+    gratefulagents: 'One pod per run, capped by limits you set',
+  },
+  {
+    dimension: 'Keeps working when you log off',
+    laptop: 'No',
+    devin: 'Yes',
+    copilot: 'Yes',
+    gratefulagents: 'Yes',
+  },
+  {
     dimension: 'Where the repository is checked out',
+    laptop: 'Your working copy',
     devin: "Cognition's infrastructure",
     copilot: "GitHub's infrastructure",
     gratefulagents: 'A sandbox pod inside your cluster',
   },
   {
     dimension: 'Who holds the model credentials',
+    laptop: 'You, in local config files',
     devin: 'Cognition',
     copilot: 'GitHub / Microsoft',
-    gratefulagents: 'You — stored in your own workspace',
+    gratefulagents: 'You, as secrets in your cluster',
   },
   {
     dimension: 'Model choice',
+    laptop: 'Whatever that CLI supports',
     devin: "Cognition's own models",
     copilot: "GitHub's supported catalog",
-    gratefulagents: 'Claude (Anthropic), OpenAI, OpenRouter, Grok (xAI), GitHub Copilot — your keys',
+    gratefulagents: 'Claude, OpenAI, OpenRouter, Grok, GitHub Copilot, on your keys',
   },
   {
     dimension: 'License',
+    laptop: 'Varies by tool',
     devin: 'Proprietary SaaS',
     copilot: 'Proprietary SaaS',
     gratefulagents: 'AGPL-3.0 open source',
   },
   {
     dimension: 'Who operates it',
+    laptop: 'Each developer',
     devin: 'The vendor',
     copilot: 'The vendor',
-    gratefulagents: 'You — Helm chart on Kind or k3s',
+    gratefulagents: 'You: a Helm chart on a k3s server, or Kind for a trial',
   },
   {
     dimension: 'Per-run observability',
+    laptop: 'Terminal output',
     devin: "The vendor's session view",
     copilot: 'Agent session logs',
     gratefulagents: 'Traces, cost, tokens, tool calls, subagent graphs',
   },
   {
     dimension: 'Trigger surfaces',
+    laptop: 'Someone typing in a terminal',
     devin: 'Web UI, Slack',
     copilot: 'GitHub issues and pull requests',
     gratefulagents: 'GitHub, Linear, Slack, Cron',
   },
   {
     dimension: 'Client applications',
+    laptop: 'Terminal or editor',
     devin: 'Web',
     copilot: 'GitHub web',
     gratefulagents: 'Web, desktop (macOS, Linux), iOS, Android',
@@ -76,6 +100,11 @@ export interface FaqItem {
 }
 
 export const faqs: FaqItem[] = [
+  {
+    question: 'I already run a coding agent CLI on my laptop. Why add this?',
+    answer:
+      'Keep using it for work you want to watch closely. GratefulAgents is for the rest: tasks that should run in parallel, keep going after you log off, start from an issue, ticket, Slack message, or schedule, and leave a record your team can read. It can use the same model providers.',
+  },
   {
     question: 'Is GratefulAgents a self-hosted alternative to Devin?',
     answer:
@@ -99,6 +128,6 @@ export const faqs: FaqItem[] = [
   {
     question: 'What do I need to run it?',
     answer:
-      'A Kubernetes cluster. The Kind guide stands one up on a macOS or Linux laptop for evaluation; the k3s guide covers a persistent install on a fresh Debian or Ubuntu server. Both paths install the same Helm chart.',
+      'A fresh Debian or Ubuntu server, such as a cloud VM. The k3s guide turns it into a single-node cluster running GratefulAgents. To look around first, the Kind guide runs the same Helm chart on a macOS or Linux laptop.',
   },
 ];

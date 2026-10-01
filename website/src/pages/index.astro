@@ -4,11 +4,38 @@ import Mark from '../components/Mark.astro';
 import {repositoryUrl} from '../data/sidebar';
 import type {MarkName} from '../data/marks';
 
-const triggers: {mark: MarkName; name: string; href: string}[] = [
-  {mark: 'github', name: 'GitHub', href: '/docs/integrations/github/'},
-  {mark: 'linear', name: 'Linear', href: '/docs/integrations/linear/'},
-  {mark: 'slack', name: 'Slack', href: '/docs/integrations/slack/'},
-  {mark: 'cron', name: 'Cron', href: '/docs/projects/cron/'},
+const serverGuide = '/docs/getting-started/self-hosting-k3s/';
+const laptopGuide = '/docs/getting-started/self-hosting-kind/';
+const homepageDescription =
+  'Open-source infrastructure for coding agents. Runs execute in parallel on your own cloud Kubernetes cluster, each in its own sandbox, on your model keys.';
+const installPrompt =
+  'Read https://gratefulagents.dev/docs/getting-started/self-hosting-k3s/ and install GratefulAgents on my server with k3s. Check the prerequisites first, run the installer, then give me the dashboard URL and the credentials I need to sign in.';
+
+const triggers: {mark: MarkName; name: string; href: string; how: string}[] = [
+  {
+    mark: 'github',
+    name: 'GitHub',
+    href: '/docs/integrations/github/',
+    how: 'Label an issue with a mode name or mention the bot in a comment. Pull requests the agent opens can get a reviewer run of their own.',
+  },
+  {
+    mark: 'linear',
+    name: 'Linear',
+    href: '/docs/integrations/linear/',
+    how: 'Connect a Linear team and project. Approved issues can become runs and move to in progress. Intake setup is still partly manual; the guide says where.',
+  },
+  {
+    mark: 'slack',
+    name: 'Slack',
+    href: '/docs/integrations/slack/',
+    how: 'Mention the bot in a channel or DM it. Reply in the thread to steer the run while it works.',
+  },
+  {
+    mark: 'cron',
+    name: 'Cron',
+    href: '/docs/projects/cron/',
+    how: 'A schedule, a prompt, and a repository. Dependency bumps, flaky-test sweeps, nightly reports.',
+  },
 ];
 
 const providers: {mark: MarkName; name: string}[] = [
@@ -16,42 +43,120 @@ const providers: {mark: MarkName; name: string}[] = [
   {mark: 'openai', name: 'OpenAI'},
   {mark: 'openrouter', name: 'OpenRouter'},
   {mark: 'xai', name: 'Grok'},
-  {mark: 'copilot', name: 'Copilot'},
+  {mark: 'copilot', name: 'GitHub Copilot'},
 ];
 
-const kindGuidePath = '/docs/getting-started/self-hosting-kind/';
-const kindInstallPrompt = 'Read https://gratefulagents.dev/docs/getting-started/self-hosting-kind/ and install GratefulAgents on my laptop with Kind. Verify Docker and the other prerequisites first, run the installer, then give me the URL and the credentials I need to sign in.';
-const homepageDescription = 'Open-source control plane for coding agents on your Kubernetes cluster. Trigger from GitHub, Linear, Slack, or cron; bring your own models; inspect every run.';
+const contrast: {topic: string; laptop: string; here: string}[] = [
+  {
+    topic: 'Close the lid',
+    laptop: 'The run dies with the session.',
+    here: 'The run keeps going on the cluster. The pull request is waiting when you get back.',
+  },
+  {
+    topic: 'Ten tasks at once',
+    laptop: 'Ten terminals fighting over one CPU and one working copy.',
+    here: 'Ten pods, each with its own checkout, CPU and memory limits, and timeout.',
+  },
+  {
+    topic: 'Who can start work',
+    laptop: 'Whoever is sitting at that machine.',
+    here: 'Anyone on the team, from GitHub, Linear, Slack, a schedule, or their phone.',
+  },
+  {
+    topic: 'What happened',
+    laptop: 'Terminal scrollback, if nobody cleared it.',
+    here: 'A stored trace of every model call and tool call, with tokens and cost.',
+  },
+  {
+    topic: 'Credentials',
+    laptop: 'API keys in dotfiles on every developer machine.',
+    here: 'Kubernetes secrets, scoped per project, injected only into the runs that need them.',
+  },
+];
+
+const slides = [
+  {
+    key: 'ops',
+    title: 'Agent Ops',
+    desc: 'Every run in the workspace on one board: state, mode, latest activity, cost, age. Open the ones that need you and ignore the rest.',
+    href: '/docs/runs/review-activity/',
+    shot: '/screens/agent-ops.webp?v=4',
+    alt: 'Agent Ops board listing live runs with state, mode, latest activity, cost, and age columns',
+  },
+  {
+    key: 'graph',
+    title: 'Subagent graph',
+    desc: 'A run can split work across specialist subagents. The graph shows what depends on what, and every node can be opened while it runs.',
+    href: '/docs/runs/review-activity/',
+    shot: '/screens/graph.webp?v=4',
+    alt: 'Subagent graph view showing a root run spawning writer and explore subagents with live status',
+  },
+  {
+    key: 'trace',
+    title: 'Trace',
+    desc: 'Each turn of a run: the model call, the tools it used, how long each took, and what it cost. Useful when a run went sideways and you need to know where.',
+    href: '/docs/runs/meta-harness-traces/',
+    shot: '/screens/trace.webp?v=5',
+    alt: 'Trace timeline of a run showing per-turn LLM calls, WebFetch tool spans, durations, and costs',
+  },
+  {
+    key: 'obs',
+    title: 'Observability',
+    desc: 'Spend, tokens, tool calls, subagents, context compactions, and errors across all runs, broken down by model, so you can see what each model actually costs you per task.',
+    href: '/docs/results/observability/',
+    shot: '/screens/observability.webp?v=5',
+    alt: 'Observability dashboard showing generation spend, run cost, tokens, tool calls, subagents, reliability, and model breakdowns',
+  },
+  {
+    key: 'mobile',
+    title: 'Phone and tablet',
+    desc: 'Follow and steer a run from iOS or Android. The client is only a window; the work is happening on the cluster.',
+    href: '/docs/getting-started/web-desktop-workspaces/',
+    shots: ['/screens/tablet-1.webp?v=5', '/screens/tablet-2.webp?v=5'],
+    alt: 'iPad views of the GratefulAgents app following and steering a live agent run',
+  },
+];
 
 const faqItems: {q: string; a: string}[] = [
   {
-    q: 'Is GratefulAgents really self-hosted?',
-    a: 'Yes. The Kubernetes controller, dashboard, and all agent run sandboxes execute entirely inside your own cluster. Nothing phones home to a GratefulAgents cloud. Your source code, prompts, and model responses travel between your cluster and the model provider of your choice — never through our infrastructure.',
+    q: 'Where does it actually run?',
+    a: 'On a Kubernetes cluster you control. For a real deployment that is a server or cloud VM: the k3s guide takes a fresh Debian or Ubuntu machine to a working install. For a quick look, the Kind guide runs the same chart on a laptop. The controller, dashboard, database, and every agent sandbox live on that cluster. Nothing reports back to us.',
   },
   {
-    q: 'Do I need Kubernetes experience to get started?',
-    a: 'You need a working cluster, but not deep expertise. The fastest path is the Kind guide: one script spins up a local cluster on a macOS or Linux laptop in about fifteen minutes. For a persistent server install, the k3s guide walks through a fresh Debian or Ubuntu machine end to end. Both guides cover every prerequisite.',
+    q: 'How many agents can run at once?',
+    a: 'As many as the cluster has room for and your limits allow. Each run is an ordinary pod with CPU and memory requests and limits from a RuntimeProfile. Admission caps concurrent runs for the whole cluster and per namespace, and stuck runs time out. The supported installer today sets up a single-node k3s server, so in practice the ceiling is that node and the caps you choose.',
   },
   {
-    q: 'Which AI models can I use?',
-    a: 'Any provider whose credentials you store in your workspace: Claude (Anthropic), OpenAI, OpenRouter (which surfaces many hosted models), Grok (xAI), and GitHub Copilot. Credentials are saved in your workspace and leave your cluster only when an agent makes an inference request directly to that provider\'s API.',
+    q: 'Do I need to keep my laptop open?',
+    a: 'No. Nothing runs on your machine. Start a run from Slack, a GitHub issue, or the phone app, close the laptop, and come back to a pull request. The web, desktop, iOS, and Android apps are all just views onto the cluster.',
   },
   {
-    q: 'How is this different from GitHub Copilot\'s coding agent?',
-    a: 'Copilot\'s coding agent is a cloud SaaS feature. Your code and prompts are processed on GitHub\'s infrastructure, and you cannot inspect the execution harness. GratefulAgents runs entirely in your cluster — you own the sandbox, the model credentials, the traces, and the execution logs. You can also trigger work from Linear, Slack, or cron, not just GitHub issues.',
+    q: 'Which models can I use?',
+    a: 'Claude (Anthropic), OpenAI, OpenRouter, Grok (xAI), and GitHub Copilot, using credentials you add to your workspace. Model choice can be set per project and per role, so a planner and a reviewer can run on different models. Inference requests go straight from your cluster to the provider.',
   },
   {
-    q: 'Can agents open pull requests and interact with GitHub?',
-    a: 'Yes. Agents run with your configured GitHub credentials and can read issues, create branches, commit, open pull requests, and post review comments — the same actions a developer would take. You can also trigger runs automatically when a GitHub issue or PR comment matches a pattern and have the agent respond or open a PR directly.',
+    q: 'How is this different from Devin or the Copilot coding agent?',
+    a: 'Those are hosted services: the checkout, the agent process, and the credentials sit on the vendor\u2019s infrastructure, and work arrives mostly through their product. GratefulAgents runs the same kind of work on your infrastructure, takes work from GitHub, Linear, Slack, or a schedule, and gives you the full trace of every run.',
   },
   {
-    q: 'What does GratefulAgents cost?',
-    a: 'The software is free and open source under the AGPL-3.0 license. You pay only for the model-provider API calls your agents make — charged directly by Anthropic, OpenAI, or whichever provider you configure — and for the compute running your Kubernetes cluster. There is no GratefulAgents subscription or per-seat fee.',
+    q: 'What does it cost?',
+    a: 'The software is free under AGPL-3.0. You pay your model provider for the tokens your agents use and your cloud provider for the machines the cluster runs on. There is no subscription and no per-seat fee.',
   },
   {
-    q: 'Is it ready for production use?',
-    a: 'GratefulAgents is in active early development. It works for evaluation, prototyping, and internal team use, but you should expect bugs and breaking changes between releases. High availability, managed hosting, and a production support SLA are not documented. We recommend starting with the Kind local demo before committing to a persistent server deployment.',
+    q: 'Is it ready for production?',
+    a: 'Not in the sense most teams mean. It is in early development: it works for evaluation and internal team use, but expect bugs and breaking changes between releases. High availability, managed hosting, and a support SLA are not offered. Start with one server and a handful of repositories.',
   },
+];
+
+const docsIndex = [
+  {title: 'Getting started', desc: 'Install, sign in, connect the apps.', href: '/docs/getting-started/quick-start/'},
+  {title: 'Agent runs', desc: 'Start, steer, switch modes, stop, retry.', href: '/docs/runs/start-a-run/'},
+  {title: 'Projects and schedules', desc: 'Per-repository defaults and cron runs.', href: '/docs/projects/projects/'},
+  {title: 'Integrations', desc: 'GitHub, Linear, and Slack entry points.', href: '/docs/integrations/github/'},
+  {title: 'Resources', desc: 'Skills, MCP servers, runtime profiles, policies, roles.', href: '/docs/settings/resources/'},
+  {title: 'Settings', desc: 'Credentials, model preferences, Git identity.', href: '/docs/settings/account-appearance/'},
+  {title: 'Collaboration', desc: 'Share projects and runs with the team.', href: '/docs/collaboration/sharing-and-permissions/'},
+  {title: 'Troubleshooting', desc: 'Credential, integration, and workspace problems.', href: '/docs/troubleshooting/common-issues/'},
 ];
 
 const structuredData = [
@@ -60,7 +165,7 @@ const structuredData = [
     '@id': 'https://gratefulagents.dev/#software',
     name: 'GratefulAgents',
     applicationCategory: 'DeveloperApplication',
-    operatingSystem: 'macOS, Linux, iOS, Android',
+    operatingSystem: 'Linux (Kubernetes); clients for macOS, Linux, iOS, Android',
     url: 'https://gratefulagents.dev/',
     description: homepageDescription,
     sameAs: [repositoryUrl],
@@ -68,10 +173,11 @@ const structuredData = [
     isAccessibleForFree: true,
     offers: {'@type': 'Offer', price: '0', priceCurrency: 'USD'},
     featureList: [
-      'Self-hosted coding agent execution on Kubernetes',
-      'GitHub, Linear, Slack, and scheduled triggers',
+      'Coding agent runs as Kubernetes resources, one sandbox pod per run',
+      'Parallel runs with per-run resource limits and concurrency caps',
+      'GitHub, Linear, Slack, and cron triggers',
       'Bring-your-own model providers',
-      'Run traces, cost, token, and reliability observability',
+      'Per-run traces, cost, and token observability',
       'Web, desktop, iOS, and Android clients',
     ],
   },
@@ -88,237 +194,202 @@ const structuredData = [
     '@type': 'VideoObject',
     '@id': 'https://gratefulagents.dev/#hero-video',
     name: 'GratefulAgents: one agent run from prompt to trace',
-    description: 'A recording of a single agent run — a prompt fans out to a subagent DAG, the work completes, and the full trace is inspected — replayed at 4× speed.',
+    description: 'A single agent run: a prompt fans out to subagents, the work completes, and the trace is opened. Replayed at 4x speed.',
     thumbnailUrl: 'https://gratefulagents.dev/screens/run-recording-poster.webp',
     contentUrl: 'https://gratefulagents.dev/screens/run-recording.mp4',
     // Commit date of website/public/screens/run-recording.mp4 (28a75fe).
-    // Keep this in sync if the recording is replaced.
     uploadDate: '2026-07-20',
     duration: 'PT39S',
   },
 ];
-
-const slides = [
-  {
-    kind: 'Operate',
-    title: 'Every run on one board',
-    desc: 'See live work, blockers, cost, and recent outcomes across the workspace. Step in only when a run needs you.',
-    href: '/docs/runs/review-activity/',
-    shot: '/screens/agent-ops.webp?v=4',
-    alt: 'Agent Ops board listing live runs with state, mode, latest activity, cost, and age columns',
-  },
-  {
-    kind: 'Measure',
-    title: 'Reliability across runs',
-    desc: 'Compare cost, tokens, tools, subagents, context compactions, and errors across models and time.',
-    href: '/docs/results/observability/',
-    shot: '/screens/observability.webp?v=5',
-    alt: 'Observability dashboard showing generation spend, run cost, tokens, tool calls, subagents, reliability, and model breakdowns',
-  },
-  {
-    kind: 'Orchestrate',
-    title: 'Fan out, stay in control',
-    desc: 'Delegate to specialist subagents and watch the dependency graph run — every node inspectable while it works.',
-    href: '/docs/runs/review-activity/',
-    shot: '/screens/graph.webp?v=4',
-    alt: 'Subagent graph view showing a root run spawning writer and explore subagents with live status',
-  },
-  {
-    kind: 'Inspect',
-    title: 'Every turn has a trace',
-    desc: 'Open timing, tool calls, token usage, cost, and errors for any run. The harness — the software loop that drives the agent — never becomes a black box.',
-    href: '/docs/runs/meta-harness-traces/',
-    shot: '/screens/trace.webp?v=5',
-    alt: 'Trace timeline of a run showing per-turn LLM calls, WebFetch tool spans, durations, and costs',
-  },
-  {
-    kind: 'Move',
-    title: 'The run stays with you',
-    desc: 'Follow, steer, and review from iOS or Android while the compute keeps running in your cluster.',
-    href: '/docs/getting-started/web-desktop-workspaces/',
-    shots: ['/screens/tablet-1.webp?v=5', '/screens/tablet-2.webp?v=5'],
-    alt: 'iPad views of the GratefulAgents app following and steering a live agent run',
-  },
-];
-
-const stations = [
-  {kind: 'Start', title: 'Getting started', desc: 'Deploy, secure, sign in, and connect a workspace.', href: '/docs/getting-started/quick-start/'},
-  {kind: 'Run', title: 'Agent runs', desc: 'Start work, steer mid-flight, change modes, and review traces.', href: '/docs/runs/start-a-run/'},
-  {kind: 'Automate', title: 'Projects & schedules', desc: 'Save run defaults per repository and launch on a schedule.', href: '/docs/projects/projects/'},
-  {kind: 'Connect', title: 'Integrations', desc: 'Create and steer runs from GitHub, Linear, and Slack.', href: '/docs/integrations/github/'},
-  {kind: 'Control', title: 'Resources', desc: 'Skills, MCP servers, runtime profiles, policies, modes, and roles.', href: '/docs/settings/resources/'},
-  {kind: 'Configure', title: 'Settings', desc: 'Credentials, model preferences, personas, and Git identity.', href: '/docs/settings/account-appearance/'},
-  {kind: 'Share', title: 'Collaboration', desc: 'Give teammates the right access to projects and runs.', href: '/docs/collaboration/sharing-and-permissions/'},
-  {kind: 'Recover', title: 'Troubleshooting', desc: 'Resolve credential, integration, and workspace problems.', href: '/docs/troubleshooting/common-issues/'},
-];
 ---
 
 <Base
-  title="Self-Hosted Coding Agents for Kubernetes | GratefulAgents"
+  title="GratefulAgents | Infrastructure for Coding Agents"
   description={homepageDescription}
   {structuredData}
   bodyClass="is-home"
 >
   <main id="main">
-    <section class="hero" aria-labelledby="hero-title">
-      <div class="hero-main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <p class="hero-meta">
+        <span>Open source</span><span>AGPL-3.0</span><span>Runs on Kubernetes</span>
+      </p>
+      <h1 id="hero-title">One agent is a demo. A&nbsp;fleet is infrastructure.</h1>
+      <div class="hero-grid">
         <div class="hero-copy">
-          <img class="hero-logo" src="/logo.png" alt="" width="72" height="72" loading="eager" decoding="async" />
-          <p class="eyebrow"><span class="signal"></span> Open source · Kubernetes native</p>
-          <h1 id="hero-title">self-hosted coding agents <span>for Kubernetes teams</span></h1>
-          <p class="hero-sub">Run, steer, and audit agent work in your own infrastructure. Connect engineering tools and your preferred model providers to one observable execution platform.</p>
+          <p class="hero-lede">
+            GratefulAgents runs coding agents in the cloud, on a Kubernetes cluster you control.
+            Every task gets its own sandboxed pod, runs alongside the others, and keeps working
+            after you close your laptop. Work comes in from GitHub, Linear, Slack, or a schedule
+            and comes back as pull requests.
+          </p>
           <div class="cta-row">
-            <a class="btn btn-primary" href={kindGuidePath}>Run it locally with Kind <span aria-hidden="true">→</span></a>
-            <a class="btn btn-quiet" href={repositoryUrl}>View source <span aria-hidden="true">↗</span></a>
-            <a class="hero-clients" href="/docs/getting-started/web-desktop-workspaces/">
-              <span>Clients</span>
-              <strong>Web · Desktop · iOS · Android</strong>
-            </a>
+            <a class="btn btn-primary" href={serverGuide}>Deploy to a server</a>
+            <a class="text-link" href={laptopGuide}>Or try it on your laptop first</a>
           </div>
-          <aside class="hero-install" aria-labelledby="hero-install-title">
-            <div>
-              <span class="hero-install-key">Kind demo · macOS or Linux</span>
-              <strong id="hero-install-title">Have your coding agent install it.</strong>
-            </div>
-            <button
-              type="button"
-              class="hero-install-copy"
-              data-copy-prompt
-              data-prompt={kindInstallPrompt}
-              aria-live="polite"
-            >
-              Copy install prompt <span aria-hidden="true">↗</span>
-            </button>
-          </aside>
         </div>
-
-        <figure class="plate hero-plate" data-hero>
-          <div class="plate-nav" role="group" aria-label="Hero screenshots">
-            <button type="button" data-hero-prev aria-label="Previous screenshot">‹</button>
-            <span data-hero-count aria-hidden="true">01 / 04</span>
-            <button type="button" data-hero-next aria-label="Next screenshot">›</button>
+        <div class="term hero-term">
+          <div class="term-head">
+            <span>fresh Debian or Ubuntu server</span>
+            <button type="button" class="copy-btn" data-copy="git clone https://github.com/gratefulagents/gratefulagents.git && cd gratefulagents && make k3s-install">Copy</button>
           </div>
-          <div class="hero-slide" data-hero-slide>
-            <div class="plate-stage">
-              <video
-                data-hero-video
-                src="/screens/run-recording.mp4?v=1"
-                poster="/screens/run-recording-poster.webp?v=1"
-                width="2400"
-                height="1506"
-                muted
-                playsinline
-                preload="metadata"
-                aria-label="View full screen: recording of one agent run — a prompt fans out to a subagent DAG, then the finished trace, replayed at 4x speed"
-              ></video>
-              <span class="video-progress" data-hero-progress aria-hidden="true"></span>
-            </div>
-            <div class="title-block">
-              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01a — Recorded run</span></div>
-              <div><span class="tb-key">Title</span><span class="tb-val">One run from prompt to trace</span></div>
-              <div class="tb-scale"><span class="tb-key">Scale</span><span class="tb-val">4:1 — 2½ min of work in 39 s</span></div>
-            </div>
+          <pre><code><span class="p">$ </span>git clone https://github.com/gratefulagents/gratefulagents.git
+<span class="p">$ </span>cd gratefulagents
+<span class="p">$ </span>make k3s-install
+<span class="c"># installs k3s, the chart, Postgres, MinIO, Jaeger,</span>
+<span class="c"># then prints the dashboard URL and admin login</span></code></pre>
+          <div class="term-foot">
+            <span>Rather not type it?</span>
+            <button type="button" class="copy-btn" data-copy={installPrompt}>Copy a prompt for your coding agent</button>
           </div>
-          <div class="hero-slide" data-hero-slide hidden>
-            <div class="plate-stage">
-              <img
-                src="/screens/run-chat.webp?v=4"
-                alt="Desktop run view with chat, steering, and a subagent dependency graph"
-                width="3024"
-                height="1898"
-                loading="lazy"
-                decoding="async"
-              />
-            </div>
-            <div class="title-block">
-              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01b — Desktop</span></div>
-              <div><span class="tb-key">Title</span><span class="tb-val">Run view — chat, steering, subagent graph</span></div>
-              <div class="tb-scale"><span class="tb-key">Drawn by</span><span class="tb-val">your agents</span></div>
-            </div>
-          </div>
-          <div class="hero-slide" data-hero-slide hidden>
-            <div class="plate-stage">
-              <img
-                class="hero-tablet-shot"
-                src="/screens/tablet-1.webp?v=5"
-                alt="iPad view of a live agent run delegating work to a subagent graph"
-                width="2752"
-                height="2064"
-                loading="lazy"
-                decoding="async"
-              />
-            </div>
-            <div class="title-block">
-              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01c — iPad</span></div>
-              <div><span class="tb-key">Title</span><span class="tb-val">The same run, followed live from your iPad</span></div>
-              <div class="tb-scale"><span class="tb-key">Status</span><span class="tb-val">compute stays in your cluster</span></div>
-            </div>
-          </div>
-          <div class="hero-slide" data-hero-slide hidden>
-            <div class="plate-stage">
-              <img
-                class="hero-tablet-shot"
-                src="/screens/tablet-2.webp?v=5"
-                alt="iPad view of the delegated task list for a live agent run"
-                width="2752"
-                height="2064"
-                loading="lazy"
-                decoding="async"
-              />
-            </div>
-            <div class="title-block">
-              <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">01d — iPad</span></div>
-              <div><span class="tb-key">Title</span><span class="tb-val">Six delegated tasks, steered from anywhere</span></div>
-              <div class="tb-scale"><span class="tb-key">Status</span><span class="tb-val">compute stays in your cluster</span></div>
-            </div>
-          </div>
-        </figure>
-      </div>
-
-      <div class="legend" role="group" aria-label="Supported triggers and model providers">
-        <div class="legend-row" aria-label="Supported triggers">
-          <span class="legend-key">Triggers <small>work enters here</small></span>
-          {triggers.map((trigger) => (
-            <a class="legend-chip" href={trigger.href}>
-              <span class="chip-tile"><Mark name={trigger.mark} size={19} /></span>
-              <span>{trigger.name}</span>
-            </a>
-          ))}
-        </div>
-        <div class="legend-row" aria-label="Supported model providers">
-          <span class="legend-key">Models <small>bring your own</small></span>
-          {providers.map((provider) => (
-            <a class="legend-chip" href="/docs/settings/credentials/">
-              <span class="chip-tile"><Mark name={provider.mark} size={19} /></span>
-              <span>{provider.name}</span>
-            </a>
-          ))}
         </div>
       </div>
     </section>
 
-    <section class="story-section" aria-label="Product views">
-      <div class="product-gallery" data-slides>
-        <div class="gallery-tabs" role="tablist" aria-label="Product views">
-          {slides.map((slide, index) => (
-            <button
-              class="gallery-tab"
-              role="tab"
-              id={`tab-${index}`}
-              aria-controls={`slide-${index}`}
-              aria-selected={index === 0 ? 'true' : 'false'}
-              tabindex={index === 0 ? 0 : -1}
-            >
-              <span>{slide.kind}</span>
-              <b>{slide.title}</b>
-            </button>
-          ))}
+    <figure class="hero-figure wrap" data-hero>
+      <div class="screen">
+        <video
+          data-hero-video
+          src="/screens/run-recording.mp4?v=1"
+          poster="/screens/run-recording-poster.webp?v=1"
+          width="2400"
+          height="1506"
+          muted
+          loop
+          playsinline
+          preload="metadata"
+          aria-label="Recording of one agent run: a prompt fans out to subagents, then the finished trace is opened. Replayed at 4x speed."
+        ></video>
+      </div>
+      <figcaption>
+        <span>One run, start to finish. The prompt fans out to two subagents, they finish, and the trace is opened. About two and a half minutes of work at 4× speed.</span>
+        <button type="button" class="figure-toggle" data-video-toggle aria-pressed="false">Pause</button>
+      </figcaption>
+    </figure>
+
+    <section class="band wrap" aria-labelledby="laptop-title">
+      <header class="band-head">
+        <h2 id="laptop-title">Off the laptop.</h2>
+        <p>
+          Coding agents in a terminal are great until you want more than one, want them to keep
+          going overnight, or want a teammate to start one. That needs somewhere to run.
+        </p>
+      </header>
+      <div class="contrast" role="table" aria-label="Agents on a laptop compared with GratefulAgents">
+        <div class="contrast-row contrast-headrow" role="row">
+          <span role="columnheader"><span class="sr-only">Situation</span></span>
+          <span role="columnheader">Agent on a laptop</span>
+          <span role="columnheader">GratefulAgents</span>
         </div>
-        <div class="gallery-stage">
+        {contrast.map((row) => (
+          <div class="contrast-row" role="row">
+            <span class="contrast-topic" role="rowheader">{row.topic}</span>
+            <span class="contrast-laptop" role="cell">{row.laptop}</span>
+            <span class="contrast-here" role="cell">{row.here}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section class="band wrap split" aria-labelledby="scale-title">
+      <div class="split-text">
+        <h2 id="scale-title">Run agents the way you run services.</h2>
+        <p>
+          A run is an <code>AgentRun</code> resource. The controller schedules it as a pod,
+          gives it a fresh checkout, and cleans up when it ends. That means agents get the same
+          tools you already use for everything else on the cluster.
+        </p>
+        <dl class="facts">
+          <div>
+            <dt>Isolated</dt>
+            <dd>One sandbox pod per run, provided by <a href="https://github.com/kubernetes-sigs/agent-sandbox" rel="noopener noreferrer">kubernetes-sigs/agent-sandbox</a>. Runs don't share a filesystem or credentials.</dd>
+          </div>
+          <div>
+            <dt>Bounded</dt>
+            <dd>CPU and memory limits, timeouts, and caps on concurrent runs, per cluster and per namespace.</dd>
+          </div>
+          <div>
+            <dt>Declarative</dt>
+            <dd>Triggers, projects, skills, MCP servers, and policies are all custom resources. Keep them in Git and apply them like any other manifest.</dd>
+          </div>
+          <div>
+            <dt>Recorded</dt>
+            <dd>Every run sends a trace to the Jaeger instance the chart installs, and costs and tokens are kept per run.</dd>
+          </div>
+        </dl>
+      </div>
+      <div class="term split-code">
+        <div class="term-head"><span>runtime-profile.yaml</span></div>
+        <pre><code><span class="k">apiVersion:</span> platform.gratefulagents.dev/v1alpha1
+<span class="k">kind:</span> RuntimeProfile
+<span class="k">metadata:</span>
+  <span class="k">name:</span> standard
+<span class="k">spec:</span>
+  <span class="k">resources:</span>
+    <span class="k">requests:</span> {"{"} <span class="k">cpu:</span> 500m, <span class="k">memory:</span> 4Gi {"}"}
+    <span class="k">limits:</span>   {"{"} <span class="k">cpu:</span> <span class="s">"2"</span>, <span class="k">memory:</span> 8Gi {"}"}
+  <span class="k">security:</span>
+    <span class="k">permissionMode:</span> workspace-write
+    <span class="k">defaultTimeout:</span> 2h
+  <span class="k">admission:</span>
+    <span class="k">maxConcurrentRuns:</span> 10
+    <span class="k">perNamespaceMaxConcurrentRuns:</span> 10
+    <span class="k">staleRunTimeout:</span> 90m</code></pre>
+      </div>
+    </section>
+
+    <section class="band wrap" aria-labelledby="triggers-title">
+      <header class="band-head">
+        <h2 id="triggers-title">Work arrives where your team already is.</h2>
+        <p>Nobody has to open a new tool to hand an agent a task. Each entry point is set up per project.</p>
+      </header>
+      <ul class="triggers">
+        {triggers.map((t) => (
+          <li>
+            <a href={t.href}>
+              <span class="trigger-name"><Mark name={t.mark} size={18} />{t.name}</span>
+              <span class="trigger-how">{t.how}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+      <div class="loop">
+        <p class="loop-title">The review loop on GitHub</p>
+        <ol>
+          <li>An agent opens a pull request.</li>
+          <li>A separate reviewer run reads it and leaves comments with a verdict.</li>
+          <li>If it asks for changes, the original run wakes up on the same branch and fixes them.</li>
+          <li>This repeats up to a round limit you set. A person merges.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="band band-dark" aria-labelledby="views-title">
+      <div class="wrap">
+        <header class="band-head">
+          <h2 id="views-title">See what fifty agents are doing without opening fifty terminals.</h2>
+          <p>Screens from the dashboard. The same views are in the desktop and mobile apps.</p>
+        </header>
+        <div class="gallery" data-gallery>
+          <div class="gallery-tabs" role="tablist" aria-label="Product views">
+            {slides.map((slide, index) => (
+              <button
+                class="gallery-tab"
+                role="tab"
+                id={`tab-${slide.key}`}
+                aria-controls={`panel-${slide.key}`}
+                aria-selected={index === 0 ? 'true' : 'false'}
+                tabindex={index === 0 ? 0 : -1}
+              >
+                {slide.title}
+              </button>
+            ))}
+          </div>
           {slides.map((slide, index) => (
-            <article class="gallery-slide" role="tabpanel" id={`slide-${index}`} aria-labelledby={`tab-${index}`} hidden={index !== 0}>
-              {'shots' in slide ? (
-                <div class="mobile-pair">
+            <div class="gallery-panel" role="tabpanel" id={`panel-${slide.key}`} aria-labelledby={`tab-${slide.key}`} hidden={index !== 0}>
+              {'shots' in slide && slide.shots ? (
+                <div class="gallery-pair">
                   {slide.shots.map((shot) => (
                     <img src={shot} alt={slide.alt} width="2752" height="2064" loading="lazy" decoding="async" />
                   ))}
@@ -326,158 +397,400 @@ const stations = [
               ) : (
                 <img src={slide.shot} alt={slide.alt} width="3024" height="1898" loading="lazy" decoding="async" />
               )}
-              <footer>
-                <p>{slide.desc}</p>
-                <a href={slide.href}>Open the guide <span aria-hidden="true">→</span></a>
-              </footer>
-            </article>
+              <p class="gallery-desc">{slide.desc} <a href={slide.href}>Docs&nbsp;→</a></p>
+            </div>
           ))}
         </div>
       </div>
     </section>
 
-    <!-- Sheet 08: Why self-hosted -->
-    <section class="why-section" aria-labelledby="why-title">
-      <div class="why-inner">
-        <header class="why-header">
-          <p class="section-kicker">Sheet 08 · Principles</p>
-          <h2 id="why-title">Why run coding agents in your own cluster?</h2>
-          <p class="why-lead">Cloud agent harnesses are convenient, but they come with trade-offs that matter the moment your codebase has proprietary logic, private registries, or compliance requirements. Here is the case for keeping the compute yours.</p>
-        </header>
-        <div class="why-grid">
-          <article class="why-card">
-            <h3>Source code and prompts stay inside your network</h3>
-            <p>When an agent runs in a cloud SaaS harness, your repository content, file diffs, and the natural-language prompts you write all travel to a third-party data center. With GratefulAgents, every agent run executes inside a sandbox in your own Kubernetes cluster. The only outbound connections are the inference requests your agents make directly to the model provider whose API key you supply — and those requests go straight from your cluster to Anthropic, OpenAI, or whoever you choose.</p>
-          </article>
-          <article class="why-card">
-            <h3>You own the model credentials — and the costs that come with them</h3>
-            <p>GratefulAgents stores all credentials in your workspace. There is no credential relay through our servers. This also means you can use provider-negotiated pricing, API credits, or committed-spend agreements you have directly with Anthropic or OpenAI. You are not locked into a harness vendor's margin on top of the underlying inference cost.</p>
-          </article>
-          <article class="why-card">
-            <h3>The harness itself is inspectable and auditable</h3>
-            <p>GratefulAgents is <a href={repositoryUrl}>open source under AGPL-3.0</a>. You can read every line of the controller, the CRD logic, and the sandbox configuration. Combined with the per-run <a href="/docs/results/observability/">observability console</a> — which records every tool call, every LLM request, and every token — you always know what the agent did and why. A black-box harness cannot offer that. See <a href="/differences/">how this differs from cloud coding agents</a>.</p>
-          </article>
-          <article class="why-card">
-            <h3>Agent compute sits next to your private infrastructure</h3>
-            <p>Agents frequently need to read internal packages, query private databases, or call APIs that are not reachable from the public internet. When the agent sandbox runs inside the same cluster (or the same VPC) as those resources, latency is low and no ingress rules or tunnels are required.</p>
-            <p>You apply the same Kubernetes network policies, RBAC, and pod security standards you already use for the rest of your workloads. For on-premise or air-gapped environments, this is the only viable option. See <a href="/self-hosted-coding-agents/">the full case for self-hosted coding agents</a>.</p>
-          </article>
-        </div>
-        <p class="why-links">
-          Devin and GitHub Copilot's coding agent are cloud services: the checkout, the agent process, and the model credentials live on the vendor's infrastructure. GratefulAgents is the <a href="/differences/">self-hosted alternative</a> — all three stay inside your cluster.
+    <section class="band wrap split split-even" aria-labelledby="boundary-title">
+      <div class="split-text">
+        <h2 id="boundary-title">Your cloud, your keys.</h2>
+        <p>
+          Hosted agents ask you to send them your repository and trust what happens next. Here the
+          whole loop runs in your account. The one thing that leaves is the model request, and it
+          goes straight to the provider you picked.
         </p>
-        <p class="why-links">
-          Get started with the <a href="/docs/getting-started/self-hosting-kind/">Kind local demo</a> (macOS or Linux laptop, about fifteen minutes) or the <a href="/docs/getting-started/self-hosting-k3s/">k3s server install</a> for a persistent deployment.
-        </p>
-      </div>
-    </section>
-
-    <!-- Sheet 09: FAQ -->
-    <section class="faq-section" aria-labelledby="faq-title">
-      <div class="faq-inner">
-        <header class="why-header">
-          <p class="section-kicker">Sheet 09 · Field notes</p>
-          <h2 id="faq-title">Frequently asked questions</h2>
-        </header>
-        <div class="faq-list">
-          {faqItems.map((item) => (
-            <details class="faq-item">
-              <summary class="faq-q">{item.q}</summary>
-              <div class="faq-a"><p>{item.a}</p></div>
-            </details>
+        <p class="models-line">
+          <span class="label">Models</span>
+          {providers.map((p) => (
+            <span class="model"><Mark name={p.mark} size={16} />{p.name}</span>
           ))}
+        </p>
+        <p><a class="text-link" href="/self-hosted-coding-agents/">Why teams self-host</a></p>
+      </div>
+      <div class="ledger">
+        <div>
+          <p class="ledger-head">Stays on your cluster</p>
+          <ul>
+            <li>Repository checkouts</li>
+            <li>Sandbox pods and everything they run</li>
+            <li>Tool calls and command output</li>
+            <li>Run history, traces, and costs</li>
+            <li>Model and GitHub credentials</li>
+          </ul>
+        </div>
+        <div>
+          <p class="ledger-head ledger-out">Leaves it</p>
+          <ul>
+            <li>Inference requests, sent directly to the model provider you configured, under your contract with them</li>
+          </ul>
         </div>
       </div>
     </section>
 
-    <section class="guide-section" aria-labelledby="guide-title">
-      <header class="section-heading compact">
-        <p class="section-kicker">Index of sheets · the field manual</p>
-        <h2 id="guide-title">Go from first run to full control.</h2>
-        <p>The docs ship from the same repository as the platform. Read them here; improve them on GitHub.</p>
+    <section class="band wrap faq" aria-labelledby="faq-title">
+      <header class="band-head">
+        <h2 id="faq-title">Questions people ask first</h2>
       </header>
-      <div class="station-grid">
-        {stations.map((station) => (
-          <a class="station" href={station.href}>
-            <span>{station.kind}</span>
-            <h3>{station.title}</h3>
-            <p>{station.desc}</p>
-            <i aria-hidden="true">→</i>
-          </a>
+      <div class="faq-list">
+        {faqItems.map((item) => (
+          <details>
+            <summary>{item.q}</summary>
+            <p>{item.a}</p>
+          </details>
         ))}
       </div>
     </section>
 
-    <section class="closing-cta" aria-label="Get started">
-      <div class="closing-main">
-        <div>
-          <p class="stamp">Issued for construction</p>
-          <h2>Your agents.<br /><span>Your compute.</span></h2>
-        </div>
+    <section class="band wrap" aria-labelledby="docs-title">
+      <header class="band-head">
+        <h2 id="docs-title">The manual</h2>
+        <p>The docs live in the same repository as the code. If something is wrong, <a href={`${repositoryUrl}/tree/main/user-docs`}>fix it there</a>.</p>
+      </header>
+      <ul class="docs-index">
+        {docsIndex.map((d) => (
+          <li>
+            <a href={d.href}>
+              <span class="docs-title">{d.title}</span>
+              <span class="docs-desc">{d.desc}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+
+    <section class="closing" aria-labelledby="closing-title">
+      <div class="wrap closing-inner">
+        <h2 id="closing-title">Put your agents somewhere they can keep working.</h2>
         <div class="closing-side">
-          <p>Own the runtime, choose the models, and see the work. Start with the local Kind demo.</p>
+          <p>One server is enough to start. Install takes about fifteen minutes and finishes with a login.</p>
           <div class="cta-row">
-            <a class="btn btn-primary" href={kindGuidePath}>Run it locally with Kind <span aria-hidden="true">→</span></a>
-            <a class="btn btn-quiet" href={repositoryUrl}>Star on GitHub <span aria-hidden="true">↗</span></a>
+            <a class="btn btn-primary btn-invert" href={serverGuide}>Deploy to a server</a>
+            <a class="btn btn-quiet btn-invert-quiet" href={repositoryUrl}>Read the source</a>
           </div>
         </div>
-      </div>
-      <div class="title-block closing-block">
-        <div class="tb-sheet"><span class="tb-key">Sheet</span><span class="tb-val">10 — closeout</span></div>
-        <div><span class="tb-key">Project</span><span class="tb-val">GratefulAgents</span></div>
-        <div><span class="tb-key">License</span><span class="tb-val">AGPL-3.0</span></div>
-        <div><span class="tb-key">Runtime</span><span class="tb-val">your cluster</span></div>
-        <div><span class="tb-key">Clients</span><span class="tb-val">Web · Desktop · iOS · Android</span></div>
-        <div><span class="tb-key">Drawn by</span><span class="tb-val">your agents</span></div>
       </div>
     </section>
   </main>
 
   <div class="lightbox" data-lightbox hidden>
-    <button type="button" class="lightbox-close" data-lightbox-close aria-label="Close full screen image">Close ✕</button>
-    <img src="" alt="" data-lightbox-img />
+    <button type="button" class="lightbox-close" data-lightbox-close>Close</button>
+    <img alt="" />
   </div>
 </Base>
 
+<style>
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* Hero */
+  .hero { padding: clamp(3rem, 8vw, 6rem) 0 clamp(2rem, 4vw, 3rem); }
+  .hero-meta { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; margin: 0 0 1.5rem; color: var(--ink-3); font-size: 0.9rem; }
+  .hero-meta span { display: inline-flex; align-items: center; gap: 0.45rem; }
+  .hero-meta span::before { content: ''; width: 6px; height: 6px; background: var(--accent); }
+  .hero h1 {
+    max-width: 15ch;
+    font-family: var(--font-display);
+    font-size: clamp(3rem, 7.6vw, 6.6rem);
+    line-height: 0.98;
+    letter-spacing: -0.025em;
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+    gap: clamp(2rem, 5vw, 4.5rem);
+    align-items: end;
+    margin-top: clamp(2rem, 4vw, 3rem);
+  }
+  .hero-lede { margin: 0 0 1.75rem; max-width: 36rem; color: var(--ink-2); font-size: clamp(1.1rem, 1.5vw, 1.25rem); line-height: 1.55; }
+  .term-foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    padding: 0.6rem 0.9rem;
+    border-top: 1px solid var(--night-rule);
+    color: var(--night-dim);
+    font-size: 0.85rem;
+  }
+
+  .hero-figure { margin-block: 0 clamp(3rem, 6vw, 5rem); }
+  .screen { overflow: hidden; border-radius: 4px; background: var(--night); box-shadow: 0 1px 0 rgba(0,0,0,0.04), 0 30px 60px -30px rgba(23, 22, 15, 0.45); }
+  .screen video { width: 100%; cursor: pointer; }
+  figcaption {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    margin-top: 0.85rem;
+    color: var(--ink-3);
+    font-size: 0.9rem;
+  }
+  .figure-toggle {
+    flex: none;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ink-2);
+    font: 500 0.9rem var(--font-body);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    cursor: pointer;
+  }
+
+  /* Generic band */
+  .band { padding-block: clamp(3.5rem, 8vw, 6.5rem); border-top: 1px solid var(--rule-strong); }
+  .band-head { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 1rem 4rem; align-items: end; margin-bottom: clamp(2rem, 4vw, 3rem); }
+  .band-head h2, .split-text h2, .closing h2 {
+    font-family: var(--font-display);
+    font-size: clamp(2.1rem, 4.4vw, 3.5rem);
+    line-height: 1.04;
+    letter-spacing: -0.02em;
+  }
+  .band-head p { margin: 0; max-width: 32rem; color: var(--ink-2); }
+  .band-head p a { text-decoration-color: var(--accent); }
+
+  /* Laptop contrast */
+  .contrast { border-top: 1px solid var(--ink); }
+  .contrast-row {
+    display: grid;
+    grid-template-columns: minmax(9rem, 0.7fr) minmax(0, 1fr) minmax(0, 1.25fr);
+    gap: 1.5rem;
+    padding: 1.05rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .contrast-headrow { padding: 0.7rem 0; color: var(--ink-3); font-size: 0.88rem; font-weight: 500; }
+  .contrast-headrow span:last-child { color: var(--ink); }
+  .contrast-topic { font-weight: 600; }
+  .contrast-laptop { color: var(--ink-3); }
+  .contrast-here { color: var(--ink); }
+
+  /* Split text/code */
+  .split { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: clamp(2rem, 6vw, 5rem); align-items: start; }
+  .split-even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .split-text h2 { margin-bottom: 1.25rem; }
+  .split-text > p { max-width: 36rem; color: var(--ink-2); }
+  .split-text code { padding: 0.05em 0.3em; background: var(--paper-3); border-radius: 2px; font-size: 0.88em; }
+  .split-code { position: sticky; top: calc(var(--topbar-h) + 1.5rem); }
+  .facts { margin: 2rem 0 0; border-top: 1px solid var(--ink); }
+  .facts div { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 1rem; padding: 0.9rem 0; border-bottom: 1px solid var(--rule); }
+  .facts dt { font-weight: 600; }
+  .facts dd { margin: 0; color: var(--ink-2); }
+  .facts a { text-decoration-color: var(--accent); }
+
+  /* Triggers */
+  .triggers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--ink); }
+  .triggers li + li { border-left: 1px solid var(--rule); }
+  .triggers a { display: flex; flex-direction: column; gap: 0.6rem; height: 100%; padding: 1.25rem 1.25rem 1.5rem; text-decoration: none; }
+  .triggers li:first-child a { padding-left: 0; }
+  .triggers a:hover .trigger-name { color: var(--accent-ink); }
+  .trigger-name { display: inline-flex; align-items: center; gap: 0.55rem; font-weight: 600; font-size: 1.05rem; }
+  .trigger-how { color: var(--ink-2); font-size: 0.97rem; }
+  .loop {
+    display: grid;
+    grid-template-columns: minmax(9rem, 0.35fr) minmax(0, 1fr);
+    gap: 1.5rem;
+    margin-top: 2.5rem;
+    padding: 1.5rem;
+    background: var(--paper-2);
+  }
+  .loop-title { margin: 0; font-family: var(--font-display); font-size: 1.45rem; line-height: 1.2; }
+  .loop ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.25rem; margin: 0; padding: 0; list-style: none; counter-reset: step; }
+  .loop li { counter-increment: step; color: var(--ink-2); font-size: 0.95rem; }
+  .loop li::before { content: counter(step); display: block; margin-bottom: 0.35rem; color: var(--accent-ink); font: 500 0.9rem var(--font-mono); }
+
+  /* Dark gallery band */
+  .band-dark { border-top: 0; background: var(--night); color: var(--night-text); }
+  .band-dark .band-head p { color: var(--night-dim); }
+  .band-dark .band-head h2 { color: #f1eee6; }
+  .gallery-tabs { display: flex; flex-wrap: wrap; gap: 0 1.75rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--night-rule); }
+  .gallery-tab {
+    margin-bottom: -1px;
+    padding: 0.7rem 0;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--night-dim);
+    font: 500 0.98rem var(--font-body);
+    cursor: pointer;
+  }
+  .gallery-tab:hover { color: var(--night-text); }
+  .gallery-tab[aria-selected='true'] { color: #f1eee6; border-bottom-color: var(--accent); }
+  .gallery-panel img { width: 100%; border-radius: 3px; border: 1px solid var(--night-rule); }
+  .gallery-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .gallery-desc { max-width: 44rem; margin: 1.1rem 0 0; color: var(--night-text); }
+  .gallery-desc a { color: #f1eee6; text-decoration-color: var(--accent); white-space: nowrap; }
+
+  /* Boundary */
+  .models-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.1rem; margin: 1.75rem 0; }
+  .models-line .label { width: 100%; }
+  .model { display: inline-flex; align-items: center; gap: 0.45rem; color: var(--ink); font-weight: 500; font-size: 0.97rem; }
+  .ledger { display: grid; gap: 1.5rem; padding-top: 0.5rem; }
+  .ledger-head { margin: 0 0 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--ink); font-weight: 600; }
+  .ledger-out { color: var(--accent-ink); border-bottom-color: var(--accent); }
+  .ledger ul { margin: 0; padding: 0; list-style: none; }
+  .ledger li { padding: 0.55rem 0; border-bottom: 1px solid var(--rule); color: var(--ink-2); }
+
+  /* FAQ */
+  .faq-list { border-top: 1px solid var(--ink); max-width: 56rem; }
+  .faq details { border-bottom: 1px solid var(--rule); }
+  .faq summary {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.1rem 0;
+    font-size: 1.12rem;
+    font-weight: 500;
+    cursor: pointer;
+    list-style: none;
+  }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: '+'; color: var(--ink-3); font: 400 1.3rem/1 var(--font-mono); }
+  .faq details[open] summary::after { content: '−'; }
+  .faq summary:hover { color: var(--accent-ink); }
+  .faq details p { margin: 0 0 1.3rem; max-width: 46rem; color: var(--ink-2); }
+
+  /* Docs index */
+  .docs-index { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--ink); }
+  .docs-index li { border-bottom: 1px solid var(--rule); }
+  .docs-index a { display: flex; flex-direction: column; gap: 0.25rem; height: 100%; padding: 1.1rem 1.25rem 1.2rem 0; text-decoration: none; }
+  .docs-title { font-weight: 600; }
+  .docs-index a:hover .docs-title { color: var(--accent-ink); text-decoration: underline; text-decoration-color: var(--accent); }
+  .docs-desc { color: var(--ink-3); font-size: 0.93rem; }
+
+  /* Closing */
+  .closing { background: var(--ink); color: var(--paper); }
+  .closing-inner { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 2rem 4rem; align-items: end; padding-block: clamp(4rem, 9vw, 7rem); }
+  .closing h2 { max-width: 16ch; color: var(--paper); }
+  .closing-side p { margin: 0 0 1.5rem; color: #bdb8aa; }
+  .btn-invert { background: var(--paper); color: var(--ink); border-color: var(--paper); }
+  .btn-invert:hover { background: var(--accent); border-color: var(--accent); color: var(--paper); }
+  .btn-invert-quiet { color: var(--paper); border-color: #6f6a5c; }
+  .btn-invert-quiet:hover { background: var(--paper); color: var(--ink); border-color: var(--paper); }
+
+  @media (max-width: 1000px) {
+    .triggers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .triggers li:nth-child(3) { border-left: 0; }
+    .triggers li:nth-child(3) a { padding-left: 0; }
+    .triggers li:nth-child(n + 3) { border-top: 1px solid var(--rule); }
+    .loop, .loop ol { grid-template-columns: 1fr 1fr; }
+    .loop-title { grid-column: 1 / -1; }
+    .docs-index { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 820px) {
+    .hero-grid, .band-head, .split, .split-even, .closing-inner { grid-template-columns: minmax(0, 1fr); }
+    .split-code { position: static; }
+    .contrast-row { grid-template-columns: 1fr 1fr; gap: 0.35rem 1.25rem; }
+    .contrast-topic { grid-column: 1 / -1; }
+    .contrast-headrow span:first-child { display: none; }
+  }
+  @media (max-width: 560px) {
+    .triggers, .loop, .loop ol, .docs-index { grid-template-columns: minmax(0, 1fr); }
+    .triggers li + li { border-left: 0; border-top: 1px solid var(--rule); }
+    .triggers a { padding-left: 0; }
+    .gallery-pair { grid-template-columns: 1fr; }
+    .facts div { grid-template-columns: 1fr; gap: 0.2rem; }
+    figcaption { flex-direction: column; }
+    .contrast-row { grid-template-columns: 1fr; }
+    .contrast-headrow { display: none; }
+    .contrast-laptop::before { content: 'On a laptop: '; }
+    .contrast-here::before { content: 'GratefulAgents: '; font-weight: 600; }
+  }
+</style>
+
 <script>
-  const copyBtn = document.querySelector('[data-copy-prompt]');
-  copyBtn?.addEventListener('click', async () => {
-    const text = copyBtn instanceof HTMLElement ? copyBtn.dataset.prompt?.trim() : undefined;
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      copyBtn.textContent = 'Prompt copied ✓';
-      setTimeout(() => { copyBtn.innerHTML = 'Copy install prompt <span aria-hidden="true">↗</span>'; }, 1800);
-    } catch {
-      copyBtn.textContent = 'Copy unavailable — open the guide';
-    }
+  // Copy buttons: hero command and agent prompt.
+  document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((button) => {
+    const original = button.textContent;
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy ?? '');
+        button.textContent = 'Copied';
+      } catch {
+        button.textContent = 'Copy failed: select it by hand';
+      }
+      setTimeout(() => { button.textContent = original; }, 1800);
+    });
   });
 
-  // Lightbox: click any product screenshot to view it full screen.
-  const lightbox = document.querySelector('[data-lightbox]');
-  if (lightbox instanceof HTMLElement) {
-    const lightboxImg = lightbox.querySelector('[data-lightbox-img]');
-    let lastFocus = null;
+  // Hero recording: autoplay muted unless the visitor prefers reduced motion.
+  const video = document.querySelector<HTMLVideoElement>('[data-hero-video]');
+  const toggle = document.querySelector<HTMLButtonElement>('[data-video-toggle]');
+  if (video && toggle) {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const sync = () => {
+      toggle.textContent = video.paused ? 'Play' : 'Pause';
+      toggle.setAttribute('aria-pressed', String(video.paused));
+    };
+    const flip = () => { if (video.paused) video.play().catch(() => {}); else video.pause(); };
+    video.addEventListener('play', sync);
+    video.addEventListener('pause', sync);
+    toggle.addEventListener('click', flip);
+    video.addEventListener('click', flip);
+    if (reduceMotion) sync();
+    else video.play().catch(sync);
+  }
 
+  // Gallery tabs.
+  const gallery = document.querySelector('[data-gallery]');
+  if (gallery) {
+    const tabs = [...gallery.querySelectorAll<HTMLButtonElement>('.gallery-tab')];
+    const panels = [...gallery.querySelectorAll<HTMLElement>('.gallery-panel')];
+    let current = 0;
+    const show = (index: number) => {
+      current = (index + tabs.length) % tabs.length;
+      tabs.forEach((tab, i) => {
+        tab.setAttribute('aria-selected', String(i === current));
+        tab.tabIndex = i === current ? 0 : -1;
+      });
+      panels.forEach((panel, i) => { panel.hidden = i !== current; });
+    };
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => show(index));
+      tab.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+        event.preventDefault();
+        show(current + (event.key === 'ArrowRight' ? 1 : -1));
+        tabs[current].focus();
+      });
+    });
+  }
+
+  // Screenshot lightbox.
+  const lightbox = document.querySelector<HTMLElement>('[data-lightbox]');
+  const lightboxImg = lightbox?.querySelector('img');
+  if (lightbox && lightboxImg) {
+    let opener: HTMLElement | null = null;
     const close = () => {
       lightbox.hidden = true;
       document.body.style.overflow = '';
-      if (lastFocus instanceof HTMLElement) lastFocus.focus();
+      opener?.focus();
     };
-    const open = (img) => {
-      lastFocus = document.activeElement;
+    const open = (img: HTMLImageElement) => {
+      opener = img;
       lightboxImg.src = img.currentSrc || img.src;
       lightboxImg.alt = img.alt;
       lightbox.hidden = false;
       document.body.style.overflow = 'hidden';
-      lightbox.querySelector('[data-lightbox-close]')?.focus();
+      lightbox.querySelector<HTMLElement>('[data-lightbox-close]')?.focus();
     };
-
-    document.querySelectorAll('main img[src^="/screens/"]').forEach((img) => {
+    document.querySelectorAll<HTMLImageElement>('main img[src^="/screens/"]').forEach((img) => {
       img.classList.add('zoomable');
-      img.setAttribute('tabindex', '0');
+      img.tabIndex = 0;
       img.setAttribute('role', 'button');
-      img.setAttribute('aria-label', `View full screen: ${img.alt}`);
+      img.setAttribute('aria-label', `View full size: ${img.alt}`);
       img.addEventListener('click', () => open(img));
       img.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -486,127 +799,9 @@ const stations = [
         }
       });
     });
-
     lightbox.addEventListener('click', close);
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && !lightbox.hidden) close();
-    });
-  }
-
-  const hero = document.querySelector('[data-hero]');
-  if (hero) {
-    const slides = [...hero.querySelectorAll('[data-hero-slide]')];
-    const count = hero.querySelector('[data-hero-count]');
-    const video = hero.querySelector('[data-hero-video]');
-    const progress = hero.querySelector('[data-hero-progress]');
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    let current = 0;
-    let timer;
-    let manual = false;
-    let hovered = false;
-
-    // Reduced motion: no autoplay, no rotation — hand the recording over
-    // to the native controls instead.
-    if (video && reduceMotion) video.controls = true;
-
-    const onVideoSlide = () => Boolean(video && slides[current].contains(video));
-    const stop = () => { if (timer) { clearInterval(timer); timer = undefined; } };
-    const start = () => {
-      // The video slide advances itself when playback ends.
-      if (reduceMotion || manual || hovered || timer || onVideoSlide()) return;
-      timer = setInterval(() => show(current + 1), 5000);
-    };
-
-    const show = (index) => {
-      current = (index + slides.length) % slides.length;
-      slides.forEach((slide, i) => { slide.hidden = i !== current; });
-      if (count) count.textContent = `0${current + 1} / 0${slides.length}`;
-      stop();
-      if (video) {
-        if (onVideoSlide() && !reduceMotion) {
-          video.currentTime = 0;
-          video.play().catch(() => {});
-        } else if (!onVideoSlide()) {
-          video.pause();
-        }
-      }
-      start();
-    };
-
-    if (video) {
-      video.addEventListener('ended', () => {
-        if (!manual && !hovered && onVideoSlide()) show(current + 1);
-      });
-      video.addEventListener('timeupdate', () => {
-        if (progress && video.duration) {
-          progress.style.transform = `scaleX(${video.currentTime / video.duration})`;
-        }
-      });
-      if (!reduceMotion) {
-        // Click (or Enter/Space) opens the recording full screen, mirroring
-        // the screenshot lightbox; native controls take over while there.
-        const goFullscreen = () => {
-          if (document.fullscreenElement) return;
-          if (video.requestFullscreen) video.requestFullscreen().catch(() => {});
-          else if (video.webkitRequestFullscreen) video.webkitRequestFullscreen();
-          else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
-        };
-        video.setAttribute('tabindex', '0');
-        video.setAttribute('role', 'button');
-        video.addEventListener('click', goFullscreen);
-        video.addEventListener('keydown', (event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            goFullscreen();
-          }
-        });
-        for (const type of ['fullscreenchange', 'webkitfullscreenchange']) {
-          document.addEventListener(type, () => {
-            video.controls = (document.fullscreenElement || document.webkitFullscreenElement) === video;
-          });
-        }
-      }
-    }
-
-    hero.querySelector('[data-hero-prev]')?.addEventListener('click', () => { manual = true; show(current - 1); });
-    hero.querySelector('[data-hero-next]')?.addEventListener('click', () => { manual = true; show(current + 1); });
-    hero.addEventListener('pointerenter', () => { hovered = true; stop(); });
-    hero.addEventListener('pointerleave', () => { hovered = false; start(); });
-
-    show(0);
-  }
-
-  const gallery = document.querySelector('[data-slides]');
-  if (gallery) {
-    const tabs = [...gallery.querySelectorAll('.gallery-tab')];
-    const slides = [...gallery.querySelectorAll('.gallery-slide')];
-    let current = 0;
-
-    const show = (index) => {
-      current = (index + tabs.length) % tabs.length;
-      tabs.forEach((tab, tabIndex) => {
-        tab.setAttribute('aria-selected', String(tabIndex === current));
-        tab.tabIndex = tabIndex === current ? 0 : -1;
-      });
-      slides.forEach((slide, slideIndex) => {
-        slide.hidden = slideIndex !== current;
-      });
-    };
-
-    tabs.forEach((tab, index) => {
-      tab.addEventListener('click', () => show(index));
-      tab.addEventListener('keydown', (event) => {
-        if (event.key === 'ArrowRight') {
-          event.preventDefault();
-          show(current + 1);
-          tabs[current].focus();
-        }
-        if (event.key === 'ArrowLeft') {
-          event.preventDefault();
-          show(current - 1);
-          tabs[current].focus();
-        }
-      });
     });
   }
 </script>

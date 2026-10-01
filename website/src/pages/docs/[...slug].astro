@@ -107,12 +107,12 @@ const structuredData = [
 ---
 
 <Base title={pageTitle} {description} type="article" {structuredData} bodyClass="is-docs">
-  <button class="menu-toggle" aria-expanded="false" data-menu-toggle>kind: Navigation ▾</button>
+  <button class="menu-toggle" aria-expanded="false" data-menu-toggle>Browse the guide</button>
   <div class="docs-layout" data-docs-layout>
     <nav class="sidebar" aria-label="User guide">
       {sections.map((s) => (
         <section class="nav-group">
-          <p class="nav-key">kind: <b>{s.kind}</b></p>
+          <p class="nav-key">{s.label}</p>
           <ul>
             {s.items.map((id) => (
               <li>
@@ -137,11 +137,11 @@ const structuredData = [
       {entry.data.agentPrompt && (
         <aside class="agent-prompt" aria-label="Prompt for your coding agent">
           <div class="agent-prompt-head">
-            <span class="agent-prompt-key">your-agent · paste this prompt</span>
+            <span class="agent-prompt-key">Hand this page to your coding agent</span>
             <button type="button" class="agent-prompt-copy" data-copy-prompt>Copy prompt</button>
           </div>
           <p class="agent-prompt-text" data-prompt-text>{entry.data.agentPrompt}</p>
-          <p class="agent-prompt-note">Your agent reads this page and does the rest with you.</p>
+          <p class="agent-prompt-note">Paste it into Claude Code, Codex, or any agent that can read the web. It reads the page and works through it with you.</p>
         </aside>
       )}
       <article class="prose">
@@ -160,7 +160,7 @@ const structuredData = [
         )}
       </nav>
       <footer class="doc-foot">
-        <span>Maintained by GratefulAgents</span>
+        <span>Docs are versioned with the code</span>
         <span aria-hidden="true"> · </span>
         <a href={`${repositoryUrl}/edit/main/user-docs/docs/${entry.id}.md`}>Edit this page on GitHub</a>
       </footer>

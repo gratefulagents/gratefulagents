@@ -34,6 +34,77 @@ function rewriteDocLinks() {
 }
 
 /**
+ * Converts Docusaurus admonitions (`:::warning Title` … `:::`) into
+ * `<aside class="callout callout-warning">` so they render on this site
+ * instead of showing the raw fences. The markdown stays Docusaurus-compatible.
+ */
+function admonitions() {
+  const OPEN = /^:::(\w+)[ \t]*([^\n]*)\n?/;
+  const CLOSE = /\n?:::\s*$/;
+  const firstText = (node) => (node?.type === 'paragraph' && node.children[0]?.type === 'text' ? node.children[0] : undefined);
+  const lastText = (node) => {
+    const last = node?.type === 'paragraph' ? node.children[node.children.length - 1] : undefined;
+    return last?.type === 'text' ? last : undefined;
+  };
+  const closes = (node) => Boolean(lastText(node) && CLOSE.test(lastText(node).value));
+  const stripClose = (node) => {
+    const t = lastText(node);
+    t.value = t.value.replace(CLOSE, '');
+  };
+  const prune = (node) => {
+    node.children = node.children.filter((c) => !(c.type === 'text' && c.value.trim() === ''));
+    return node.children.length > 0;
+  };
+
+  const transform = (parent) => {
+    if (!parent.children) return;
+    for (let i = 0; i < parent.children.length; i++) {
+      const node = parent.children[i];
+      const t = firstText(node);
+      const m = t && t.value.match(OPEN);
+      if (!m) {
+        transform(node);
+        continue;
+      }
+      const kind = m[1].toLowerCase();
+      const title = m[2].trim() || kind.charAt(0).toUpperCase() + kind.slice(1);
+      t.value = t.value.slice(m[0].length);
+      const body = [];
+      let end = i;
+      if (closes(node)) {
+        stripClose(node);
+        if (prune(node)) body.push(node);
+      } else {
+        if (prune(node)) body.push(node);
+        for (end = i + 1; end < parent.children.length; end++) {
+          const next = parent.children[end];
+          if (closes(next)) {
+            stripClose(next);
+            if (prune(next)) body.push(next);
+            break;
+          }
+          body.push(next);
+        }
+      }
+      const aside = {
+        type: 'admonition',
+        data: {hName: 'aside', hProperties: {className: ['callout', `callout-${kind}`]}},
+        children: [
+          {
+            type: 'paragraph',
+            data: {hName: 'span', hProperties: {className: ['callout-title']}},
+            children: [{type: 'text', value: title}],
+          },
+          ...body,
+        ],
+      };
+      parent.children.splice(i, end - i + 1, aside);
+    }
+  };
+  return (tree) => transform(tree);
+}
+
+/**
  * Resolves the source file that produces a given route, so sitemap `lastmod`
  * can report when the page actually changed instead of when it was last built.
  */
@@ -107,6 +178,6 @@ export default defineConfig({
     }),
   ],
   markdown: {
-    remarkPlugins: [rewriteDocLinks],
+    remarkPlugins: [rewriteDocLinks, admonitions],
   },
 });
