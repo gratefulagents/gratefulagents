@@ -127,8 +127,6 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 		tools.WithPermissionMode(cfg.PermissionMode),
 		tools.WithGitRemoteWrites(cfg.GitRemoteWrites),
 		tools.WithSignalTools(),
-		// Register the provider-neutral tool shell here. The SDK runtime attaches
-		// the configured OpenAI vision analyzer when it builds the agent.
 		tools.WithVisionTools(nil),
 	)
 
@@ -449,12 +447,12 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	runtimeCfg.GitRemoteWrites = cfg.GitRemoteWrites
 	// Explicit feature selection (SDK v0.0.7+): the operator brings its own
 	// tool registry, signal tools, MCP manager, and guardrail rules, so only
-	// ExtraTools, vision attachment, specialists, and project state are
+	// ExtraTools, specialists, and project state are
 	// SDK-built. Zero values keep everything else off.
 	runtimeCfg.Features = &sdkruntime.Features{
 		Tools: sdkruntime.ToolFeatures{
-			ExtraTools:     true,
-			VisionAnalyzer: true,
+			ExtraTools: true,
+			Vision:     true,
 		},
 		Handoffs: sdkruntime.HandoffFeatures{
 			Enabled:         hasSpecialists,

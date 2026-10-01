@@ -57,7 +57,7 @@ spec:
     </verification_loop>
 
     <tool_persistence>
-    - Use AnalyzeImage to load images directly into your visual context, then inspect them yourself.
+    - Use read_file to load local images directly into your visual context, then inspect them yourself.
     - For PDFs: extract text, structure, tables, data from specific sections.
     - For images: describe layouts, UI elements, text, diagrams, charts.
     - For diagrams: explain relationships, flows, architecture depicted.

@@ -1,16 +1,20 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/gratefulagents/sdk/pkg/agentsdk"
 	"github.com/gratefulagents/sdk/pkg/agentsdk/policy"
-	sdkvision "github.com/gratefulagents/sdk/pkg/agentsdk/tools/vision"
+	sdkbrowser "github.com/gratefulagents/sdk/pkg/agentsdk/tools/browser"
+	sdksearch "github.com/gratefulagents/sdk/pkg/agentsdk/tools/search"
 	sdkweb "github.com/gratefulagents/sdk/pkg/agentsdk/tools/web"
 )
 
@@ -43,27 +47,31 @@ func TestNewRegistry_WithBrowserToolsRegistersBrowser(t *testing.T) {
 	}
 }
 
-func TestNewRegistry_BrowserDoesNotRelaxVisionURLs(t *testing.T) {
-	r := NewRegistry("/tmp/test", WithBrowserTools(), WithVisionTools(func(context.Context, []byte, string, string) (string, error) {
-		return "", nil
-	}))
-	vision, ok := r.Get("AnalyzeImage").(*sdkvision.Tool)
-	if !ok {
-		t.Fatalf("AnalyzeImage has unexpected type %T", r.Get("AnalyzeImage"))
+func TestNewRegistry_WithVisionTools(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		opts   []RegistryOption
+		images bool
+	}{
+		{name: "default"},
+		{name: "browser only", opts: []RegistryOption{WithBrowserTools()}},
+		{name: "vision", opts: []RegistryOption{WithVisionTools(nil)}, images: true},
+		{name: "read-only vision", opts: []RegistryOption{WithReadOnlyTools(), WithVisionTools(nil)}, images: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := NewRegistry(t.TempDir(), tc.opts...)
+			readFile, ok := r.Get("read_file").(*sdksearch.ReadFileTool)
+			if !ok || readFile.Images != tc.images {
+				t.Fatalf("read_file = %#v, want Images = %v", r.Get("read_file"), tc.images)
+			}
+			if r.Get("AnalyzeImage") != nil {
+				t.Fatal("AnalyzeImage was replaced by read_file image attachments")
+			}
+		})
 	}
-	if vision.AllowPrivateNetworkURLs {
-		t.Fatal("enabling Browser must not enable private-network URLs for vision")
-	}
-}
-
-func TestNewRegistry_WithProviderWiredVisionTool(t *testing.T) {
-	r := NewRegistry("/tmp/test", WithVisionTools(nil))
-	vision, ok := r.Get("AnalyzeImage").(*sdkvision.Tool)
-	if !ok {
-		t.Fatalf("provider-wired registry missing AnalyzeImage; names=%v", r.Names())
-	}
-	if vision.AnalyzeFn != nil || vision.AnalyzeWithDetailFn != nil {
-		t.Fatal("provider-wired vision tool should leave analyzer attachment to the SDK runtime")
+	r := NewRegistry(t.TempDir(), WithVisionTools(nil), WithToolNameFilter(nil, []string{"read_file"}))
+	if r.Get("read_file") != nil {
+		t.Fatal("vision must not bypass the tool name filter")
 	}
 }
 
@@ -373,21 +381,59 @@ func TestNewRegistry_WithAsyncShellToolsRegistersBackgroundJobs(t *testing.T) {
 	}
 }
 
-func TestAnalyzeImageReturnsNativeAttachment(t *testing.T) {
+func TestReadFileReturnsNativeImageAttachment(t *testing.T) {
 	dir := t.TempDir()
-	data := []byte{0x89, 'P', 'N', 'G'}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	data := buf.Bytes()
 	if err := os.WriteFile(filepath.Join(dir, "pixel.png"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	registry := NewRegistry(dir, WithVisionTools(func(context.Context, []byte, string, string) (string, error) {
-		t.Fatal("AnalyzeImage must not call a text analyzer")
+		t.Fatal("read_file must not call a text analyzer")
 		return "", nil
 	}))
-	result, err := registry.Get("AnalyzeImage").Execute(context.Background(), json.RawMessage(`{"image_path":"pixel.png","prompt":"inspect"}`), dir)
+	result, err := registry.Get("read_file").Execute(context.Background(), json.RawMessage(`{"path":"pixel.png"}`), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.IsError || len(result.Images) != 1 || result.Images[0].Data != base64.StdEncoding.EncodeToString(data) || result.Images[0].MediaType != "image/png" {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestNewRegistry_VisionReadsBrowserScreenshots(t *testing.T) {
+	dir, screenshotDir := t.TempDir(), t.TempDir()
+	r := NewRegistry(dir, WithReadOnlyTools(), WithBrowserTools(), WithBrowserScreenshotDir(screenshotDir), WithVisionTools(nil))
+	browser := r.Get("Browser").(*sdkbrowser.Tool)
+	if !browser.ReadFileImages || browser.ScreenshotDir != screenshotDir {
+		t.Fatalf("Browser image settings = %#v", browser)
+	}
+	if r.Get("WebFetch").(*sdkweb.FetchTool).AllowPrivateNetworkURLs {
+		t.Fatal("enabling Browser and vision must not enable private-network URLs for WebFetch")
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	for _, imageDir := range []string{screenshotDir, t.TempDir()} {
+		path := filepath.Join(imageDir, "screenshot.png")
+		if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		input, err := json.Marshal(map[string]string{"path": path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := r.Get("read_file").Execute(context.Background(), input, dir)
+		if imageDir == screenshotDir {
+			if err != nil || result.IsError || len(result.Images) != 1 {
+				t.Fatalf("managed screenshot result = %+v, err = %v", result, err)
+			}
+		} else if err == nil {
+			t.Fatal("vision must not allow images outside the workspace and managed screenshot directory")
+		}
 	}
 }

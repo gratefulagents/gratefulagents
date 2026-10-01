@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +18,7 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	internaltools "github.com/gratefulagents/gratefulagents/internal/tools"
+	sdkruntime "github.com/gratefulagents/sdk/pkg/agentsdk/runtime"
 	"github.com/gratefulagents/sdk/pkg/agentsdk/sandbox"
 	sdkbrowser "github.com/gratefulagents/sdk/pkg/agentsdk/tools/browser"
 )
@@ -137,7 +142,29 @@ func (e *screenshotExecutor) Run(_ context.Context, req sandbox.Request) (sandbo
 
 func TestBrowserRegistryUsesWorkspaceScratchAndKeepsExplicitOutputInWorkspace(t *testing.T) {
 	workDir := t.TempDir()
-	registry := internaltools.NewRegistry(workDir, browserRegistryOptions()...)
+	opts := append(browserRegistryOptions(), internaltools.WithVisionTools(nil))
+	registry := internaltools.NewRegistry(workDir, opts...)
+	bundle, err := sdkruntime.BuildToolBundle(context.Background(), sdkruntime.Config{
+		WorkDir: workDir,
+		Features: &sdkruntime.Features{
+			Tools: sdkruntime.ToolFeatures{ExtraTools: true, Vision: true},
+		},
+		ExtraTools: registry.Tools(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Tools) != len(registry.Tools()) {
+		t.Fatalf("runtime tool count = %d, want %d", len(bundle.Tools), len(registry.Tools()))
+	}
+	for _, tool := range bundle.Tools {
+		if tool.Name() == "AnalyzeImage" {
+			t.Fatal("runtime must not register the obsolete AnalyzeImage tool")
+		}
+		if tool != registry.Get(tool.Name()) {
+			t.Fatalf("runtime replaced platform tool %q", tool.Name())
+		}
+	}
 	browserTool, ok := registry.Get("Browser").(*sdkbrowser.Tool)
 	if !ok {
 		t.Fatalf("Browser tool = %T, want *browser.Tool", registry.Get("Browser"))
@@ -152,7 +179,11 @@ func TestBrowserRegistryUsesWorkspaceScratchAndKeepsExplicitOutputInWorkspace(t 
 		t.Fatalf("write fake Chromium: %v", err)
 	}
 	t.Setenv("PATH", binDir)
-	browserTool.Executor = &screenshotExecutor{data: []byte("png-data")}
+	var screenshot bytes.Buffer
+	if err := png.Encode(&screenshot, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	browserTool.Executor = &screenshotExecutor{data: screenshot.Bytes()}
 
 	result, err := browserTool.Execute(
 		context.Background(),
@@ -166,11 +197,18 @@ func TestBrowserRegistryUsesWorkspaceScratchAndKeepsExplicitOutputInWorkspace(t 
 	if err != nil {
 		t.Fatalf("read explicit workspace screenshot: %v", err)
 	}
-	if string(got) != "png-data" {
-		t.Fatalf("explicit workspace screenshot = %q, want png-data", got)
+	if !bytes.Equal(got, screenshot.Bytes()) {
+		t.Fatal("explicit workspace screenshot does not match PNG data")
 	}
 	if !strings.Contains(result.Content, filepath.Join("artifacts", "browser.png")) {
 		t.Fatalf("Browser result = %q, want workspace-relative artifact path", result.Content)
+	}
+	result, err = registry.Get("read_file").Execute(context.Background(), json.RawMessage(`{"path":"artifacts/browser.png"}`), workDir)
+	if err != nil || result.IsError {
+		t.Fatalf("read_file screenshot result=%#v err=%v", result, err)
+	}
+	if len(result.Images) != 1 || result.Images[0].Data != base64.StdEncoding.EncodeToString(screenshot.Bytes()) {
+		t.Fatalf("read_file screenshot attachments = %#v, want native PNG attachment", result.Images)
 	}
 }
 

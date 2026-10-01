@@ -41,6 +41,7 @@ require (
 	github.com/openai/openai-go/v3 v3.33.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
+	golang.org/x/image v0.38.0 // indirect
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
