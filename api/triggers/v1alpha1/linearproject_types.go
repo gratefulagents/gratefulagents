@@ -461,6 +461,12 @@ func (in AgentRunDefaults) ResolveWorkflowMode() platformv1alpha1.AgentRunWorkfl
 
 // LinearProjectSpec defines the desired state of LinearProject.
 type LinearProjectSpec struct {
+	// suspend pauses Linear polling and run creation while preserving the
+	// resource and its processed-issue state. Project triggers set this when
+	// they are disabled so re-enabling resumes without a destructive teardown.
+	// +optional
+	Suspend bool `json:"suspend,omitempty"`
+
 	// linearApiKeySecret is the name of the K8s Secret that holds the Linear
 	// API key under the key "api-key".
 	// +kubebuilder:validation:MinLength=1
@@ -528,6 +534,7 @@ const (
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Project",type=string,JSONPath=`.spec.projectId`
+// +kubebuilder:printcolumn:name="Suspended",type=boolean,JSONPath=`.spec.suspend`
 // +kubebuilder:printcolumn:name="Processed",type=integer,JSONPath=`.status.issuesProcessed`
 // +kubebuilder:printcolumn:name="LastPoll",type=date,JSONPath=`.status.lastPollTime`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`

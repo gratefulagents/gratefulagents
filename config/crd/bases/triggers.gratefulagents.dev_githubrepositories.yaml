@@ -21,6 +21,9 @@ spec:
     - jsonPath: .spec.repo
       name: Repo
       type: string
+    - jsonPath: .spec.suspend
+      name: Suspended
+      type: boolean
     - jsonPath: .status.issuesProcessed
       name: Processed
       type: integer
@@ -1037,6 +1040,15 @@ spec:
                     - name
                     type: object
                 type: object
+              suspend:
+                description: |-
+                  suspend pauses all trigger activity for this repository — issue polling,
+                  run creation, maintainer supervision, and work-item command execution —
+                  while preserving the resource and all runtime state (work items, the
+                  dispatch ledger, and the standing maintainer run identity). Project
+                  triggers set this when they are disabled so re-enabling resumes with
+                  full dispatch memory instead of a destructive teardown.
+                type: boolean
               triggerKeyword:
                 default: '@agent'
                 description: |-
