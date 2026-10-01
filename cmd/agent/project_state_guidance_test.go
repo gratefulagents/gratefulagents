@@ -26,11 +26,7 @@ func TestProjectStateGuidanceReferencesRealTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFilesystemStore() error = %v", err)
 	}
-	valid := map[string]bool{
-		// The guidance contrasts durable tasks with ephemeral sub-agent
-		// delegation; the subagent tool is registered by the SDK scheduler.
-		"subagent": true,
-	}
+	valid := map[string]bool{}
 	for _, tool := range sdkprojectstatetools.Tools(store, "test") {
 		valid[tool.Name()] = true
 	}
@@ -42,7 +38,9 @@ func TestProjectStateGuidanceReferencesRealTools(t *testing.T) {
 		}
 	}
 
-	for _, want := range []string{"task_create", "memory_remember", "memory_recall", "prime_context"} {
+	for _, want := range []string{
+		"task_create", "memory_search", "memory_get", "memory_save", "memory_verify", "memory_delete", "prime_context",
+	} {
 		if !strings.Contains(guidance, want) {
 			t.Errorf("projectStateGuidance() no longer mentions %q", want)
 		}

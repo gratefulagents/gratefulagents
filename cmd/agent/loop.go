@@ -410,7 +410,7 @@ func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset
 		r.onExit(func(*runResult) { psPool.Close() })
 	}
 	r.onExit(func(result *runResult) {
-		saveSessionSummaryOnExit(psStore, sc, cfg.TaskName, *result)
+		releaseClaimsOnExit(ctx, psStore, cfg.TaskName, *result)
 	})
 
 	toolRegistry := tools.NewRegistry(cfg.RepoDir, registryOpts...)
@@ -624,9 +624,6 @@ func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset
 		toolOutputGuardrails = append(toolOutputGuardrails, crdOutputG...)
 	}
 
-	// Auto-retrieve durable project state for this run (priming happens again
-	// per turn via workingStateContext so the model sees fresh task/memory state).
-
 	var modeSnapshot *platformv1alpha1.ModeTemplateSpec
 	if run != nil {
 		modeSnapshot = run.Status.ModeSnapshot
@@ -641,6 +638,12 @@ func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset
 		// Teach the durable-state surface (task_*/memory_*/prime_context)
 		// only when its tools are actually registered for this run.
 		instructionParts = append(instructionParts, projectStateGuidance())
+		// The briefing is rendered once per pod into the system prompt so the
+		// prompt prefix stays cache-stable across turns; compaction
+		// carry-forward re-renders a fresh copy (compactionCarryForward).
+		if prime := refreshPrimeContext(ctx, psStore, cfg.TaskName); prime != "" {
+			instructionParts = append(instructionParts, prime)
+		}
 	}
 
 	hasSpecialists := len(roleCatalog.Roles) > 0
@@ -687,7 +690,10 @@ func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset
 			Instructions: true,
 		},
 		ProjectState: sdkruntime.ProjectStateFeatures{
-			PrimeContext: psStore != nil,
+			// The operator renders the briefing into the instructions itself
+			// (see projectStateGuidance); the SDK's startup prime only feeds
+			// WorkingStateText, which a dynamic carry-forward overrides.
+			PrimeContext: false,
 			TaskTools:    psStore != nil,
 			MemoryTools:  psStore != nil,
 			PrimeTool:    psStore != nil,
@@ -1072,6 +1078,9 @@ func (r *chatRuntime) runPass(ctx context.Context, t *userTurn) (loopAction, *ru
 	post := r.readRunAfterTurn(ctx)
 	if exit := r.commitTurn(ctx, t, pt, out, post); exit != nil {
 		return awaitUser, exit
+	}
+	if !out.interrupted && ctx.Err() == nil {
+		r.consolidateMemoryAfterTurn(ctx, t, out.result, pt.toolAccess)
 	}
 	return r.decideNext(ctx, t, out, post)
 }
@@ -1461,15 +1470,6 @@ func (r *chatRuntime) prepareTurn(ctx context.Context, t *userTurn, p *turnPolic
 	}
 	inputItems = append(inputItems, userItem)
 	workingStateContext := buildWorkingStateContext(workingState)
-	// Refresh the durable project state briefing each turn so the model
-	// sees current tasks and memories (SDK prime, operator persistence).
-	if prime := refreshPrimeContext(ctx, r.psStore, cfg.TaskName); prime != "" {
-		if workingStateContext != "" {
-			workingStateContext += "\n\n" + prime
-		} else {
-			workingStateContext = prime
-		}
-	}
 
 	if cfg.Debug {
 		// Prompts and working state may contain credentials or private source.
@@ -1704,6 +1704,11 @@ func (r *chatRuntime) compactionCarryForward(workingState sessionclient.WorkingS
 		}
 		if stateContext := buildWorkingStateContext(state); stateContext != "" {
 			parts = append(parts, stateContext)
+		}
+		// Compaction already invalidates the cached prefix, so this is the
+		// cheap moment to surface a fresh durable-state briefing.
+		if prime := refreshPrimeContext(ctx, r.psStore, r.cfg.TaskName); prime != "" {
+			parts = append(parts, prime)
 		}
 		return strings.Join(parts, "\n\n")
 	}

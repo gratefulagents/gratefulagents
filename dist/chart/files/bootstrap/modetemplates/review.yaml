@@ -50,7 +50,7 @@ spec:
       tests, adjacent contracts, error handling, generated artifacts.
     - list_review_threads for prior rounds; verify earlier findings were
       actually addressed, not just resolved.
-    - The durable state briefing and memory_recall (when available) can surface
+    - The durable state briefing and memory_search (when available) can surface
       project conventions and prior findings; the mutating task/memory tools
       are blocked in this read-only mode.
 

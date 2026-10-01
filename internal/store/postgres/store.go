@@ -990,12 +990,6 @@ func (s *Store) DeleteAgentRunData(ctx context.Context, agentRunName, agentRunNS
 			args:        []any{agentRunName, agentRunNS},
 		},
 		{
-			description: "legacy agent memories",
-			table:       "agent_memories",
-			sql:         `DELETE FROM agent_memories WHERE source_run = $1 AND namespace = $2`,
-			args:        []any{agentRunName, agentRunNS},
-		},
-		{
 			description: "project state tasks",
 			table:       "project_state_tasks",
 			sql:         `DELETE FROM project_state_tasks WHERE source_run = $1 AND ($2 = '' OR project_id = $2)`,
@@ -1005,12 +999,6 @@ func (s *Store) DeleteAgentRunData(ctx context.Context, agentRunName, agentRunNS
 			description: "project state memories",
 			table:       "project_state_memories",
 			sql:         `DELETE FROM project_state_memories WHERE source_run = $1 AND ($2 = '' OR project_id = $2)`,
-			args:        []any{agentRunName, projectID},
-		},
-		{
-			description: "project state session summaries",
-			table:       "project_state_session_summaries",
-			sql:         `DELETE FROM project_state_session_summaries WHERE run_id = $1 AND ($2 = '' OR project_id = $2)`,
 			args:        []any{agentRunName, projectID},
 		},
 	}
