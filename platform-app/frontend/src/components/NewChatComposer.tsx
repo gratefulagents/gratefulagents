@@ -133,6 +133,12 @@ export interface NewChatComposerProps {
   className?: string;
   /** Imperative focus handle for hosts whose "New run" button targets this composer. */
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
+  /**
+   * Replace the draft from outside (e.g. Home-screen starter prompts). Bump
+   * `nonce` to re-apply the same text; the textarea is focused with the caret
+   * at the end so the user can keep typing.
+   */
+  prefill?: { text: string; nonce: number };
 }
 
 /**
@@ -148,6 +154,7 @@ export function NewChatComposer({
   placeholder = "Describe a task, or ask anything…",
   className,
   textareaRef,
+  prefill,
 }: NewChatComposerProps) {
   const navigate = useNavigate();
   const { projects, loading: projectsLoading, error: projectsError } = useProjects();
@@ -192,6 +199,21 @@ export function NewChatComposer({
     );
     return personalWorkspace ?? projects[0];
   }, [projects, picked, fixedProject, fixedNamespace, personalNamespace]);
+
+  // Apply a new prefill during render (not in an effect) so the draft and the
+  // textarea update in one pass; the effect below only moves focus/caret.
+  const [appliedPrefill, setAppliedPrefill] = useState(prefill?.nonce);
+  if (prefill && prefill.nonce !== appliedPrefill) {
+    setAppliedPrefill(prefill.nonce);
+    setText(prefill.text);
+  }
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!prefill || !ta) return;
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new nonce moves the caret
+  }, [prefill?.nonce]);
 
   useEffect(() => {
     const ta = taRef.current;

@@ -17,15 +17,7 @@ import {
   type ProjectWithTriggers,
 } from "@/components/project-triggers/types";
 import { Button } from "@/components/ui/button";
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemMedia,
-  ItemTitle,
-} from "@/components/ui/item";
+import { ProgressPips } from "@/components/onboarding/ProgressPips";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMyCredentials } from "@/hooks/useMyCredentials";
 import { useProjects } from "@/hooks/useWatchedList";
@@ -116,21 +108,26 @@ export function FeatureTour({ className }: { className?: string }) {
   if (!project) return null;
   const entryPointsTo = `/projects/${project.namespace}/${project.name}?tab=entry-points`;
 
+  const done = featureTourStepsDone(tour);
+  const pending = FEATURE_TOUR_SOURCES.filter((source) => !tour[source]);
+  const total = FEATURE_TOUR_SOURCES.length;
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: [0.25, 1, 0.5, 1], delay: 0.12 }}
       aria-label="Do more with your agents"
-      className={cn("rounded-xl border bg-card p-4 shadow-[var(--elevation-low)]", className)}
+      className={cn("flex flex-col gap-2.5", className)}
     >
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <h2 className="text-[13px] font-medium">
-          Do more with your agents
-          <span className="ml-2 font-mono text-[11px] font-normal text-muted-foreground">
-            {featureTourStepsDone(tour)}/{FEATURE_TOUR_SOURCES.length}
+      <div className="flex items-center justify-between gap-3 px-1">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <h2 className="text-[12.5px] font-medium">Do more with your agents</h2>
+          <ProgressPips done={done} total={total} />
+          <span className="font-mono text-[11px] text-muted-foreground">
+            {done}/{total}
           </span>
-        </h2>
+        </div>
         <Button
           variant="ghost"
           size="icon-xs"
@@ -144,49 +141,30 @@ export function FeatureTour({ className }: { className?: string }) {
           <X />
         </Button>
       </div>
-      <p className="mb-2 text-[11.5px] leading-relaxed text-muted-foreground">
-        Entry points run agents without the dashboard. Each one lives in{" "}
-        <Link to={entryPointsTo} className="underline underline-offset-2 hover:text-foreground">
-          {project.displayName || project.name} → Entry points
-        </Link>
-        .
-      </p>
-      <ItemGroup className="gap-1">
-        {FEATURE_TOUR_SOURCES.map((source) => {
+      <div className={cn("grid gap-2", pending.length > 1 && "sm:grid-cols-2")}>
+        {pending.map((source) => {
           const item = TOUR_ITEMS[source];
-          return tour[source] ? (
-            <Item key={source} size="xs" className="opacity-70">
-              <ItemMedia variant="icon">
-                <span
-                  className={cn(
-                    "grid size-full place-items-center rounded-[inherit]",
-                    toneSoft.success,
-                  )}
-                >
-                  <Check className="size-3.5" />
+          return (
+            <div
+              key={source}
+              className="group/tile flex items-center gap-2.5 rounded-xl border border-border/70 bg-card/50 px-3 py-2.5 transition-colors hover:border-border"
+            >
+              <span className="grid size-7 shrink-0 place-items-center rounded-[7px] border border-border/60 bg-background/60 text-muted-foreground">
+                <item.icon className="size-[13px]" />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="truncate text-[13px] font-medium leading-tight">{item.title}</span>
+                <span className="truncate text-[11.5px] leading-tight text-muted-foreground/80">
+                  {item.description}
                 </span>
-              </ItemMedia>
-              <ItemContent className="min-w-0">
-                <ItemTitle className="line-through decoration-muted-foreground/50">
-                  {item.title}
-                </ItemTitle>
-              </ItemContent>
-            </Item>
-          ) : (
-            <Item key={source} size="xs">
-              <ItemMedia variant="icon">
-                <item.icon className="text-muted-foreground" />
-              </ItemMedia>
-              <ItemContent className="min-w-0">
-                <ItemTitle>{item.title}</ItemTitle>
-                <ItemDescription>{item.description}</ItemDescription>
-              </ItemContent>
-              <ItemActions>
+              </span>
+              <span className="flex shrink-0 items-center gap-0.5">
                 <Button
                   variant="ghost"
                   size="icon-xs"
                   nativeButton={false}
                   aria-label={`Open the ${item.title.toLowerCase()} guide`}
+                  title="Guide"
                   className="text-muted-foreground"
                   render={
                     <a
@@ -207,11 +185,35 @@ export function FeatureTour({ className }: { className?: string }) {
                   Set up
                   <ArrowUpRight data-icon="inline-end" />
                 </Button>
-              </ItemActions>
-            </Item>
+              </span>
+            </div>
           );
         })}
-      </ItemGroup>
+      </div>
+      {done > 0 && (
+        <ul aria-label="Already set up" className="flex flex-wrap items-center gap-1.5 px-1">
+          {FEATURE_TOUR_SOURCES.filter((source) => tour[source]).map((source) => (
+            <li
+              key={source}
+              className="inline-flex items-center gap-1 text-[11.5px] text-muted-foreground/80"
+            >
+              <span className={cn("grid size-3.5 place-items-center rounded-full", toneSoft.success)}>
+                <Check className="size-2.5" />
+              </span>
+              <span className="line-through decoration-muted-foreground/40">
+                {TOUR_ITEMS[source].title}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="px-1 text-[11.5px] text-muted-foreground/80">
+        Entry points run agents without the dashboard — find them in{" "}
+        <Link to={entryPointsTo} className="underline underline-offset-2 hover:text-foreground">
+          {project.displayName || project.name} → Entry points
+        </Link>
+        .
+      </p>
     </motion.section>
   );
 }

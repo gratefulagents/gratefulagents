@@ -4,15 +4,7 @@ import { motion } from "framer-motion";
 import { ArrowUpRight, Check, FolderGit2, GitBranch, KeyRound, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemMedia,
-  ItemTitle,
-} from "@/components/ui/item";
+import { ProgressPips } from "@/components/onboarding/ProgressPips";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMyCredentials } from "@/hooks/useMyCredentials";
 import { useProjects } from "@/hooks/useWatchedList";
@@ -67,21 +59,22 @@ export function SetupChecklist({ className }: { className?: string }) {
     },
   ];
 
+  const done = setupStepsDone(progress);
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: [0.25, 1, 0.5, 1], delay: 0.12 }}
       aria-label="Finish setting up"
-      className={cn("rounded-xl border bg-card p-4 shadow-[var(--elevation-low)]", className)}
+      className={cn("flex flex-col gap-2.5", className)}
     >
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="text-[13px] font-medium">
-          Finish setting up
-          <span className="ml-2 font-mono text-[11px] font-normal text-muted-foreground">
-            {setupStepsDone(progress)}/3
-          </span>
-        </h2>
+      <div className="flex items-center justify-between gap-3 px-1">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <h2 className="text-[12.5px] font-medium">Finish setting up</h2>
+          <ProgressPips done={done} total={items.length} />
+          <span className="font-mono text-[11px] text-muted-foreground">{done}/3</span>
+        </div>
         <Button
           variant="ghost"
           size="icon-xs"
@@ -95,42 +88,44 @@ export function SetupChecklist({ className }: { className?: string }) {
           <X />
         </Button>
       </div>
-      <ItemGroup className="gap-1">
+      <div className="grid gap-2 sm:grid-cols-3">
         {items.map((item) =>
           item.done ? (
-            <Item key={item.title} size="xs" className="opacity-70">
-              <ItemMedia variant="icon">
-                <span
-                  className={cn(
-                    "grid size-full place-items-center rounded-[inherit]",
-                    toneSoft.success,
-                  )}
-                >
-                  <Check className="size-3.5" />
-                </span>
-              </ItemMedia>
-              <ItemContent className="min-w-0">
-                <ItemTitle className="line-through decoration-muted-foreground/50">
-                  {item.title}
-                </ItemTitle>
-              </ItemContent>
-            </Item>
+            <div
+              key={item.title}
+              className="flex items-center gap-2.5 rounded-xl border border-border/50 px-3 py-2.5 opacity-60"
+            >
+              <span
+                className={cn("grid size-7 shrink-0 place-items-center rounded-[7px]", toneSoft.success)}
+              >
+                <Check className="size-3.5" />
+              </span>
+              <span className="truncate text-[13px] font-medium line-through decoration-muted-foreground/50">
+                {item.title}
+              </span>
+            </div>
           ) : (
-            <Item key={item.title} size="xs" render={<Link to={item.to} />}>
-              <ItemMedia variant="icon">
-                <item.icon className="text-muted-foreground" />
-              </ItemMedia>
-              <ItemContent className="min-w-0">
-                <ItemTitle>{item.title}</ItemTitle>
-                <ItemDescription>{item.description}</ItemDescription>
-              </ItemContent>
-              <ItemActions>
-                <ArrowUpRight className="size-3.5 text-muted-foreground" />
-              </ItemActions>
-            </Item>
+            <Link
+              key={item.title}
+              to={item.to}
+              className="group/tile flex flex-col gap-2 rounded-xl border border-border/70 bg-card/50 p-3 outline-none transition-colors hover:border-border hover:bg-foreground/[0.035] focus-visible:border-ring"
+            >
+              <span className="flex items-center justify-between">
+                <span className="grid size-7 place-items-center rounded-[7px] border border-border/60 bg-background/60 text-muted-foreground">
+                  <item.icon className="size-[13px]" />
+                </span>
+                <ArrowUpRight className="size-3.5 text-muted-foreground/50 transition-colors group-hover/tile:text-foreground" />
+              </span>
+              <span className="flex flex-col gap-0.5">
+                <span className="text-[13px] font-medium leading-tight">{item.title}</span>
+                <span className="text-[11.5px] leading-snug text-muted-foreground/80">
+                  {item.description}
+                </span>
+              </span>
+            </Link>
           ),
         )}
-      </ItemGroup>
+      </div>
     </motion.section>
   );
 }
