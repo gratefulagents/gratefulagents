@@ -60,7 +60,6 @@ type runConfig struct {
 	TaskUID                   string
 	ModelFallbacks            []string                   // ordered fallback models for OpenRouter-style providers
 	DelegatedChild            bool                       // true if this run was created by a parent team run — resolved from CRD
-	CostPricingUnknown        bool                       // the configured model has no pricing metadata, so tracked spend stays 0
 	KubernetesAdmin           bool                       // true when this run has cluster-admin RBAC and platform introspection tools
 	TaskContext               string                     // Operator task context injected into system prompt.
 	Debug                     bool                       // verbose logging (full instructions, tool I/O)

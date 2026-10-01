@@ -1194,3 +1194,32 @@ func TestAgentRunOverseerSchedulesInputCheckpointWithoutPhaseChange(t *testing.T
 		t.Fatalf("input checkpoint message = %#v", messages)
 	}
 }
+
+func TestRunBudgetThresholdParsesCapLikeController(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		capUSD, spent string
+		want          int32
+	}{
+		{capUSD: "", spent: "100", want: 0},
+		{capUSD: "10", spent: "4", want: 0},
+		{capUSD: " 10 ", spent: "5", want: 50},
+		{capUSD: "10", spent: "9.5", want: 90},
+		{capUSD: "0", spent: "", want: 90},
+		{capUSD: "NaN", spent: "1", want: 90},
+	}
+	for _, tc := range tests {
+		run := &platformv1alpha1.AgentRun{Spec: platformv1alpha1.AgentRunSpec{
+			Limits: &platformv1alpha1.AgentRunLimits{MaxCostUsd: tc.capUSD},
+		}}
+		if tc.spent != "" {
+			run.Status.Metrics = &platformv1alpha1.AgentRunMetrics{CostUsd: tc.spent}
+		}
+		if got := runBudgetThreshold(run); got != tc.want {
+			t.Errorf("runBudgetThreshold(cap=%q, spent=%q) = %d, want %d", tc.capUSD, tc.spent, got, tc.want)
+		}
+		if blocked := costCapBlocker(run) != ""; tc.want == 90 && tc.spent == "" && !blocked {
+			t.Errorf("cap %q reports exhausted but costCapBlocker does not block", tc.capUSD)
+		}
+	}
+}

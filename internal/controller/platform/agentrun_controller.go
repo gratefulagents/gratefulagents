@@ -629,9 +629,18 @@ func (r *AgentRunReconciler) markRunPaused(ctx context.Context, run *platformv1a
 // they accumulate as zombie workers forever. The TTL keeps pod logs around
 // briefly for post-mortems; a cleared status.Sandbox marks the drain done so
 // terminal runs stop paying the discovery lists on every reconcile.
+//
+// Per-run ClusterRoleBindings (including any cluster-admin grant) are released
+// immediately rather than after the TTL: runs usually end through a
+// worker-written terminal status, which never passes through
+// patchSucceeded/markRunFailed, and a finished run must not keep cluster
+// access while its pod lingers for log retention.
 func (r *AgentRunReconciler) reconcileTerminalRun(ctx context.Context, run *platformv1alpha1.AgentRun) (ctrl.Result, error) {
+	if err := cleanupClusterRoleBindings(ctx, r.Client, run); err != nil {
+		return ctrl.Result{}, err
+	}
 	if run.Status.Sandbox == nil {
-		return ctrl.Result{}, cleanupClusterRoleBindings(ctx, r.Client, run)
+		return ctrl.Result{}, nil
 	}
 	if run.Status.CompletedAt != nil {
 		if remaining := terminalSandboxTTL() - time.Since(run.Status.CompletedAt.Time); remaining > 0 {
@@ -644,12 +653,6 @@ func (r *AgentRunReconciler) reconcileTerminalRun(ctx context.Context, run *plat
 	}
 	if !drained {
 		return ctrl.Result{RequeueAfter: drainRequeueAfter}, nil
-	}
-	// Runs usually end through a worker-written terminal status, which never
-	// passes through patchSucceeded/markRunFailed: release the per-run
-	// ClusterRoleBindings (including any cluster-admin grant) here too.
-	if err := cleanupClusterRoleBindings(ctx, r.Client, run); err != nil {
-		return ctrl.Result{}, err
 	}
 	if err := clearRunSandboxStatus(ctx, r.Client, run); err != nil {
 		return ctrl.Result{}, err
@@ -777,12 +780,20 @@ func (r *AgentRunReconciler) handleTerminationRequest(ctx context.Context, run *
 	}
 
 	if err := retryAgentRunStatusPatch(ctx, r.Client, key, func(fresh *platformv1alpha1.AgentRun) {
+		if fresh.UID != run.UID {
+			return
+		}
+		fresh.Status.Sandbox = nil
+		if isTerminalPhase(fresh.Status.Phase) {
+			// The worker finished on its own while compute drained; its
+			// terminal status is the authoritative outcome.
+			return
+		}
 		now := metav1.Now()
 		fresh.Status.Phase = phase
 		fresh.Status.CompletedAt = &now
 		fresh.Status.Queue = queue.DeepCopy()
 		fresh.Status.LastError = ""
-		fresh.Status.Sandbox = nil
 		// A stop supersedes every wake requested before it. Only a wake counter
 		// incremented after this terminal transition may resume the run.
 		if phase == platformv1alpha1.AgentRunPhaseCancelled {
@@ -1036,7 +1047,7 @@ func pausedReasonNeedsUpdate(run *platformv1alpha1.AgentRun, blocker string) boo
 	if current == blocker {
 		return false
 	}
-	return !(isCostCapReason(blocker) && isCostCapReason(current) && !strings.HasPrefix(blocker, "invalid "))
+	return !isCostCapReason(blocker) || !isCostCapReason(current) || strings.HasPrefix(blocker, "invalid ")
 }
 
 func isCostCapReason(reason string) bool {
@@ -1133,8 +1144,9 @@ func isStandingRun(run *platformv1alpha1.AgentRun) bool {
 // handleRestartRequest bounces a non-terminal run's compute so spec changes
 // that need a fresh pod (e.g. switched provider credentials) take effect.
 // Session state lives in the store, so the re-provisioned pod resumes the
-// run. Terminal runs consume the counter without action — wake requests own
-// resumes of completed runs.
+// run. Terminal and Paused runs consume the counter without action — wake
+// requests own resumes of completed runs, and reconcilePausedRun resumes a
+// paused run only once its limits allow it.
 func (r *AgentRunReconciler) handleRestartRequest(ctx context.Context, run *platformv1alpha1.AgentRun) (bool, error) {
 	if run == nil {
 		return false, nil
@@ -1143,7 +1155,7 @@ func (r *AgentRunReconciler) handleRestartRequest(ctx context.Context, run *plat
 		return false, nil
 	}
 	restartRequests := run.Spec.RestartRequests
-	if isTerminalPhase(run.Status.Phase) {
+	if runStopped(run) {
 		if err := retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
 			fresh.Status.RestartRequestsHandled = restartRequests
 		}); err != nil {
@@ -1161,8 +1173,8 @@ func (r *AgentRunReconciler) handleRestartRequest(ctx context.Context, run *plat
 	}
 
 	if err := retryAgentRunStatusPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
-		if isTerminalPhase(fresh.Status.Phase) {
-			// Terminal runs consume the counter without action.
+		if runStopped(fresh) {
+			// Stopped runs consume the counter without action.
 			fresh.Status.RestartRequestsHandled = restartRequests
 			return
 		}

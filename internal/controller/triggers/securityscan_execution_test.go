@@ -2097,6 +2097,21 @@ func TestSecurityScanDeterministicTaskCostCapsNeverLoosenScanBudgets(t *testing.
 	}
 }
 
+func TestSecurityScanDeterministicTaskCostCapFoldTreatsInvalidCapAsTightest(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	scan := deterministicSecurityScan([]triggersv1alpha1.SecurityScanTask{
+		{Name: "loosen-zero", Objective: "inspect widely", MaxCostUSD: "5.00"},
+	}, 1)
+	scan.Spec.Budgets = &triggersv1alpha1.SecurityScanBudgets{MaxCostUSD: "0"}
+	reconciler, k8sClient, _ := newDeterministicSecurityScanReconciler(t, now, scan)
+
+	reconcileDeterministicSecurityScan(t, reconciler, scan)
+	run := taskRunByTask(t, securityScanRuns(t, k8sClient, scan.Namespace), "loosen-zero")
+	if run.Spec.Limits == nil || run.Spec.Limits.MaxCostUsd != "0" {
+		t.Fatalf("limits = %#v, want blocking scan cap 0 kept (task cap must not loosen it)", run.Spec.Limits)
+	}
+}
+
 func TestSecurityScanDeterministicResumeKeepsAttemptsForModelJobBudget(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	zero := int32(0)

@@ -313,9 +313,8 @@ func doRun(ctx context.Context, cfg runConfig, k8sClient *kubernetes.Clientset, 
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 		result = runResult{Status: "failed", Error: "cannot read the run's prior cost baseline: " + err.Error()}
-		return
+		return result, eventsLogURL
 	}
-	cfg.CostPricingUnknown = !modelPricingKnown(resolvedModel, agent.Usage{InputTokens: 1, OutputTokens: 1})
 	progressCtx, cancelProgress := context.WithCancel(ctx)
 	var progressWg sync.WaitGroup
 	progressWg.Add(1)

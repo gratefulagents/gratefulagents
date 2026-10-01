@@ -615,8 +615,8 @@ func TestPGEventWriterRetriesTransientBatchFailure(t *testing.T) {
 	shortPGEventWriterRetries(t)
 	ss := &flakyBatchStateStore{failures: 2}
 	writer := newPGEventWriter(ss, uuid.New())
-	for i := 0; i < 3; i++ {
-		if _, err := writer.Write([]byte(fmt.Sprintf(`{"type":"tool_use","tool":"event-%d"}`, i))); err != nil {
+	for i := range 3 {
+		if _, err := writer.Write(fmt.Appendf(nil, `{"type":"tool_use","tool":"event-%d"}`, i)); err != nil {
 			t.Fatalf("Write(%d) error = %v", i, err)
 		}
 	}

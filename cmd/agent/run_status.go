@@ -76,7 +76,9 @@ func retryTransient(ctx context.Context, what string, attempts int, fn func(cont
 
 // readAgentRun reads the AgentRun, retrying transient API errors (attempts <=
 // 0: until ctx ends). NotFound is permanent.
-func readAgentRun(ctx context.Context, c client.Client, name, namespace string, attempts int) (*platformv1alpha1.AgentRun, error) {
+func readAgentRun(
+	ctx context.Context, c client.Client, name, namespace string, attempts int,
+) (*platformv1alpha1.AgentRun, error) {
 	run := &platformv1alpha1.AgentRun{}
 	err := retryTransient(ctx, "reading AgentRun "+namespace+"/"+name, attempts, func(ctx context.Context) error {
 		err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, run)
@@ -174,7 +176,9 @@ const startupMetricsReadAttempts = 6
 // AgentRun status mirror. A source that stays unreadable after bounded retries
 // is skipped; if neither is readable startup fails instead of silently
 // resetting spend to zero, which would re-grant the whole cost cap.
-func loadProgressMetricsBaseline(ctx context.Context, c client.Client, sc *sessionclient.Client, name, namespace string) (progressMetricsBaseline, error) {
+func loadProgressMetricsBaseline(
+	ctx context.Context, c client.Client, sc *sessionclient.Client, name, namespace string,
+) (progressMetricsBaseline, error) {
 	var baseline progressMetricsBaseline
 	run, runErr := readAgentRun(ctx, c, name, namespace, startupMetricsReadAttempts)
 	if runErr == nil {
