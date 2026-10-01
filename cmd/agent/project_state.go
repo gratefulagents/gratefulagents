@@ -13,9 +13,7 @@ import (
 
 	"github.com/gratefulagents/gratefulagents/internal/agentinfra"
 	opprojectstate "github.com/gratefulagents/gratefulagents/internal/projectstate"
-	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
-	sdkmemory "github.com/gratefulagents/sdk/pkg/agentsdk/memory"
 	"github.com/gratefulagents/sdk/pkg/agentsdk/modelsdev"
 	sdkprojectstate "github.com/gratefulagents/sdk/pkg/agentsdk/projectstate"
 	sdkproviders "github.com/gratefulagents/sdk/pkg/agentsdk/providers"
@@ -291,10 +289,23 @@ func setupProjectState(
 		}
 	}
 
-	var embedder sdkmemory.Embedder
+	// Embeddings are optional: recall works on Postgres full-text ranking
+	// alone, and fuses pgvector similarity when an OpenAI-compatible
+	// embeddings endpoint is configured (vector(1536) column).
+	var embedder sdkprojectstate.Embedder
 	if apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")); apiKey != "" {
-		authSession := sdkopenai.NewAPIKeyAuthSession(apiKey)
-		embedder = sdkmemory.NewOpenAIEmbedder(authSession, strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), "")
+		e, err := sdkprojectstate.NewOpenAIEmbedder(sdkprojectstate.OpenAIEmbedderOptions{
+			BaseURL: strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")),
+			APIKey:  apiKey,
+			ModelID: agentinfra.EnvOrDefault("MEMORY_EMBEDDING_MODEL", "text-embedding-3-small"),
+			// Matches the vector(1536) column; text-embedding-3-* honor it.
+			Dimensions: 1536,
+		})
+		if err != nil {
+			log.Printf("WARN: memory embeddings disabled: %v", err)
+		} else {
+			embedder = e
+		}
 	}
 
 	projectID := projectStateID(cfg)
@@ -314,9 +325,9 @@ func setupProjectState(
 		}
 	}
 
-	recall := "semantic+lexical recall"
+	recall := "full-text+semantic recall"
 	if embedder == nil {
-		recall = "lexical recall (no OPENAI_API_KEY for embeddings)"
+		recall = "full-text recall (no OPENAI_API_KEY for embeddings)"
 	}
 	return store, pool, projectStateSetupStatus{
 		enabled:   true,
@@ -349,74 +360,70 @@ func refreshPrimeContext(ctx context.Context, store *opprojectstate.Store, actor
 
 // projectStateGuidance is the system prompt block teaching the agent how the
 // durable project state surface (task_*, memory_*, prime_context) fits
-// together with the automatic per-turn briefing. It is injected only when the
-// project state store is live (ENABLE_MEMORY + DATABASE_URL), because the
+// together with the briefing rendered right after it. It is injected only when
+// the project state store is live (ENABLE_MEMORY + DATABASE_URL), because the
 // tools it references are only registered then. Mode templates may point to
 // this block, but keep concrete tool guidance here because availability is
 // environment-gated rather than mode-gated.
 func projectStateGuidance() string {
 	return `## Durable Project State
-This project keeps durable tasks and memories that outlive this session and
-survive context compaction. The briefing below is refreshed automatically every
-turn with active, ready, and blocked tasks plus pinned and recent memories.
+This project keeps durable memories and tasks that outlive this run. The
+briefing below was rendered when this run started: the Memory Index lists
+preferences and decisions first, then the most-used facts and procedures, by
+title within a size budget. It is
+re-rendered after context compaction; call prime_context only to recover state
+explicitly.
 
-Use the tools as a lifecycle, not as a scratchpad:
-- Before starting substantial work, read the briefing. Use memory_recall when
-  you need older knowledge beyond the surfaced memories, and memory_list or
-  memory_stats only when inventory or cleanup is the actual goal. Do not call
-  prime_context routinely; use it to rebuild a compact briefing after context
-  compaction or when explicitly recovering state.
-- For work that should survive this run — multi-session efforts, work another
-  agent must be able to pick up, or a request with several independent
-  deliverables — use task_create, then task_claim before starting and
-  task_update as status changes so the board reflects reality, task_comment
-  for durable handoff notes, and task_close when complete. Use task_ready to
-  find unblocked work and task_link for real dependencies. Skip durable tasks
-  for single-session work an ordinary plan covers; do not mirror every
-  conversational step into a task.
-- Before ending a run, sweep the tasks you claimed: close what is done and
-  leave a comment with the current state and next action on what is not.
-- Use memory_remember for reusable decisions, conventions, facts, and gotchas —
-  not transient progress or facts already obvious from the repository. Choose
-  semantic for facts, procedural for repeatable how-tos, episodic for notable
-  events, and pinned only for context that should appear on every future run.
-  Prefer the narrowest useful project, task, or file scope and useful tags.
-- Use memory_update when durable knowledge changes and memory_delete when it is
-  invalid; do not leave conflicting memories for future agents.
-- Use the subagent tool for ephemeral in-run delegation. Sub-agent tasks are not
-  durable project tasks and do not replace the task lifecycle above.
+Memory:
+- Before investigating something the project may already know, use
+  memory_search; open entries with memory_get. Results flagged stale have
+  cited files that changed or were not verified recently: re-check the cited
+  sources, then memory_verify (still true), memory_save with the id
+  (corrected), or memory_delete (wrong).
+- Save with memory_save only durable knowledge a future run could not cheaply
+  rediscover from the code or docs: user preferences and corrections
+  (preference), decisions with their rationale (decision), non-obvious facts
+  and gotchas (fact), repeatable how-tos (procedure). Give a short specific
+  title, a body under ~1,500 characters, and citations (files or URLs) so the
+  memory can be re-verified.
+- Never save progress logs, PR changelogs, or test results — PR descriptions
+  and run history already hold those. Prefer updating an existing memory (pass
+  its id) over adding a near-duplicate; memory_save rejects likely duplicates.
+- A background consolidator reviews each substantial turn and may merge or
+  prune memories; you do not need to save routine outcomes.
 
-A session summary is saved automatically when the run ends. In read-only modes,
-mutating task and memory tools are filtered out; task inspection plus memory
-recall, listing, statistics, and prime tools remain available.`
+Tasks:
+- Use durable tasks only for work that must survive this run: multi-run
+  efforts, or work another agent will pick up. Do not mirror single-run steps
+  into tasks — an ordinary plan covers those.
+- task_create, then task_claim before starting, task_comment for handoff
+  notes, task_close when done; task_ready lists unblocked work. Claims you
+  still hold are released automatically when this run ends, so leave a
+  task_comment with the current state and next action on anything unfinished.
+
+In read-only modes the mutating task and memory tools are unavailable.`
 }
 
-// saveSessionSummaryOnExit persists a compact session summary into durable
-// project state when the run reached a terminal status. Best-effort.
-func saveSessionSummaryOnExit(store *opprojectstate.Store, sc *sessionclient.Client, runID string, result runResult) {
-	if store == nil || sc == nil || result.Status == "" {
+// releaseClaimsOnExit reopens tasks this run still holds when the run reaches
+// a terminal outcome so claims never outlive their claimant (orphaned
+// in_progress tasks otherwise hide ready work from every later run).
+// Resumable exits — pod shutdown, replacement, cost-cap pause — return an
+// empty status and resume the same run, so claims are kept then. Best-effort.
+func releaseClaimsOnExit(runCtx context.Context, store *opprojectstate.Store, runID string, result runResult) {
+	status := strings.TrimSpace(result.Status)
+	if store == nil || strings.TrimSpace(runID) == "" || status == "" || runCtx.Err() != nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	state, err := sc.ReadWorkingState(ctx)
+	note := fmt.Sprintf("Claim released automatically: run %s %s without closing this task.", runID, status)
+	released, err := store.ReleaseClaims(ctx, runID, note)
 	if err != nil {
+		log.Printf("WARN: releasing durable task claims for %s: %v", runID, err)
 		return
 	}
-	var parts []string
-	if state.Goal != "" {
-		parts = append(parts, "Goal: "+state.Goal)
-	}
-	if state.LastAssistantSummary != "" {
-		parts = append(parts, state.LastAssistantSummary)
-	}
-	if len(parts) == 0 {
-		return
-	}
-	summary := fmt.Sprintf("[%s] %s", result.Status, strings.Join(parts, " — "))
-	record := sdkprojectstate.SessionSummary{RunID: runID, Summary: summary}
-	if _, err := store.SaveSessionSummary(ctx, record); err != nil {
-		log.Printf("WARN: failed to save session summary to project state: %v", err)
+	if len(released) > 0 {
+		log.Printf("Released %d durable task claim(s) held by %s", len(released), runID)
 	}
 }
 

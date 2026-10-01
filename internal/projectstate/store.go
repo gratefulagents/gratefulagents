@@ -1,7 +1,9 @@
 // Package projectstate provides a PostgreSQL-backed implementation of the
 // agent SDK's projectstate.Store interface. The SDK owns the durable
-// project-state model (tasks, memories, session summaries, context priming)
-// and its tool surface; the operator only supplies this persistence layer.
+// project-state model (tasks, typed memories, briefing rendering, ranking and
+// validation helpers) and its tool surface; the operator only supplies this
+// persistence layer and must reuse the SDK's exported helpers rather than
+// re-implementing their semantics.
 package projectstate
 
 import (
@@ -9,17 +11,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
-	sdkmemory "github.com/gratefulagents/sdk/pkg/agentsdk/memory"
 	sdkprojectstate "github.com/gratefulagents/sdk/pkg/agentsdk/projectstate"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,19 +31,29 @@ import (
 // by projectID so multiple projects share the same tables. The pool is owned
 // by the caller and is not closed by Close.
 type Store struct {
-	pool      *pgxpool.Pool
-	embedder  sdkmemory.Embedder
+	pool      dbConn
+	embedder  sdkprojectstate.Embedder
 	projectID string
 	actor     string
 	runID     string
 	workDir   string
 }
 
+// dbConn is the subset of pgx used by the store. *pgxpool.Pool satisfies it in
+// production; integration tests pass a pgx.Tx so every write rolls back.
+type dbConn interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // Options configures a Postgres project state store.
 type Options struct {
 	Pool *pgxpool.Pool
-	// Embedder is optional; when nil, memory search falls back to lexical matching.
-	Embedder  sdkmemory.Embedder
+	// Embedder is optional; when set, recall fuses pgvector cosine similarity
+	// with full-text ranking. Vectors must match the vector(1536) column.
+	Embedder  sdkprojectstate.Embedder
 	ProjectID string
 	Actor     string
 	RunID     string
@@ -53,12 +67,16 @@ func NewStore(opts Options) (*Store, error) {
 	if opts.Pool == nil {
 		return nil, fmt.Errorf("postgres pool is required")
 	}
+	return newStore(opts.Pool, opts)
+}
+
+func newStore(conn dbConn, opts Options) (*Store, error) {
 	projectID := strings.TrimSpace(opts.ProjectID)
 	if projectID == "" {
 		return nil, fmt.Errorf("project id is required")
 	}
 	return &Store{
-		pool:      opts.Pool,
+		pool:      conn,
 		embedder:  opts.Embedder,
 		projectID: projectID,
 		actor:     strings.TrimSpace(opts.Actor),
@@ -84,9 +102,9 @@ func (s *Store) CreateTask(ctx context.Context, in sdkprojectstate.CreateTaskInp
 		ID:          newID("task"),
 		Title:       title,
 		Description: strings.TrimSpace(in.Description),
-		Type:        normalizeTaskType(in.Type),
+		Type:        sdkprojectstate.NormalizeTaskType(in.Type),
 		Status:      sdkprojectstate.TaskStatusOpen,
-		Priority:    normalizePriority(in.Priority),
+		Priority:    sdkprojectstate.NormalizePriority(in.Priority),
 		Assignee:    strings.TrimSpace(in.Assignee),
 		DependsOn:   uniqueNonEmpty(in.DependsOn),
 		Labels:      uniqueNonEmpty(in.Labels),
@@ -122,7 +140,7 @@ func (s *Store) insertTask(ctx context.Context, task sdkprojectstate.Task) error
 
 func (s *Store) UpdateTask(ctx context.Context, id string, patch sdkprojectstate.TaskPatch) (*sdkprojectstate.Task, error) {
 	return s.mutateTask(ctx, id, func(task *sdkprojectstate.Task, now time.Time) error {
-		applyPatch(task, patch, now)
+		sdkprojectstate.ApplyTaskPatch(task, patch, now)
 		if strings.TrimSpace(task.Title) == "" {
 			return fmt.Errorf("title is required")
 		}
@@ -160,32 +178,11 @@ func (s *Store) CloseTask(ctx context.Context, id, reason string) (*sdkprojectst
 }
 
 func (s *Store) ReadyTasks(ctx context.Context, filter sdkprojectstate.TaskFilter) ([]sdkprojectstate.Task, error) {
-	tasks, byID, err := s.loadTasks(ctx)
+	tasks, _, err := s.loadTasks(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]sdkprojectstate.Task, 0, len(tasks))
-	for _, task := range tasks {
-		if task.Status != sdkprojectstate.TaskStatusOpen {
-			continue
-		}
-		if !matchesLabels(task.Labels, filter.Labels) {
-			continue
-		}
-		actor := firstNonEmpty(filter.Actor, filter.Assignee)
-		if filter.Assignee != "" && task.Assignee != "" && task.Assignee != filter.Assignee {
-			continue
-		}
-		if !filter.IncludeAssigned && task.Assignee != "" && task.Assignee != actor {
-			continue
-		}
-		if hasOpenBlocker(byID, task) {
-			continue
-		}
-		out = append(out, task)
-	}
-	sortTasks(out)
-	return limitTasks(out, filter.Limit), nil
+	return sdkprojectstate.ReadyFromTasks(tasks, filter), nil
 }
 
 func (s *Store) ListTasks(ctx context.Context) ([]sdkprojectstate.Task, error) {
@@ -193,7 +190,7 @@ func (s *Store) ListTasks(ctx context.Context) ([]sdkprojectstate.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	sortTasks(tasks)
+	sdkprojectstate.SortTasks(tasks)
 	return tasks, nil
 }
 
@@ -310,7 +307,7 @@ func (s *Store) taskExists(ctx context.Context, id string) (bool, error) {
 }
 
 // loadTasks reads all tasks for the project and derives the Blocks edges from
-// DependsOn (mirroring the SDK engine's recomputeBlocks).
+// DependsOn with the SDK's RecomputeBlocks.
 func (s *Store) loadTasks(ctx context.Context) ([]sdkprojectstate.Task, map[string]sdkprojectstate.Task, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+taskColumns+` FROM project_state_tasks WHERE project_id = $1`, s.projectID)
 	if err != nil {
@@ -330,16 +327,7 @@ func (s *Store) loadTasks(ctx context.Context) ([]sdkprojectstate.Task, map[stri
 		return nil, nil, fmt.Errorf("iterating task rows: %w", err)
 	}
 
-	for id, task := range byID {
-		for _, depID := range task.DependsOn {
-			dep, ok := byID[depID]
-			if !ok {
-				continue
-			}
-			dep.Blocks = appendUnique(dep.Blocks, id)
-			byID[depID] = dep
-		}
-	}
+	sdkprojectstate.RecomputeBlocks(byID)
 	tasks := make([]sdkprojectstate.Task, 0, len(byID))
 	for _, task := range byID {
 		tasks = append(tasks, task)
@@ -369,173 +357,332 @@ func scanTask(row rowScanner) (sdkprojectstate.Task, error) {
 	return task, nil
 }
 
-// --- MemoryStore ---
+// --- ReleaseClaims ---
 
-const memoryColumns = `id, kind, scope, content, tags, task_ids, file_paths, source_run, metadata, created_at, updated_at, last_read_at`
-
-func (s *Store) UpsertMemory(ctx context.Context, in sdkprojectstate.UpsertMemoryInput) (*sdkprojectstate.Memory, error) {
-	content := strings.TrimSpace(in.Content)
-	if content == "" {
-		return nil, fmt.Errorf("memory content is required")
+// ReleaseClaims reopens every in_progress task assigned to actor, clears the
+// assignee, and records note as a comment.
+func (s *Store) ReleaseClaims(ctx context.Context, actor, note string) ([]sdkprojectstate.Task, error) {
+	actor = strings.TrimSpace(actor)
+	if actor == "" {
+		return nil, fmt.Errorf("actor is required")
 	}
+	note = strings.TrimSpace(note)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("beginning claim release transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, `SELECT `+taskColumns+` FROM project_state_tasks
+		WHERE project_id = $1 AND assignee = $2 AND status = $3 FOR UPDATE`,
+		s.projectID, actor, sdkprojectstate.TaskStatusInProgress)
+	if err != nil {
+		return nil, fmt.Errorf("loading claimed tasks: %w", err)
+	}
+	var claimed []sdkprojectstate.Task
+	for rows.Next() {
+		task, err := scanTask(rows)
+		if err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scanning claimed task: %w", err)
+		}
+		claimed = append(claimed, task)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating claimed tasks: %w", err)
+	}
+	if len(claimed) == 0 {
+		return nil, nil
+	}
+
 	now := time.Now().UTC()
-	mem := sdkprojectstate.Memory{
-		ID:        strings.TrimSpace(in.ID),
-		Kind:      normalizeMemoryKind(in.Kind),
-		Scope:     normalizeMemoryScope(in.Scope),
-		Content:   content,
-		Tags:      uniqueNonEmpty(in.Tags),
-		TaskIDs:   uniqueNonEmpty(in.TaskIDs),
-		FilePaths: uniqueNonEmpty(in.FilePaths),
-		SourceRun: firstNonEmpty(strings.TrimSpace(in.SourceRun), s.runID),
-		CreatedAt: now,
-		UpdatedAt: now,
-		Metadata:  in.Metadata,
-	}
-	if mem.ID == "" {
-		mem.ID = newID("mem")
-	}
-
-	// Best-effort embedding: a missing vector degrades recall to lexical
-	// matching but must never fail the write.
-	var embedding *string
-	if s.embedder != nil {
-		if vec, err := s.embedder.Embed(ctx, content); err == nil && len(vec) > 0 {
-			literal := sdkmemory.VectorLiteral(vec)
-			embedding = &literal
+	for i := range claimed {
+		task := &claimed[i]
+		task.Status = sdkprojectstate.TaskStatusOpen
+		task.Assignee = ""
+		task.ClosedAt = nil
+		task.UpdatedAt = now
+		if note != "" {
+			task.Comments = append(task.Comments, sdkprojectstate.TaskComment{ID: newID("comment"), Actor: actor, Body: note, CreatedAt: now})
+		}
+		comments, err := marshalComments(task.Comments)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE project_state_tasks
+			SET status = $3, assignee = '', comments = $4, updated_at = $5, closed_at = NULL
+			WHERE project_id = $1 AND id = $2`,
+			s.projectID, task.ID, task.Status, comments, now,
+		); err != nil {
+			return nil, fmt.Errorf("releasing task %q: %w", task.ID, err)
 		}
 	}
-
-	row := s.pool.QueryRow(ctx, `
-		INSERT INTO project_state_memories
-			(project_id, id, kind, scope, content, tags, task_ids, file_paths, source_run, metadata, embedding, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::vector, $12, $13)
-		ON CONFLICT (project_id, id) DO UPDATE SET
-			kind = EXCLUDED.kind, scope = EXCLUDED.scope, content = EXCLUDED.content,
-			tags = EXCLUDED.tags, task_ids = EXCLUDED.task_ids, file_paths = EXCLUDED.file_paths,
-			source_run = EXCLUDED.source_run, metadata = EXCLUDED.metadata,
-			embedding = EXCLUDED.embedding, updated_at = EXCLUDED.updated_at
-		RETURNING `+memoryColumns,
-		s.projectID, mem.ID, mem.Kind, mem.Scope, mem.Content, textArray(mem.Tags), textArray(mem.TaskIDs),
-		textArray(mem.FilePaths), mem.SourceRun, nullableJSON(mem.Metadata), embedding, mem.CreatedAt, mem.UpdatedAt,
-	)
-	out, err := scanMemory(row)
-	if err != nil {
-		return nil, fmt.Errorf("upserting memory: %w", err)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("committing claim release: %w", err)
 	}
-	return &out, nil
+	sdkprojectstate.SortTasks(claimed)
+	return claimed, nil
 }
 
-func (s *Store) SearchMemories(ctx context.Context, filter sdkprojectstate.MemoryFilter) ([]sdkprojectstate.Memory, error) {
-	query := strings.TrimSpace(filter.Query)
+// --- MemoryStore ---
+
+const memoryColumns = `id, kind, title, body, citations, commit_sha, source_run, created_at, updated_at, verified_at, use_count, last_used_at`
+
+const (
+	// defaultMemorySearchLimit mirrors the SDK engine's default.
+	defaultMemorySearchLimit = 8
+	// memorySearchCandidates bounds how many rows each recall signal
+	// (full-text, vector) contributes before Go-side fusion and ranking.
+	memorySearchCandidates = 50
+	// memoryVectorWeight is the share of the fused score taken by cosine
+	// similarity when an embedder is configured.
+	memoryVectorWeight = 0.4
+	// memoryVectorFloor drops weak vector similarity so semantic recall
+	// cannot surface arbitrary memories.
+	memoryVectorFloor = 0.3
+	// memoryEmbedTimeout bounds best-effort embedding calls.
+	memoryEmbedTimeout = 5 * time.Second
+	// memoryEmbeddingDims is the project_state_memories.embedding width.
+	memoryEmbeddingDims = 1536
+	// memoryEmbeddingBackfillBatch bounds lazy embedding backfill per search.
+	memoryEmbeddingBackfillBatch = 16
+)
+
+func (s *Store) SaveMemory(ctx context.Context, in sdkprojectstate.SaveMemoryInput) (*sdkprojectstate.Memory, error) {
+	if err := sdkprojectstate.ValidateMemoryInput(&in); err != nil {
+		return nil, err
+	}
+	citations, err := marshalCitations(in.Citations)
+	if err != nil {
+		return nil, err
+	}
+	embedding := s.embedMemoryText(ctx, in.Title, in.Body)
+	now := time.Now().UTC()
+
+	// Updates keep source_run: it records the creator, and AgentRun data
+	// deletion removes memories by source_run, so later editors (including
+	// the consolidator) must not take ownership of shared memories.
+	if in.ID != "" {
+		row := s.pool.QueryRow(ctx, `
+			UPDATE project_state_memories
+			SET kind = $3, title = $4, body = $5, citations = $6, commit_sha = $7,
+			    embedding = $8::vector, updated_at = $9, verified_at = $9
+			WHERE project_id = $1 AND id = $2
+			RETURNING `+memoryColumns,
+			s.projectID, in.ID, in.Kind, in.Title, in.Body, citations, in.CommitSHA, embedding, now,
+		)
+		mem, err := scanMemory(row)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("memory %q not found; omit id to create a new memory", in.ID)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("updating memory: %w", err)
+		}
+		return &mem, nil
+	}
+
+	var count int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM project_state_memories WHERE project_id = $1`, s.projectID).Scan(&count); err != nil {
+		return nil, fmt.Errorf("counting memories: %w", err)
+	}
+	if count >= sdkprojectstate.DefaultMemoryCap {
+		return nil, fmt.Errorf("project memory is full (%d memories): consolidate by updating an existing memory (memory_save with its id) or remove obsolete ones with memory_delete", count)
+	}
+	row := s.pool.QueryRow(ctx, `
+		INSERT INTO project_state_memories
+			(project_id, id, kind, title, body, citations, commit_sha, source_run, embedding, created_at, updated_at, verified_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, $10, $10, $10)
+		RETURNING `+memoryColumns,
+		s.projectID, newID("mem"), in.Kind, in.Title, in.Body, citations, in.CommitSHA,
+		firstNonEmpty(in.SourceRun, s.runID), embedding, now,
+	)
+	mem, err := scanMemory(row)
+	if err != nil {
+		return nil, fmt.Errorf("inserting memory: %w", err)
+	}
+	return &mem, nil
+}
+
+func (s *Store) GetMemory(ctx context.Context, id string) (*sdkprojectstate.Memory, error) {
+	id = strings.TrimSpace(id)
+	row := s.pool.QueryRow(ctx, `SELECT `+memoryColumns+` FROM project_state_memories WHERE project_id = $1 AND id = $2`, s.projectID, id)
+	mem, err := scanMemory(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("memory %q not found", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("loading memory %q: %w", id, err)
+	}
+	return &mem, nil
+}
+
+// SearchMemories fuses Postgres full-text ranking (weighted title/body
+// tsvector, OR semantics, english stemming) with the SDK's LexicalScore and,
+// when an embedder is configured, pgvector cosine similarity.
+func (s *Store) SearchMemories(ctx context.Context, q sdkprojectstate.MemoryQuery) ([]sdkprojectstate.MemoryHit, error) {
+	query := strings.TrimSpace(q.Query)
 	if query == "" {
 		return nil, fmt.Errorf("query is required")
 	}
-	if s.embedder != nil {
-		if vec, err := s.embedder.Embed(ctx, query); err == nil && len(vec) > 0 {
-			return s.searchSemantic(ctx, filter, sdkmemory.VectorLiteral(vec))
+	limit := q.Limit
+	if limit <= 0 {
+		limit = defaultMemorySearchLimit
+	}
+	kinds := normalizedKinds(q.Kinds)
+
+	candidates := map[string]*memoryCandidate{}
+	if tsQuery := fullTextQuery(query); tsQuery != "" {
+		rows, err := s.pool.Query(ctx, `
+			SELECT `+memoryColumns+`, ts_rank_cd(search_tsv, to_tsquery('english', $2), 32)
+			FROM project_state_memories
+			WHERE project_id = $1 AND search_tsv @@ to_tsquery('english', $2)
+			  AND (cardinality($3::text[]) = 0 OR kind = ANY($3))
+			ORDER BY 13 DESC
+			LIMIT $4`,
+			s.projectID, tsQuery, kinds, memorySearchCandidates)
+		if err != nil {
+			return nil, fmt.Errorf("searching memories: %w", err)
+		}
+		if err := collectCandidates(rows, candidates, func(c *memoryCandidate, v float64) { c.text = v }); err != nil {
+			return nil, err
 		}
 	}
-	// Lexical fallback when no embedder is configured or embedding failed.
-	return s.listMemories(ctx, filter, true)
-}
+	vectorUsed := false
+	if vec := s.embedText(ctx, query); vec != "" {
+		s.backfillEmbeddings(ctx)
+		rows, err := s.pool.Query(ctx, `
+			SELECT `+memoryColumns+`, 1 - (embedding <=> $2::vector)
+			FROM project_state_memories
+			WHERE project_id = $1 AND embedding IS NOT NULL
+			  AND (cardinality($3::text[]) = 0 OR kind = ANY($3))
+			ORDER BY embedding <=> $2::vector
+			LIMIT $4`,
+			s.projectID, vec, kinds, memorySearchCandidates)
+		if err == nil {
+			vectorUsed = true
+			if err := collectCandidates(rows, candidates, func(c *memoryCandidate, v float64) { c.vector = v }); err != nil {
+				return nil, err
+			}
+		}
+	}
 
-// searchSemantic ranks kind/tag-filtered memories by cosine similarity over
-// pgvector, backfilling with lexical matches for rows without an embedding.
-func (s *Store) searchSemantic(ctx context.Context, filter sdkprojectstate.MemoryFilter, queryVec string) ([]sdkprojectstate.Memory, error) {
-	limit := filter.Limit
-	if limit <= 0 {
-		limit = 20
-	}
-	where, args := s.memoryFilterClauses(filter)
-	args = append(args, queryVec)
-	vecArg := len(args)
-	args = append(args, limit)
-	limitArg := len(args)
-
-	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
-		SELECT %s FROM project_state_memories
-		WHERE %s AND embedding IS NOT NULL
-		ORDER BY embedding <=> $%d::vector
-		LIMIT $%d`, memoryColumns, where, vecArg, limitArg), args...)
-	if err != nil {
-		return nil, fmt.Errorf("searching memories: %w", err)
-	}
-	out, err := collectMemories(rows)
-	if err != nil {
-		return nil, err
-	}
-	if len(out) >= limit {
-		return out, nil
-	}
-	lexical, err := s.listMemories(ctx, filter, true)
-	if err != nil {
-		return out, nil //nolint:nilerr // semantic results are still valid
-	}
-	seen := make(map[string]struct{}, len(out))
-	for _, mem := range out {
-		seen[mem.ID] = struct{}{}
-	}
-	for _, mem := range lexical {
-		if _, ok := seen[mem.ID]; ok {
+	hits := make([]sdkprojectstate.MemoryHit, 0, len(candidates))
+	for _, c := range candidates {
+		// Text signal: the stemmed full-text rank (bounded to [0,1) by
+		// normalization 32) blended with the SDK's exact-token coverage.
+		text := 0.5*c.text + 0.5*sdkprojectstate.LexicalScore(query, c.mem)
+		score := text
+		if vectorUsed {
+			vector := c.vector
+			if vector < memoryVectorFloor {
+				vector = 0
+			}
+			score = (1-memoryVectorWeight)*text + memoryVectorWeight*vector
+		}
+		if score <= 0 {
 			continue
 		}
-		out = append(out, mem)
-		if len(out) >= limit {
-			break
+		hits = append(hits, sdkprojectstate.MemoryHit{Memory: c.mem, Score: score})
+	}
+	sort.SliceStable(hits, func(i, j int) bool {
+		if hits[i].Score != hits[j].Score {
+			return hits[i].Score > hits[j].Score
+		}
+		return hits[i].ID < hits[j].ID
+	})
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
+	return hits, nil
+}
+
+type memoryCandidate struct {
+	mem    sdkprojectstate.Memory
+	text   float64
+	vector float64
+}
+
+func collectCandidates(rows pgx.Rows, into map[string]*memoryCandidate, set func(*memoryCandidate, float64)) error {
+	defer rows.Close()
+	for rows.Next() {
+		var mem sdkprojectstate.Memory
+		var citations []byte
+		var signal float64
+		if err := rows.Scan(&mem.ID, &mem.Kind, &mem.Title, &mem.Body, &citations, &mem.CommitSHA, &mem.SourceRun,
+			&mem.CreatedAt, &mem.UpdatedAt, &mem.VerifiedAt, &mem.UseCount, &mem.LastUsedAt, &signal); err != nil {
+			return fmt.Errorf("scanning memory candidate: %w", err)
+		}
+		if err := unmarshalCitations(citations, &mem); err != nil {
+			return err
+		}
+		c, ok := into[mem.ID]
+		if !ok {
+			c = &memoryCandidate{mem: mem}
+			into[mem.ID] = c
+		}
+		set(c, signal)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating memory candidates: %w", err)
+	}
+	return nil
+}
+
+// fullTextQuery turns free text into an OR tsquery over the SDK's tokens so a
+// memory matching any meaningful term is a candidate; ranking does the rest.
+func fullTextQuery(query string) string {
+	var terms []string
+	seen := map[string]bool{}
+	for _, token := range sdkprojectstate.Tokenize(query) {
+		// Compound tokens (memory_save, dead-code) are skipped: Tokenize also
+		// emits their parts, which is how Postgres' parser indexes them. Any
+		// other non-alphanumeric rune would be tsquery syntax.
+		if len(token) < 2 || seen[token] || strings.IndexFunc(token, func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		}) >= 0 {
+			continue
+		}
+		seen[token] = true
+		terms = append(terms, token)
+	}
+	return strings.Join(terms, " | ")
+}
+
+func normalizedKinds(kinds []string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, kind := range kinds {
+		if strings.TrimSpace(kind) == "" {
+			continue
+		}
+		kind = sdkprojectstate.NormalizeMemoryKind(kind)
+		if !seen[kind] {
+			seen[kind] = true
+			out = append(out, kind)
 		}
 	}
-	return out, nil
+	return out
 }
 
+// ListMemories returns memories ordered by kind priority (preference,
+// decision, procedure, fact) then most recently updated.
 func (s *Store) ListMemories(ctx context.Context, filter sdkprojectstate.MemoryFilter) ([]sdkprojectstate.Memory, error) {
-	return s.listMemories(ctx, filter, false)
-}
-
-func (s *Store) listMemories(ctx context.Context, filter sdkprojectstate.MemoryFilter, requireQuery bool) ([]sdkprojectstate.Memory, error) {
-	query := strings.ToLower(strings.TrimSpace(filter.Query))
-	if requireQuery && query == "" {
-		return nil, fmt.Errorf("query is required")
+	args := []any{s.projectID, normalizedKinds(filter.Kinds)}
+	sql := `SELECT ` + memoryColumns + ` FROM project_state_memories
+		WHERE project_id = $1 AND (cardinality($2::text[]) = 0 OR kind = ANY($2))
+		ORDER BY CASE kind WHEN 'preference' THEN 0 WHEN 'decision' THEN 1 WHEN 'procedure' THEN 2 ELSE 3 END,
+		         updated_at DESC, id`
+	if filter.Limit > 0 {
+		sql += ` LIMIT $3`
+		args = append(args, filter.Limit)
 	}
-	where, args := s.memoryFilterClauses(filter)
-	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
-		SELECT %s FROM project_state_memories
-		WHERE %s
-		ORDER BY (kind = 'pinned') DESC, updated_at DESC`, memoryColumns, where), args...)
+	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing memories: %w", err)
 	}
-	out, err := collectMemories(rows)
-	if err != nil {
-		return nil, err
-	}
-	if query != "" {
-		filtered := out[:0]
-		for _, mem := range out {
-			if memoryMatchesQuery(mem, query) {
-				filtered = append(filtered, mem)
-			}
-		}
-		out = filtered
-	}
-	if filter.Limit > 0 && len(out) > filter.Limit {
-		out = out[:filter.Limit]
-	}
-	return out, nil
-}
-
-func (s *Store) memoryFilterClauses(filter sdkprojectstate.MemoryFilter) (string, []any) {
-	clauses := []string{"project_id = $1"}
-	args := []any{s.projectID}
-	if len(filter.Kinds) > 0 {
-		args = append(args, textArray(lowerTrimmed(filter.Kinds)))
-		clauses = append(clauses, fmt.Sprintf("lower(kind) = ANY($%d)", len(args)))
-	}
-	if len(filter.Tags) > 0 {
-		args = append(args, textArray(lowerTrimmed(filter.Tags)))
-		clauses = append(clauses, fmt.Sprintf("(SELECT COALESCE(array_agg(lower(t)), '{}') FROM unnest(tags) AS t) @> $%d", len(args)))
-	}
-	return strings.Join(clauses, " AND "), args
+	return collectMemories(rows)
 }
 
 func (s *Store) DeleteMemory(ctx context.Context, id string) error {
@@ -547,6 +694,108 @@ func (s *Store) DeleteMemory(ctx context.Context, id string) error {
 		return fmt.Errorf("memory %q not found", id)
 	}
 	return nil
+}
+
+func (s *Store) VerifyMemory(ctx context.Context, id, commitSHA string) (*sdkprojectstate.Memory, error) {
+	id = strings.TrimSpace(id)
+	row := s.pool.QueryRow(ctx, `
+		UPDATE project_state_memories
+		SET verified_at = $3, commit_sha = CASE WHEN $4 = '' THEN commit_sha ELSE $4 END
+		WHERE project_id = $1 AND id = $2
+		RETURNING `+memoryColumns,
+		s.projectID, id, time.Now().UTC(), strings.TrimSpace(commitSHA),
+	)
+	mem, err := scanMemory(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("memory %q not found", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("verifying memory %q: %w", id, err)
+	}
+	return &mem, nil
+}
+
+func (s *Store) TouchMemories(ctx context.Context, ids []string) error {
+	ids = uniqueNonEmpty(ids)
+	if len(ids) == 0 {
+		return nil
+	}
+	if _, err := s.pool.Exec(ctx, `
+		UPDATE project_state_memories
+		SET use_count = use_count + 1, last_used_at = $3
+		WHERE project_id = $1 AND id = ANY($2)`,
+		s.projectID, ids, time.Now().UTC(),
+	); err != nil {
+		return fmt.Errorf("recording memory use: %w", err)
+	}
+	return nil
+}
+
+// backfillEmbeddings embeds a bounded batch of memories that have no vector
+// (written while the embedder was unavailable, or before one was configured)
+// so they regain the semantic recall signal. Best-effort.
+func (s *Store) backfillEmbeddings(ctx context.Context) {
+	rows, err := s.pool.Query(ctx, `SELECT id, title, body FROM project_state_memories
+		WHERE project_id = $1 AND embedding IS NULL ORDER BY updated_at DESC LIMIT $2`,
+		s.projectID, memoryEmbeddingBackfillBatch)
+	if err != nil {
+		return
+	}
+	type pending struct{ id, text string }
+	var batch []pending
+	for rows.Next() {
+		var id, title, body string
+		if rows.Scan(&id, &title, &body) == nil {
+			batch = append(batch, pending{id: id, text: title + "\n" + body})
+		}
+	}
+	rows.Close()
+	if len(batch) == 0 {
+		return
+	}
+	texts := make([]string, len(batch))
+	for i, p := range batch {
+		texts[i] = p.text
+	}
+	embedCtx, cancel := context.WithTimeout(ctx, memoryEmbedTimeout)
+	defer cancel()
+	vecs, err := s.embedder.Embed(embedCtx, texts)
+	if err != nil || len(vecs) != len(batch) {
+		return
+	}
+	for i, p := range batch {
+		if len(vecs[i]) != memoryEmbeddingDims {
+			continue
+		}
+		_, _ = s.pool.Exec(ctx, `UPDATE project_state_memories SET embedding = $3::vector
+			WHERE project_id = $1 AND id = $2 AND embedding IS NULL`,
+			s.projectID, p.id, sdkprojectstate.VectorLiteral(vecs[i]))
+	}
+}
+
+// embedMemoryText returns the pgvector literal for a memory's title and body,
+// or nil when no embedder is configured or embedding fails (best-effort: a
+// missing vector only removes the semantic signal for that memory).
+func (s *Store) embedMemoryText(ctx context.Context, title, body string) any {
+	if vec := s.embedText(ctx, title+"\n"+body); vec != "" {
+		return vec
+	}
+	return nil
+}
+
+func (s *Store) embedText(ctx context.Context, text string) string {
+	if s.embedder == nil || strings.TrimSpace(text) == "" {
+		return ""
+	}
+	embedCtx, cancel := context.WithTimeout(ctx, memoryEmbedTimeout)
+	defer cancel()
+	vecs, err := s.embedder.Embed(embedCtx, []string{text})
+	// The column is vector(1536): a model with another size must degrade to
+	// full-text recall, never fail the write.
+	if err != nil || len(vecs) != 1 || len(vecs[0]) != memoryEmbeddingDims {
+		return ""
+	}
+	return sdkprojectstate.VectorLiteral(vecs[0])
 }
 
 func collectMemories(rows pgx.Rows) ([]sdkprojectstate.Memory, error) {
@@ -567,405 +816,67 @@ func collectMemories(rows pgx.Rows) ([]sdkprojectstate.Memory, error) {
 
 func scanMemory(row rowScanner) (sdkprojectstate.Memory, error) {
 	var mem sdkprojectstate.Memory
-	var metadata []byte
-	if err := row.Scan(&mem.ID, &mem.Kind, &mem.Scope, &mem.Content, &mem.Tags, &mem.TaskIDs, &mem.FilePaths,
-		&mem.SourceRun, &metadata, &mem.CreatedAt, &mem.UpdatedAt, &mem.LastReadAt); err != nil {
+	var citations []byte
+	if err := row.Scan(&mem.ID, &mem.Kind, &mem.Title, &mem.Body, &citations, &mem.CommitSHA, &mem.SourceRun,
+		&mem.CreatedAt, &mem.UpdatedAt, &mem.VerifiedAt, &mem.UseCount, &mem.LastUsedAt); err != nil {
 		return mem, err
 	}
-	if len(metadata) > 0 {
-		mem.Metadata = json.RawMessage(metadata)
+	if err := unmarshalCitations(citations, &mem); err != nil {
+		return mem, err
 	}
 	return mem, nil
 }
 
-// --- SessionStore ---
-
-func (s *Store) SaveSessionSummary(ctx context.Context, summary sdkprojectstate.SessionSummary) (*sdkprojectstate.SessionSummary, error) {
-	if strings.TrimSpace(summary.Summary) == "" {
-		return nil, fmt.Errorf("session summary is required")
+func marshalCitations(citations []sdkprojectstate.Citation) ([]byte, error) {
+	if len(citations) == 0 {
+		return []byte("[]"), nil
 	}
-	now := time.Now().UTC()
-	if strings.TrimSpace(summary.ID) == "" {
-		summary.ID = newID("session")
-		summary.CreatedAt = now
-	}
-	summary.RunID = firstNonEmpty(strings.TrimSpace(summary.RunID), s.runID)
-	summary.UpdatedAt = now
-	summary.TaskIDs = uniqueNonEmpty(summary.TaskIDs)
-
-	row := s.pool.QueryRow(ctx, `
-		INSERT INTO project_state_session_summaries (project_id, id, run_id, summary, task_ids, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (project_id, id) DO UPDATE SET
-			run_id = EXCLUDED.run_id, summary = EXCLUDED.summary,
-			task_ids = EXCLUDED.task_ids, updated_at = EXCLUDED.updated_at
-		RETURNING id, run_id, summary, task_ids, created_at, updated_at`,
-		s.projectID, summary.ID, summary.RunID, summary.Summary, textArray(summary.TaskIDs), now, summary.UpdatedAt,
-	)
-	var out sdkprojectstate.SessionSummary
-	if err := row.Scan(&out.ID, &out.RunID, &out.Summary, &out.TaskIDs, &out.CreatedAt, &out.UpdatedAt); err != nil {
-		return nil, fmt.Errorf("saving session summary: %w", err)
-	}
-	return &out, nil
-}
-
-func (s *Store) ListSessionSummaries(ctx context.Context, limit int) ([]sdkprojectstate.SessionSummary, error) {
-	sql := `SELECT id, run_id, summary, task_ids, created_at, updated_at FROM project_state_session_summaries WHERE project_id = $1 ORDER BY updated_at DESC`
-	args := []any{s.projectID}
-	if limit > 0 {
-		sql += ` LIMIT $2`
-		args = append(args, limit)
-	}
-	rows, err := s.pool.Query(ctx, sql, args...)
+	out, err := json.Marshal(citations)
 	if err != nil {
-		return nil, fmt.Errorf("listing session summaries: %w", err)
-	}
-	defer rows.Close()
-	var out []sdkprojectstate.SessionSummary
-	for rows.Next() {
-		var summary sdkprojectstate.SessionSummary
-		if err := rows.Scan(&summary.ID, &summary.RunID, &summary.Summary, &summary.TaskIDs, &summary.CreatedAt, &summary.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scanning session summary row: %w", err)
-		}
-		out = append(out, summary)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating session summary rows: %w", err)
+		return nil, fmt.Errorf("encoding memory citations: %w", err)
 	}
 	return out, nil
 }
 
-// --- PrimeStore ---
-
-// PrimeContext renders the durable-state briefing in the same markdown shape
-// as the SDK engine: active task, ready/blocked work, pinned/recent memories.
-func (s *Store) PrimeContext(ctx context.Context, opts sdkprojectstate.PrimeOptions) (string, error) {
-	if opts.ReadyLimit <= 0 {
-		opts.ReadyLimit = 8
+func unmarshalCitations(raw []byte, mem *sdkprojectstate.Memory) error {
+	if len(raw) == 0 {
+		return nil
 	}
-	if opts.MemoryLimit <= 0 {
-		opts.MemoryLimit = 8
+	if err := json.Unmarshal(raw, &mem.Citations); err != nil {
+		return fmt.Errorf("decoding memory citations: %w", err)
 	}
-	actor := firstNonEmpty(strings.TrimSpace(opts.Actor), s.actor)
-
-	tasks, byID, err := s.loadTasks(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	var b strings.Builder
-	b.WriteString("## Durable Project State\n")
-	b.WriteString("Project: " + s.projectID + "\n")
-	if s.workDir != "" {
-		b.WriteString("Workspace: " + s.workDir + "\n")
-	}
-
-	if active := activeTask(tasks, byID, opts.ActiveTaskID, actor); active != nil {
-		b.WriteString("\n### Active Task\n")
-		writeTaskLine(&b, *active)
-		if active.Description != "" {
-			b.WriteString("  " + oneLine(active.Description, 220) + "\n")
-		}
-		if len(active.DependsOn) > 0 {
-			b.WriteString("  Depends on: " + strings.Join(active.DependsOn, ", ") + "\n")
-		}
-	}
-
-	ready, err := s.ReadyTasks(ctx, sdkprojectstate.TaskFilter{Actor: actor, Limit: opts.ReadyLimit})
-	if err != nil {
-		return "", err
-	}
-	if len(ready) > 0 {
-		b.WriteString("\n### Ready Work\n")
-		for _, task := range ready {
-			writeTaskLine(&b, task)
-		}
-	}
-
-	blocked := blockedTasks(tasks, byID, 5)
-	if len(blocked) > 0 {
-		b.WriteString("\n### Blocked Work\n")
-		for _, task := range blocked {
-			writeTaskLine(&b, task)
-		}
-	}
-
-	memories, err := s.ListMemories(ctx, sdkprojectstate.MemoryFilter{})
-	if err != nil {
-		return "", err
-	}
-	pinned, recent := splitMemoriesForPrime(memories, opts.MemoryLimit)
-	if len(pinned) > 0 {
-		b.WriteString("\n### Pinned Memories\n")
-		for _, mem := range pinned {
-			b.WriteString("- " + oneLine(mem.Content, 220) + memorySuffix(mem) + "\n")
-		}
-	}
-	if len(recent) > 0 {
-		b.WriteString("\n### Recent Memories\n")
-		for _, mem := range recent {
-			b.WriteString("- " + oneLine(mem.Content, 180) + memorySuffix(mem) + "\n")
-		}
-	}
-
-	out := strings.TrimSpace(b.String())
-	if !strings.Contains(out, "###") {
-		out += "\nNo durable tasks or memories yet."
-	}
-	return out, nil
-}
-
-// --- helpers (semantics mirror the SDK projectstate engine) ---
-
-func activeTask(tasks []sdkprojectstate.Task, byID map[string]sdkprojectstate.Task, activeTaskID, actor string) *sdkprojectstate.Task {
-	if activeTaskID != "" {
-		if task, ok := byID[activeTaskID]; ok {
-			return &task
-		}
-	}
-	for _, task := range tasks {
-		if task.Status == sdkprojectstate.TaskStatusInProgress && (actor == "" || task.Assignee == actor) {
-			out := task
-			return &out
-		}
+	if len(mem.Citations) == 0 {
+		mem.Citations = nil
 	}
 	return nil
 }
 
-func blockedTasks(tasks []sdkprojectstate.Task, byID map[string]sdkprojectstate.Task, limit int) []sdkprojectstate.Task {
-	var out []sdkprojectstate.Task
-	for _, task := range tasks {
-		if task.Status != sdkprojectstate.TaskStatusOpen && task.Status != sdkprojectstate.TaskStatusBlocked {
-			continue
-		}
-		if hasOpenBlocker(byID, task) {
-			out = append(out, task)
-		}
+// --- PrimeStore ---
+
+// PrimeContext renders the SDK briefing (RenderBriefing) from Postgres state.
+func (s *Store) PrimeContext(ctx context.Context, opts sdkprojectstate.PrimeOptions) (string, error) {
+	if opts.ReadyLimit <= 0 {
+		opts.ReadyLimit = 8
 	}
-	sortTasks(out)
-	return limitTasks(out, limit)
+	actor := firstNonEmpty(strings.TrimSpace(opts.Actor), s.actor)
+	tasks, _, err := s.loadTasks(ctx)
+	if err != nil {
+		return "", err
+	}
+	memories, err := s.ListMemories(ctx, sdkprojectstate.MemoryFilter{})
+	if err != nil {
+		return "", err
+	}
+	return sdkprojectstate.RenderBriefing(sdkprojectstate.BriefingInput{
+		ProjectID: s.projectID,
+		Active:    sdkprojectstate.ActiveTask(tasks, opts.ActiveTaskID, actor),
+		Ready:     sdkprojectstate.ReadyFromTasks(tasks, sdkprojectstate.TaskFilter{Actor: actor, Limit: opts.ReadyLimit}),
+		Blocked:   sdkprojectstate.BlockedFromTasks(tasks, 5),
+		Memories:  memories,
+	}), nil
 }
 
-func splitMemoriesForPrime(memories []sdkprojectstate.Memory, limit int) (pinned, recent []sdkprojectstate.Memory) {
-	for _, mem := range memories {
-		if mem.Kind == sdkprojectstate.MemoryKindPinned {
-			pinned = append(pinned, mem)
-		} else {
-			recent = append(recent, mem)
-		}
-	}
-	sortMemoriesByUpdated(pinned)
-	sortMemoriesByUpdated(recent)
-	if limit > 0 && len(pinned) > limit {
-		pinned = pinned[:limit]
-	}
-	remaining := limit
-	if remaining > 0 {
-		remaining -= len(pinned)
-	}
-	if remaining <= 0 {
-		remaining = limit
-	}
-	if remaining > 0 && len(recent) > remaining {
-		recent = recent[:remaining]
-	}
-	return pinned, recent
-}
-
-func sortMemoriesByUpdated(memories []sdkprojectstate.Memory) {
-	sort.SliceStable(memories, func(i, j int) bool { return memories[i].UpdatedAt.After(memories[j].UpdatedAt) })
-}
-
-func hasOpenBlocker(byID map[string]sdkprojectstate.Task, task sdkprojectstate.Task) bool {
-	for _, depID := range task.DependsOn {
-		dep, ok := byID[depID]
-		if !ok || dep.Status != sdkprojectstate.TaskStatusClosed {
-			return true
-		}
-	}
-	return false
-}
-
-func applyPatch(task *sdkprojectstate.Task, patch sdkprojectstate.TaskPatch, now time.Time) {
-	if patch.Title != nil {
-		task.Title = strings.TrimSpace(*patch.Title)
-	}
-	if patch.Description != nil {
-		task.Description = strings.TrimSpace(*patch.Description)
-	}
-	if patch.Type != nil {
-		task.Type = normalizeTaskType(*patch.Type)
-	}
-	if patch.Status != nil {
-		task.Status = normalizeTaskStatus(*patch.Status)
-		if task.Status == sdkprojectstate.TaskStatusClosed {
-			closedAt := now
-			task.ClosedAt = &closedAt
-		} else {
-			task.ClosedAt = nil
-		}
-	}
-	if patch.Priority != nil {
-		task.Priority = normalizePriority(*patch.Priority)
-	}
-	if patch.Assignee != nil {
-		task.Assignee = strings.TrimSpace(*patch.Assignee)
-	}
-	if patch.ReplaceLabels {
-		task.Labels = uniqueNonEmpty(patch.Labels)
-	}
-	if patch.Metadata != nil {
-		task.Metadata = *patch.Metadata
-	}
-	task.UpdatedAt = now
-}
-
-func normalizeTaskType(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case sdkprojectstate.TaskTypeBug:
-		return sdkprojectstate.TaskTypeBug
-	case sdkprojectstate.TaskTypeFeature, "feat":
-		return sdkprojectstate.TaskTypeFeature
-	case sdkprojectstate.TaskTypeChore:
-		return sdkprojectstate.TaskTypeChore
-	case sdkprojectstate.TaskTypeEpic:
-		return sdkprojectstate.TaskTypeEpic
-	default:
-		return sdkprojectstate.TaskTypeTask
-	}
-}
-
-func normalizeTaskStatus(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case sdkprojectstate.TaskStatusInProgress, "in-progress", "claimed":
-		return sdkprojectstate.TaskStatusInProgress
-	case sdkprojectstate.TaskStatusBlocked:
-		return sdkprojectstate.TaskStatusBlocked
-	case sdkprojectstate.TaskStatusClosed, "done", "completed":
-		return sdkprojectstate.TaskStatusClosed
-	case sdkprojectstate.TaskStatusDeferred:
-		return sdkprojectstate.TaskStatusDeferred
-	default:
-		return sdkprojectstate.TaskStatusOpen
-	}
-}
-
-func normalizePriority(value int) int {
-	if value < 0 {
-		return 0
-	}
-	if value > 4 {
-		return 4
-	}
-	return value
-}
-
-func normalizeMemoryKind(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case sdkprojectstate.MemoryKindPinned:
-		return sdkprojectstate.MemoryKindPinned
-	case sdkprojectstate.MemoryKindEpisodic:
-		return sdkprojectstate.MemoryKindEpisodic
-	case sdkprojectstate.MemoryKindProcedural:
-		return sdkprojectstate.MemoryKindProcedural
-	default:
-		return sdkprojectstate.MemoryKindSemantic
-	}
-}
-
-func normalizeMemoryScope(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case sdkprojectstate.MemoryScopeUser:
-		return sdkprojectstate.MemoryScopeUser
-	case sdkprojectstate.MemoryScopeTask:
-		return sdkprojectstate.MemoryScopeTask
-	case sdkprojectstate.MemoryScopeFile:
-		return sdkprojectstate.MemoryScopeFile
-	default:
-		return sdkprojectstate.MemoryScopeProject
-	}
-}
-
-func memoryMatchesQuery(mem sdkprojectstate.Memory, query string) bool {
-	haystack := strings.ToLower(strings.Join(append([]string{mem.Content, mem.Kind, mem.Scope}, append(mem.Tags, append(mem.TaskIDs, mem.FilePaths...)...)...), " "))
-	if strings.Contains(haystack, query) {
-		return true
-	}
-	for term := range strings.FieldsSeq(query) {
-		if strings.Contains(haystack, term) {
-			return true
-		}
-	}
-	return false
-}
-
-func matchesLabels(actual, wanted []string) bool {
-	if len(wanted) == 0 {
-		return true
-	}
-	set := make(map[string]struct{}, len(actual))
-	for _, label := range actual {
-		set[strings.ToLower(strings.TrimSpace(label))] = struct{}{}
-	}
-	for _, want := range wanted {
-		if _, ok := set[strings.ToLower(strings.TrimSpace(want))]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
-func sortTasks(tasks []sdkprojectstate.Task) {
-	sort.SliceStable(tasks, func(i, j int) bool {
-		if tasks[i].Status != tasks[j].Status {
-			return tasks[i].Status < tasks[j].Status
-		}
-		if tasks[i].Priority != tasks[j].Priority {
-			return tasks[i].Priority < tasks[j].Priority
-		}
-		if !tasks[i].UpdatedAt.Equal(tasks[j].UpdatedAt) {
-			return tasks[i].UpdatedAt.After(tasks[j].UpdatedAt)
-		}
-		return tasks[i].ID < tasks[j].ID
-	})
-}
-
-func limitTasks(tasks []sdkprojectstate.Task, limit int) []sdkprojectstate.Task {
-	if limit > 0 && len(tasks) > limit {
-		tasks = tasks[:limit]
-	}
-	return tasks
-}
-
-func writeTaskLine(b *strings.Builder, task sdkprojectstate.Task) {
-	status := task.Status
-	if status == "" {
-		status = sdkprojectstate.TaskStatusOpen
-	}
-	fmt.Fprintf(b, "- %s [P%d %s] %s\n", task.ID, task.Priority, status, oneLine(task.Title, 180))
-}
-
-func memorySuffix(mem sdkprojectstate.Memory) string {
-	var parts []string
-	if mem.Kind != "" {
-		parts = append(parts, mem.Kind)
-	}
-	if len(mem.Tags) > 0 {
-		parts = append(parts, strings.Join(mem.Tags, ","))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return " (" + strings.Join(parts, "; ") + ")"
-}
-
-func oneLine(value string, max int) string {
-	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
-	if max > 0 && len(value) > max {
-		return value[:max-3] + "..."
-	}
-	return value
-}
+// --- helpers ---
 
 func newID(prefix string) string {
 	id := strings.ReplaceAll(uuid.NewString(), "-", "")
@@ -1004,17 +915,6 @@ func uniqueNonEmpty(values []string) []string {
 		}
 		seen[value] = struct{}{}
 		out = append(out, value)
-	}
-	return out
-}
-
-func lowerTrimmed(values []string) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.ToLower(strings.TrimSpace(value))
-		if value != "" {
-			out = append(out, value)
-		}
 	}
 	return out
 }

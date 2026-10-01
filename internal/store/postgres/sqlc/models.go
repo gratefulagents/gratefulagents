@@ -56,18 +56,6 @@ type AgentBugReport struct {
 	FixPrUrl    string      `json:"fix_pr_url"`
 }
 
-type AgentMemory struct {
-	ID        uuid.UUID       `json:"id"`
-	Namespace string          `json:"namespace"`
-	Content   string          `json:"content"`
-	Embedding pgvector.Vector `json:"embedding"`
-	Tags      []string        `json:"tags"`
-	SourceRun string          `json:"source_run"`
-	Metadata  json.RawMessage `json:"metadata"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
-}
-
 type AgentRunWakeIntent struct {
 	ID                 uuid.UUID          `json:"id"`
 	SessionID          uuid.UUID          `json:"session_id"`
@@ -258,27 +246,18 @@ type ProjectStateMemory struct {
 	ProjectID  string             `json:"project_id"`
 	ID         string             `json:"id"`
 	Kind       string             `json:"kind"`
-	Scope      string             `json:"scope"`
-	Content    string             `json:"content"`
-	Tags       []string           `json:"tags"`
-	TaskIds    []string           `json:"task_ids"`
-	FilePaths  []string           `json:"file_paths"`
 	SourceRun  string             `json:"source_run"`
-	Metadata   []byte             `json:"metadata"`
 	Embedding  pgvector.Vector    `json:"embedding"`
 	CreatedAt  time.Time          `json:"created_at"`
 	UpdatedAt  time.Time          `json:"updated_at"`
-	LastReadAt pgtype.Timestamptz `json:"last_read_at"`
-}
-
-type ProjectStateSessionSummary struct {
-	ProjectID string    `json:"project_id"`
-	ID        string    `json:"id"`
-	RunID     string    `json:"run_id"`
-	Summary   string    `json:"summary"`
-	TaskIds   []string  `json:"task_ids"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Title      string             `json:"title"`
+	Body       string             `json:"body"`
+	Citations  json.RawMessage    `json:"citations"`
+	CommitSha  string             `json:"commit_sha"`
+	VerifiedAt time.Time          `json:"verified_at"`
+	UseCount   int32              `json:"use_count"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
+	SearchTsv  interface{}        `json:"search_tsv"`
 }
 
 type ProjectStateTask struct {

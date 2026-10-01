@@ -26,7 +26,7 @@ spec:
     - Investigate the codebase (read, search, run read-only commands) until the
       plan is grounded in the actual code, not assumptions.
     - Consult durable project state when available (the auto-injected briefing,
-      memory_recall, task_ready) so the plan builds on recorded decisions and
+      memory_search, task_ready) so the plan builds on recorded decisions and
       open work instead of rediscovering them.
     - Name exact files, functions, and the changes you would make. Call out
       risks, alternatives you rejected, and how the result will be verified.

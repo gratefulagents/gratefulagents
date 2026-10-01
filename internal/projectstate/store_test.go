@@ -3,7 +3,6 @@ package projectstate
 import (
 	"strings"
 	"testing"
-	"time"
 
 	sdkprojectstate "github.com/gratefulagents/sdk/pkg/agentsdk/projectstate"
 )
@@ -49,100 +48,58 @@ func TestProjectIDCanonicalEquivalenceAndCollisionResistance(t *testing.T) {
 	}
 }
 
-func TestApplyPatchMirrorsEngineSemantics(t *testing.T) {
-	now := time.Now().UTC()
-	task := sdkprojectstate.Task{
-		ID:     "task_abc",
-		Title:  "old",
-		Status: sdkprojectstate.TaskStatusOpen,
-		Labels: []string{"keep"},
+func TestFullTextQueryBuildsSanitizedORQuery(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"How does compaction threshold work?", "compaction | threshold | work"},
+		{"memory_save dedupe", "memory | save | dedupe"},
+		{"a the of", ""},
+		{"it's (x & y) | !z:*", ""},
+		{"Postgres pgvector!", "postgres | pgvector"},
 	}
-
-	title := "  new title  "
-	status := "done"
-	priority := 9
-	applyPatch(&task, sdkprojectstate.TaskPatch{
-		Title:    &title,
-		Status:   &status,
-		Priority: &priority,
-	}, now)
-
-	if task.Title != "new title" {
-		t.Errorf("Title = %q, want trimmed", task.Title)
-	}
-	if task.Status != sdkprojectstate.TaskStatusClosed {
-		t.Errorf("Status = %q, want closed (done normalizes)", task.Status)
-	}
-	if task.ClosedAt == nil || !task.ClosedAt.Equal(now) {
-		t.Error("ClosedAt should be set when patched to closed")
-	}
-	if task.Priority != 4 {
-		t.Errorf("Priority = %d, want clamped to 4", task.Priority)
-	}
-
-	reopen := "open"
-	applyPatch(&task, sdkprojectstate.TaskPatch{Status: &reopen}, now.Add(time.Second))
-	if task.ClosedAt != nil {
-		t.Error("ClosedAt should clear when reopened")
+	for _, tt := range tests {
+		got := fullTextQuery(tt.in)
+		if got != tt.want {
+			t.Errorf("fullTextQuery(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+		if strings.ContainsAny(fullTextQuery(tt.in), "&!:*()'") {
+			t.Errorf("fullTextQuery(%q) leaked tsquery syntax: %q", tt.in, fullTextQuery(tt.in))
+		}
 	}
 }
 
-func TestHasOpenBlockerAndBlockedTasks(t *testing.T) {
-	dep := sdkprojectstate.Task{ID: "task_dep", Status: sdkprojectstate.TaskStatusOpen}
-	blocked := sdkprojectstate.Task{ID: "task_blocked", Status: sdkprojectstate.TaskStatusOpen, DependsOn: []string{"task_dep"}}
-	free := sdkprojectstate.Task{ID: "task_free", Status: sdkprojectstate.TaskStatusOpen}
-	byID := map[string]sdkprojectstate.Task{dep.ID: dep, blocked.ID: blocked, free.ID: free}
-
-	if hasOpenBlocker(byID, free) {
-		t.Error("free task should have no blocker")
+func TestNormalizedKindsMapsLegacyAndDedupes(t *testing.T) {
+	got := normalizedKinds([]string{"Pinned", "decision", " ", "semantic", "fact", "procedural"})
+	want := []string{sdkprojectstate.MemoryKindDecision, sdkprojectstate.MemoryKindFact, sdkprojectstate.MemoryKindProcedure}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("normalizedKinds() = %v, want %v", got, want)
 	}
-	if !hasOpenBlocker(byID, blocked) {
-		t.Error("blocked task should report an open blocker")
-	}
-	// Missing dependency also blocks (fail closed, mirrors engine).
-	if !hasOpenBlocker(byID, sdkprojectstate.Task{DependsOn: []string{"missing"}}) {
-		t.Error("missing dependency should block")
-	}
-
-	out := blockedTasks([]sdkprojectstate.Task{dep, blocked, free}, byID, 5)
-	if len(out) != 1 || out[0].ID != "task_blocked" {
-		t.Fatalf("blockedTasks() = %#v, want [task_blocked]", out)
+	if got := normalizedKinds(nil); got == nil || len(got) != 0 {
+		t.Fatalf("normalizedKinds(nil) = %#v, want empty non-nil slice for text[] binding", got)
 	}
 }
 
-func TestSplitMemoriesForPrime(t *testing.T) {
-	now := time.Now().UTC()
-	memories := []sdkprojectstate.Memory{
-		{ID: "m1", Kind: sdkprojectstate.MemoryKindPinned, UpdatedAt: now},
-		{ID: "m2", Kind: sdkprojectstate.MemoryKindSemantic, UpdatedAt: now.Add(time.Minute)},
-		{ID: "m3", Kind: sdkprojectstate.MemoryKindSemantic, UpdatedAt: now},
+func TestCitationsRoundTrip(t *testing.T) {
+	raw, err := marshalCitations(nil)
+	if err != nil || string(raw) != "[]" {
+		t.Fatalf("marshalCitations(nil) = %q, %v; want []", raw, err)
 	}
-	pinned, recent := splitMemoriesForPrime(memories, 2)
-	if len(pinned) != 1 || pinned[0].ID != "m1" {
-		t.Fatalf("pinned = %#v, want [m1]", pinned)
+	in := []sdkprojectstate.Citation{{Path: "cmd/agent/loop.go"}, {URL: "https://example.test/pr/1"}}
+	raw, err = marshalCitations(in)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(recent) != 1 || recent[0].ID != "m2" {
-		t.Fatalf("recent = %#v, want most recent [m2]", recent)
+	var mem sdkprojectstate.Memory
+	if err := unmarshalCitations(raw, &mem); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestMemoryMatchesQueryAndNormalization(t *testing.T) {
-	mem := sdkprojectstate.Memory{Content: "Build uses make web", Tags: []string{"build"}}
-	if !memoryMatchesQuery(mem, "make") {
-		t.Error("expected lexical term match")
+	if len(mem.Citations) != 2 || mem.Citations[0].Path != "cmd/agent/loop.go" || mem.Citations[1].URL == "" {
+		t.Fatalf("round trip = %#v", mem.Citations)
 	}
-	if memoryMatchesQuery(mem, "unrelated") {
-		t.Error("unexpected match")
-	}
-
-	if got := normalizeTaskType("FEAT"); got != sdkprojectstate.TaskTypeFeature {
-		t.Errorf("normalizeTaskType(FEAT) = %q", got)
-	}
-	if got := normalizeMemoryKind("weird"); got != sdkprojectstate.MemoryKindSemantic {
-		t.Errorf("normalizeMemoryKind(weird) = %q", got)
-	}
-	if got := normalizeMemoryScope("USER"); got != sdkprojectstate.MemoryScopeUser {
-		t.Errorf("normalizeMemoryScope(USER) = %q", got)
+	mem = sdkprojectstate.Memory{}
+	if err := unmarshalCitations([]byte("[]"), &mem); err != nil || mem.Citations != nil {
+		t.Fatalf("empty citations = %#v, %v; want nil", mem.Citations, err)
 	}
 }
 

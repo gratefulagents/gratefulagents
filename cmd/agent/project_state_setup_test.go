@@ -87,8 +87,8 @@ func TestSetupProjectStateAllowsMissingEmbedderAuth(t *testing.T) {
 	if !status.enabled {
 		t.Fatal("setupProjectState() enabled = false, want true")
 	}
-	if !strings.Contains(status.message, "lexical recall") {
-		t.Fatalf("setupProjectState() message = %q, want lexical recall note", status.message)
+	if !strings.Contains(status.message, "full-text recall (no OPENAI_API_KEY") {
+		t.Fatalf("setupProjectState() message = %q, want full-text recall note", status.message)
 	}
 }
 
