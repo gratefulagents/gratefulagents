@@ -13,7 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// pgTestSchema mirrors the post-migration-064 shape of the project state
+// pgTestSchema mirrors the post-migration-066 shape of the project state
 // tables as session-local TEMP tables, which shadow any public tables of the
 // same name. Every test runs inside one transaction that is rolled back, so
 // the suite is safe to point at any database with the vector extension.

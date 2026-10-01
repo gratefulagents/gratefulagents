@@ -304,12 +304,18 @@ type ActivityEventInput struct {
 	EventType string
 	Summary   string
 	Detail    json.RawMessage
+	// ClientEventID is an optional writer-chosen idempotency key. A batch
+	// retried after an ambiguous failure (committed, but the client saw an
+	// error) skips rows whose key was already stored instead of inserting
+	// them twice. uuid.Nil means no key.
+	ClientEventID uuid.UUID
 }
 
 // ActivityEventBatchWriter is an optional store capability that persists many
 // activity events in one statement, so the per-session change counter is
 // bumped once per batch instead of once per event. Returned IDs are in input
-// order.
+// order and cover only the rows this call inserted: rows skipped because
+// their ClientEventID was already stored are omitted.
 type ActivityEventBatchWriter interface {
 	WriteActivityEvents(ctx context.Context, sessionID uuid.UUID, events []ActivityEventInput) ([]int64, error)
 }

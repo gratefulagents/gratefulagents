@@ -2533,8 +2533,18 @@ type GetActivityLogResponse struct {
 	// Pagination metadata for unary page loads.
 	FirstEventId  int64 `protobuf:"varint,7,opt,name=first_event_id,json=firstEventId,proto3" json:"first_event_id,omitempty"`
 	HasMoreBefore bool  `protobuf:"varint,8,opt,name=has_more_before,json=hasMoreBefore,proto3" json:"has_more_before,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// True on a reset frame that continues the client's since_event_id cursor:
+	// `entries` hold only events strictly after since_event_id, so the client
+	// must append them to its buffer instead of replacing it. Never set on a
+	// source flip or event-id regression, which always replace the buffer.
+	Resume bool `protobuf:"varint,9,opt,name=resume,proto3" json:"resume,omitempty"`
+	// True when event_id values in this response are durable Postgres ids that
+	// remain valid as since_event_id across reconnects. False for synthetic
+	// ordinals (S3/pod-exec sources); clients must then resume with a full
+	// snapshot (since_event_id = 0).
+	EventIdsDurable bool `protobuf:"varint,10,opt,name=event_ids_durable,json=eventIdsDurable,proto3" json:"event_ids_durable,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetActivityLogResponse) Reset() {
@@ -2619,6 +2629,20 @@ func (x *GetActivityLogResponse) GetFirstEventId() int64 {
 func (x *GetActivityLogResponse) GetHasMoreBefore() bool {
 	if x != nil {
 		return x.HasMoreBefore
+	}
+	return false
+}
+
+func (x *GetActivityLogResponse) GetResume() bool {
+	if x != nil {
+		return x.Resume
+	}
+	return false
+}
+
+func (x *GetActivityLogResponse) GetEventIdsDurable() bool {
+	if x != nil {
+		return x.EventIdsDurable
 	}
 	return false
 }
@@ -6067,8 +6091,14 @@ type ActivityEntry struct {
 	// full payloads are available via GetActivityEntryDetail.
 	InputTruncated  bool `protobuf:"varint,90,opt,name=input_truncated,json=inputTruncated,proto3" json:"input_truncated,omitempty"`
 	OutputTruncated bool `protobuf:"varint,91,opt,name=output_truncated,json=outputTruncated,proto3" json:"output_truncated,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// order_unix_ms is the database commit-clock time (milliseconds) the event
+	// was recorded at, on the same clock as ChatMessage.timestamp_unix_ms and
+	// delivered_at_unix_ms. Clients interleave activity with conversation
+	// messages by this value; 0 when unknown (S3/pod-exec sources), in which
+	// case timestamp_unix * 1000 is the fallback.
+	OrderUnixMs   int64 `protobuf:"varint,92,opt,name=order_unix_ms,json=orderUnixMs,proto3" json:"order_unix_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ActivityEntry) Reset() {
@@ -6724,6 +6754,13 @@ func (x *ActivityEntry) GetOutputTruncated() bool {
 	return false
 }
 
+func (x *ActivityEntry) GetOrderUnixMs() int64 {
+	if x != nil {
+		return x.OrderUnixMs
+	}
+	return 0
+}
+
 type ChatMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Role          string                 `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
@@ -6753,8 +6790,16 @@ type ChatMessage struct {
 	DeliverySequence int64 `protobuf:"varint,9,opt,name=delivery_sequence,json=deliverySequence,proto3" json:"delivery_sequence,omitempty"`
 	// delivery_state is pending, claimed, completed, or cancelled.
 	DeliveryState string `protobuf:"bytes,10,opt,name=delivery_state,json=deliveryState,proto3" json:"delivery_state,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Millisecond-precision variants of timestamp_unix and delivered_at_unix
+	// (database clock). 0 when unknown.
+	TimestampUnixMs   int64 `protobuf:"varint,11,opt,name=timestamp_unix_ms,json=timestampUnixMs,proto3" json:"timestamp_unix_ms,omitempty"`
+	DeliveredAtUnixMs int64 `protobuf:"varint,12,opt,name=delivered_at_unix_ms,json=deliveredAtUnixMs,proto3" json:"delivered_at_unix_ms,omitempty"`
+	// client_message_id echoes the idempotency key the sending client supplied
+	// (SendAgentRunMessageRequest.client_message_id), so optimistic rows can be
+	// reconciled with the stored message. Empty when none was supplied.
+	ClientMessageId string `protobuf:"bytes,13,opt,name=client_message_id,json=clientMessageId,proto3" json:"client_message_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ChatMessage) Reset() {
@@ -6853,6 +6898,27 @@ func (x *ChatMessage) GetDeliverySequence() int64 {
 func (x *ChatMessage) GetDeliveryState() string {
 	if x != nil {
 		return x.DeliveryState
+	}
+	return ""
+}
+
+func (x *ChatMessage) GetTimestampUnixMs() int64 {
+	if x != nil {
+		return x.TimestampUnixMs
+	}
+	return 0
+}
+
+func (x *ChatMessage) GetDeliveredAtUnixMs() int64 {
+	if x != nil {
+		return x.DeliveredAtUnixMs
+	}
+	return 0
+}
+
+func (x *ChatMessage) GetClientMessageId() string {
+	if x != nil {
+		return x.ClientMessageId
 	}
 	return ""
 }
@@ -44589,7 +44655,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\tsubagents\x18\x04 \x03(\v2#.platform.v1.ObservabilityBreakdownR\tsubagents\x12;\n" +
 	"\x06models\x18\x05 \x03(\v2#.platform.v1.ObservabilityBreakdownR\x06models\x12W\n" +
 	"\x11data_completeness\x18\x06 \x01(\v2*.platform.v1.ObservabilityDataCompletenessR\x10dataCompleteness\x12+\n" +
-	"\x11coverage_warnings\x18\a \x03(\tR\x10coverageWarnings\"\xd0\x02\n" +
+	"\x11coverage_warnings\x18\a \x03(\tR\x10coverageWarnings\"\x94\x03\n" +
 	"\x16GetActivityLogResponse\x124\n" +
 	"\aentries\x18\x01 \x03(\v2\x1a.platform.v1.ActivityEntryR\aentries\x12\x1f\n" +
 	"\vis_complete\x18\x02 \x01(\bR\n" +
@@ -44599,7 +44665,10 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x05delta\x18\x05 \x01(\bR\x05delta\x12\x14\n" +
 	"\x05reset\x18\x06 \x01(\bR\x05reset\x12$\n" +
 	"\x0efirst_event_id\x18\a \x01(\x03R\ffirstEventId\x12&\n" +
-	"\x0fhas_more_before\x18\b \x01(\bR\rhasMoreBefore\"\xe4\x01\n" +
+	"\x0fhas_more_before\x18\b \x01(\bR\rhasMoreBefore\x12\x16\n" +
+	"\x06resume\x18\t \x01(\bR\x06resume\x12*\n" +
+	"\x11event_ids_durable\x18\n" +
+	" \x01(\bR\x0feventIdsDurable\"\xe4\x01\n" +
 	"\rSubagentGraph\x12\x17\n" +
 	"\aroot_id\x18\x01 \x01(\tR\x06rootId\x124\n" +
 	"\x05nodes\x18\x02 \x03(\v2\x1e.platform.v1.SubagentGraphNodeR\x05nodes\x124\n" +
@@ -44943,7 +45012,7 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x1bListAvailableModelsResponse\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x19\n" +
 	"\bbase_url\x18\x02 \x01(\tR\abaseUrl\x12\x16\n" +
-	"\x06models\x18\x03 \x03(\tR\x06models\"\x9a\x1b\n" +
+	"\x06models\x18\x03 \x03(\tR\x06models\"\xbe\x1b\n" +
 	"\rActivityEntry\x12%\n" +
 	"\x0etimestamp_unix\x18\x01 \x01(\x03R\rtimestampUnix\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x18\n" +
@@ -45044,7 +45113,8 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x1csubagent_last_parent_message\x18X \x01(\tR\x19subagentLastParentMessage\x12\x19\n" +
 	"\bevent_id\x18Y \x01(\x03R\aeventId\x12'\n" +
 	"\x0finput_truncated\x18Z \x01(\bR\x0einputTruncated\x12)\n" +
-	"\x10output_truncated\x18[ \x01(\bR\x0foutputTruncatedJ\x04\bE\x10FJ\x04\bF\x10G\"\xd3\x02\n" +
+	"\x10output_truncated\x18[ \x01(\bR\x0foutputTruncated\x12\"\n" +
+	"\rorder_unix_ms\x18\\ \x01(\x03R\vorderUnixMsJ\x04\bE\x10FJ\x04\bF\x10G\"\xdc\x03\n" +
 	"\vChatMessage\x12\x12\n" +
 	"\x04role\x18\x01 \x01(\tR\x04role\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent\x12%\n" +
@@ -45057,7 +45127,10 @@ const file_rpc_platform_service_proto_rawDesc = "" +
 	"\x02id\x18\b \x01(\x03R\x02id\x12+\n" +
 	"\x11delivery_sequence\x18\t \x01(\x03R\x10deliverySequence\x12%\n" +
 	"\x0edelivery_state\x18\n" +
-	" \x01(\tR\rdeliveryState\"\xd7\x02\n" +
+	" \x01(\tR\rdeliveryState\x12*\n" +
+	"\x11timestamp_unix_ms\x18\v \x01(\x03R\x0ftimestampUnixMs\x12/\n" +
+	"\x14delivered_at_unix_ms\x18\f \x01(\x03R\x11deliveredAtUnixMs\x12*\n" +
+	"\x11client_message_id\x18\r \x01(\tR\x0fclientMessageId\"\xd7\x02\n" +
 	"\x1aSendAgentRunMessageRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +

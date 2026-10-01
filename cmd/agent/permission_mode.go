@@ -173,19 +173,15 @@ func clampResolvedPermissionMode(
 	return mode
 }
 
-// healedWritePermissionMode re-resolves the run's permission mode once. It
-// returns the healed mode and true only when resolution now succeeds without
+// healedWritePermissionMode checks the pass's live permission resolution. It
+// returns the healed mode and true only when resolution succeeded without
 // degradation and — after pod-level clamps — grants write access: proof that
 // the pod's degraded read-only fallback is stale and a re-provisioned pod
 // would come back writable.
 func healedWritePermissionMode(
-	ctx context.Context, crdClient client.Client, run *platformv1alpha1.AgentRun,
+	res permissionResolution, run *platformv1alpha1.AgentRun,
 ) (agentpolicy.PermissionMode, bool) {
-	if run == nil {
-		return "", false
-	}
-	res := resolveRunPermissionMode(ctx, crdClient, run, 1)
-	if res.Degraded {
+	if run == nil || res.Degraded {
 		return "", false
 	}
 	mode := clampResolvedPermissionMode(res.Mode, run)

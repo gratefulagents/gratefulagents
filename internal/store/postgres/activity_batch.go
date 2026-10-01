@@ -22,6 +22,7 @@ func (s *Store) WriteActivityEvents(ctx context.Context, sessionID uuid.UUID, ev
 	eventTypes := make([]string, len(events))
 	summaries := make([]string, len(events))
 	details := make([]string, len(events))
+	clientIDs := make([]string, len(events))
 	for i, ev := range events {
 		eventTypes[i] = ev.EventType
 		summaries[i] = ev.Summary
@@ -33,19 +34,28 @@ func (s *Store) WriteActivityEvents(ctx context.Context, sessionID uuid.UUID, ev
 			}
 			details[i] = string(ev.Detail)
 		}
+		if ev.ClientEventID != uuid.Nil {
+			clientIDs[i] = ev.ClientEventID.String()
+		}
 	}
 
 	// The detail column is jsonb; the payloads travel as text[] and are cast
 	// per element so the batch does not depend on driver-side jsonb[] encoding.
-	// unnest with ordinality keeps RETURNING in input order.
+	// unnest with ordinality keeps RETURNING in input order. The ids
+	// themselves are drawn by the commit-ordering BEFORE INSERT trigger
+	// (migration 064) under the session row lock, row by row in that order.
+	// Rows whose client_event_id was already stored (a retry of a batch whose
+	// earlier attempt committed) are skipped, so a retry never duplicates
+	// events.
 	rows, err := s.pool.Query(ctx, `
-		INSERT INTO activity_events (session_id, event_type, summary, detail)
-		SELECT $1, e.event_type, e.summary, e.detail::jsonb
-		FROM unnest($2::text[], $3::text[], $4::text[])
-		     WITH ORDINALITY AS e(event_type, summary, detail, ord)
+		INSERT INTO activity_events (session_id, event_type, summary, detail, client_event_id)
+		SELECT $1, e.event_type, e.summary, e.detail::jsonb, NULLIF(e.client_event_id, '')::uuid
+		FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
+		     WITH ORDINALITY AS e(event_type, summary, detail, client_event_id, ord)
 		ORDER BY e.ord
+		ON CONFLICT (session_id, client_event_id) WHERE client_event_id IS NOT NULL DO NOTHING
 		RETURNING id`,
-		sessionID, eventTypes, summaries, details)
+		sessionID, eventTypes, summaries, details, clientIDs)
 	if err != nil {
 		return nil, fmt.Errorf("writing activity events: %w", err)
 	}
@@ -61,9 +71,6 @@ func (s *Store) WriteActivityEvents(ctx context.Context, sessionID uuid.UUID, ev
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("reading activity event ids: %w", err)
-	}
-	if len(ids) != len(events) {
-		return nil, fmt.Errorf("writing activity events: inserted %d of %d rows", len(ids), len(events))
 	}
 	return ids, nil
 }

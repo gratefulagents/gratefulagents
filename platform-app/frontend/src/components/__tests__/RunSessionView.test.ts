@@ -81,6 +81,7 @@ describe("bucketActivityByMessage", () => {
   function e(ts: number, taskId = "", type = "subagent_progress") {
     return create(ActivityEntrySchema, { timestampUnix: BigInt(ts), taskId, type });
   }
+  const s = (...seconds: number[]) => seconds.map((x) => BigInt(x) * 1000n);
 
   it("keeps a task's whole lifecycle in the segment where it started", () => {
     // Task starts before the user's 2nd message but completes after it.
@@ -89,7 +90,7 @@ describe("bucketActivityByMessage", () => {
       e(30, "t1", "subagent_completed"), // completed (after msg at 20)
       e(31), // unrelated later entry
     ];
-    const { segments, trailing } = bucketActivityByMessage(entries, [5n, 20n, 40n]);
+    const { segments, trailing } = bucketActivityByMessage(entries, s(5, 20, 40));
     expect(segments[0]).toHaveLength(0);
     expect(segments[1].map((x) => x.type)).toEqual(["subagent_progress", "subagent_completed"]);
     expect(segments[2]).toHaveLength(1);
@@ -102,7 +103,7 @@ describe("bucketActivityByMessage", () => {
       e(90, "live-task", "subagent_completed"),
       e(60), // plain entry between messages... after last message here
     ];
-    const { segments, trailing } = bucketActivityByMessage(entries, [5n, 20n]);
+    const { segments, trailing } = bucketActivityByMessage(entries, s(5, 20));
     expect(segments[0]).toHaveLength(0);
     expect(segments[1]).toHaveLength(0);
     expect(trailing).toHaveLength(3);
@@ -110,20 +111,39 @@ describe("bucketActivityByMessage", () => {
 
   it("does not move late entries behind a newer message", () => {
     const late = e(8);
-    const { segments, trailing } = bucketActivityByMessage([e(30), late], [10n, 20n]);
+    const { segments, trailing } = bucketActivityByMessage([e(30), late], s(10, 20));
     expect(segments[0]).toEqual([late]);
     expect(trailing).toHaveLength(1);
   });
 
   it("places same-second activity after the user and before the assistant", () => {
     const activity = e(10);
-    const { segments } = bucketActivityByMessage([activity], [10n, 10n], ["user", "assistant"]);
+    const { segments } = bucketActivityByMessage([activity], s(10, 10), ["user", "assistant"]);
     expect(segments).toEqual([[], [activity]]);
+  });
+
+  it("slices by database-clock milliseconds where the seconds tie would misorder", () => {
+    const before = create(ActivityEntrySchema, { timestampUnix: 10n, orderUnixMs: 10_100n, type: "assistant_text" });
+    const after = create(ActivityEntrySchema, { timestampUnix: 10n, orderUnixMs: 10_900n, type: "assistant_text" });
+    // A user message delivered at 10.5s: a seconds-level tie would put both
+    // entries after the user bubble.
+    const { segments, trailing } = bucketActivityByMessage([before, after], [10_500n], ["user"]);
+    expect(segments).toEqual([[before]]);
+    expect(trailing).toEqual([after]);
+  });
+
+  it("keeps a tool result in the same segment as its tool call", () => {
+    const call = create(ActivityEntrySchema, { timestampUnix: 10n, type: "tool_use", toolUseId: "call-1" });
+    const result = create(ActivityEntrySchema, { timestampUnix: 30n, type: "tool_result", toolUseId: "call-1" });
+    const unrelated = create(ActivityEntrySchema, { timestampUnix: 31n, type: "tool_result", toolUseId: "call-2" });
+    const { segments, trailing } = bucketActivityByMessage([call, result, unrelated], s(5, 20), ["assistant", "user"]);
+    expect(segments[1]).toEqual([call, result]);
+    expect(trailing).toEqual([unrelated]);
   });
 
   it("slices task-less entries by their own timestamps", () => {
     const entries = [e(1), e(15), e(25)];
-    const { segments, trailing } = bucketActivityByMessage(entries, [10n, 20n]);
+    const { segments, trailing } = bucketActivityByMessage(entries, s(10, 20));
     expect(segments[0]).toHaveLength(1);
     expect(segments[1]).toHaveLength(1);
     expect(trailing).toHaveLength(1);

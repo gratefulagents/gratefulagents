@@ -70,15 +70,18 @@ type ActivityLogFrame = {
   lastEventId?: bigint;
   firstEventId?: bigint;
   hasMoreBefore?: boolean;
+  resume?: boolean;
+  eventIdsDurable?: boolean;
 };
 
 /**
  * Apply delta-frame entries to the buffer. Entries at or below lastEventId
  * are dropped (dedupe guard). While a model streams reasoning, the backend
  * re-sends a single live-growing assistant_thinking entry: same type, same
- * non-empty toolUseId and timestampUnix, but a growing message and eventId —
- * that pair is unique per reasoning stream, so such entries replace the
- * buffered version in place instead of appending a duplicate row. Returns
+ * non-empty toolUseId, but a growing message and eventId — that pair is
+ * unique per reasoning stream, so the buffered version is removed and the
+ * new one appended at the end. The server snapshot places the merged entry
+ * at its newest constituent's slot, so live and reload order agree. Returns
  * `existing` unchanged when nothing new was processed.
  */
 export function applyDeltaEntries(
@@ -103,10 +106,9 @@ export function applyDeltaEntries(
         ? entries.findIndex((p) => p.type === e.type && p.toolUseId === e.toolUseId)
         : -1;
     if (upsertIdx >= 0) {
-      entries[upsertIdx] = e;
-    } else {
-      entries.push(e);
+      entries.splice(upsertIdx, 1);
     }
+    entries.push(e);
   }
   return { entries, lastEventId: maxEventId };
 }
@@ -135,6 +137,9 @@ export function useActivityLog(
   // can read the current buffer without re-subscribing on every frame.
   const entriesRef = useRef<ActivityEntry[]>([]);
   const lastEventIdRef = useRef<bigint>(0n);
+  // Whether lastEventIdRef holds durable ids that are valid as a
+  // since_event_id cursor across reconnects (synthetic ordinals are not).
+  const cursorDurableRef = useRef(false);
   const hasMoreBeforeRef = useRef(false);
   const isCompleteRef = useRef(false);
   const loadingOlderRef = useRef(false);
@@ -197,16 +202,11 @@ export function useActivityLog(
           }
           return;
         }
-        // A reset frame normally replaces the buffer (first frame, source
-        // flip, id regression). The one exception is a pure resume
-        // continuation: we reconnected with since_event_id and the snapshot
-        // starts strictly after what we already have — then appending keeps
-        // the older, already-loaded prefix intact.
-        const isResumeContinuation =
-          entriesRef.current.length > 0 &&
-          frame.entries.length > 0 &&
-          (frame.firstEventId ?? 0n) > lastEventIdRef.current;
-        if (isResumeContinuation) {
+        // A reset frame replaces the buffer (first frame, source flip, id
+        // regression) unless the server marks it as continuing our
+        // since_event_id cursor — then appending keeps the older,
+        // already-loaded prefix intact.
+        if (frame.resume === true && entriesRef.current.length > 0) {
           appendNewer(frame.entries);
         } else {
           commitEntries(frame.entries);
@@ -225,8 +225,12 @@ export function useActivityLog(
       }
     }
 
-    function applyLegacyFrame(frame: ActivityLogFrame): void {
-      commitEntries(mergeActivityEntries(entriesRef.current, frame.entries));
+    function applyLegacyFrame(frame: ActivityLogFrame, wasDurable: boolean): void {
+      commitEntries(
+        mergeActivityEntries(entriesRef.current, frame.entries, {
+          replace: wasDurable && !(frame.eventIdsDurable ?? false),
+        }),
+      );
       const frameLast = frame.lastEventId ?? 0n;
       if (frameLast > 0n) {
         lastEventIdRef.current = frameLast;
@@ -247,10 +251,12 @@ export function useActivityLog(
       lastFrameAt = Date.now();
       latestIsComplete = frame.isComplete;
       isCompleteRef.current = frame.isComplete;
+      const wasDurable = cursorDurableRef.current;
+      cursorDurableRef.current = frame.eventIdsDurable ?? false;
       if (frame.delta) {
         applyDeltaFrame(frame);
       } else {
-        applyLegacyFrame(frame);
+        applyLegacyFrame(frame, wasDurable);
       }
       setIsComplete(frame.isComplete);
       setLoading(false);
@@ -286,7 +292,10 @@ export function useActivityLog(
             delta: true,
             payloadPreviewBytes: ACTIVITY_PAYLOAD_PREVIEW_BYTES,
             limit: ACTIVITY_PAGE_LIMIT,
-            sinceEventId: entriesRef.current.length > 0 ? lastEventIdRef.current : 0n,
+            // Only durable ids survive a reconnect; otherwise ask for a full
+            // snapshot, which arrives as a replacing reset frame.
+            sinceEventId:
+              cursorDurableRef.current && entriesRef.current.length > 0 ? lastEventIdRef.current : 0n,
           };
           for await (const update of client.watchActivityLog(request, { signal: controller.signal })) {
             if (myGeneration !== generation) {
@@ -360,6 +369,7 @@ export function useActivityLog(
     if (shouldReset) {
       entriesRef.current = [];
       lastEventIdRef.current = 0n;
+      cursorDurableRef.current = false;
       hasMoreBeforeRef.current = false;
       setEntries([]);
       setSubagentGraph(undefined);

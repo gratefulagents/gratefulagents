@@ -58,7 +58,10 @@ func transcriptAfterRun(result *agent.RunResult) []agent.RunItem {
 //   - skipIDs: messages already in context by other means — the loop's own
 //     durable append of the previous turn's reply (already in FinalHistory)
 //     and the stored continuation nudge sent as this pass's user item.
-func outOfBandMessageItems(messages []store.Message, seenThroughID int64, state sessionclient.WorkingState, skipIDs ...int64) []agent.RunItem {
+func outOfBandMessageItems(
+	messages []store.Message, seenThroughID int64,
+	state sessionclient.WorkingState, skipIDs ...int64,
+) []agent.RunItem {
 	newer := make([]store.Message, 0, len(messages))
 	for _, msg := range messages {
 		if msg.ID <= seenThroughID || msg.Role == "user" || slices.Contains(skipIDs, msg.ID) {

@@ -1377,12 +1377,20 @@ func checkpointDue(standing *platformv1alpha1.AgentRun, now time.Time, interval 
 	return err != nil || !now.Before(last.Add(interval))
 }
 
+// runBudgetThreshold reports the highest crossed cost-cap checkpoint. An
+// invalid cap blocks the run (see costCapBlocker), so it reports as exhausted.
 func runBudgetThreshold(run *platformv1alpha1.AgentRun) int32 {
-	if run == nil || run.Spec.Limits == nil || run.Status.Metrics == nil {
+	if run == nil {
 		return 0
 	}
-	limit, err := strconv.ParseFloat(strings.TrimSpace(run.Spec.Limits.MaxCostUsd), 64)
-	if err != nil || limit <= 0 {
+	limit, set, err := run.Spec.Limits.CostCapUSD()
+	if !set {
+		return 0
+	}
+	if err != nil {
+		return 90
+	}
+	if run.Status.Metrics == nil {
 		return 0
 	}
 	spent, err := strconv.ParseFloat(strings.TrimSpace(run.Status.Metrics.CostUsd), 64)

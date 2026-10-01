@@ -37,15 +37,21 @@ func TestLoadProgressMetricsBaselineUsesMaximumAndFailsClosed(t *testing.T) {
 	run.Status.Metrics = &platformv1alpha1.AgentRunMetrics{CostUsd: "2.5", InputTokens: 100, OutputTokens: 30}
 	unavailable := false
 	reads := 0
-	c := fake.NewClientBuilder().WithScheme(permissionModeScheme(t)).WithObjects(run).WithInterceptorFuncs(interceptor.Funcs{
-		Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			reads++
-			if unavailable || reads == 1 {
-				return errors.New("API temporarily unavailable")
-			}
-			return cl.Get(ctx, key, obj, opts...)
-		},
-	}).Build()
+	c := fake.NewClientBuilder().
+		WithScheme(permissionModeScheme(t)).
+		WithObjects(run).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(
+				ctx context.Context, cl client.WithWatch,
+				key client.ObjectKey, obj client.Object, opts ...client.GetOption,
+			) error {
+				reads++
+				if unavailable || reads == 1 {
+					return errors.New("API temporarily unavailable")
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
 	baseline, err := loadProgressMetricsBaseline(context.Background(), c, sc, "run", "ns")
 	if err != nil || baseline.CostUSD != 4.5 || baseline.InputTokens != 100 || baseline.OutputTokens != 90 || reads != 2 {
 		t.Fatalf("baseline=%+v reads=%d err=%v", baseline, reads, err)
@@ -72,7 +78,15 @@ func TestPreflightAllowsDegradedPodWithoutRemoteWrites(t *testing.T) {
 				run.Spec.RuntimeProfileRef = &platformv1alpha1.NamedRef{Name: "missing"}
 			}
 			c := fake.NewClientBuilder().WithScheme(permissionModeScheme(t)).WithObjects(run).Build()
-			r := &chatRuntime{cfg: runConfig{TaskName: "run", Namespace: "ns", GitRemoteWrites: agentpolicy.GitRemoteWritesDisabled}, crd: c, tracker: agent.NewRunProgress()}
+			r := &chatRuntime{
+				cfg: runConfig{
+					TaskName:        "run",
+					Namespace:       "ns",
+					GitRemoteWrites: agentpolicy.GitRemoteWritesDisabled,
+				},
+				crd:     c,
+				tracker: agent.NewRunProgress(),
+			}
 			policy, action, exit := r.preflight(context.Background(), &userTurn{})
 			if policy == nil || action != proceed || exit != nil {
 				t.Fatalf("policy=%+v action=%v exit=%+v", policy, action, exit)
@@ -94,9 +108,28 @@ type recoveryStore struct {
 	claimToken        uuid.UUID
 	claimCalls        int
 	stoppedHook       func()
+	inputTypes        []string
+	sessionErr        error
 }
 
-func (s *recoveryStore) AppendMessage(ctx context.Context, _ uuid.UUID, role, content string, metadata json.RawMessage) (*store.Message, error) {
+func (s *recoveryStore) GetSession(ctx context.Context, id uuid.UUID) (*store.Session, error) {
+	if s.sessionErr != nil {
+		return nil, s.sessionErr
+	}
+	return s.stopQueueFakeStore.GetSession(ctx, id)
+}
+
+func (s *recoveryStore) GetMessages(context.Context, uuid.UUID) ([]store.Message, error) {
+	return nil, nil
+}
+
+func (s *recoveryStore) GetSessionTranscript(context.Context, uuid.UUID) ([]byte, error) {
+	return nil, nil
+}
+
+func (s *recoveryStore) AppendMessage(
+	ctx context.Context, _ uuid.UUID, role, content string, metadata json.RawMessage,
+) (*store.Message, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -105,12 +138,16 @@ func (s *recoveryStore) AppendMessage(ctx context.Context, _ uuid.UUID, role, co
 	return &msg, nil
 }
 
-func (s *recoveryStore) WriteActivityEvent(_ context.Context, _ uuid.UUID, eventType, summary string, detail json.RawMessage) (*store.ActivityEvent, error) {
+func (s *recoveryStore) WriteActivityEvent(
+	_ context.Context, _ uuid.UUID, eventType, summary string, detail json.RawMessage,
+) (*store.ActivityEvent, error) {
 	s.activities = append(s.activities, eventType)
 	return &store.ActivityEvent{}, nil
 }
 
-func (s *recoveryStore) ClaimUserMessage(ctx context.Context, id uuid.UUID, messageID int64, claim uuid.UUID) (*store.Message, bool, error) {
+func (s *recoveryStore) ClaimUserMessage(
+	ctx context.Context, id uuid.UUID, messageID int64, claim uuid.UUID,
+) (*store.Message, bool, error) {
 	s.claimCalls++
 	if s.claimFailures > 0 {
 		s.claimFailures--
@@ -139,6 +176,7 @@ func (s *recoveryStore) GetMessagesSince(_ context.Context, _ uuid.UUID, after i
 }
 
 func (s *recoveryStore) SetPendingQuestion(_ context.Context, _ uuid.UUID, _ string, _ string, inputType string) error {
+	s.inputTypes = append(s.inputTypes, inputType)
 	if inputType == string(platformv1alpha1.UserInputStopped) && s.stoppedHook != nil {
 		s.stoppedHook()
 	}
@@ -186,7 +224,8 @@ func TestClaimUserMessageRetriesTransientStoreErrors(t *testing.T) {
 	sc, ss := newRecoveryClient(t)
 	ss.pending = []store.Message{{ID: 7, Role: "user", Content: "continue"}}
 	ss.claimFailures = 2
-	got, won, err := claimUserMessageWithRetry(context.Background(), sc, sessionclient.UserMessage{Message: store.Message{ID: 7, Content: "continue"}})
+	got, won, err := claimUserMessageWithRetry(context.Background(), sc,
+		sessionclient.UserMessage{Message: store.Message{ID: 7, Content: "continue"}})
 	if err != nil || !won || got.ID != 7 || ss.claimFailures != 0 {
 		t.Fatalf("claimed=%+v won=%v err=%v", got, won, err)
 	}
@@ -199,7 +238,8 @@ func TestClaimUserMessageRetriesCommittedWriteWithLostResponse(t *testing.T) {
 	ss.loseClaimResponse = true
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	got, won, err := claimNextUserMessage(ctx, sc, []sessionclient.UserMessage{{Message: ss.pending[0]}}, 0, map[int64]struct{}{})
+	got, won, err := claimNextUserMessage(ctx, sc,
+		[]sessionclient.UserMessage{{Message: ss.pending[0]}}, 0, map[int64]struct{}{})
 	if err != nil || !won || got.ID != 7 || got.Content != "continue" || ss.claimCalls != 2 || len(ss.claimedIDs) != 1 {
 		t.Fatalf("claimed=%+v won=%v calls=%d claimedIDs=%v err=%v", got, won, ss.claimCalls, ss.claimedIDs, err)
 	}
@@ -367,12 +407,143 @@ func TestStopBeforeExecutionCancelsActiveChild(t *testing.T) {
 	}
 }
 
-func TestUnpricedCostCapWarnsOnce(t *testing.T) {
+func TestPreflightRefusesCappedTurnOnUnpricedModel(t *testing.T) {
+	orig := modelPricingKnownForTurn
+	t.Cleanup(func() { modelPricingKnownForTurn = orig })
+	modelPricingKnownForTurn = func(_ runConfig, model string) bool { return model == "priced" }
+
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "run", Namespace: "ns"}}
+	run.Spec.Model = "priced"
+	run.Spec.Limits = &platformv1alpha1.AgentRunLimits{MaxCostUsd: "5"}
+	c := fake.NewClientBuilder().WithScheme(permissionModeScheme(t)).WithObjects(run).Build()
 	sc, ss := newRecoveryClient(t)
-	r := &chatRuntime{sc: sc, cfg: runConfig{CostPricingUnknown: true, Model: "unpriced"}}
-	r.warnUnpricedCostCap(context.Background())
-	r.warnUnpricedCostCap(context.Background())
-	if fmt.Sprint(ss.activities) != "[cost_cap_unenforced]" {
-		t.Fatalf("warnings=%v", ss.activities)
+	cfg := runConfig{
+		TaskName: "run", Namespace: "ns", Provider: "openai", GitRemoteWrites: agentpolicy.GitRemoteWritesDisabled,
+	}
+	r := &chatRuntime{cfg: cfg, crd: c, sc: sc, tracker: agent.NewRunProgress()}
+	policy, action, exit := r.preflight(context.Background(), &userTurn{})
+	if policy == nil || action != proceed || exit != nil {
+		t.Fatalf("priced turn: policy=%+v action=%v exit=%+v", policy, action, exit)
+	}
+
+	// The model switches mid-run to one without pricing metadata.
+	run.Spec.Model = "unpriced"
+	if err := c.Update(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	policy, action, exit = r.preflight(context.Background(), &userTurn{})
+	if policy != nil || action != awaitUser || exit != nil {
+		t.Fatalf("unpriced turn: policy=%+v action=%v exit=%+v", policy, action, exit)
+	}
+	if fmt.Sprint(ss.activities) != "[cost_cap_unenforced]" || len(ss.inputTypes) != 1 ||
+		ss.inputTypes[0] != string(platformv1alpha1.UserInputCircuitBreak) {
+		t.Fatalf("activities=%v inputs=%v", ss.activities, ss.inputTypes)
+	}
+}
+
+func TestReadTurnWorkingStateKeepsFloorOnReadError(t *testing.T) {
+	fastTransientRetries(t)
+	sc, ss := newRecoveryClient(t)
+	ss.sessionErr = errors.New("Postgres failover")
+	r := &chatRuntime{sc: sc, tx: transcriptState{floor: 42}}
+	if state := r.readTurnWorkingState(context.Background()); state.HistoryFloorMessageID != 42 {
+		t.Fatalf("floor=%d, want the in-memory floor 42", state.HistoryFloorMessageID)
+	}
+	ss.sessionErr = nil
+	if err := sc.UpdateWorkingState(context.Background(), func(state *sessionclient.WorkingState) error {
+		state.HistoryFloorMessageID = 50
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if state := r.readTurnWorkingState(context.Background()); state.HistoryFloorMessageID != 50 {
+		t.Fatalf("floor=%d, want the durable floor 50", state.HistoryFloorMessageID)
+	}
+}
+
+func TestAutonomousTurnMarkerSetAfterClaimAndClearedOnPark(t *testing.T) {
+	for _, claimPending := range []bool{true, false} {
+		t.Run(fmt.Sprintf("pending-%v", claimPending), func(t *testing.T) {
+			sc, _ := newRecoveryClient(t)
+			// No AgentRun: preflight fails right after the marker write.
+			c := fake.NewClientBuilder().WithScheme(permissionModeScheme(t)).Build()
+			r := &chatRuntime{cfg: runConfig{TaskName: "run", Namespace: "ns"}, crd: c, sc: sc}
+			if _, exit := r.runPass(context.Background(), &userTurn{messageID: 1, claimPending: claimPending}); exit == nil {
+				t.Fatal("expected preflight failure")
+			}
+			state, err := sc.ReadWorkingState(context.Background())
+			if err != nil || state.AutonomousTurnActive == claimPending || r.autonomousTurnMarked == claimPending {
+				t.Fatalf("marker=%v marked=%v err=%v", state.AutonomousTurnActive, r.autonomousTurnMarked, err)
+			}
+		})
+	}
+
+	sc, _ := newRecoveryClient(t)
+	r := &chatRuntime{sc: sc}
+	r.setAutonomousTurnMarker(context.Background(), true)
+	if exit := r.agentLoop(context.Background(), &userTurn{autoLoopCount: agent.DefaultMaxAutoLoops}); exit != nil {
+		t.Fatalf("turn-limit park exit=%+v", exit)
+	}
+	if state, _ := sc.ReadWorkingState(context.Background()); state.AutonomousTurnActive || r.autonomousTurnMarked {
+		t.Fatal("parking the turn must clear the marker")
+	}
+}
+
+func TestRestoreResumesCrashedAutonomousTurnOnce(t *testing.T) {
+	for _, pending := range []bool{false, true} {
+		t.Run(fmt.Sprintf("pending-%v", pending), func(t *testing.T) {
+			sc, ss := newRecoveryClient(t)
+			if pending { // A graceful exit already enqueued the continuation.
+				ss.pending = []store.Message{{ID: 9, Role: "user", Content: podResumeContinuationPrompt}}
+			}
+			if err := sc.UpdateWorkingState(context.Background(), func(state *sessionclient.WorkingState) error {
+				state.AutonomousTurnActive = true
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			r := &chatRuntime{sc: sc}
+			if exit := r.restore(context.Background()); exit != nil {
+				t.Fatalf("restore exit=%+v", exit)
+			}
+			want := 1
+			if pending {
+				want = 0
+			}
+			if len(ss.appended) != want || !r.autonomousTurnMarked {
+				t.Fatalf("continuations=%d want=%d marked=%v", len(ss.appended), want, r.autonomousTurnMarked)
+			}
+			if want == 1 && ss.appended[0].Content != podResumeContinuationPrompt {
+				t.Fatalf("continuation=%+v", ss.appended[0])
+			}
+		})
+	}
+
+	sc, ss := newRecoveryClient(t)
+	if exit := (&chatRuntime{sc: sc}).restore(context.Background()); exit != nil || len(ss.appended) != 0 {
+		t.Fatalf("no marker: exit=%+v continuations=%d", exit, len(ss.appended))
+	}
+}
+
+func TestPreflightParksWhenGitPolicyRestartCannotBeRequested(t *testing.T) {
+	run, profile := writeProfileRun()
+	profile.Spec.Security.GitRemoteWrites = platformv1alpha1.GitRemoteWritesDisabled
+	failPatch := interceptor.Funcs{
+		Patch: func(context.Context, client.WithWatch, client.Object, client.Patch, ...client.PatchOption) error {
+			return errors.New("API unavailable")
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(permissionModeScheme(t)).WithObjects(run, profile).
+		WithInterceptorFuncs(failPatch).Build()
+	sc, ss := newRecoveryClient(t)
+	cfg := runConfig{TaskName: run.Name, Namespace: run.Namespace, GitRemoteWrites: agentpolicy.GitRemoteWritesEnabled}
+	r := &chatRuntime{cfg: cfg, crd: c, sc: sc, tracker: agent.NewRunProgress()}
+	policy, action, exit := r.preflight(context.Background(), &userTurn{})
+	if policy != nil || action != awaitUser || exit != nil {
+		t.Fatalf("policy=%+v action=%v exit=%+v", policy, action, exit)
+	}
+	if fmt.Sprint(ss.activities) != "[runtime_config]" || len(ss.inputTypes) != 1 ||
+		ss.inputTypes[0] != string(platformv1alpha1.UserInputCircuitBreak) {
+		t.Fatalf("activities=%v inputs=%v", ss.activities, ss.inputTypes)
 	}
 }

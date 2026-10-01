@@ -548,18 +548,23 @@ func TestPGEventWriterByteBudgetDropsOldest(t *testing.T) {
 		defer close(done)
 		_ = writer.Close()
 	}()
-	for i := 0; i < 5; i++ {
+	for range 6 {
 		ss.writeRelease <- struct{}{}
 	}
 	<-done
 
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
-	if got := len(ss.writes); got != 5 {
-		t.Fatalf("written events = %d, want 5", got)
+	// The dropped event leaves a visible events_dropped marker exactly where
+	// the gap is: before the oldest surviving event.
+	if got := len(ss.writes); got != 6 {
+		t.Fatalf("written events = %d, want 6 (5 events + 1 drop marker)", got)
 	}
-	for i, want := range []string{"blocking", "big-1", "big-2", "big-3", "big-4"} {
-		if ss.writes[i].summary != want {
+	if ss.writes[1].eventType != "events_dropped" {
+		t.Fatalf("write[1].eventType = %q, want events_dropped", ss.writes[1].eventType)
+	}
+	for i, want := range []string{"blocking", "", "big-1", "big-2", "big-3", "big-4"} {
+		if want != "" && ss.writes[i].summary != want {
 			t.Fatalf("write[%d].summary = %q, want %q", i, ss.writes[i].summary, want)
 		}
 	}
@@ -575,12 +580,19 @@ type flakyBatchStateStore struct {
 	recordingStateStore
 	failures int
 	attempts int
+	// clientIDs records each attempt's idempotency keys.
+	clientIDs [][]uuid.UUID
 }
 
 func (m *flakyBatchStateStore) WriteActivityEvents(_ context.Context, _ uuid.UUID, events []store.ActivityEventInput) ([]int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.attempts++
+	keys := make([]uuid.UUID, len(events))
+	for i, ev := range events {
+		keys[i] = ev.ClientEventID
+	}
+	m.clientIDs = append(m.clientIDs, keys)
 	if m.attempts <= m.failures {
 		return nil, fmt.Errorf("transient write failure %d", m.attempts)
 	}
@@ -603,8 +615,8 @@ func TestPGEventWriterRetriesTransientBatchFailure(t *testing.T) {
 	shortPGEventWriterRetries(t)
 	ss := &flakyBatchStateStore{failures: 2}
 	writer := newPGEventWriter(ss, uuid.New())
-	for i := 0; i < 3; i++ {
-		if _, err := writer.Write([]byte(fmt.Sprintf(`{"type":"tool_use","tool":"event-%d"}`, i))); err != nil {
+	for i := range 3 {
+		if _, err := writer.Write(fmt.Appendf(nil, `{"type":"tool_use","tool":"event-%d"}`, i)); err != nil {
 			t.Fatalf("Write(%d) error = %v", i, err)
 		}
 	}
@@ -643,5 +655,92 @@ func TestPGEventWriterCountsPersistentWriteFailuresAsUnflushed(t *testing.T) {
 	defer ss.mu.Unlock()
 	if ss.attempts != pgEventWriterWriteAttempts {
 		t.Fatalf("attempts = %d, want %d", ss.attempts, pgEventWriterWriteAttempts)
+	}
+}
+
+// TestPGEventWriterRetryReusesClientEventIDs: a retried batch must carry the
+// same idempotency keys as the failed attempt, so an attempt that committed
+// despite reporting an error is not inserted twice.
+func TestPGEventWriterRetryReusesClientEventIDs(t *testing.T) {
+	shortPGEventWriterRetries(t)
+	ss := &flakyBatchStateStore{failures: 2}
+	writer := newPGEventWriter(ss, uuid.New())
+	for _, msg := range []string{"a", "b"} {
+		if _, err := writer.Write([]byte(`{"type":"assistant_text","message":"` + msg + `"}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = writer.Close()
+
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	if len(ss.clientIDs) < 2 {
+		t.Fatalf("attempts = %d, want retries", len(ss.clientIDs))
+	}
+	first := ss.clientIDs[0]
+	for _, id := range first {
+		if id == uuid.Nil {
+			t.Fatal("events must carry a client event id")
+		}
+	}
+	for i, attempt := range ss.clientIDs[1:] {
+		if len(attempt) < len(first) {
+			continue // a later batch may carry only later events
+		}
+		for j := range first {
+			if attempt[j] != first[j] {
+				t.Fatalf("attempt %d key %d = %s, want %s (stable across retries)", i+1, j, attempt[j], first[j])
+			}
+		}
+	}
+}
+
+// TestPGEventWriterFlushWaitsForBufferedEvents: Flush returns only once every
+// event accepted before the call reached the store, which is what lets a
+// synchronous notice (turn_interrupted) land after the stream events
+// emitted before it.
+func TestPGEventWriterFlushWaitsForBufferedEvents(t *testing.T) {
+	ss := &batchingStateStore{
+		batchStarted: make(chan struct{}, 1),
+		batchRelease: make(chan struct{}),
+	}
+	writer := newPGEventWriter(ss, uuid.New())
+	defer func() {
+		close(ss.batchRelease)
+		_ = writer.Close()
+	}()
+	if _, err := writer.Write([]byte(`{"type":"tool_end","tool":"Bash"}`)); err != nil {
+		t.Fatal(err)
+	}
+	<-ss.batchStarted
+
+	flushed := make(chan struct{})
+	go func() {
+		writer.Flush(context.Background())
+		close(flushed)
+	}()
+	select {
+	case <-flushed:
+		t.Fatal("Flush returned while the event was still in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+	ss.batchRelease <- struct{}{}
+	select {
+	case <-flushed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Flush did not return after the batch was written")
+	}
+
+	// A bounded context still returns when the store is stuck.
+	if _, err := writer.Write([]byte(`{"type":"tool_end","tool":"Read"}`)); err != nil {
+		t.Fatal(err)
+	}
+	<-ss.batchStarted
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	writer.Flush(ctx)
+	if time.Since(start) > time.Second {
+		t.Fatal("Flush ignored its context deadline")
 	}
 }

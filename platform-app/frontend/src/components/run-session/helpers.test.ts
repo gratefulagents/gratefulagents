@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
-import { messageDeliveryTimestamp, messageTimelineKey, orderDeliveredMessages, partitionConversation, sourceHref, thinkingLabel } from "./helpers";
-import { ChatMessageSchema } from "@/rpc/platform/service_pb";
+import {
+  dedupeFinalReplies,
+  messageDeliveryTimestampMs,
+  messageTimelineKey,
+  orderDeliveredMessages,
+  partitionConversation,
+  sourceHref,
+  thinkingLabel,
+} from "./helpers";
+import { ActivityEntrySchema, ChatMessageSchema } from "@/rpc/platform/service_pb";
 
 function msg(overrides: MessageInitShape<typeof ChatMessageSchema> = {}) {
   return create(ChatMessageSchema, { role: "user", content: "hello", ...overrides });
@@ -55,20 +63,27 @@ describe("sourceHref", () => {
   });
 });
 
-describe("messageDeliveryTimestamp", () => {
+describe("messageDeliveryTimestampMs", () => {
   it("anchors user messages to their delivery time when known", () => {
     const m = msg({ timestampUnix: 50n, deliveredAtUnix: 80n });
-    expect(messageDeliveryTimestamp(m)).toBe(80n);
+    expect(messageDeliveryTimestampMs(m)).toBe(80_000n);
   });
 
   it("falls back to the created timestamp for undelivered or legacy messages", () => {
     const m = msg({ timestampUnix: 50n, deliveredAtUnix: 0n });
-    expect(messageDeliveryTimestamp(m)).toBe(50n);
+    expect(messageDeliveryTimestampMs(m)).toBe(50_000n);
   });
 
   it("never re-anchors assistant messages", () => {
     const m = msg({ role: "assistant", timestampUnix: 50n, deliveredAtUnix: 80n });
-    expect(messageDeliveryTimestamp(m)).toBe(50n);
+    expect(messageDeliveryTimestampMs(m)).toBe(50_000n);
+  });
+
+  it("prefers the database-clock millisecond fields when present", () => {
+    expect(messageDeliveryTimestampMs(msg({ timestampUnix: 50n, timestampUnixMs: 50_250n }))).toBe(50_250n);
+    expect(
+      messageDeliveryTimestampMs(msg({ timestampUnix: 50n, deliveredAtUnix: 80n, deliveredAtUnixMs: 80_750n })),
+    ).toBe(80_750n);
   });
 });
 
@@ -85,11 +100,25 @@ describe("orderDeliveredMessages", () => {
     expect(orderDeliveredMessages([queued, oldReply])).toEqual([oldReply, queued]);
   });
 
-  it("keeps an old-turn reply before queued messages delivered in the same second", () => {
-    const assistant = msg({ id: 3n, role: "assistant", timestampUnix: 100n });
-    const secondUser = msg({ id: 2n, timestampUnix: 90n, deliveredAtUnix: 100n });
-    const firstUser = msg({ id: 1n, timestampUnix: 80n, deliveredAtUnix: 100n });
-    expect(orderDeliveredMessages([secondUser, assistant, firstUser])).toEqual([assistant, firstUser, secondUser]);
+  it("orders by milliseconds where the seconds tie would misorder", () => {
+    const assistant = msg({ id: 3n, role: "assistant", timestampUnix: 100n, timestampUnixMs: 100_900n });
+    const secondUser = msg({ id: 2n, timestampUnix: 90n, deliveredAtUnix: 100n, deliveredAtUnixMs: 100_400n });
+    const firstUser = msg({ id: 1n, timestampUnix: 80n, deliveredAtUnix: 100n, deliveredAtUnixMs: 100_200n });
+    expect(orderDeliveredMessages([secondUser, assistant, firstUser])).toEqual([firstUser, secondUser, assistant]);
+
+    const earlyReply = msg({ id: 4n, role: "assistant", timestampUnix: 100n, timestampUnixMs: 100_100n });
+    expect(orderDeliveredMessages([secondUser, earlyReply, firstUser])).toEqual([earlyReply, firstUser, secondUser]);
+  });
+
+  it("orders a same-instant reply and stamped user row by delivery sequence, else by ID", () => {
+    const assistant = msg({ id: 3n, role: "assistant", timestampUnixMs: 100_000n });
+    const user = msg({ id: 2n, timestampUnix: 90n, deliveredAtUnixMs: 100_000n });
+    expect(orderDeliveredMessages([assistant, user])).toEqual([user, assistant]);
+    expect(orderDeliveredMessages([user, assistant])).toEqual([user, assistant]);
+
+    const seqAssistant = msg({ id: 3n, role: "assistant", timestampUnixMs: 100_000n, deliverySequence: 7n });
+    const seqUser = msg({ id: 2n, deliveredAtUnixMs: 100_000n, deliverySequence: 8n });
+    expect(orderDeliveredMessages([seqUser, seqAssistant])).toEqual([seqAssistant, seqUser]);
   });
 
   it("keeps an unstamped kickoff before a same-second assistant reply", () => {
@@ -107,5 +136,46 @@ describe("orderDeliveredMessages", () => {
 
   it("uses the durable ID for a stable timeline key", () => {
     expect(messageTimelineKey(msg({ id: 42n, timestampUnix: 100n }), 0)).toBe("message:42");
+  });
+});
+
+describe("dedupeFinalReplies", () => {
+  function text(message: string) {
+    return create(ActivityEntrySchema, { type: "assistant_text", message });
+  }
+  const tool = create(ActivityEntrySchema, { type: "tool_use", toolUseId: "t" });
+
+  it("removes one match from the message's own segment", () => {
+    const a = text("done");
+    const b = text("done");
+    const reply = msg({ role: "assistant", content: " done " });
+    const out = dedupeFinalReplies([reply], [[a, tool, b]], []);
+    expect(out.segments).toEqual([[a, tool]]);
+    expect(out.trailing).toEqual([]);
+  });
+
+  it("removes a match recorded just after the message from the next segment", () => {
+    const reply = msg({ role: "assistant", content: "done" });
+    const next = msg({ role: "user", content: "thanks" });
+    const late = text("done");
+    const segments = [[tool], [late, tool]];
+    const out = dedupeFinalReplies([reply, next], segments, []);
+    expect(out.segments).toEqual([[tool], [tool]]);
+    expect(segments[1]).toEqual([late, tool]);
+  });
+
+  it("removes a match from the trailing bucket after the last message", () => {
+    const reply = msg({ role: "assistant", content: "done" });
+    const late = text("done");
+    const other = text("more work");
+    const out = dedupeFinalReplies([reply], [[tool]], [late, other]);
+    expect(out.segments).toEqual([[tool]]);
+    expect(out.trailing).toEqual([other]);
+  });
+
+  it("leaves user messages and non-matching entries alone", () => {
+    const echo = text("hello");
+    const out = dedupeFinalReplies([msg({ content: "hello" })], [[echo]], []);
+    expect(out.segments).toEqual([[echo]]);
   });
 });

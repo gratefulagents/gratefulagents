@@ -199,12 +199,22 @@ export function groupActivityEntries(
     }
   }
 
-  const toolUseIdToTaskId = new Map<string, string>();
+  // Batch spawns start several tasks under one parent call id; that call
+  // belongs to none of them, so only an unambiguous claim maps it to a task.
+  const tasksByToolUseId = new Map<string, Set<string>>();
   for (const [tid, arr] of subagentByTaskId) {
     for (const e of arr) {
       if (e.type === "subagent_started" && e.toolUseId) {
-        toolUseIdToTaskId.set(e.toolUseId, tid);
+        const claims = tasksByToolUseId.get(e.toolUseId) ?? new Set<string>();
+        claims.add(tid);
+        tasksByToolUseId.set(e.toolUseId, claims);
       }
+    }
+  }
+  const toolUseIdToTaskId = new Map<string, string>();
+  for (const [toolUseId, claims] of tasksByToolUseId) {
+    if (claims.size === 1) {
+      toolUseIdToTaskId.set(toolUseId, claims.values().next().value!);
     }
   }
 
@@ -253,6 +263,9 @@ export function groupActivityEntries(
         }
       }
     }
+    // Mapped parent calls/results were appended after the task's own
+    // entries; restore feed order so the card reads chronologically.
+    arr.sort((a, b) => (entryToIndex.get(a) ?? 0) - (entryToIndex.get(b) ?? 0));
   }
 
   let i = 0;
@@ -330,8 +343,13 @@ export function groupActivityEntries(
     }
 
     if (e.type === "tool_use" && e.toolUseId && e.tool?.startsWith("agent_")) {
-      const children = childrenByParentCallId.get(e.toolUseId);
-      if (children && children.length > 0) {
+      // Children already rendered by a task card (or an earlier group) must
+      // not render a second time inside this inline group.
+      const children = (childrenByParentCallId.get(e.toolUseId) ?? []).filter((child) => {
+        const childIdx = entryToIndex.get(child);
+        return childIdx === undefined || !consumedIndices.has(childIdx);
+      });
+      if (children.length > 0) {
         for (const child of children) {
           const childIdx = entryToIndex.get(child);
           if (childIdx !== undefined) consumedIndices.add(childIdx);

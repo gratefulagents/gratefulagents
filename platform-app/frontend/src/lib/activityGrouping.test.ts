@@ -162,6 +162,92 @@ describe("groupActivityEntries", () => {
   });
 });
 
+describe("groupActivityEntries batch spawns", () => {
+  function batchEntries() {
+    const tasks = ["task_a", "task_b", "task_c"];
+    return [
+      entry({ timestampUnix: 1n, type: "tool_use", tool: "agent_batch", toolUseId: "call_batch", message: "fan out" }),
+      ...tasks.map((taskId, n) =>
+        entry({
+          timestampUnix: BigInt(2 + n),
+          type: "subagent_started",
+          taskId,
+          toolUseId: "call_batch",
+          parentCallId: "call_batch",
+          subagentType: "worker",
+          subagentDescription: `Job ${taskId}`,
+        }),
+      ),
+      ...tasks.map((taskId, n) =>
+        entry({
+          timestampUnix: BigInt(5 + n),
+          type: "subagent_completed",
+          taskId,
+          parentCallId: "call_batch",
+          subagentType: "worker",
+          subagentStatus: "completed",
+        }),
+      ),
+      entry({ timestampUnix: 9n, type: "tool_result", tool: "agent_batch", toolUseId: "call_batch", output: "all done" }),
+    ];
+  }
+
+  it("does not attach a shared parent call to the last task of a 3-task batch", () => {
+    const entries = batchEntries();
+    const groups = groupActivityEntries(entries);
+
+    expect(groups.map((g) => g.kind)).toEqual(["tool-pair", "subagent", "subagent", "subagent"]);
+    const pair = groups[0];
+    if (pair.kind !== "tool-pair") throw new Error("expected tool-pair");
+    expect(pair.toolUse).toBe(entries[0]);
+    expect(pair.toolResult).toBe(entries[7]);
+
+    const cards = groups.slice(1);
+    expect(cards.map((g) => (g.kind === "subagent" ? g.taskId : ""))).toEqual(["task_a", "task_b", "task_c"]);
+    for (const card of cards) {
+      if (card.kind !== "subagent") throw new Error("expected subagent group");
+      expect(card.entries.map((e) => e.type)).toEqual(["subagent_started", "subagent_completed"]);
+      expect(card.subagentStatus).toBe("completed");
+    }
+  });
+
+  it("does not re-render task-card entries as inline-subagent children", () => {
+    const entries = batchEntries();
+    const stray = entry({ timestampUnix: 8n, type: "tool_use", tool: "Read", toolUseId: "call_read", parentCallId: "call_batch" });
+    entries.splice(7, 0, stray);
+    const groups = groupActivityEntries(entries);
+
+    const inline = groups.find((g) => g.kind === "inline-subagent");
+    if (inline?.kind !== "inline-subagent") throw new Error("expected inline-subagent group");
+    expect(inline.children).toEqual([stray]);
+    const rendered = groups.flatMap((g) => {
+      switch (g.kind) {
+        case "subagent":
+          return g.entries;
+        case "inline-subagent":
+          return [g.parentEntry, ...g.children, ...(g.resultEntry ? [g.resultEntry] : [])];
+        case "tool-pair":
+          return [g.toolUse, g.toolResult];
+        case "single":
+          return [g.entry];
+        default:
+          return g.entries;
+      }
+    });
+    expect(rendered).toHaveLength(entries.length);
+    expect(new Set(rendered).size).toBe(entries.length);
+  });
+
+  it("still maps a single task's spawn call into its card", () => {
+    const entries = batchEntries().filter((e) => !e.taskId || e.taskId === "task_a");
+    const groups = groupActivityEntries(entries);
+    expect(groups).toHaveLength(1);
+    const card = groups[0];
+    if (card.kind !== "subagent") throw new Error("expected subagent group");
+    expect(card.entries).toEqual(entries);
+  });
+});
+
 describe("registry task snapshots (consolidated subagent engine)", () => {
   it("titles from the task prompt, not lifecycle noise, and detects terminal status", () => {
     const entries = [

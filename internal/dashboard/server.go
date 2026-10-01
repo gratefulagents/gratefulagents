@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -84,6 +85,10 @@ type Server struct {
 }
 
 type activityMemoEntry struct {
+	// sessionID is the Postgres session the entries were loaded from; a memo
+	// for a different session (a deleted run whose name was reused) is
+	// never extended or served.
+	sessionID   uuid.UUID
 	lastEventID int64
 	isTerminal  bool
 	// s3URL is set when the response was built from the immutable S3

@@ -1094,13 +1094,13 @@ func (s *Store) ClaimUserMessage(ctx context.Context, sessionID uuid.UUID, messa
 	err := s.pool.QueryRow(ctx, `
 		UPDATE conversation_messages
 		SET delivery_state = 'claimed',
-		    claimed_at = CASE WHEN delivery_state = 'pending' THEN now() ELSE claimed_at END,
+		    claimed_at = CASE WHEN delivery_state = 'pending' THEN COALESCE(claimed_at, now()) ELSE claimed_at END,
 		    delivery_sequence = CASE WHEN delivery_state = 'pending'
-		        THEN nextval('conversation_delivery_sequence') ELSE delivery_sequence END,
+		        THEN COALESCE(delivery_sequence, nextval('conversation_delivery_sequence')) ELSE delivery_sequence END,
 		    claim_token = $3,
 		    metadata = CASE WHEN delivery_state = 'pending'
 		        THEN jsonb_set(COALESCE(metadata, '{}'::jsonb), '{delivered_at_unix}',
-		            to_jsonb(extract(epoch FROM now())::bigint), true) ELSE metadata END
+		            to_jsonb(extract(epoch FROM COALESCE(claimed_at, now()))::bigint), true) ELSE metadata END
 		WHERE session_id = $1 AND id = $2 AND role = 'user'
 		  AND (delivery_state = 'pending' OR (delivery_state = 'claimed' AND claim_token = $3))
 		RETURNING id, session_id, role, content, metadata, delivery_state,
@@ -1193,11 +1193,18 @@ func (s *Store) CompleteClaims(ctx context.Context, sessionID uuid.UUID, claimTo
 	return nil
 }
 
+// RecoverClaimedUserMessages hands messages claimed by a dead runner back to
+// the queue. claimed_at and delivery_sequence are deliberately kept: the
+// message was already part of the visible conversation, and clearing them
+// made the dashboard pull the bubble out of the transcript and re-insert it
+// at the bottom (below the work it had triggered) once reclaimed. A reclaim
+// reuses both (ClaimUserMessage COALESCEs them), so the message keeps its
+// original place.
 func (s *Store) RecoverClaimedUserMessages(ctx context.Context, sessionID uuid.UUID, activeClaimToken uuid.UUID) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE conversation_messages
-		SET delivery_state = 'pending', claimed_at = NULL, claim_token = NULL,
-		    delivery_sequence = NULL, metadata = COALESCE(metadata, '{}'::jsonb) - 'delivered_at_unix'
+		SET delivery_state = 'pending', claim_token = NULL,
+		    metadata = COALESCE(metadata, '{}'::jsonb) - 'delivered_at_unix'
 		WHERE session_id = $1 AND role = 'user' AND delivery_state = 'claimed'
 		  AND claim_token IS DISTINCT FROM $2`, sessionID, activeClaimToken)
 	if err != nil {

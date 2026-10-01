@@ -11,6 +11,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,6 +40,42 @@ type Client struct {
 	eventMu     sync.Mutex
 	eventChan   chan struct{}
 	eventPumpOn bool
+
+	// writeBarrier, when set, is invoked before every synchronous write that
+	// the dashboard orders against the asynchronous activity stream
+	// (activity notices, conversation messages, message claims). The agent
+	// installs its buffered Postgres event writer's Flush here so a notice
+	// or message is never recorded ahead of stream events emitted before it.
+	writeBarrier atomic.Pointer[func(context.Context)]
+}
+
+// writeBarrierTimeout bounds how long one synchronous write waits for the
+// buffered activity stream to drain; a stalled store must not stall the loop.
+const writeBarrierTimeout = 2 * time.Second
+
+// SetWriteBarrier installs (or, with nil, removes) the function run before
+// ordered synchronous writes. See Client.writeBarrier.
+func (c *Client) SetWriteBarrier(barrier func(context.Context)) {
+	if barrier == nil {
+		c.writeBarrier.Store(nil)
+		return
+	}
+	c.writeBarrier.Store(&barrier)
+}
+
+// awaitWriteBarrier drains the buffered activity stream (bounded) so the
+// caller's write is ordered after every stream event emitted before it.
+func (c *Client) awaitWriteBarrier(ctx context.Context) {
+	if c == nil {
+		return
+	}
+	barrier := c.writeBarrier.Load()
+	if barrier == nil {
+		return
+	}
+	bctx, cancel := context.WithTimeout(ctx, writeBarrierTimeout)
+	defer cancel()
+	(*barrier)(bctx)
 }
 
 // notifiedPollFallback is the safety re-poll interval while push wakeups
@@ -234,20 +271,24 @@ func (c *Client) AppendUserMessage(ctx context.Context, content string) (*store.
 }
 
 func (c *Client) AppendUserMessageWithMode(ctx context.Context, content string, mode UserMessageMode) (*store.Message, error) {
+	c.awaitWriteBarrier(ctx)
 	return c.store.AppendMessage(ctx, c.sessionID, "user", content, EncodeUserMessageMetadata(mode))
 }
 
 // AppendUserMessageWithImages persists a user message carrying optional image
 // attachments alongside the chosen delivery mode.
 func (c *Client) AppendUserMessageWithImages(ctx context.Context, content string, mode UserMessageMode, images []MessageImage) (*store.Message, error) {
+	c.awaitWriteBarrier(ctx)
 	return c.store.AppendMessage(ctx, c.sessionID, "user", content, EncodeUserMessageMetadataWithImages(mode, images))
 }
 
 func (c *Client) AppendAssistantMessage(ctx context.Context, content string) (*store.Message, error) {
+	c.awaitWriteBarrier(ctx)
 	return c.store.AppendMessage(ctx, c.sessionID, "assistant", content, nil)
 }
 
 func (c *Client) AppendSystemMessage(ctx context.Context, content string) (*store.Message, error) {
+	c.awaitWriteBarrier(ctx)
 	return c.store.AppendMessage(ctx, c.sessionID, "system", content, nil)
 }
 
@@ -464,6 +505,9 @@ func (c *Client) PeekForUserMessages(ctx context.Context) ([]UserMessage, error)
 // message before its content enters model context. Stores without the durable
 // claim extension retain the legacy mark behavior for compatibility.
 func (c *Client) ClaimUserMessage(ctx context.Context, message UserMessage) (UserMessage, bool, error) {
+	// The claim stamps the delivery time the dashboard anchors the user
+	// bubble at; the previous turn's buffered events must land before it.
+	c.awaitWriteBarrier(ctx)
 	if claimer, ok := c.store.(store.MessageClaimer); ok {
 		claimed, won, err := claimer.ClaimUserMessage(ctx, c.sessionID, message.ID, c.claimToken)
 		if err != nil || !won {
@@ -478,6 +522,7 @@ func (c *Client) ClaimUserMessage(ctx context.Context, message UserMessage) (Use
 }
 
 func (c *Client) AppendAssistantForDurablePass(ctx context.Context, passKey, content string) (*store.Message, error) {
+	c.awaitWriteBarrier(ctx)
 	if committer, ok := c.store.(store.DurableAssistantCommitter); ok {
 		return committer.AppendAssistantForDurablePass(ctx, c.sessionID, c.claimToken, passKey, content)
 	}
@@ -485,6 +530,7 @@ func (c *Client) AppendAssistantForDurablePass(ctx context.Context, passKey, con
 }
 
 func (c *Client) AppendAssistantAndCompleteClaims(ctx context.Context, content string) (*store.Message, error) {
+	c.awaitWriteBarrier(ctx)
 	if claimer, ok := c.store.(store.MessageClaimer); ok {
 		return claimer.AppendAssistantAndCompleteClaims(ctx, c.sessionID, c.claimToken, content)
 	}
@@ -509,6 +555,7 @@ func (c *Client) MarkUserMessagesDelivered(ctx context.Context, ids ...int64) {
 	if len(ids) == 0 {
 		return
 	}
+	c.awaitWriteBarrier(ctx)
 	if err := c.store.MarkMessagesDelivered(ctx, c.sessionID, ids); err != nil {
 		log.Printf("WARN: failed to mark user messages %v delivered: %v", ids, err)
 	}
@@ -652,6 +699,7 @@ func (c *Client) GetPlan(ctx context.Context) (string, error) {
 // --- Activity events (Postgres primary) ---
 
 func (c *Client) WriteActivity(ctx context.Context, eventType, summary string, detail json.RawMessage) error {
+	c.awaitWriteBarrier(ctx)
 	_, err := c.store.WriteActivityEvent(ctx, c.sessionID, eventType, summary, detail)
 	return err
 }

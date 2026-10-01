@@ -42,7 +42,9 @@ type turnInterruptWatcher struct {
 // startTurnInterruptWatcher launches the watcher goroutine. ctx must be the
 // run's root context (pod lifetime), not the turn context, so polling
 // survives the turn cancellation it triggers.
-func startTurnInterruptWatcher(ctx context.Context, sc *sessionclient.Client, cancelTurn context.CancelFunc) *turnInterruptWatcher {
+func startTurnInterruptWatcher(
+	ctx context.Context, sc *sessionclient.Client, cancelTurn context.CancelFunc,
+) *turnInterruptWatcher {
 	w := &turnInterruptWatcher{
 		stop: make(chan struct{}),
 		done: make(chan struct{}),

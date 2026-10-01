@@ -286,7 +286,16 @@ func doRun(ctx context.Context, cfg runConfig, k8sClient *kubernetes.Clientset, 
 			streamWriter = io.MultiWriter(streamFile, pgWriter)
 		}
 		if pgWriter != nil {
-			defer pgWriter.Close()
+			// Synchronous session writes (activity notices such as
+			// turn_interrupted, conversation messages, message claims) first
+			// drain the buffered stream so Postgres ids and timestamps record
+			// them after the stream events emitted before them. Removed
+			// before Close so late writes never wait on a closed writer.
+			sc.SetWriteBarrier(pgWriter.Flush)
+			defer func() {
+				sc.SetWriteBarrier(nil)
+				_ = pgWriter.Close()
+			}()
 		}
 
 		eventStream = agent.NewEventWriter(streamWriter)
@@ -304,9 +313,8 @@ func doRun(ctx context.Context, cfg runConfig, k8sClient *kubernetes.Clientset, 
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 		result = runResult{Status: "failed", Error: "cannot read the run's prior cost baseline: " + err.Error()}
-		return
+		return result, eventsLogURL
 	}
-	cfg.CostPricingUnknown = !modelPricingKnown(resolvedModel, agent.Usage{InputTokens: 1, OutputTokens: 1})
 	progressCtx, cancelProgress := context.WithCancel(ctx)
 	var progressWg sync.WaitGroup
 	progressWg.Add(1)

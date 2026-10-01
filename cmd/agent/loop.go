@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -116,7 +117,8 @@ type chatRuntime struct {
 	roleCatalog                   resolvedRoleCatalog
 	roleCatalogProvider           string
 	costBaselineUSD               float64
-	costCapUnpricedWarned         bool
+	pricedModels                  map[string]struct{}
+	autonomousTurnMarked          bool
 	prevModeName                  string
 	maintainedRepositoryName      string
 	maintainedRepositoryNamespace string
@@ -163,8 +165,8 @@ func (r *chatRuntime) onExit(hook func(*runResult)) {
 }
 
 func (r *chatRuntime) runExitHooks(result *runResult) {
-	for i := len(r.exitHooks) - 1; i >= 0; i-- {
-		r.exitHooks[i](result)
+	for _, hook := range slices.Backward(r.exitHooks) {
+		hook(result)
 	}
 }
 
@@ -211,7 +213,9 @@ func (tx *transcriptState) persistRequired(ctx context.Context, sc *sessionclien
 }
 
 // flushOnTermination preserves a pod-terminated turn's partial progress.
-func (tx *transcriptState) flushOnTermination(sc *sessionclient.Client, result *agent.RunResult, pendingUserMessageID int64) {
+func (tx *transcriptState) flushOnTermination(
+	sc *sessionclient.Client, result *agent.RunResult, pendingUserMessageID int64,
+) {
 	flushPodTerminationState(sc, result, tx.floor, tx.seen, tx.selfAssistant, pendingUserMessageID)
 }
 
@@ -275,8 +279,9 @@ type turnOutcome struct {
 
 // setup builds the pod-lifetime runtime: tool registry, MCP, guardrails, the
 // SDK runtime bundle, and the sub-agent scheduler. Cleanup is registered with
-// onExit.
-func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset) *runResult {
+// onExit. Complexity is inherent: every optional subsystem (tools, MCP,
+// guardrails, runtime, sub-agents) requires its own conditional wiring.
+func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset) *runResult { //nolint:gocyclo
 	cfg, crdClient, sc, tracker, tp := r.cfg, r.crd, r.sc, r.tracker, r.tp
 	modelMetadata := newOpenAIModelMetadataResolver(cfg)
 	// Per-model compaction thresholds (models.dev catalog → backend metadata →
@@ -835,7 +840,8 @@ func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset
 		if mcpManager != nil {
 			mcpServerNames = mcpManager.ConnectedServerNames()
 		}
-		r.eventStream.EmitSystemInit(cfg.Model, string(cfg.PermissionMode), cfg.RepoDir, 0, toolRegistry.Names(), mcpServerNames)
+		r.eventStream.EmitSystemInit(cfg.Model, string(cfg.PermissionMode), cfg.RepoDir, 0,
+			toolRegistry.Names(), mcpServerNames)
 	}
 
 	r.modelMetadata = modelMetadata
@@ -890,6 +896,16 @@ func (r *chatRuntime) restore(ctx context.Context) *runResult {
 	// If either state cannot be inspected, fail safe by leaving the run active;
 	// the normal polling loop below will retry the queue read.
 	startupMessages, startupErr := sc.PeekForUserMessages(ctx)
+	if stateErr == nil && state.AutonomousTurnActive {
+		r.autonomousTurnMarked = true
+		// A graceful exit already enqueued its continuation; only a crash
+		// (OOM, SIGKILL) leaves an active autonomous turn with nothing queued.
+		if startupErr == nil && len(withoutStoppedMessage(startupMessages, r.stoppedMessageID)) == 0 {
+			log.Printf("Autonomous turn was interrupted by a crash — resuming it")
+			r.enqueueContinuation(ctx, &userTurn{})
+			startupMessages, startupErr = sc.PeekForUserMessages(ctx)
+		}
+	}
 	if shouldPublishStartupIdle(resumeSession, resumeErr, startupMessages, startupErr) {
 		if err := sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputIdle, "", nil); err != nil {
 			return &runResult{Status: "failed", Error: fmt.Sprintf("writing idle status: %v", err)}
@@ -1042,9 +1058,25 @@ func (r *chatRuntime) agentLoop(ctx context.Context, t *userTurn) *runResult {
 			return exit
 		}
 		if action == awaitUser {
+			if r.autonomousTurnMarked {
+				r.setAutonomousTurnMarker(ctx, false)
+			}
 			return nil
 		}
 	}
+}
+
+// setAutonomousTurnMarker persists whether an autonomous turn is in flight
+// (see sessionclient.WorkingState.AutonomousTurnActive).
+func (r *chatRuntime) setAutonomousTurnMarker(ctx context.Context, active bool) {
+	if err := r.sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
+		state.AutonomousTurnActive = active
+		return nil
+	}); err != nil {
+		log.Printf("WARN: failed to update the autonomous turn marker: %v", err)
+		return
+	}
+	r.autonomousTurnMarked = active
 }
 
 // runPass runs one autonomous pass: steering, policy, turn, commit, and the
@@ -1055,6 +1087,12 @@ func (r *chatRuntime) runPass(ctx context.Context, t *userTurn) (loopAction, *ru
 	}
 	if action, exit := r.pollSteering(ctx, t); action != proceed || exit != nil {
 		return action, exit
+	}
+	// Once the driving claim is completed (autonomous pass 2+), a crash
+	// leaves no pending message to resume from; the marker lets restore
+	// enqueue a continuation instead.
+	if !t.claimPending && !r.autonomousTurnMarked {
+		r.setAutonomousTurnMarker(ctx, true)
 	}
 	r.turnNumber++
 	policy, action, exit := r.preflight(ctx, t)
@@ -1099,7 +1137,10 @@ func (r *chatRuntime) pollSteering(ctx context.Context, t *userTurn) (loopAction
 		log.Printf("Auto mode: global turn cap (%d) reached, exiting", agent.DefaultMaxAutoLoops)
 		notice := agent.BuildAutoTurnCapPrompt(agent.DefaultMaxAutoLoops)
 		if r.cfg.DelegatedChild {
-			return awaitUser, &runResult{Status: "failed", Error: fmt.Sprintf("autonomous pass cap (%d) reached", agent.DefaultMaxAutoLoops)}
+			return awaitUser, &runResult{
+				Status: "failed",
+				Error:  fmt.Sprintf("autonomous pass cap (%d) reached", agent.DefaultMaxAutoLoops),
+			}
 		}
 		_ = r.sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputTurnLimit, notice, nil)
 		return awaitUser, nil
@@ -1114,7 +1155,8 @@ func (r *chatRuntime) claimSteering(ctx context.Context, t *userTurn) (loopActio
 	if peekErr != nil || len(peeked) == 0 {
 		return proceed, nil
 	}
-	nextMsg, ok, _, immediate := nextPendingUserMessage(withoutStoppedMessage(peeked, r.stoppedMessageID), r.handledImmediate)
+	nextMsg, ok, _, immediate := nextPendingUserMessage(
+		withoutStoppedMessage(peeked, r.stoppedMessageID), r.handledImmediate)
 	if !ok {
 		return proceed, nil
 	}
@@ -1134,7 +1176,8 @@ func (r *chatRuntime) claimSteering(ctx context.Context, t *userTurn) (loopActio
 		stoppedTasks := cancelActiveSubAgentTasks(r.subAgentRegistry)
 		log.Printf("Autonomous run: /stop received from user — pausing (cancelled %d sub-agent tasks)", stoppedTasks)
 		_ = r.sc.WriteActivity(ctx, "auto_stop", "User requested stop — pausing autonomous work", nil)
-		return awaitUser, r.parkAfterStop(ctx, claimed.ID, "", "Stopped by user — a queued message is waiting; continuing with it now.")
+		return awaitUser, r.parkAfterStop(ctx, claimed.ID, "",
+			"Stopped by user — a queued message is waiting; continuing with it now.")
 	}
 	if trimmed != "" || len(claimed.Images) > 0 {
 		// Any other text or image message becomes the next interactive
@@ -1171,7 +1214,10 @@ func (r *chatRuntime) preflight(ctx context.Context, t *userTurn) (*turnPolicy, 
 		// Permission, restart, and cost policy all live on this object. A
 		// turn must never start when current policy cannot be verified.
 		log.Printf("ERROR: refusing to start turn %d: AgentRun policy read failed: %v", r.turnNumber, err)
-		return nil, awaitUser, &runResult{Status: "failed", Error: "unable to verify current run policy; refusing to start another turn"}
+		return nil, awaitUser, &runResult{
+			Status: "failed",
+			Error:  "unable to verify current run policy; refusing to start another turn",
+		}
 	}
 
 	// A pending compute restart (spec.restartRequests above the handled
@@ -1182,9 +1228,11 @@ func (r *chatRuntime) preflight(ctx context.Context, t *userTurn) (*turnPolicy, 
 	// "OpenAI API key is required"). Exit cleanly instead; the replacement
 	// pod answers this turn with the new credentials.
 	if restartPending(activeRun) {
-		log.Printf("Turn %d: compute restart pending (restartRequests=%d handled=%d) — exiting so the replacement pod handles this turn",
+		log.Printf("Turn %d: compute restart pending (restartRequests=%d handled=%d)"+
+			" — exiting so the replacement pod handles this turn",
 			r.turnNumber, activeRun.Spec.RestartRequests, activeRun.Status.RestartRequestsHandled)
-		return nil, awaitUser, r.exitForReplacement(ctx, t, "Compute restart pending — the replacement pod will pick up this message")
+		return nil, awaitUser, r.exitForReplacement(ctx, t,
+			"Compute restart pending — the replacement pod will pick up this message")
 	}
 
 	// Git remote-write policy is baked into the registry and command
@@ -1203,16 +1251,13 @@ func (r *chatRuntime) preflight(ctx context.Context, t *userTurn) (*turnPolicy, 
 	}
 	if livePolicy.Degraded {
 		if cfg.GitRemoteWrites != agentpolicy.GitRemoteWritesDisabled {
-			msg := fmt.Sprintf("Unable to verify the current Git remote-write policy (%s); refusing to start this turn — send a message to retry.", livePolicy.Reason)
-			log.Printf("ERROR: turn %d: %s", r.turnNumber, msg)
-			if cfg.DelegatedChild {
-				return nil, awaitUser, &runResult{Status: "failed", Error: msg}
-			}
-			_ = sc.WriteActivity(ctx, "runtime_config", msg, nil)
-			_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak, msg, nil)
-			return nil, awaitUser, nil
+			msg := fmt.Sprintf("Unable to verify the current Git remote-write policy (%s);"+
+				" refusing to start this turn — send a message to retry.", livePolicy.Reason)
+			return nil, awaitUser, r.refuseTurn(ctx, "runtime_config", msg)
 		}
-	} else if liveGitRemoteWrites := agentpolicy.NormalizeGitRemoteWrites(livePolicy.GitRemoteWrites); liveGitRemoteWrites != cfg.GitRemoteWrites {
+	} else if liveGitRemoteWrites := agentpolicy.NormalizeGitRemoteWrites(
+		livePolicy.GitRemoteWrites,
+	); liveGitRemoteWrites != cfg.GitRemoteWrites {
 		msg := fmt.Sprintf(
 			"Git remote-write policy changed to %s — restarting compute before handling this message",
 			liveGitRemoteWrites,
@@ -1222,10 +1267,9 @@ func (r *chatRuntime) preflight(ctx context.Context, t *userTurn) (*turnPolicy, 
 			fresh.Spec.RestartRequests++
 		}); err != nil {
 			log.Printf("ERROR: failed to request compute restart for Git policy change: %v", err)
-			return nil, awaitUser, &runResult{
-				Status: "failed",
-				Error:  "Git remote-write policy changed but compute restart could not be requested",
-			}
+			return nil, awaitUser, r.refuseTurn(ctx, "runtime_config", fmt.Sprintf(
+				"Git remote-write policy changed to %s but a compute restart could not be requested; "+
+					"refusing to start this turn — send a message to retry.", liveGitRemoteWrites))
 		}
 		return nil, awaitUser, r.exitForReplacement(ctx, t, msg)
 	}
@@ -1238,8 +1282,9 @@ func (r *chatRuntime) preflight(ctx context.Context, t *userTurn) (*turnPolicy, 
 	// mid-run provider switches); the replacement pod answers this turn with
 	// a writable workspace.
 	if cfg.PermissionModeDegraded {
-		if healedMode, ok := healedWritePermissionMode(ctx, r.crd, activeRun); ok {
-			msg := fmt.Sprintf("Write access recovered (%s) — restarting compute to lift the degraded read-only workspace; the replacement pod will pick up this message", healedMode)
+		if healedMode, ok := healedWritePermissionMode(livePolicy, activeRun); ok {
+			msg := fmt.Sprintf("Write access recovered (%s) — restarting compute to lift the degraded"+
+				" read-only workspace; the replacement pod will pick up this message", healedMode)
 			log.Printf("Turn %d: %s", r.turnNumber, msg)
 			if err := patchAgentRunSpec(ctx, r.crd, cfg.TaskName, cfg.Namespace, func(fresh *platformv1alpha1.AgentRun) {
 				fresh.Spec.RestartRequests++
@@ -1261,13 +1306,20 @@ func (r *chatRuntime) preflight(ctx context.Context, t *userTurn) (*turnPolicy, 
 		_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak, msg, nil)
 		return nil, awaitUser, &runResult{Status: "failed", Error: msg}
 	}
+	model, provider := liveRuntimeModelAndProvider(cfg, activeRun)
 	if capConfigured {
-		r.warnUnpricedCostCap(ctx)
+		if !r.turnModelPriced(model) {
+			msg := fmt.Sprintf("A cost cap (spec.limits.maxCostUsd) is set, but model %q has no pricing metadata, "+
+				"so spend cannot be enforced against the cap; refusing to start this turn — "+
+				"switch to a priced model or remove the cap, then send a message to retry.", model)
+			return nil, awaitUser, r.refuseTurn(ctx, "cost_cap_unenforced", msg)
+		}
 		if spentUSD := r.costBaselineUSD + r.tracker.Snapshot().CostUsd; spentUSD >= capUSD {
 			// Background children would keep spending against a cap that is
 			// already exhausted; the pause must stop them too.
 			stoppedTasks := cancelActiveSubAgentTasks(r.subAgentRegistry)
-			msg := fmt.Sprintf("Cost cap reached: $%.4f spent of the $%.2f limit — increase spec.limits.maxCostUsd to resume.", spentUSD, capUSD)
+			msg := fmt.Sprintf("Cost cap reached: $%.4f spent of the $%.2f limit"+
+				" — increase spec.limits.maxCostUsd to resume.", spentUSD, capUSD)
 			log.Printf("Cost cap reached ($%.4f >= $%.2f) — pausing run (cancelled %d sub-agent tasks)",
 				spentUSD, capUSD, stoppedTasks)
 			r.enqueueContinuation(ctx, t)
@@ -1310,7 +1362,7 @@ func (r *chatRuntime) preflight(ctx context.Context, t *userTurn) (*turnPolicy, 
 	// Apply mode instructions and limits from the CRD snapshot.
 	p.mo = readModeOverrides(ctx, r.crd, activeRun)
 
-	p.model, p.provider = liveRuntimeModelAndProvider(cfg, activeRun)
+	p.model, p.provider = model, provider
 	// Role model routing follows the provider selected for this turn. Each
 	// turn gets immutable specialist clones so queued/running async tasks
 	// retain the routing snapshot they were spawned with.
@@ -1328,21 +1380,46 @@ func (r *chatRuntime) preflight(ctx context.Context, t *userTurn) (*turnPolicy, 
 	return p, proceed, nil
 }
 
-// warnUnpricedCostCap tells the session once that a configured cost cap
-// cannot trip because the model has no pricing metadata (spend stays $0).
-func (r *chatRuntime) warnUnpricedCostCap(ctx context.Context) {
-	if !r.cfg.CostPricingUnknown || r.costCapUnpricedWarned {
-		return
+// modelPricingKnownForTurn resolves whether the tracker can price usage on
+// a turn's model; a var so tests can stub provider resolution.
+var modelPricingKnownForTurn = func(cfg runConfig, model string) bool {
+	return modelPricingKnown(resolveConfiguredModel(cfg, model), agent.Usage{InputTokens: 1, OutputTokens: 1})
+}
+
+// turnModelPriced reports whether model has pricing metadata. Only positive
+// results are cached: an unpriced model refuses the turn, and the next
+// message re-checks.
+func (r *chatRuntime) turnModelPriced(model string) bool {
+	if _, ok := r.pricedModels[model]; ok {
+		return true
 	}
-	r.costCapUnpricedWarned = true
-	msg := fmt.Sprintf("A cost cap (spec.limits.maxCostUsd) is set, but model %q has no pricing metadata — spend is recorded as $0, so the cap cannot be enforced.", r.cfg.Model)
-	log.Printf("WARN: %s", msg)
-	_ = r.sc.WriteActivity(ctx, "cost_cap_unenforced", msg, nil)
+	if !modelPricingKnownForTurn(r.cfg, model) {
+		return false
+	}
+	if r.pricedModels == nil {
+		r.pricedModels = map[string]struct{}{}
+	}
+	r.pricedModels[model] = struct{}{}
+	return true
+}
+
+// refuseTurn parks the session behind a circuit-break notice instead of
+// starting the turn; delegated children fail since nobody can answer.
+func (r *chatRuntime) refuseTurn(ctx context.Context, activity, msg string) *runResult {
+	log.Printf("ERROR: turn %d: %s", r.turnNumber, msg)
+	if r.cfg.DelegatedChild {
+		return &runResult{Status: "failed", Error: msg}
+	}
+	_ = r.sc.WriteActivity(ctx, activity, msg, nil)
+	_ = r.sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputCircuitBreak, msg, nil)
+	return nil
 }
 
 // prepareTurn builds the pass's agent, input, and run config, and opens its
 // durable SDK run.
-func (r *chatRuntime) prepareTurn(ctx context.Context, t *userTurn, p *turnPolicy) (*preparedTurn, loopAction, *runResult) {
+func (r *chatRuntime) prepareTurn(
+	ctx context.Context, t *userTurn, p *turnPolicy,
+) (*preparedTurn, loopAction, *runResult) {
 	cfg, sc := r.cfg, r.sc
 	parentModelSettings := parentModelSettingsForTurn(r.baseAgent.ModelSettings, p.mo.ModelSettings)
 	turnSpecialistAgents := specialistAgentsForRoleCatalog(r.specialistAgents, p.roleCatalog, p.model, parentModelSettings)
@@ -1394,25 +1471,7 @@ func (r *chatRuntime) prepareTurn(ctx context.Context, t *userTurn, p *turnPolic
 	}
 	publishContextBudget(effectiveBudget)
 
-	workingState, err := sc.ReadWorkingState(ctx)
-	if err != nil {
-		log.Printf("WARN: failed to read durable working state: %v", err)
-	}
-	if t.firstPass {
-		goal := deriveWorkingStateGoal(t.reply, t.prompt)
-		if err := sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
-			state.Goal = goal
-			state.LastUserMessage = strings.TrimSpace(t.prompt)
-			state.CurrentMode = p.modeName
-			return nil
-		}); err != nil {
-			log.Printf("WARN: failed to update working state for user turn: %v", err)
-		} else {
-			workingState.Goal = strings.TrimSpace(goal)
-			workingState.LastUserMessage = strings.TrimSpace(t.prompt)
-			workingState.CurrentMode = p.modeName
-		}
-	}
+	workingState := r.applyFirstPassWorkingStateUpdate(ctx, t, p.modeName, r.readTurnWorkingState(ctx))
 
 	messages := r.loadTurnMessages(ctx, p.run, workingState.HistoryFloorMessageID)
 
@@ -1437,7 +1496,8 @@ func (r *chatRuntime) prepareTurn(ctx context.Context, t *userTurn, p *turnPolic
 	// input) keeps them across turn failures too. This pass's own prompt is
 	// sent as the user item below, so it is skipped in both.
 	if len(r.tx.items) > 0 {
-		r.tx.items = append(r.tx.items, outOfBandMessageItems(messages, r.tx.seen, workingState, r.tx.selfAssistant, t.promptMessageID)...)
+		r.tx.items = append(r.tx.items, outOfBandMessageItems(
+			messages, r.tx.seen, workingState, r.tx.selfAssistant, t.promptMessageID)...)
 	}
 	r.tx.seen = maxSeenMessageID(r.tx.seen, messages)
 
@@ -1451,13 +1511,15 @@ func (r *chatRuntime) prepareTurn(ctx context.Context, t *userTurn, p *turnPolic
 		// discarded — floor moved, decode failure — the verbatim prompt is
 		// kept: nothing replays it.)
 		turnOpeningText = podResumeContinuationPrompt
-		log.Printf("Turn %d resumes the pod-terminated turn for message %d — continuing from the preserved partial transcript", r.turnNumber, t.messageID)
+		log.Printf("Turn %d resumes the pod-terminated turn for message %d"+
+			" — continuing from the preserved partial transcript", r.turnNumber, t.messageID)
 	}
 	if t.firstPass && r.interruptedSubAgentNotice != "" {
 		turnOpeningText += "\n\n" + r.interruptedSubAgentNotice
 		r.interruptedSubAgentNotice = ""
 	}
-	if assetPaths, assetErr := materializeMessageAssets(ctx, cfg.RepoDir, p.run, sc.StateStore(), t.images); assetErr != nil {
+	if assetPaths, assetErr := materializeMessageAssets(
+		ctx, cfg.RepoDir, p.run, sc.StateStore(), t.images); assetErr != nil {
 		// Preserve ordinary vision delivery if workspace materialization is
 		// unavailable; the model still receives the image attachment below.
 		log.Printf("WARN: failed to materialize current message project assets: %v", assetErr)
@@ -1626,6 +1688,50 @@ func (r *chatRuntime) prepareTurn(ctx context.Context, t *userTurn, p *turnPolic
 	}, proceed, nil
 }
 
+// readTurnWorkingState reads the durable working state, retrying briefly. An
+// unreadable state must not pass for a moved history floor (which would wipe
+// the transcript and its snapshot), so it keeps the in-memory floor.
+func (r *chatRuntime) readTurnWorkingState(ctx context.Context) sessionclient.WorkingState {
+	var state sessionclient.WorkingState
+	err := retryTransient(ctx, "reading durable working state", 3, func(ctx context.Context) error {
+		var err error
+		state, err = r.sc.ReadWorkingState(ctx)
+		return err
+	})
+	if err != nil {
+		log.Printf("WARN: failed to read durable working state: %v — skipping the history floor check", err)
+		state = sessionclient.WorkingState{HistoryFloorMessageID: r.tx.floor}
+	}
+	return state
+}
+
+// applyFirstPassWorkingStateUpdate writes goal, last user message, and current
+// mode to the durable working state on the first pass of a user turn.
+// It returns the updated snapshot so prepareTurn sees consistent values.
+// When t.firstPass is false the state is returned unchanged.
+func (r *chatRuntime) applyFirstPassWorkingStateUpdate(
+	ctx context.Context, t *userTurn, modeName string,
+	ws sessionclient.WorkingState,
+) sessionclient.WorkingState {
+	if !t.firstPass {
+		return ws
+	}
+	goal := deriveWorkingStateGoal(t.reply, t.prompt)
+	if err := r.sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
+		state.Goal = goal
+		state.LastUserMessage = strings.TrimSpace(t.prompt)
+		state.CurrentMode = modeName
+		return nil
+	}); err != nil {
+		log.Printf("WARN: failed to update working state for user turn: %v", err)
+	} else {
+		ws.Goal = strings.TrimSpace(goal)
+		ws.LastUserMessage = strings.TrimSpace(t.prompt)
+		ws.CurrentMode = modeName
+	}
+	return ws
+}
+
 // loadTurnMessages returns the durable messages the turn's context needs.
 // The full post-floor history is loaded on this pod's first pass (and
 // whenever the transcript is not live): the durable-tail fallback and asset
@@ -1633,7 +1739,9 @@ func (r *chatRuntime) prepareTurn(ctx context.Context, t *userTurn, p *turnPolic
 // cover. With a live transcript only messages above its watermark matter —
 // the out-of-band fold ignores everything else — so later passes fetch
 // just those instead of the whole, ever-growing history.
-func (r *chatRuntime) loadTurnMessages(ctx context.Context, run *platformv1alpha1.AgentRun, floor int64) []store.Message {
+func (r *chatRuntime) loadTurnMessages(
+	ctx context.Context, run *platformv1alpha1.AgentRun, floor int64,
+) []store.Message {
 	since := floor
 	if r.historyLoaded && len(r.tx.items) > 0 && floor == r.tx.floor && r.tx.seen > since {
 		since = r.tx.seen
@@ -1644,7 +1752,8 @@ func (r *chatRuntime) loadTurnMessages(ctx context.Context, run *platformv1alpha
 		return nil
 	}
 	r.historyLoaded = true
-	prepared, assetErr := materializeRecentConversationAssets(ctx, r.cfg.RepoDir, run, r.sc.StateStore(), messages, recentConversationMessageLimit+1)
+	prepared, assetErr := materializeRecentConversationAssets(
+		ctx, r.cfg.RepoDir, run, r.sc.StateStore(), messages, recentConversationMessageLimit+1)
 	if assetErr != nil {
 		log.Printf("WARN: failed to materialize recent project assets: %v", assetErr)
 		return messages
@@ -1659,7 +1768,8 @@ func (r *chatRuntime) reportCompactionFailure(scope, reason string, tokensBefore
 		"tokens_before": tokensBefore,
 		"tokens_after":  tokensAfter,
 	})
-	_ = r.sc.WriteActivity(context.Background(), "compact_boundary_skipped", fmt.Sprintf("Context compaction skipped (%s): %s", scope, reason), detail)
+	_ = r.sc.WriteActivity(context.Background(), "compact_boundary_skipped",
+		fmt.Sprintf("Context compaction skipped (%s): %s", scope, reason), detail)
 }
 
 func (r *chatRuntime) recordCompaction(tokensBefore, tokensAfter int, summary string) {
@@ -1671,7 +1781,9 @@ func (r *chatRuntime) recordCompaction(tokensBefore, tokensAfter int, summary st
 
 // compactionCarryForward returns the briefing a mid-turn compaction keeps:
 // the live mode and step plus the latest durable working state.
-func (r *chatRuntime) compactionCarryForward(workingState sessionclient.WorkingState, modeName string) func(context.Context) string {
+func (r *chatRuntime) compactionCarryForward(
+	workingState sessionclient.WorkingState, modeName string,
+) func(context.Context) string {
 	return func(ctx context.Context) string {
 		state := workingState
 		if latestState, err := r.sc.ReadWorkingState(ctx); err == nil {
@@ -1764,7 +1876,9 @@ func (r *chatRuntime) executeTurn(ctx context.Context, pt *preparedTurn) turnOut
 // handleTurnError handles a pass whose runner.Run failed: pod shutdown, user
 // stop, mid-turn cost cap, turn-budget exhaustion, or a recoverable failure.
 // The pass's durable SDK run is released on every path.
-func (r *chatRuntime) handleTurnError(ctx context.Context, t *userTurn, pt *preparedTurn, out turnOutcome) (loopAction, *runResult) {
+func (r *chatRuntime) handleTurnError(
+	ctx context.Context, t *userTurn, pt *preparedTurn, out turnOutcome,
+) (loopAction, *runResult) {
 	defer func() {
 		if closeErr := closeSDKStoredRun(pt.storedRun); closeErr != nil {
 			log.Printf("WARN: closing failed durable SDK run: %v", closeErr)
@@ -1870,7 +1984,9 @@ func (r *chatRuntime) handleTurnError(ctx context.Context, t *userTurn, pt *prep
 
 // handleTurnBudgetExhausted preserves a turn that used its whole LLM turn
 // budget and parks it (or rolls a standing maintainer over).
-func (r *chatRuntime) handleTurnBudgetExhausted(ctx context.Context, t *userTurn, result *agent.RunResult, maxTurns int) (loopAction, *runResult) {
+func (r *chatRuntime) handleTurnBudgetExhausted(
+	ctx context.Context, t *userTurn, result *agent.RunResult, maxTurns int,
+) (loopAction, *runResult) {
 	sc := r.sc
 	r.tx.items = transcriptAfterRun(result)
 	turnSummary := buildAssistantTurnSummary(result.NewItems)
