@@ -401,6 +401,55 @@ func TestClaimAndCancelExactlyOneWins(t *testing.T) {
 	}
 }
 
+func TestClaimUserMessageSameTokenRetryPreservesClaim(t *testing.T) {
+	state := setupTestStore(t)
+	defer state.Close()
+	ctx := context.Background()
+	sess, err := state.CreateSession(ctx, "claim-retry", "default", "running", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := state.AppendMessage(ctx, sess.ID, "user", "continue", json.RawMessage(`{"mode":"enqueue"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimer := state.(store.MessageClaimer)
+	token := uuid.New()
+	first, won, err := claimer.ClaimUserMessage(ctx, sess.ID, msg.ID, token)
+	if err != nil || !won {
+		t.Fatalf("first claim=%+v won=%v err=%v", first, won, err)
+	}
+	if other, won, err := claimer.ClaimUserMessage(ctx, sess.ID, msg.ID, uuid.New()); err != nil || won || other != nil {
+		t.Fatalf("another token stole claim: %+v won=%v err=%v", other, won, err)
+	}
+	retried, won, err := claimer.ClaimUserMessage(ctx, sess.ID, msg.ID, token)
+	if err != nil || !won {
+		t.Fatalf("retry claim=%+v won=%v err=%v", retried, won, err)
+	}
+	if retried.ID != first.ID || retried.Content != first.Content || retried.DeliverySequence != first.DeliverySequence || !retried.ClaimedAt.Equal(*first.ClaimedAt) || string(retried.Metadata) != string(first.Metadata) {
+		t.Fatalf("retry changed claim: first=%+v retried=%+v", first, retried)
+	}
+	if _, won, err := claimer.ClaimUserMessage(ctx, uuid.New(), msg.ID, token); err != nil || won {
+		t.Fatalf("wrong session retry won=%v err=%v", won, err)
+	}
+	if err := claimer.CompleteClaims(ctx, sess.ID, token); err != nil {
+		t.Fatal(err)
+	}
+	if _, won, err := claimer.ClaimUserMessage(ctx, sess.ID, msg.ID, token); err != nil || won {
+		t.Fatalf("completed claim reopened: won=%v err=%v", won, err)
+	}
+	cancelled, err := state.AppendMessage(ctx, sess.ID, "user", "cancel", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.CancelUndeliveredUserMessage(ctx, sess.ID, cancelled.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, won, err := claimer.ClaimUserMessage(ctx, sess.ID, cancelled.ID, token); err != nil || won {
+		t.Fatalf("cancelled message claimed: won=%v err=%v", won, err)
+	}
+}
+
 func TestPollPendingPreservesHoleBeforeAssistantCursor(t *testing.T) {
 	state := setupTestStore(t)
 	defer state.Close()

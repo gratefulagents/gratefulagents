@@ -2,7 +2,6 @@ package platform
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -24,6 +23,7 @@ import (
 	agentsandboxextensionsv1alpha1 "sigs.k8s.io/agent-sandbox/extensions/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func TestEffectiveTimeoutDefaultsToSixHours(t *testing.T) {
@@ -290,7 +290,7 @@ func TestEnsureRunRBACUpdatesExistingRunRoleRules(t *testing.T) {
 	}
 	saName := "run-run-with-skills"
 	existingRole := &rbacv1.Role{
-		ObjectMeta: metav1.ObjectMeta{Name: saName + "-role", Namespace: run.Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: saName + "-role", Namespace: run.Namespace, OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)}},
 		Rules: []rbacv1.PolicyRule{{
 			APIGroups: []string{"platform.gratefulagents.dev"},
 			Resources: []string{"agentruns"},
@@ -391,7 +391,7 @@ func TestEnsureClusterScopedRBACCreatesAdminBindingForKubernetesAdminRun(t *test
 	}
 
 	adminBinding := &rbacv1.ClusterRoleBinding{}
-	if err := c.Get(context.Background(), types.NamespacedName{Name: "run-admin-run-admin-binding"}, adminBinding); err != nil {
+	if err := c.Get(context.Background(), types.NamespacedName{Name: clusterRoleBindingName(run, "run-admin-run", "admin-binding")}, adminBinding); err != nil {
 		t.Fatalf("Get(admin ClusterRoleBinding) error = %v", err)
 	}
 	if adminBinding.RoleRef.Kind != "ClusterRole" || adminBinding.RoleRef.Name != "cluster-admin" {
@@ -415,23 +415,94 @@ func TestEnsureClusterScopedRBACDeletesAdminBindingWhenFlagDisabled(t *testing.T
 	}
 
 	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "admin-run", Namespace: "default"}}
-	stale := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{
-		Name: "run-admin-run-admin-binding",
-		Labels: map[string]string{
-			"platform.gratefulagents.dev/owner-run": "admin-run",
-			"platform.gratefulagents.dev/namespace": "default",
+	// Legacy (pre-namespace-hash) name: discovery is label-based.
+	stale := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "run-admin-run-admin-binding",
+			Labels: map[string]string{
+				"platform.gratefulagents.dev/owner-run": "admin-run",
+				"platform.gratefulagents.dev/namespace": "default",
+			},
 		},
-	}}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stale).Build()
+		RoleRef: rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "cluster-admin"},
+	}
+	// Same run name in another namespace: must survive.
+	foreign := stale.DeepCopy()
+	foreign.Name = "foreign-admin-binding"
+	foreign.Labels["platform.gratefulagents.dev/namespace"] = "other"
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stale, foreign).Build()
 	if err := ensureClusterScopedRBAC(context.Background(), c, run, "run-admin-run"); err != nil {
 		t.Fatalf("ensureClusterScopedRBAC() error = %v", err)
 	}
 	if err := c.Get(context.Background(), types.NamespacedName{Name: "run-admin-run-admin-binding"}, &rbacv1.ClusterRoleBinding{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("admin binding lookup err = %v, want NotFound", err)
 	}
+	if err := c.Get(context.Background(), types.NamespacedName{Name: foreign.Name}, &rbacv1.ClusterRoleBinding{}); err != nil {
+		t.Fatalf("other namespace's admin binding lookup err = %v, want it kept", err)
+	}
+	readBinding := clusterRoleBindingName(run, "run-admin-run", "cluster-binding")
+	if err := c.Get(context.Background(), types.NamespacedName{Name: readBinding}, &rbacv1.ClusterRoleBinding{}); err != nil {
+		t.Fatalf("read binding lookup err = %v", err)
+	}
 }
 
-func TestCreateExecutePodUsesUnifiedRunCommand(t *testing.T) {
+func TestClusterRoleBindingNamesAreNamespaceScoped(t *testing.T) {
+	a := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "api-maintainer", Namespace: "team-a"}}
+	b := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "api-maintainer", Namespace: "team-b"}}
+	if clusterRoleBindingName(a, "run-api-maintainer", "admin-binding") == clusterRoleBindingName(b, "run-api-maintainer", "admin-binding") {
+		t.Fatal("same-named runs in different namespaces share a ClusterRoleBinding name")
+	}
+}
+
+func TestEnsureClusterScopedRBACRefusesForeignBinding(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := rbacv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme(rbac): %v", err)
+	}
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "admin-run", Namespace: "default"},
+		Spec:       platformv1alpha1.AgentRunSpec{KubernetesAdmin: true},
+	}
+	name := clusterRoleBindingName(run, "run-admin-run", "admin-binding")
+	foreign := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{
+			"platform.gratefulagents.dev/owner-run": "someone-else",
+			"platform.gratefulagents.dev/namespace": "default",
+		}},
+		RoleRef:  rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "cluster-admin"},
+		Subjects: []rbacv1.Subject{{Kind: rbacv1.ServiceAccountKind, Name: "other-sa", Namespace: "default"}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(foreign).Build()
+	err := ensureClusterScopedRBAC(context.Background(), c, run, "run-admin-run")
+	if !isPermanentProvisioningError(err) {
+		t.Fatalf("ensureClusterScopedRBAC() error = %v, want permanent ownership conflict", err)
+	}
+	got := &rbacv1.ClusterRoleBinding{}
+	if err := c.Get(context.Background(), types.NamespacedName{Name: name}, got); err != nil {
+		t.Fatalf("get foreign binding: %v", err)
+	}
+	if got.Subjects[0].Name != "other-sa" {
+		t.Fatalf("foreign binding subjects rewritten to %#v", got.Subjects)
+	}
+}
+
+func TestRunNameLabelValueFitsLabelLimit(t *testing.T) {
+	short := "api-maintainer"
+	if got := runNameLabelValue(short); got != short {
+		t.Fatalf("runNameLabelValue(%q) = %q, want unchanged", short, got)
+	}
+	long := strings.Repeat("a", 80)
+	other := strings.Repeat("a", 79) + "b"
+	got := runNameLabelValue(long)
+	if len(got) > 63 {
+		t.Fatalf("len(runNameLabelValue) = %d, want <= 63", len(got))
+	}
+	if got == runNameLabelValue(other) {
+		t.Fatal("long names sharing a prefix map to the same label value")
+	}
+}
+
+func TestSandboxTemplateUsesUnifiedRunCommand(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme(platform): %v", err)
@@ -458,29 +529,13 @@ func TestCreateExecutePodUsesUnifiedRunCommand(t *testing.T) {
 		},
 	}
 
-	c := fake.NewClientBuilder().WithScheme(scheme).Build()
-	podName, err := createPlanPod(context.Background(), c, run)
-	if err != nil {
-		t.Fatalf("createPlanPod() error = %v", err)
-	}
-	if podName == "" {
-		t.Fatal("createPlanPod() podName = empty, want created pod name")
-	}
-
-	pods := &corev1.PodList{}
-	if err := c.List(context.Background(), pods); err != nil {
-		t.Fatalf("List(Pods) error = %v", err)
-	}
-	if len(pods.Items) != 1 {
-		t.Fatalf("len(Pods) = %d, want 1 unified run pod", len(pods.Items))
-	}
-	pod := pods.Items[0]
+	pod := corev1.Pod{Spec: buildManagedSandboxTemplateSpec(run, nil, "run-chat", nil, "", nil, nil).PodTemplate.Spec}
 	if len(pod.Spec.Containers) == 0 || len(pod.Spec.Containers[0].Command) < 2 || pod.Spec.Containers[0].Command[1] != "run" {
 		t.Fatalf("pod command = %#v, want unified agent run", pod.Spec.Containers[0].Command)
 	}
 }
 
-func TestCreateRunPodForcesNonRootWorker(t *testing.T) {
+func TestSandboxTemplateForcesNonRootWorker(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme(platform): %v", err)
@@ -510,19 +565,7 @@ func TestCreateRunPodForcesNonRootWorker(t *testing.T) {
 		},
 	}
 
-	c := fake.NewClientBuilder().WithScheme(scheme).Build()
-	if _, err := createPlanPod(context.Background(), c, run); err != nil {
-		t.Fatalf("createPlanPod() error = %v", err)
-	}
-
-	pods := &corev1.PodList{}
-	if err := c.List(context.Background(), pods); err != nil {
-		t.Fatalf("List(Pods) error = %v", err)
-	}
-	if len(pods.Items) != 1 {
-		t.Fatalf("len(Pods) = %d, want 1 run pod", len(pods.Items))
-	}
-	pod := pods.Items[0]
+	pod := corev1.Pod{Spec: buildManagedSandboxTemplateSpec(run, nil, "run-elixir", nil, "", nil, nil).PodTemplate.Spec}
 
 	if len(pod.Spec.Containers) != 1 {
 		t.Fatalf("len(Containers) = %d, want 1 worker container", len(pod.Spec.Containers))
@@ -558,76 +601,6 @@ func TestCreateRunPodForcesNonRootWorker(t *testing.T) {
 	}
 	if pod.Spec.SecurityContext != nil {
 		t.Errorf("pod-level SecurityContext = %#v, want nil (worker container-level only)", pod.Spec.SecurityContext)
-	}
-}
-
-func TestCreatePlanPodReplacesCompletedExistingPod(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("AddToScheme(platform): %v", err)
-	}
-	if err := corev1.AddToScheme(scheme); err != nil {
-		t.Fatalf("AddToScheme(core): %v", err)
-	}
-	if err := rbacv1.AddToScheme(scheme); err != nil {
-		t.Fatalf("AddToScheme(rbac): %v", err)
-	}
-	addSandboxSupportSchemes(t, scheme)
-
-	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "resume-plan",
-			Namespace: "default",
-			UID:       types.UID("resume-plan-uid"),
-		},
-		Spec: platformv1alpha1.AgentRunSpec{
-			Repository:   platformv1alpha1.RepositoryContext{URL: "https://github.com/example/repo.git", BaseBranch: "main"},
-			WorkflowMode: platformv1alpha1.WorkflowModeAuto,
-			Model:        "gpt-5.4",
-			Image:        "ghcr.io/example/worker:latest",
-		},
-	}
-	podName := sanitizeDNSLabel("run", run.Name)
-	existing := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
-			Namespace: "default",
-			Labels: map[string]string{
-				"platform.gratefulagents.dev/owner-run": run.Name,
-			},
-			OwnerReferences: []metav1.OwnerReference{{
-				APIVersion: platformv1alpha1.GroupVersion.String(),
-				Kind:       "AgentRun",
-				Name:       run.Name,
-				UID:        run.UID,
-			}},
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
-	}
-
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(existing).
-		Build()
-
-	_, err := createPlanPod(context.Background(), c, run)
-	if !errors.Is(err, errRunPodReplaced) {
-		t.Fatalf("createPlanPod() error = %v, want errRunPodReplaced", err)
-	}
-	check := &corev1.Pod{}
-	if err := c.Get(context.Background(), client.ObjectKey{Name: podName, Namespace: "default"}, check); !apierrors.IsNotFound(err) {
-		t.Fatalf("expected stale pod to be deleted before retry (err=%v)", err)
-	}
-
-	createdName, err := createPlanPod(context.Background(), c, run)
-	if err != nil {
-		t.Fatalf("createPlanPod() second call error = %v", err)
-	}
-	if createdName != podName {
-		t.Fatalf("podName = %q, want %q", createdName, podName)
-	}
-	if err := c.Get(context.Background(), client.ObjectKey{Name: podName, Namespace: "default"}, check); err != nil {
-		t.Fatalf("get recreated pod: %v", err)
 	}
 }
 
@@ -1734,7 +1707,10 @@ func TestResolveMCPServerSecretEnvs(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(srv).Build()
 
-	envs := resolveMCPServerSecretEnvs(context.Background(), c, run)
+	envs, err := resolveMCPServerSecretEnvs(context.Background(), c, run)
+	if err != nil {
+		t.Fatalf("resolveMCPServerSecretEnvs() error = %v", err)
+	}
 	if len(envs) != 2 {
 		t.Fatalf("expected 2 envs (dup + missing server skipped), got %d: %+v", len(envs), envs)
 	}
@@ -1750,7 +1726,7 @@ func TestResolveMCPServerSecretEnvs(t *testing.T) {
 		t.Fatal("explicit optional=false must be honored")
 	}
 
-	if got := resolveMCPServerSecretEnvs(context.Background(), c, &platformv1alpha1.AgentRun{}); got != nil {
+	if got, _ := resolveMCPServerSecretEnvs(context.Background(), c, &platformv1alpha1.AgentRun{}); got != nil {
 		t.Fatalf("expected nil for run without refs, got %v", got)
 	}
 }
@@ -1787,7 +1763,10 @@ func TestResolveMCPServerSecretEnvsViaSkillRequires(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(srv, skill).Build()
 
-	envs := resolveMCPServerSecretEnvs(context.Background(), c, run)
+	envs, err := resolveMCPServerSecretEnvs(context.Background(), c, run)
+	if err != nil {
+		t.Fatalf("resolveMCPServerSecretEnvs() error = %v", err)
+	}
 	if len(envs) != 1 || envs[0].Name != mcpattach.SecretEnvPodName("grafana", "GRAFANA_URL") {
 		t.Fatalf("expected skill-required server secretEnv to be injected, got %+v", envs)
 	}
@@ -1814,7 +1793,10 @@ func TestResolveMCPServerSecretEnvsIsolatesDuplicateNamesAcrossServers(t *testin
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dev, prod).Build()
 
-	envs := resolveMCPServerSecretEnvs(context.Background(), c, run)
+	envs, err := resolveMCPServerSecretEnvs(context.Background(), c, run)
+	if err != nil {
+		t.Fatalf("resolveMCPServerSecretEnvs() error = %v", err)
+	}
 	if len(envs) != 2 {
 		t.Fatalf("expected both servers' same-named secrets, got %+v", envs)
 	}
@@ -1962,4 +1944,26 @@ func TestBuildCommonPodSpecIncludesToolPolicyEnvs(t *testing.T) {
 		got[env.Name] = env.Value
 	}
 	assertEnvValue(t, got, "AGENTRUN_DENIED_TOOLS", "Bash")
+}
+
+func TestResolveMCPServerSecretEnvsReturnsTransientLookupErrors(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "ns"},
+		Spec:       platformv1alpha1.AgentRunSpec{MCPServerRefs: []platformv1alpha1.NamedRef{{Name: "grafana"}}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*platformv1alpha1.MCPServer); ok {
+				return apierrors.NewServerTimeout(platformv1alpha1.GroupVersion.WithResource("mcpservers").GroupResource(), "get", 1)
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}).Build()
+	if _, err := resolveMCPServerSecretEnvs(context.Background(), c, run); err == nil {
+		t.Fatal("resolveMCPServerSecretEnvs() error = nil, want transient lookup error returned for retry")
+	}
 }

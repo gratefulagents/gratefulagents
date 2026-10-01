@@ -51,10 +51,14 @@ type WorkingState struct {
 	LastStoppedUserMessageID int64 `json:"last_stopped_user_message_id,omitempty"`
 	// DurableRun* coordinates one stable SDK Runner invocation across pod
 	// replacement and autonomous passes for the same user message.
-	DurableRunMessageID int64     `json:"durable_run_message_id,omitempty"`
-	DurableRunPass      int64     `json:"durable_run_pass,omitempty"`
-	DurableRunNextPass  int64     `json:"durable_run_next_pass,omitempty"`
-	UpdatedAt           time.Time `json:"updated_at,omitempty"`
+	DurableRunMessageID int64 `json:"durable_run_message_id,omitempty"`
+	DurableRunPass      int64 `json:"durable_run_pass,omitempty"`
+	DurableRunNextPass  int64 `json:"durable_run_next_pass,omitempty"`
+	// SelfAssistantMessageID is the worker's own durable assistant reply for
+	// the last committed pass. Its content is already in the replayed
+	// transcript, so the out-of-band fold must skip it.
+	SelfAssistantMessageID int64     `json:"self_assistant_message_id,omitempty"`
+	UpdatedAt              time.Time `json:"updated_at,omitempty"`
 }
 
 func (w *WorkingState) normalize() {
@@ -78,6 +82,20 @@ func (w *WorkingState) normalize() {
 	}
 	w.RecentTurnSummaries = normalized
 	w.UpdatedAt = time.Now().UTC()
+}
+
+// ReadMetrics loads the durable cumulative token/cost metrics from session
+// metadata (zero values when none were written yet).
+func (c *Client) ReadMetrics(ctx context.Context) (SessionMetrics, error) {
+	metadata, err := c.readMetadataObject(ctx)
+	if err != nil {
+		return SessionMetrics{}, err
+	}
+	var metrics SessionMetrics
+	if err := decodeMetadataSection(metadata, metadataKeyMetrics, &metrics); err != nil {
+		return SessionMetrics{}, err
+	}
+	return metrics, nil
 }
 
 // ReadWorkingState loads the durable working state from session metadata.

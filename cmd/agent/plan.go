@@ -68,6 +68,16 @@ type usageCostEstimator interface {
 	EstimateCost(agent.Usage) (float64, bool)
 }
 
+// modelPricingKnown reports whether the tracker can price usage on model:
+// OpenAI models without pricing metadata record zero cost.
+func modelPricingKnown(model agent.Model, usage agent.Usage) bool {
+	if estimator, ok := model.(usageCostEstimator); ok && estimator != nil {
+		_, known := estimator.EstimateCost(usage)
+		return known
+	}
+	return model != nil && model.Provider() != "openai"
+}
+
 func sdkRuntimeProviderConfig(cfg runConfig, model string) sdkruntime.Config {
 	return sdkruntime.Config{
 		Provider:                 "multi",
@@ -195,9 +205,10 @@ func runChat() error {
 		return err
 	}
 
-	// Resolve mode from the AgentRun CRD — single source of truth.
-	cfg.AutoMode = resolveAutoModeFromCRD(ctx, crdClient, cfg.TaskName, cfg.Namespace)
-	cfg.DelegatedChild = isDelegatedChildFromCRD(ctx, crdClient, cfg.TaskName, cfg.Namespace)
+	cfg.DelegatedChild, err = isDelegatedChildFromCRD(ctx, crdClient, cfg.TaskName, cfg.Namespace)
+	if err != nil {
+		return fmt.Errorf("reading run delegation: %w", err)
+	}
 	sc, err := initSessionClient(ctx, crdClient, cfg.TaskName, cfg.Namespace, "pending", "setup")
 	if err != nil {
 		log.Printf("ERROR: Postgres session client required: %v", err)
@@ -207,7 +218,7 @@ func runChat() error {
 	var result runResult
 	var eventsLogURL string
 	defer func() {
-		if result.Status == "" {
+		if result.Status == "" || (ctx.Err() != nil && result.Status == "failed") {
 			return
 		}
 
@@ -240,6 +251,11 @@ func runChat() error {
 
 // doRun sets up the workspace, starts the progress loop, and enters the chat loop.
 func doRun(ctx context.Context, cfg runConfig, k8sClient *kubernetes.Clientset, crdClient client.Client, sc *sessionclient.Client) (result runResult, eventsLogURL string) {
+	defer func() {
+		if ctx.Err() != nil && result.Status == "failed" {
+			result = runResult{}
+		}
+	}()
 	if err := os.MkdirAll(cfg.WorkspaceDir, 0o755); err != nil {
 		log.Printf("ERROR: failed to create workspace dir: %v", err)
 		result = runResult{Status: "failed", Error: err.Error()}
@@ -284,7 +300,13 @@ func doRun(ctx context.Context, cfg runConfig, k8sClient *kubernetes.Clientset, 
 	// Capture prior-process counters exactly once before this pod publishes any
 	// progress. All writes and cost-cap checks add the current tracker delta to
 	// this immutable baseline.
-	metricsBaseline := progressMetricsBaselineFromRun(getAgentRun(ctx, crdClient, cfg.TaskName, cfg.Namespace))
+	metricsBaseline, err := loadProgressMetricsBaseline(ctx, crdClient, sc, cfg.TaskName, cfg.Namespace)
+	if err != nil {
+		log.Printf("ERROR: %v", err)
+		result = runResult{Status: "failed", Error: "cannot read the run's prior cost baseline: " + err.Error()}
+		return
+	}
+	cfg.CostPricingUnknown = !modelPricingKnown(resolvedModel, agent.Usage{InputTokens: 1, OutputTokens: 1})
 	progressCtx, cancelProgress := context.WithCancel(ctx)
 	var progressWg sync.WaitGroup
 	progressWg.Add(1)
@@ -300,17 +322,12 @@ func doRun(ctx context.Context, cfg runConfig, k8sClient *kubernetes.Clientset, 
 		tracker.WriteResult(result.Status, "", result.Error, "")
 		if eventStream != nil {
 			snap := tracker.Snapshot()
-			costKnown := false
-			if estimator, ok := resolvedModel.(usageCostEstimator); ok && estimator != nil {
-				_, costKnown = estimator.EstimateCost(agent.Usage{
-					InputTokens:       snap.InputTokens,
-					OutputTokens:      snap.OutputTokens,
-					CacheReadTokens:   snap.CacheReadInputTokens,
-					CacheCreateTokens: snap.CacheCreationInputTokens,
-				})
-			} else if resolvedModel != nil && resolvedModel.Provider() != "openai" {
-				costKnown = true
-			}
+			costKnown := modelPricingKnown(resolvedModel, agent.Usage{
+				InputTokens:       snap.InputTokens,
+				OutputTokens:      snap.OutputTokens,
+				CacheReadTokens:   snap.CacheReadInputTokens,
+				CacheCreateTokens: snap.CacheCreationInputTokens,
+			})
 			eventStream.EmitSessionEnd(result.Status,
 				snap.CostUsd,
 				costKnown,

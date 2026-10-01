@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/slack-go/slack/slackevents"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,6 +20,7 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	internalslack "github.com/gratefulagents/gratefulagents/internal/slack"
+	"github.com/gratefulagents/gratefulagents/internal/store"
 )
 
 func TestSlackGoParsesAgentSessionStopped(t *testing.T) {
@@ -111,7 +113,19 @@ func TestStreamTargetNamesRecipientOutsideDM(t *testing.T) {
 	}
 }
 
-func TestInterruptRunAnnotatesActiveRun(t *testing.T) {
+// interruptActivityStore records the interrupt activity on top of the
+// metadata-backed session fake.
+type interruptActivityStore struct {
+	workspaceSnapshotMetadataStore
+	activities []string
+}
+
+func (s *interruptActivityStore) WriteActivityEvent(_ context.Context, _ uuid.UUID, eventType, _ string, _ json.RawMessage) (*store.ActivityEvent, error) {
+	s.activities = append(s.activities, eventType)
+	return &store.ActivityEvent{}, nil
+}
+
+func TestInterruptRunRecordsSessionStopWithoutAnnotation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme: %v", err)
@@ -120,29 +134,24 @@ func TestInterruptRunAnnotatesActiveRun(t *testing.T) {
 	running.Name = "run-active"
 	running.Namespace = "ns"
 	running.Status.Phase = platformv1alpha1.AgentRunPhaseRunning
-	done := &platformv1alpha1.AgentRun{}
-	done.Name = "run-done"
-	done.Namespace = "ns"
-	done.Status.Phase = platformv1alpha1.AgentRunPhaseSucceeded
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(running, done).Build()
-	o := &slackOrchestrator{crdClient: c, namespace: "ns", agentName: "me"}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(running).Build()
+	ss := &interruptActivityStore{workspaceSnapshotMetadataStore: workspaceSnapshotMetadataStore{session: &store.Session{ID: uuid.New()}}}
+	o := &slackOrchestrator{crdClient: c, store: ss, namespace: "ns", agentName: "me"}
 
 	o.interruptRun(context.Background(), "run-active", "U1")
-	o.interruptRun(context.Background(), "run-done", "U1")
-	o.interruptRun(context.Background(), "run-missing", "U1")
 
+	if !strings.Contains(string(ss.session.Metadata), `"interrupt"`) {
+		t.Fatalf("session metadata = %s, want a recorded interrupt request", ss.session.Metadata)
+	}
+	if len(ss.activities) != 1 || ss.activities[0] != "interrupt_requested" {
+		t.Fatalf("activities = %v, want [interrupt_requested]", ss.activities)
+	}
 	got := &platformv1alpha1.AgentRun{}
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "ns", Name: "run-active"}, got); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if _, ok := got.Annotations[platformv1alpha1.InterruptRequestedAnnotation]; !ok {
-		t.Fatal("active run should carry the interrupt annotation")
-	}
-	if err := c.Get(context.Background(), client.ObjectKey{Namespace: "ns", Name: "run-done"}, got); err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if _, ok := got.Annotations[platformv1alpha1.InterruptRequestedAnnotation]; ok {
-		t.Fatal("terminal run must not be interrupted")
+	if len(got.Annotations) != 0 {
+		t.Fatalf("annotations = %v, want none: stops travel only through the session", got.Annotations)
 	}
 }
 

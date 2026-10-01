@@ -59,8 +59,9 @@ func (c *modeInstructionsCache) set(name, value string) {
 
 var modeInstrCache modeInstructionsCache
 
-func readModeOverrides(ctx context.Context, c client.Client, taskName, namespace string) modeOverrides {
-	run := getAgentRun(ctx, c, taskName, namespace)
+// readModeOverrides derives the turn's mode overrides from run, the AgentRun
+// already read for this pass.
+func readModeOverrides(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) modeOverrides {
 	if run == nil || run.Status.ModeSnapshot == nil {
 		return modeOverrides{}
 	}
@@ -115,42 +116,25 @@ func readModeOverrides(ctx context.Context, c client.Client, taskName, namespace
 // Environment helpers
 // ---------------------------------------------------------------------------
 
-// autoModeFromRun preserves the old helper boundary while enforcing the single
-// pacing contract: every run is autonomous and yields only for explicit input
-// requests, safety stops, or finish. WorkflowMode and ModeTemplate.Autonomous
-// remain readable for backward compatibility but no longer alter pacing.
-func autoModeFromRun(_ *platformv1alpha1.AgentRun) bool {
-	return true
-}
-
-// resolveAutoModeFromCRD reads the AgentRun CRD to determine if this pod
-// should run in autonomous mode.
-func resolveAutoModeFromCRD(ctx context.Context, c client.Client, name, namespace string) bool {
-	run := getAgentRun(ctx, c, name, namespace)
-	if run == nil {
-		log.Printf("WARN: could not read AgentRun %s/%s to resolve mode — defaulting to chat", namespace, name)
-		return false
-	}
-	return autoModeFromRun(run)
-}
-
 // isDelegatedChildFromCRD checks whether this AgentRun is a child delegated
 // by a parent, by looking at its delegation metadata.
-func isDelegatedChildFromCRD(ctx context.Context, c client.Client, name, namespace string) bool {
-	run := getAgentRun(ctx, c, name, namespace)
-	if run == nil {
-		return false
+// Transient read errors are retried: misclassifying a delegated child would
+// let it park awaiting a human while its parent team run blocks forever.
+func isDelegatedChildFromCRD(ctx context.Context, c client.Client, name, namespace string) (bool, error) {
+	run, err := readAgentRun(ctx, c, name, namespace, startupMetricsReadAttempts)
+	if err != nil {
+		return false, err
 	}
 	if strings.TrimSpace(run.Labels[teamParentLabel]) != "" {
-		return true
+		return true, nil
 	}
 	for _, owner := range run.OwnerReferences {
 		if owner.APIVersion == platformv1alpha1.GroupVersion.String() &&
 			owner.Kind == "AgentRun" && strings.TrimSpace(owner.Name) != "" {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // shouldTerminateAfterFinish reports whether finish is a terminal signal for
@@ -164,40 +148,27 @@ func shouldTerminateAfterFinish(run *platformv1alpha1.AgentRun, delegatedChild b
 	return run != nil && run.Spec.Trigger.MatchesKind(triggersv1alpha1.SecurityScanTriggerKind)
 }
 
-// autoModeIntent reads the AgentRun CRD intent to use as the first prompt
-// for autonomous runs. Returns empty string if no intent is set.
+// setRuntimeParentMetadataEnv exports this run's identity for tools that
+// spawn child runs: AGENTRUN_CURRENT_* always, AGENTRUN_PARENT_* and RUN_*
+// only when the controller did not already set them.
 func setRuntimeParentMetadataEnv(cfg runConfig) {
-	if namespace := strings.TrimSpace(cfg.Namespace); namespace != "" {
-		_ = os.Setenv("AGENTRUN_CURRENT_NAMESPACE", namespace)
-		parentNamespace := strings.TrimSpace(os.Getenv("AGENTRUN_PARENT_NAMESPACE"))
-		if parentNamespace == "" {
-			parentNamespace = namespace
-			_ = os.Setenv("AGENTRUN_PARENT_NAMESPACE", parentNamespace)
+	for _, field := range []struct{ value, current, parent, legacy string }{
+		{cfg.Namespace, "AGENTRUN_CURRENT_NAMESPACE", "AGENTRUN_PARENT_NAMESPACE", "RUN_NAMESPACE"},
+		{cfg.TaskName, "AGENTRUN_CURRENT_NAME", "AGENTRUN_PARENT_NAME", "RUN_NAME"},
+		{cfg.TaskUID, "AGENTRUN_CURRENT_UID", "AGENTRUN_PARENT_UID", "RUN_UID"},
+	} {
+		value := strings.TrimSpace(field.value)
+		if value == "" {
+			continue
 		}
-		if strings.TrimSpace(os.Getenv("RUN_NAMESPACE")) == "" {
-			_ = os.Setenv("RUN_NAMESPACE", parentNamespace)
+		_ = os.Setenv(field.current, value)
+		parent := strings.TrimSpace(os.Getenv(field.parent))
+		if parent == "" {
+			parent = value
+			_ = os.Setenv(field.parent, parent)
 		}
-	}
-	if name := strings.TrimSpace(cfg.TaskName); name != "" {
-		_ = os.Setenv("AGENTRUN_CURRENT_NAME", name)
-		parentName := strings.TrimSpace(os.Getenv("AGENTRUN_PARENT_NAME"))
-		if parentName == "" {
-			parentName = name
-			_ = os.Setenv("AGENTRUN_PARENT_NAME", parentName)
-		}
-		if strings.TrimSpace(os.Getenv("RUN_NAME")) == "" {
-			_ = os.Setenv("RUN_NAME", parentName)
-		}
-	}
-	if uid := strings.TrimSpace(cfg.TaskUID); uid != "" {
-		_ = os.Setenv("AGENTRUN_CURRENT_UID", uid)
-		parentUID := strings.TrimSpace(os.Getenv("AGENTRUN_PARENT_UID"))
-		if parentUID == "" {
-			parentUID = uid
-			_ = os.Setenv("AGENTRUN_PARENT_UID", parentUID)
-		}
-		if strings.TrimSpace(os.Getenv("RUN_UID")) == "" {
-			_ = os.Setenv("RUN_UID", parentUID)
+		if strings.TrimSpace(os.Getenv(field.legacy)) == "" {
+			_ = os.Setenv(field.legacy, parent)
 		}
 	}
 }

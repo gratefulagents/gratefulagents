@@ -74,17 +74,11 @@ func setupWorkspace(cfg *runConfig) error {
 	}
 	initializeSubmodules(cfg.RepoDir)
 
-	sessionModeNotes := "Session mode: interactive chat"
-	if cfg.AutoMode {
-		sessionModeNotes = "Session mode: autonomous"
-	}
+	sessionModeNotes := "Session mode: autonomous"
 
 	parentRefJSON := fmt.Sprintf(`{"namespace":"%s","name":"%s"}`, cfg.Namespace, cfg.TaskName)
 
-	mode := "chat"
-	if cfg.AutoMode {
-		mode = "auto"
-	}
+	mode := "auto"
 	cfg.TaskContext = fmt.Sprintf(`## Environment
 - Base branch: %s
 - Working branch: %s
@@ -245,17 +239,11 @@ func setupRepolessWorkspace(cfg *runConfig) error {
 		return fmt.Errorf("creating empty workspace %s: %w", cfg.RepoDir, err)
 	}
 
-	sessionModeNotes := "Session mode: interactive chat"
-	if cfg.AutoMode {
-		sessionModeNotes = "Session mode: autonomous"
-	}
+	sessionModeNotes := "Session mode: autonomous"
 
 	parentRefJSON := fmt.Sprintf(`{"namespace":"%s","name":"%s"}`, cfg.Namespace, cfg.TaskName)
 
-	mode := "chat"
-	if cfg.AutoMode {
-		mode = "auto"
-	}
+	mode := "auto"
 	cfg.TaskContext = fmt.Sprintf(`## Environment
 - No repository attached (plain chat)
 - %s

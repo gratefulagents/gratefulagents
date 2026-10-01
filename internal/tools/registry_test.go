@@ -1,16 +1,20 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/gratefulagents/sdk/pkg/agentsdk"
 	"github.com/gratefulagents/sdk/pkg/agentsdk/policy"
-	sdkvision "github.com/gratefulagents/sdk/pkg/agentsdk/tools/vision"
+	"github.com/gratefulagents/sdk/pkg/agentsdk/tools/browser"
+	"github.com/gratefulagents/sdk/pkg/agentsdk/tools/search"
 	sdkweb "github.com/gratefulagents/sdk/pkg/agentsdk/tools/web"
 )
 
@@ -43,27 +47,29 @@ func TestNewRegistry_WithBrowserToolsRegistersBrowser(t *testing.T) {
 	}
 }
 
-func TestNewRegistry_BrowserDoesNotRelaxVisionURLs(t *testing.T) {
-	r := NewRegistry("/tmp/test", WithBrowserTools(), WithVisionTools(func(context.Context, []byte, string, string) (string, error) {
-		return "", nil
-	}))
-	vision, ok := r.Get("AnalyzeImage").(*sdkvision.Tool)
-	if !ok {
-		t.Fatalf("AnalyzeImage has unexpected type %T", r.Get("AnalyzeImage"))
+func TestNewRegistry_WithReadFileImages(t *testing.T) {
+	r := NewRegistry(t.TempDir(), WithReadFileImages())
+	readFile := r.Get("read_file").(*search.ReadFileTool)
+	if !readFile.Images || r.Get("AnalyzeImage") != nil {
+		t.Fatalf("native image registry = %v; read_file images=%v", r.Names(), readFile.Images)
 	}
-	if vision.AllowPrivateNetworkURLs {
-		t.Fatal("enabling Browser must not enable private-network URLs for vision")
+	if NewRegistry(t.TempDir()).Get("read_file").(*search.ReadFileTool).Images {
+		t.Fatal("native image reads must be opt-in")
 	}
 }
 
-func TestNewRegistry_WithProviderWiredVisionTool(t *testing.T) {
-	r := NewRegistry("/tmp/test", WithVisionTools(nil))
-	vision, ok := r.Get("AnalyzeImage").(*sdkvision.Tool)
-	if !ok {
-		t.Fatalf("provider-wired registry missing AnalyzeImage; names=%v", r.Names())
+func TestNewRegistry_BrowserScreenshotsReadableAsImages(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRegistry(t.TempDir(), WithBrowserTools(), WithBrowserScreenshotDir(dir), WithReadFileImages())
+	readFile := r.Get("read_file").(*search.ReadFileTool)
+	if !readFile.Images || len(readFile.AllowedImageDirs) != 1 || readFile.AllowedImageDirs[0] != dir {
+		t.Fatalf("read_file = %+v", readFile)
 	}
-	if vision.AnalyzeFn != nil || vision.AnalyzeWithDetailFn != nil {
-		t.Fatal("provider-wired vision tool should leave analyzer attachment to the SDK runtime")
+	if r.Get("Browser").(*browser.Tool).ScreenshotDir != dir {
+		t.Fatal("Browser and read_file disagree on screenshot directory")
+	}
+	if r.Get("WebFetch").(*sdkweb.FetchTool).AllowPrivateNetworkURLs {
+		t.Fatal("image reads must not relax WebFetch networking")
 	}
 }
 
@@ -373,17 +379,18 @@ func TestNewRegistry_WithAsyncShellToolsRegistersBackgroundJobs(t *testing.T) {
 	}
 }
 
-func TestAnalyzeImageReturnsNativeAttachment(t *testing.T) {
+func TestReadFileReturnsNativeAttachment(t *testing.T) {
 	dir := t.TempDir()
-	data := []byte{0x89, 'P', 'N', 'G'}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 4, 4))); err != nil {
+		t.Fatal(err)
+	}
+	data := buf.Bytes()
 	if err := os.WriteFile(filepath.Join(dir, "pixel.png"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	registry := NewRegistry(dir, WithVisionTools(func(context.Context, []byte, string, string) (string, error) {
-		t.Fatal("AnalyzeImage must not call a text analyzer")
-		return "", nil
-	}))
-	result, err := registry.Get("AnalyzeImage").Execute(context.Background(), json.RawMessage(`{"image_path":"pixel.png","prompt":"inspect"}`), dir)
+	registry := NewRegistry(dir, WithReadFileImages())
+	result, err := registry.Get("read_file").Execute(context.Background(), json.RawMessage(`{"path":"pixel.png"}`), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

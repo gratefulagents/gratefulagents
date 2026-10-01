@@ -41,8 +41,6 @@ const (
 	// A compaction-bounded transcript gzips to a few hundred KB; anything
 	// near this cap is pathological and falls back to the durable tail.
 	transcriptSnapshotMaxBytesDefault = 4 << 20 // 4 MiB
-
-	transcriptImagePlaceholder = "[image attachment omitted from restart snapshot]"
 )
 
 // transcriptSnapshotMaxBytes returns the compressed-size cap, overridable via
@@ -142,7 +140,7 @@ var persistedTypeToRunItem = map[string]agent.RunItemType{
 // a silently lossy transcript.
 func persistedItemsFromRun(items []agent.RunItem) ([]persistedRunItem, bool) {
 	out := make([]persistedRunItem, 0, len(items))
-	for _, item := range items {
+	for _, item := range agent.StripImagesForPersistence(items) {
 		typeName, ok := runItemTypeToPersisted[item.Type]
 		if !ok {
 			return nil, false
@@ -161,13 +159,8 @@ func persistedItemsFromRun(items []agent.RunItem) ([]persistedRunItem, bool) {
 			name := item.Agent.Name
 			persisted.Agent = &name
 		}
-		if item.Message != nil {
-			msg := agent.MessageOutput{Text: item.Message.Text}
-			if len(item.Message.Images) > 0 && msg.Text == "" {
-				msg.Text = transcriptImagePlaceholder
-			}
-			persisted.Message = &msg
-		}
+		persisted.Message = item.Message
+
 		out = append(out, persisted)
 	}
 	return out, true

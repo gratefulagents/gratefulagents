@@ -31,9 +31,10 @@ func TestCostCapUSD(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, ok := costCapUSD(tc.run)
+			got, configured, err := validatedCostCapUSD(tc.run)
+			ok := configured && err == nil
 			if ok != tc.wantOK || got != tc.want {
-				t.Fatalf("costCapUSD() = (%v, %v), want (%v, %v)", got, ok, tc.want, tc.wantOK)
+				t.Fatalf("validatedCostCapUSD() = (%v, %v), want (%v, %v)", got, ok, tc.want, tc.wantOK)
 			}
 		})
 	}
@@ -47,21 +48,21 @@ func TestInvalidConfiguredCostCapFailsClosed(t *testing.T) {
 	}
 }
 
-func TestBaselineCostUSD(t *testing.T) {
+func TestProgressMetricsBaselineCost(t *testing.T) {
 	t.Parallel()
-	if got := baselineCostUSD(nil); got != 0 {
+	if got := progressMetricsBaselineFromRun(nil).CostUSD; got != 0 {
 		t.Fatalf("nil run baseline = %v, want 0", got)
 	}
-	if got := baselineCostUSD(&platformv1alpha1.AgentRun{}); got != 0 {
+	if got := progressMetricsBaselineFromRun(&platformv1alpha1.AgentRun{}).CostUSD; got != 0 {
 		t.Fatalf("no metrics baseline = %v, want 0", got)
 	}
 	run := &platformv1alpha1.AgentRun{}
 	run.Status.Metrics = &platformv1alpha1.AgentRunMetrics{CostUsd: "3.1415"}
-	if got := baselineCostUSD(run); got != 3.1415 {
+	if got := progressMetricsBaselineFromRun(run).CostUSD; got != 3.1415 {
 		t.Fatalf("baseline = %v, want 3.1415", got)
 	}
 	run.Status.Metrics.CostUsd = "garbage"
-	if got := baselineCostUSD(run); got != 0 {
+	if got := progressMetricsBaselineFromRun(run).CostUSD; got != 0 {
 		t.Fatalf("invalid metrics baseline = %v, want 0", got)
 	}
 }

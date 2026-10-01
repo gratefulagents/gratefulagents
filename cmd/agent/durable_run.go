@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -77,18 +78,39 @@ func reserveSDKDurablePass(ctx context.Context, sc *sessionclient.Client, userMe
 	return pass, nil
 }
 
-func completeSDKDurablePass(ctx context.Context, sc *sessionclient.Client, userMessageID, pass int64) error {
-	return sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
-		if state.DurableRunMessageID != userMessageID || state.DurableRunPass != pass {
-			return fmt.Errorf("durable SDK pass changed while completing message %d pass %d", userMessageID, pass)
-		}
-		state.DurableRunMessageID = 0
-		state.DurableRunPass = 0
-		return nil
-	})
+// completeDurablePassState retires the committed durable pass in the working
+// state; a pass that changed underneath (another owner reserved a newer one)
+// is an error.
+func completeDurablePassState(state *sessionclient.WorkingState, userMessageID, pass int64) error {
+	if state.DurableRunMessageID != userMessageID || state.DurableRunPass != pass {
+		return fmt.Errorf("durable SDK pass changed while completing message %d pass %d", userMessageID, pass)
+	}
+	state.DurableRunMessageID = 0
+	state.DurableRunPass = 0
+	return nil
 }
 
-func openSDKStoredRun(ctx context.Context, cfg runConfig, userMessageID, pass int64) (*agent.StoredRun, error) {
+// durableRunOpenMaxWait bounds how long a pass waits for another owner's
+// lease on the same stored run (e.g. a partitioned previous pod that keeps
+// renewing it). Vars so tests can shrink them.
+var (
+	durableRunOpenMaxWait      = 5 * time.Minute
+	durableRunOpenInitialDelay = time.Second
+	durableRunOpenMaxDelay     = 15 * time.Second
+)
+
+// errDurableRunOpenStopped reports that the user stopped the turn while it was
+// waiting for the durable run lease.
+var errDurableRunOpenStopped = errors.New("stopped by user while waiting for the durable SDK run lease")
+
+// openSDKStoredRun opens (or resumes) the pass's stored run. A lease held by
+// another owner is waited out with exponential backoff, bounded by
+// durableRunOpenMaxWait; stopRequested (optional) is checked between attempts
+// so a user stop is honored during the wait.
+func openSDKStoredRun(
+	ctx context.Context, cfg runConfig, userMessageID, pass int64,
+	stopRequested func(context.Context) bool,
+) (*agent.StoredRun, error) {
 	if cfg.DurableRunStore == nil {
 		return nil, errors.New("durable SDK run store is not configured")
 	}
@@ -96,7 +118,17 @@ func openSDKStoredRun(ctx context.Context, cfg runConfig, userMessageID, pass in
 		return nil, errors.New("durable SDK run requires a persisted message and pass")
 	}
 	runID := sdkdurable.RunID(fmt.Sprintf("agentrun-%s-message-%d-pass-%d", cfg.TaskUID, userMessageID, pass))
-	for {
+	ctx, cancel := context.WithTimeout(ctx, durableRunOpenMaxWait)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	delay := durableRunOpenInitialDelay
+	for attempt := 1; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if stopRequested != nil && stopRequested(ctx) {
+			return nil, errDurableRunOpenStopped
+		}
 		run, err := agent.OpenStoredRun(ctx, cfg.DurableRunStore, agent.StoredRunOptions{
 			TenantID:       cfg.DurableRunTenant,
 			RunID:          runID,
@@ -110,11 +142,16 @@ func openSDKStoredRun(ctx context.Context, cfg runConfig, userMessageID, pass in
 		if !errors.Is(err, sdkdurable.ErrLeaseHeld) && !errors.Is(err, sdkdurable.ErrAlreadyExists) {
 			return nil, err
 		}
+		if time.Now().Add(delay).After(deadline) {
+			return nil, fmt.Errorf("durable SDK run %s still leased by another owner after %s: %w", runID, durableRunOpenMaxWait, err)
+		}
+		log.Printf("WARN: durable SDK run %s is leased by another owner (attempt %d): %v — retrying in %s", runID, attempt, err, delay)
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(time.Second):
+		case <-time.After(delay):
 		}
+		delay = min(delay*2, durableRunOpenMaxDelay)
 	}
 }
 

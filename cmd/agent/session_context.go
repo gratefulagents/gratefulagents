@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/gratefulagents/gratefulagents/internal/store"
@@ -54,12 +55,13 @@ func transcriptAfterRun(result *agent.RunResult) []agent.RunItem {
 // Skipped:
 //   - user messages: each is consumed by the reply queue as a turn prompt
 //     or an immediate mid-run injection, so folding would duplicate it;
-//   - selfAssistantMessageID: the loop's own durable append of the previous
-//     turn's reply, whose content is already in FinalHistory.
-func outOfBandMessageItems(messages []store.Message, seenThroughID, selfAssistantMessageID int64, state sessionclient.WorkingState) []agent.RunItem {
+//   - skipIDs: messages already in context by other means — the loop's own
+//     durable append of the previous turn's reply (already in FinalHistory)
+//     and the stored continuation nudge sent as this pass's user item.
+func outOfBandMessageItems(messages []store.Message, seenThroughID int64, state sessionclient.WorkingState, skipIDs ...int64) []agent.RunItem {
 	newer := make([]store.Message, 0, len(messages))
 	for _, msg := range messages {
-		if msg.ID <= seenThroughID || msg.ID == selfAssistantMessageID || msg.Role == "user" {
+		if msg.ID <= seenThroughID || msg.Role == "user" || slices.Contains(skipIDs, msg.ID) {
 			continue
 		}
 		newer = append(newer, msg)

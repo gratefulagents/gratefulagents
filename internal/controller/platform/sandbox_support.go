@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -28,7 +30,56 @@ const agentSandboxProvider = "agent-sandbox"
 var (
 	errRunSandboxReplaced      = errors.New("stale run sandbox replaced")
 	errRunSandboxDrainRequired = errors.New("stale run sandbox requires graceful drain")
+	// errStaleRunResource marks an object still controlled by an earlier
+	// AgentRun with the same name (deleted and recreated). Garbage collection
+	// removes it, so provisioning waits instead of reusing it.
+	errStaleRunResource = errors.New("resource still belongs to a previous AgentRun with the same name")
 )
+
+// permanentProvisioningError marks provisioning failures that retrying cannot
+// fix (ownership conflicts, invalid configuration).
+type permanentProvisioningError struct{ err error }
+
+func (e permanentProvisioningError) Error() string { return e.err.Error() }
+func (e permanentProvisioningError) Unwrap() error { return e.err }
+
+func permanentProvisioningErrorf(format string, args ...any) error {
+	return permanentProvisioningError{err: fmt.Errorf(format, args...)}
+}
+
+func isPermanentProvisioningError(err error) bool {
+	var permanent permanentProvisioningError
+	return errors.As(err, &permanent) || apierrors.IsInvalid(err) || apierrors.IsBadRequest(err)
+}
+
+// runOwnershipConflict checks whether an existing object may be reused by run.
+// Objects controlled by run are fine; objects controlled by an earlier
+// incarnation of the same-named run are stale (errStaleRunResource); objects
+// controlled by anything else are a permanent conflict. allowUncontrolled
+// keeps accepting objects without a controller reference.
+func runOwnershipConflict(obj metav1.Object, run *platformv1alpha1.AgentRun, kind string) error {
+	ref := metav1.GetControllerOfNoCopy(obj)
+	switch {
+	case ref != nil && ref.UID == run.UID:
+		return nil
+	case ref != nil && ref.Kind == "AgentRun" && ref.Name == run.Name:
+		return fmt.Errorf("%w: %s %s/%s", errStaleRunResource, kind, obj.GetNamespace(), obj.GetName())
+	default:
+		return permanentProvisioningErrorf("%s %s/%s is not controlled by AgentRun %s", kind, obj.GetNamespace(), obj.GetName(), run.Name)
+	}
+}
+
+// runNameLabelValue returns a label value identifying the run. Label values
+// are capped at 63 characters, so long names are truncated with a hash
+// suffix to stay unique.
+func runNameLabelValue(name string) string {
+	if len(name) <= 63 {
+		return name
+	}
+	sum := sha256.Sum256([]byte(name))
+	hash := hex.EncodeToString(sum[:8])
+	return strings.TrimRight(name[:63-len(hash)-1], "-.") + "-" + hash
+}
 
 func createPlanSandbox(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun, runtimeProfile *platformv1alpha1.RuntimeProfile) (*platformv1alpha1.AgentRunSandboxStatus, error) {
 	saName := sandboxRunResourceName("run", run)
@@ -65,8 +116,8 @@ func createPlanSandbox(ctx context.Context, c client.Client, run *platformv1alph
 			}
 			return nil, fmt.Errorf("getting existing sandbox claim: %w", getErr)
 		}
-		if !sandboxClaimOwnedByRun(existing, run) {
-			return nil, fmt.Errorf("sandbox claim %s/%s already belongs to another AgentRun", run.Namespace, claimName)
+		if err := runOwnershipConflict(existing, run, "SandboxClaim"); err != nil {
+			return nil, err
 		}
 		replace, replaceErr := shouldReplaceExistingSandboxClaim(ctx, c, run, existing)
 		if replaceErr != nil {
@@ -82,7 +133,9 @@ func createPlanSandbox(ctx context.Context, c client.Client, run *platformv1alph
 				return nil, fmt.Errorf("deleting unassigned stale sandbox claim: %w", delErr)
 			}
 			if managedSandboxTemplateName(run) == templateName {
-				_ = deleteManagedSandboxTemplateIfOwned(ctx, c, run, templateName)
+				if err := deleteManagedSandboxTemplateIfOwned(ctx, c, run, templateName); err != nil {
+					return nil, err
+				}
 			}
 			return nil, errRunSandboxReplaced
 		}
@@ -107,7 +160,7 @@ func ensureRunSandboxTemplate(ctx context.Context, c client.Client, run *platfor
 		baseTemplate = &extensionsv1alpha1.SandboxTemplate{}
 		if err := c.Get(ctx, client.ObjectKey{Name: explicit, Namespace: run.Namespace}, baseTemplate); err != nil {
 			if apierrors.IsNotFound(err) {
-				return "", fmt.Errorf("sandbox template %s/%s not found", run.Namespace, explicit)
+				return "", permanentProvisioningErrorf("sandbox template %s/%s not found", run.Namespace, explicit)
 			}
 			return "", fmt.Errorf("getting sandbox template %s/%s: %w", run.Namespace, explicit, err)
 		}
@@ -118,6 +171,10 @@ func ensureRunSandboxTemplate(ctx context.Context, c client.Client, run *platfor
 	if err != nil {
 		return "", err
 	}
+	secretEnvs, err := resolveMCPServerSecretEnvs(ctx, c, run)
+	if err != nil {
+		return "", err
+	}
 	template := &extensionsv1alpha1.SandboxTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -125,8 +182,7 @@ func ensureRunSandboxTemplate(ctx context.Context, c client.Client, run *platfor
 			Labels:          sandboxTemplateLabels(run),
 			OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
 		},
-		Spec: buildManagedSandboxTemplateSpec(run, runtimeProfile, saName, baseTemplate, workspacePVCName,
-			resolveMCPServerSecretEnvs(ctx, c, run), sshTunnel),
+		Spec: buildManagedSandboxTemplateSpec(run, runtimeProfile, saName, baseTemplate, workspacePVCName, secretEnvs, sshTunnel),
 	}
 	if err := c.Create(ctx, template); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
@@ -136,8 +192,14 @@ func ensureRunSandboxTemplate(ctx context.Context, c client.Client, run *platfor
 		if getErr := c.Get(ctx, client.ObjectKey{Name: name, Namespace: run.Namespace}, existing); getErr != nil {
 			return "", fmt.Errorf("getting existing sandbox template: %w", getErr)
 		}
-		if !sandboxTemplateOwnedByRun(existing, run) {
-			return "", fmt.Errorf("sandbox template %s/%s already belongs to another AgentRun", run.Namespace, name)
+		if err := runOwnershipConflict(existing, run, "SandboxTemplate"); err != nil {
+			return "", err
+		}
+		if !equality.Semantic.DeepEqual(existing.Spec, template.Spec) {
+			existing.Spec = template.Spec
+			if err := c.Update(ctx, existing); err != nil {
+				return "", fmt.Errorf("updating sandbox template: %w", err)
+			}
 		}
 	}
 	return name, nil
@@ -182,8 +244,8 @@ func buildManagedSandboxTemplateSpec(
 		Spec: podSpec,
 		ObjectMeta: sandboxv1alpha1.PodMetadata{
 			Labels: map[string]string{
-				"platform.gratefulagents.dev/owner-run":     run.Name,
-				"platform.gratefulagents.dev/owner-run-uid": string(run.UID),
+				ownerRunLabel:    runNameLabelValue(run.Name),
+				ownerRunUIDLabel: string(run.UID),
 			},
 			Annotations: map[string]string{},
 		},
@@ -193,8 +255,8 @@ func buildManagedSandboxTemplateSpec(
 		if spec.PodTemplate.ObjectMeta.Labels == nil {
 			spec.PodTemplate.ObjectMeta.Labels = map[string]string{}
 		}
-		spec.PodTemplate.ObjectMeta.Labels["platform.gratefulagents.dev/owner-run"] = run.Name
-		spec.PodTemplate.ObjectMeta.Labels["platform.gratefulagents.dev/owner-run-uid"] = string(run.UID)
+		spec.PodTemplate.ObjectMeta.Labels[ownerRunLabel] = runNameLabelValue(run.Name)
+		spec.PodTemplate.ObjectMeta.Labels[ownerRunUIDLabel] = string(run.UID)
 	}
 	if spec.NetworkPolicyManagement == "" {
 		spec.NetworkPolicyManagement = extensionsv1alpha1.NetworkPolicyManagementManaged
@@ -361,9 +423,9 @@ func runOwnerRef(run *platformv1alpha1.AgentRun) metav1.OwnerReference {
 
 func sandboxTemplateLabels(run *platformv1alpha1.AgentRun) map[string]string {
 	return map[string]string{
-		"app.kubernetes.io/name":                "gratefulagents",
-		"app.kubernetes.io/component":           "agent-runner-template",
-		"platform.gratefulagents.dev/owner-run": run.Name,
+		"app.kubernetes.io/name":      "gratefulagents",
+		"app.kubernetes.io/component": "agent-runner-template",
+		ownerRunLabel:                 runNameLabelValue(run.Name),
 	}
 }
 
@@ -393,9 +455,9 @@ func buildSandboxClaim(run *platformv1alpha1.AgentRun, templateName string, runt
 
 func sandboxClaimLabels(run *platformv1alpha1.AgentRun) map[string]string {
 	return map[string]string{
-		"app.kubernetes.io/name":                "gratefulagents",
-		"app.kubernetes.io/component":           "agent-runner-claim",
-		"platform.gratefulagents.dev/owner-run": run.Name,
+		"app.kubernetes.io/name":      "gratefulagents",
+		"app.kubernetes.io/component": "agent-runner-claim",
+		ownerRunLabel:                 runNameLabelValue(run.Name),
 	}
 }
 
@@ -500,35 +562,43 @@ func deleteManagedSandboxTemplateIfOwned(ctx context.Context, c client.Client, r
 }
 
 func (r *AgentRunReconciler) monitorAgentSandbox(ctx context.Context, run *platformv1alpha1.AgentRun, requeueAfter time.Duration) (ctrl.Result, error) {
-	if run == nil || run.Status.Sandbox == nil || run.Status.Sandbox.ClaimRef == nil {
-		if run != nil && run.Status.Sandbox != nil && run.Status.Sandbox.SandboxRef != nil {
-			return r.monitorPod(ctx, run, requeueAfter)
-		}
+	if run == nil || run.Status.Sandbox == nil {
 		return ctrl.Result{}, nil
+	}
+	// Check the runtime window before any lookup so a claim that never binds,
+	// or a stale startup reference, cannot requeue forever past maxRuntime.
+	if runPastTimeout(run) {
+		return ctrl.Result{}, r.markRunPaused(ctx, run)
+	}
+	if run.Status.Sandbox.ClaimRef == nil {
+		return r.awaitSandboxStartup(ctx, run, requeueAfter, "has no sandbox claim")
 	}
 
 	claimName := strings.TrimSpace(run.Status.Sandbox.ClaimRef.Name)
 	if claimName == "" {
-		return ctrl.Result{RequeueAfter: requeueAfter}, nil
+		return r.awaitSandboxStartup(ctx, run, requeueAfter, "has no sandbox claim")
 	}
 
-	claim := &extensionsv1alpha1.SandboxClaim{}
-	if err := r.Get(ctx, client.ObjectKey{Name: claimName, Namespace: run.Namespace}, claim); err != nil {
-		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, r.markRunFailed(ctx, run, fmt.Errorf("sandbox claim %s disappeared", claimName))
-		}
+	claim, err := r.getRunSandboxClaim(ctx, run, claimName)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if sandboxClaimExpired(claim) {
-		if runPastTimeout(run) {
-			return ctrl.Result{}, r.markRunPaused(ctx, run, effectiveTimeout(run))
+	if claim == nil {
+		// The claim was just created and this controller's cache may not have
+		// observed it yet; only a confirmed absence after the grace window is
+		// a failure.
+		if isRunAwaitingPod(run) {
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		}
+		return ctrl.Result{}, r.markRunFailed(ctx, run, fmt.Errorf("sandbox claim %s disappeared", claimName))
+	}
+	if sandboxClaimExpired(claim) {
 		drained, err := r.releaseRunSandbox(ctx, run)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 		if !drained {
-			return ctrl.Result{Requeue: true}, nil
+			return ctrl.Result{RequeueAfter: drainRequeueAfter}, nil
 		}
 		if err := clearRunSandboxStatus(ctx, r.Client, run); err != nil {
 			return ctrl.Result{}, err
@@ -544,7 +614,7 @@ func (r *AgentRunReconciler) monitorAgentSandbox(ctx context.Context, run *platf
 			return ctrl.Result{}, checkErr
 		}
 		if transient {
-			return ctrl.Result{RequeueAfter: requeueAfter}, nil
+			return r.awaitSandboxStartup(ctx, run, requeueAfter, "template is not ready")
 		}
 		return ctrl.Result{}, r.markRunFailed(ctx, run, claimErr)
 	}
@@ -555,7 +625,7 @@ func (r *AgentRunReconciler) monitorAgentSandbox(ctx context.Context, run *platf
 		resolvedPodName, err := resolveSandboxPodName(ctx, r.Client, run.Namespace, sandboxName)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
-				return ctrl.Result{RequeueAfter: requeueAfter}, nil
+				return r.awaitSandboxStartup(ctx, run, requeueAfter, fmt.Sprintf("%s was not created", sandboxName))
 			}
 			return ctrl.Result{}, err
 		}
@@ -565,7 +635,7 @@ func (r *AgentRunReconciler) monitorAgentSandbox(ctx context.Context, run *platf
 		podName = strings.TrimSpace(run.Status.Sandbox.SandboxRef.Name)
 	}
 	if podName == "" {
-		return ctrl.Result{RequeueAfter: requeueAfter}, nil
+		return r.awaitSandboxStartup(ctx, run, requeueAfter, fmt.Sprintf("claim %s was not bound", claimName))
 	}
 	if err := syncAgentSandboxRefs(ctx, r.Client, run, claimName, podName); err != nil {
 		return ctrl.Result{}, fmt.Errorf("syncing sandbox refs: %w", err)
@@ -573,9 +643,43 @@ func (r *AgentRunReconciler) monitorAgentSandbox(ctx context.Context, run *platf
 	return r.monitorPodName(ctx, run, podName, requeueAfter)
 }
 
+// getRunSandboxClaim reads the run's claim, confirming a cache miss with an
+// uncached read when an API reader is configured. It returns nil when the
+// claim does not exist.
+func (r *AgentRunReconciler) getRunSandboxClaim(ctx context.Context, run *platformv1alpha1.AgentRun, claimName string) (*extensionsv1alpha1.SandboxClaim, error) {
+	key := client.ObjectKey{Name: claimName, Namespace: run.Namespace}
+	claim := &extensionsv1alpha1.SandboxClaim{}
+	err := r.Get(ctx, key, claim)
+	if apierrors.IsNotFound(err) && r.APIReader != nil {
+		err = r.APIReader.Get(ctx, key, claim)
+	}
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return claim, nil
+}
+
+// awaitSandboxStartup keeps polling a sandbox that has no worker pod yet,
+// failing a run still starting up once the pod startup deadline (measured
+// from admission) passes so an unbound claim cannot keep it Admitted forever.
+func (r *AgentRunReconciler) awaitSandboxStartup(ctx context.Context, run *platformv1alpha1.AgentRun, requeueAfter time.Duration, detail string) (ctrl.Result, error) {
+	switch run.Status.Phase {
+	case platformv1alpha1.AgentRunPhasePending, platformv1alpha1.AgentRunPhaseAdmitted, platformv1alpha1.AgentRunPhaseProvisioning:
+		if deadline := podStartupDeadline(); startupElapsed(run) > deadline {
+			return ctrl.Result{}, r.markRunFailed(ctx, run, fmt.Errorf("sandbox did not start within %s: %s", deadline, detail))
+		}
+	}
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
+}
+
 func clearRunSandboxStatus(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) error {
 	return retryAgentRunStatusPatch(ctx, c, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
-		fresh.Status.Sandbox = nil
+		if fresh.UID == run.UID && fresh.Status.LastWakeTime.Equal(run.Status.LastWakeTime) && reflect.DeepEqual(fresh.Status.Sandbox, run.Status.Sandbox) {
+			fresh.Status.Sandbox = nil
+		}
 	})
 }
 
@@ -589,6 +693,9 @@ func syncAgentSandboxRefs(ctx context.Context, c client.Client, run *platformv1a
 	}
 
 	return retryAgentRunStatusPatch(ctx, c, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
+		if runStopped(fresh) || fresh.UID != run.UID || !fresh.Status.LastWakeTime.Equal(run.Status.LastWakeTime) {
+			return
+		}
 		if fresh.Status.Sandbox == nil {
 			fresh.Status.Sandbox = &platformv1alpha1.AgentRunSandboxStatus{}
 		}
@@ -711,7 +818,7 @@ func persistWorkspaceEnabled(runtimeProfile *platformv1alpha1.RuntimeProfile) bo
 }
 
 func workspacePVCName(run *platformv1alpha1.AgentRun) string {
-	return sanitizeDNSLabel("ws", run.Name)
+	return sandboxRunResourceName("ws", run)
 }
 
 func ensureWorkspacePVC(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun, runtimeProfile *platformv1alpha1.RuntimeProfile) (string, error) {
@@ -719,7 +826,12 @@ func ensureWorkspacePVC(ctx context.Context, c client.Client, run *platformv1alp
 
 	existing := &corev1.PersistentVolumeClaim{}
 	if err := c.Get(ctx, client.ObjectKey{Name: name, Namespace: run.Namespace}, existing); err == nil {
+		if err := runOwnershipConflict(existing, run, "PersistentVolumeClaim"); err != nil {
+			return "", err
+		}
 		return name, nil
+	} else if !apierrors.IsNotFound(err) {
+		return "", fmt.Errorf("getting workspace PVC: %w", err)
 	}
 
 	storageSize := "10Gi"
@@ -728,7 +840,7 @@ func ensureWorkspacePVC(ctx context.Context, c client.Client, run *platformv1alp
 	}
 	storageQuantity, err := resource.ParseQuantity(storageSize)
 	if err != nil {
-		return "", fmt.Errorf("invalid RuntimeProfile sandbox workspaceSize %q: %w", storageSize, err)
+		return "", permanentProvisioningErrorf("invalid RuntimeProfile sandbox workspaceSize %q: %w", storageSize, err)
 	}
 
 	pvc := &corev1.PersistentVolumeClaim{
@@ -736,9 +848,9 @@ func ensureWorkspacePVC(ctx context.Context, c client.Client, run *platformv1alp
 			Name:      name,
 			Namespace: run.Namespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/name":                "gratefulagents",
-				"app.kubernetes.io/component":           "workspace",
-				"platform.gratefulagents.dev/owner-run": run.Name,
+				"app.kubernetes.io/name":      "gratefulagents",
+				"app.kubernetes.io/component": "workspace",
+				ownerRunLabel:                 runNameLabelValue(run.Name),
 			},
 			OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
 		},
@@ -753,7 +865,8 @@ func ensureWorkspacePVC(ctx context.Context, c client.Client, run *platformv1alp
 	}
 	if err := c.Create(ctx, pvc); err != nil {
 		if apierrors.IsAlreadyExists(err) {
-			return name, nil
+			// Re-read on the next attempt so the ownership check runs.
+			return "", fmt.Errorf("%w: PersistentVolumeClaim %s/%s created concurrently", errRunSandboxReplaced, run.Namespace, name)
 		}
 		return "", fmt.Errorf("creating workspace PVC: %w", err)
 	}

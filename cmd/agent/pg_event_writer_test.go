@@ -569,3 +569,79 @@ func TestPGEventWriterByteBudgetDropsOldest(t *testing.T) {
 		t.Fatalf("bufBytes after drain = %d, want 0", writer.bufBytes)
 	}
 }
+
+// flakyBatchStateStore fails the first failures batch writes, then succeeds.
+type flakyBatchStateStore struct {
+	recordingStateStore
+	failures int
+	attempts int
+}
+
+func (m *flakyBatchStateStore) WriteActivityEvents(_ context.Context, _ uuid.UUID, events []store.ActivityEventInput) ([]int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.attempts++
+	if m.attempts <= m.failures {
+		return nil, fmt.Errorf("transient write failure %d", m.attempts)
+	}
+	ids := make([]int64, len(events))
+	for i, ev := range events {
+		m.writes = append(m.writes, writeCall{eventType: ev.EventType, summary: ev.Summary})
+		ids[i] = int64(len(m.writes))
+	}
+	return ids, nil
+}
+
+func shortPGEventWriterRetries(t *testing.T) {
+	t.Helper()
+	oldBackoff := pgEventWriterRetryBackoff
+	pgEventWriterRetryBackoff = time.Millisecond
+	t.Cleanup(func() { pgEventWriterRetryBackoff = oldBackoff })
+}
+
+func TestPGEventWriterRetriesTransientBatchFailure(t *testing.T) {
+	shortPGEventWriterRetries(t)
+	ss := &flakyBatchStateStore{failures: 2}
+	writer := newPGEventWriter(ss, uuid.New())
+	for i := 0; i < 3; i++ {
+		if _, err := writer.Write([]byte(fmt.Sprintf(`{"type":"tool_use","tool":"event-%d"}`, i))); err != nil {
+			t.Fatalf("Write(%d) error = %v", i, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	if len(ss.writes) != 3 {
+		t.Fatalf("written events = %d, want 3 after retrying transient failures", len(ss.writes))
+	}
+	for i, write := range ss.writes {
+		if want := fmt.Sprintf("event-%d", i); write.summary != want {
+			t.Fatalf("write[%d].summary = %q, want %q (order preserved)", i, write.summary, want)
+		}
+	}
+	if writer.unflushed != 0 {
+		t.Fatalf("unflushed = %d, want 0", writer.unflushed)
+	}
+}
+
+func TestPGEventWriterCountsPersistentWriteFailuresAsUnflushed(t *testing.T) {
+	shortPGEventWriterRetries(t)
+	ss := &flakyBatchStateStore{failures: 1 << 30}
+	writer := newPGEventWriter(ss, uuid.New())
+	if _, err := writer.Write([]byte(`{"type":"assistant_text","message":"lost"}`)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if writer.unflushed != 1 {
+		t.Fatalf("unflushed = %d, want 1 for a batch that failed every retry", writer.unflushed)
+	}
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	if ss.attempts != pgEventWriterWriteAttempts {
+		t.Fatalf("attempts = %d, want %d", ss.attempts, pgEventWriterWriteAttempts)
+	}
+}

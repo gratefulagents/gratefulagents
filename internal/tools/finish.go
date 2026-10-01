@@ -35,6 +35,14 @@ func (h *FinishSummaryHolder) Summary() string {
 	return h.summary
 }
 
+// Reset clears the captured summary so a later pass that never calls finish
+// cannot surface a stale summary as its reply.
+func (h *FinishSummaryHolder) Reset() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.summary = ""
+}
+
 // RegisterFinishTool registers the SDK finish tool with an AgentRun status sink.
 // It returns a holder that captures the finish summary for display.
 func RegisterFinishTool(registry *Registry, k8sClient client.Client, taskName, namespace string) *FinishSummaryHolder {

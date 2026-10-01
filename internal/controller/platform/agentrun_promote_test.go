@@ -58,7 +58,7 @@ func TestReconcilePromoteRunningRunTearsDownComputeAndMarksSucceeded(t *testing.
 		"platform.gratefulagents.dev/owner-run-uid": string(run.UID),
 	}}}
 	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
-		Name: "run-promote-run", Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+		Name: "run-promote-run", Namespace: "default", Labels: sandboxClaimLabels(run), OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
 	}}
 	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
 		Name: managedSandboxTemplateName(run), Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
@@ -84,7 +84,7 @@ func TestReconcilePromoteRunningRunTearsDownComputeAndMarksSucceeded(t *testing.
 	if err != nil {
 		t.Fatalf("Reconcile promote drain error = %v", err)
 	}
-	if !result.Requeue {
+	if result.RequeueAfter != drainRequeueAfter {
 		t.Fatalf("result = %#v, want requeue while runner drains", result)
 	}
 	result, err = reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: run.Name, Namespace: run.Namespace}})

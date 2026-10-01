@@ -172,6 +172,10 @@ func TestPersistedItemsFromRunStripsImages(t *testing.T) {
 		{Type: agent.RunItemMessage, Message: &agent.MessageOutput{
 			Images: []agent.ImageAttachment{{MediaType: "image/png", Data: "xyz"}},
 		}},
+		{Type: agent.RunItemToolOutput, ToolOutput: &agent.ToolOutputData{
+			CallID: "screenshot", Content: "Desktop screenshot",
+			Images: []agent.ImageAttachment{{MediaType: "image/png", Data: "secret-tool-base64"}},
+		}},
 	}
 
 	persisted, ok := persistedItemsFromRun(items)
@@ -181,15 +185,36 @@ func TestPersistedItemsFromRunStripsImages(t *testing.T) {
 	if len(persisted[0].Message.Images) != 0 {
 		t.Error("images not stripped from message with text")
 	}
-	if persisted[0].Message.Text != "look at this" {
+	if persisted[0].Message.Text != "look at this\n[image omitted]" {
 		t.Errorf("text changed: %q", persisted[0].Message.Text)
 	}
-	if persisted[1].Message.Text != transcriptImagePlaceholder {
+	if persisted[1].Message.Text != "[image omitted]" {
 		t.Errorf("image-only message text = %q, want placeholder", persisted[1].Message.Text)
 	}
 	// Source items must not be mutated (the loop keeps using them in memory).
 	if len(items[0].Message.Images) != 1 || items[1].Message.Text != "" {
 		t.Error("persistedItemsFromRun mutated source items")
+	}
+	if len(persisted[2].ToolOutput.Images) != 0 || persisted[2].ToolOutput.Content != "Desktop screenshot\n[image omitted]" || persisted[2].ToolOutput.CallID != "screenshot" {
+		t.Fatalf("tool output images not replaced by placeholder: %+v", persisted[2].ToolOutput)
+	}
+	if len(items[2].ToolOutput.Images) != 1 || items[2].ToolOutput.Content != "Desktop screenshot" {
+		t.Fatal("live tool images were mutated")
+	}
+	blob, err := encodeTranscriptSnapshot(transcriptSnapshot{Version: transcriptSnapshotVersion, Items: persisted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := decodeTranscriptSnapshot(blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "secret-tool-base64") || strings.Contains(string(raw), strings.Repeat("A", 4096)) || strings.Contains(string(raw), "xyz") {
+		t.Fatal("image payload survived snapshot round trip")
 	}
 }
 

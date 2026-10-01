@@ -9,10 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	internalslack "github.com/gratefulagents/gratefulagents/internal/slack"
 	"github.com/gratefulagents/gratefulagents/internal/store/postgres/sqlc"
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
@@ -259,29 +256,9 @@ func (o *slackOrchestrator) mayStop(userID string) bool {
 	return false
 }
 
-// interruptRun requests the run's current turn to stop on both channels the
-// runner watches: the CRD annotation and the session store.
+// interruptRun records a stop request for the run's current turn on its
+// session, which the runner's per-turn watcher consumes.
 func (o *slackOrchestrator) interruptRun(ctx context.Context, runName, requestedBy string) {
-	if o.crdClient != nil {
-		run := &platformv1alpha1.AgentRun{}
-		key := client.ObjectKey{Namespace: o.namespace, Name: runName}
-		if err := o.crdClient.Get(ctx, key, run); err != nil {
-			if !apierrors.IsNotFound(err) {
-				log.Printf("slack connector %s: reading run %s for stop: %v", o.agentName, runName, err)
-			}
-		} else if !isTerminalPhase(run.Status.Phase) {
-			patch := client.MergeFrom(run.DeepCopy())
-			if run.Annotations == nil {
-				run.Annotations = map[string]string{}
-			}
-			if _, exists := run.Annotations[platformv1alpha1.InterruptRequestedAnnotation]; !exists {
-				run.Annotations[platformv1alpha1.InterruptRequestedAnnotation] = time.Now().UTC().Format(time.RFC3339)
-				if err := o.crdClient.Patch(ctx, run, patch); err != nil {
-					log.Printf("slack connector %s: recording interrupt on %s: %v", o.agentName, runName, err)
-				}
-			}
-		}
-	}
 	if o.store == nil {
 		return
 	}

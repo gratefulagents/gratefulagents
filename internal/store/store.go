@@ -262,6 +262,9 @@ type DurableAssistantCommitter interface {
 // MessageClaimer provides PostgreSQL's durable claim protocol without forcing
 // lightweight/test StateStore implementations to emulate database CAS.
 type MessageClaimer interface {
+	// ClaimUserMessage must return the existing claim on a same-token retry
+	// after an ambiguous write, without changing its delivery order or stealing
+	// another token's claim.
 	ClaimUserMessage(ctx context.Context, sessionID uuid.UUID, messageID int64, claimToken uuid.UUID) (message *Message, claimed bool, err error)
 	AppendAssistantAndCompleteClaims(ctx context.Context, sessionID uuid.UUID, claimToken uuid.UUID, content string) (*Message, error)
 	CompleteClaims(ctx context.Context, sessionID uuid.UUID, claimToken uuid.UUID) error

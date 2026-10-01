@@ -178,25 +178,6 @@ func (s *Server) InterruptAgentRun(ctx context.Context, req *platform.InterruptA
 
 	actor := resolveActorLabel(ctx)
 
-	// Dual-channel stop: the Postgres session is the primary channel, and the
-	// CRD annotation is the fallback the runner also polls. Recording both
-	// means a session-store outage cannot make "Stop" a silent no-op, and the
-	// lingering annotation doubles as the acknowledgment signal — the runner
-	// deletes it when it claims the request, so an annotation that persists
-	// means the stop is unacked and the user can escalate to Cancel.
-	_, annotationErr := s.patchAgentRunWithRetry(ctx, req.Namespace, req.Name, func(fresh *platformv1alpha1.AgentRun) error {
-		if fresh.Annotations == nil {
-			fresh.Annotations = map[string]string{}
-		}
-		if _, exists := fresh.Annotations[platformv1alpha1.InterruptRequestedAnnotation]; !exists {
-			fresh.Annotations[platformv1alpha1.InterruptRequestedAnnotation] = time.Now().UTC().Format(time.RFC3339)
-		}
-		return nil
-	})
-	if annotationErr != nil {
-		log.Printf("WARN: failed to record interrupt annotation for %s/%s: %v", req.Namespace, req.Name, annotationErr)
-	}
-
 	storeErr := func() error {
 		if s.stateStore == nil {
 			return fmt.Errorf("session store is not configured")
@@ -214,10 +195,7 @@ func (s *Server) InterruptAgentRun(ctx context.Context, req *platform.InterruptA
 		return nil
 	}()
 	if storeErr != nil {
-		if annotationErr != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("stop could not be recorded on any channel: %w", storeErr))
-		}
-		log.Printf("WARN: interrupt for %s/%s recorded only on the CRD fallback channel: %v", req.Namespace, req.Name, storeErr)
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("stop could not be recorded: %w", storeErr))
 	}
 	return &platform.InterruptAgentRunResponse{}, nil
 }

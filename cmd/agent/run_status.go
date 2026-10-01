@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
-	"math"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -30,6 +30,65 @@ func getAgentRun(ctx context.Context, c client.Client, taskName, namespace strin
 		return nil
 	}
 	return run
+}
+
+// Transient API-server and Postgres errors are retried with capped
+// exponential backoff; vars so tests can shrink the delays.
+var (
+	transientRetryBaseDelay = 250 * time.Millisecond
+	transientRetryMaxDelay  = 10 * time.Second
+)
+
+// permanentError marks an error retryTransient must not retry.
+type permanentError struct{ error }
+
+func (e permanentError) Unwrap() error { return e.error }
+
+// retryTransient runs fn until it succeeds, returns a permanentError, ctx
+// ends, or attempts (when > 0) are exhausted. attempts <= 0 retries until ctx
+// is cancelled: one transient blip must not end a long-lived session.
+func retryTransient(ctx context.Context, what string, attempts int, fn func(context.Context) error) error {
+	delay := transientRetryBaseDelay
+	for attempt := 1; ; attempt++ {
+		err := fn(ctx)
+		if err == nil {
+			return nil
+		}
+		var permanent permanentError
+		if errors.As(err, &permanent) {
+			return permanent.error
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		if attempts > 0 && attempt >= attempts {
+			return err
+		}
+		log.Printf("WARN: %s failed (attempt %d): %v — retrying in %s", what, attempt, err, delay)
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(delay):
+		}
+		delay = min(delay*2, transientRetryMaxDelay)
+	}
+}
+
+// readAgentRun reads the AgentRun, retrying transient API errors (attempts <=
+// 0: until ctx ends). NotFound is permanent.
+func readAgentRun(ctx context.Context, c client.Client, name, namespace string, attempts int) (*platformv1alpha1.AgentRun, error) {
+	run := &platformv1alpha1.AgentRun{}
+	err := retryTransient(ctx, "reading AgentRun "+namespace+"/"+name, attempts, func(ctx context.Context) error {
+		err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, run)
+		if apierrors.IsNotFound(err) {
+			return permanentError{err}
+		}
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return run, nil
 }
 
 // --- CRD status writing ---
@@ -100,6 +159,61 @@ func progressMetricsBaselineFromRun(run *platformv1alpha1.AgentRun) progressMetr
 		baseline.CostUSD = cost
 	}
 	return baseline
+}
+
+// startupMetricsReadAttempts bounds the startup reads of the prior cost
+// baseline before the pod refuses to start.
+const startupMetricsReadAttempts = 6
+
+// loadProgressMetricsBaseline captures the spend recorded by earlier pods as
+// the field-wise max of the Postgres session metrics (written first) and the
+// AgentRun status mirror. A source that stays unreadable after bounded retries
+// is skipped; if neither is readable startup fails instead of silently
+// resetting spend to zero, which would re-grant the whole cost cap.
+func loadProgressMetricsBaseline(ctx context.Context, c client.Client, sc *sessionclient.Client, name, namespace string) (progressMetricsBaseline, error) {
+	var baseline progressMetricsBaseline
+	run, runErr := readAgentRun(ctx, c, name, namespace, startupMetricsReadAttempts)
+	if runErr == nil {
+		baseline = progressMetricsBaselineFromRun(run)
+	}
+	var pgErr error
+	if sc != nil {
+		var metrics sessionclient.SessionMetrics
+		pgErr = retryTransient(ctx, "reading session metrics", startupMetricsReadAttempts, func(ctx context.Context) error {
+			var err error
+			metrics, err = sc.ReadMetrics(ctx)
+			return err
+		})
+		if pgErr == nil {
+			baseline = maxProgressMetrics(baseline, progressMetricsBaseline{
+				CostUSD:       max(metrics.CostUSD, 0),
+				InputTokens:   metrics.InputTokens,
+				OutputTokens:  metrics.OutputTokens,
+				ToolCallCount: metrics.ToolCallCount,
+			})
+		}
+	} else {
+		pgErr = errors.New("no session client")
+	}
+	if runErr != nil && pgErr != nil {
+		return progressMetricsBaseline{}, fmt.Errorf("reading prior run metrics: AgentRun: %v; session: %v", runErr, pgErr)
+	}
+	if runErr != nil {
+		log.Printf("WARN: AgentRun metrics unreadable (%v) — cost baseline taken from the session store", runErr)
+	}
+	if pgErr != nil {
+		log.Printf("WARN: session metrics unreadable (%v) — cost baseline taken from the AgentRun status", pgErr)
+	}
+	return baseline, nil
+}
+
+func maxProgressMetrics(a, b progressMetricsBaseline) progressMetricsBaseline {
+	return progressMetricsBaseline{
+		CostUSD:       max(a.CostUSD, b.CostUSD),
+		InputTokens:   max(a.InputTokens, b.InputTokens),
+		OutputTokens:  max(a.OutputTokens, b.OutputTokens),
+		ToolCallCount: max(a.ToolCallCount, b.ToolCallCount),
+	}
 }
 
 func cumulativeProgressMetrics(baseline progressMetricsBaseline, snap agent.ProgressSnapshot) progressMetricsBaseline {
@@ -227,28 +341,10 @@ func writeProgressToStatus(ctx context.Context, c client.Client, taskName, taskN
 // --- Shared CRD helpers ---
 
 func patchAgentRunStatus(ctx context.Context, c client.Client, name, namespace string, mutate func(*platformv1alpha1.AgentRun)) error {
-	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		run := &platformv1alpha1.AgentRun{}
-		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, run); err != nil {
-			if apierrors.IsNotFound(err) {
-				return nil
-			}
-			return fmt.Errorf("getting AgentRun: %w", err)
-		}
-		patch := client.MergeFromWithOptions(run.DeepCopy(), client.MergeFromWithOptimisticLock{})
-		mutate(run)
-		if err := c.Status().Patch(ctx, run, patch); err != nil {
-			if apierrors.IsNotFound(err) {
-				return nil
-			}
-			return err
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("patching AgentRun status: %w", err)
-	}
-	return nil
+	return patchAgentRunWithRetry(ctx, c, name, namespace, "status", mutate,
+		func(ctx context.Context, run *platformv1alpha1.AgentRun, patch client.Patch) error {
+			return c.Status().Patch(ctx, run, patch)
+		})
 }
 
 // patchAgentRunSpec mutates the AgentRun spec (not status). The worker owns
@@ -256,6 +352,20 @@ func patchAgentRunStatus(ctx context.Context, c client.Client, name, namespace s
 // "this pod must be re-provisioned" signal, bumped when a degraded read-only
 // pod detects that write access has resolved.
 func patchAgentRunSpec(ctx context.Context, c client.Client, name, namespace string, mutate func(*platformv1alpha1.AgentRun)) error {
+	return patchAgentRunWithRetry(ctx, c, name, namespace, "spec", mutate,
+		func(ctx context.Context, run *platformv1alpha1.AgentRun, patch client.Patch) error {
+			return c.Patch(ctx, run, patch)
+		})
+}
+
+// patchAgentRunWithRetry is the worker's get → mutate → optimistic-lock patch
+// loop, retried on conflict. A deleted AgentRun is not an error: the pod is
+// about to be torn down with it.
+func patchAgentRunWithRetry(
+	ctx context.Context, c client.Client, name, namespace, what string,
+	mutate func(*platformv1alpha1.AgentRun),
+	apply func(context.Context, *platformv1alpha1.AgentRun, client.Patch) error,
+) error {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		run := &platformv1alpha1.AgentRun{}
 		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, run); err != nil {
@@ -266,16 +376,13 @@ func patchAgentRunSpec(ctx context.Context, c client.Client, name, namespace str
 		}
 		patch := client.MergeFromWithOptions(run.DeepCopy(), client.MergeFromWithOptimisticLock{})
 		mutate(run)
-		if err := c.Patch(ctx, run, patch); err != nil {
-			if apierrors.IsNotFound(err) {
-				return nil
-			}
+		if err := apply(ctx, run, patch); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("patching AgentRun spec: %w", err)
+		return fmt.Errorf("patching AgentRun %s: %w", what, err)
 	}
 	return nil
 }
@@ -287,7 +394,7 @@ func ensureRunArtifacts(in *platformv1alpha1.AgentRunArtifacts) *platformv1alpha
 	return &platformv1alpha1.AgentRunArtifacts{}
 }
 
-// --- Cost ceiling helpers ---
+// --- Mode and reviewer helpers ---
 
 // reviewerModeName matches the PR loop's default reviewer ModeTemplate.
 // Used only as a legacy fallback for templates without permissionMode.
@@ -401,31 +508,14 @@ func isReviewerRun(run *platformv1alpha1.AgentRun) bool {
 	return run.Spec.ModeRef != nil && run.Spec.ModeRef.Name == reviewerModeName
 }
 
-// costCapUSD returns the run's spec.limits.maxCostUsd as a float, with ok
-// false when no valid positive cap is configured.
-func costCapUSD(run *platformv1alpha1.AgentRun) (float64, bool) {
-	capUSD, configured, err := validatedCostCapUSD(run)
-	return capUSD, configured && err == nil
-}
+// --- Cost ceiling helpers ---
 
+// validatedCostCapUSD returns the run's spec.limits.maxCostUsd. configured is
+// true whenever a value is set; an invalid value is an error so the caller
+// fails closed instead of running uncapped.
 func validatedCostCapUSD(run *platformv1alpha1.AgentRun) (float64, bool, error) {
 	if run == nil || run.Spec.Limits == nil {
 		return 0, false, nil
 	}
-	raw := strings.TrimSpace(run.Spec.Limits.MaxCostUsd)
-	if raw == "" {
-		return 0, false, nil
-	}
-	capUSD, err := strconv.ParseFloat(raw, 64)
-	if err != nil || math.IsNaN(capUSD) || math.IsInf(capUSD, 0) || capUSD <= 0 {
-		return 0, true, fmt.Errorf("maxCostUsd must be a finite positive decimal")
-	}
-	return capUSD, true, nil
-}
-
-// baselineCostUSD reads the cost already recorded on the run's status metrics,
-// so spend from earlier provisioning sessions counts against the cap after a
-// wake/resume (the in-process tracker restarts from zero).
-func baselineCostUSD(run *platformv1alpha1.AgentRun) float64 {
-	return progressMetricsBaselineFromRun(run).CostUSD
+	return run.Spec.Limits.CostCapUSD()
 }

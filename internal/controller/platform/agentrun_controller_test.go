@@ -25,6 +25,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 const (
@@ -79,6 +80,10 @@ func addAgentSandboxSchemes(t *testing.T, scheme *runtime.Scheme) {
 	}
 	if err := agentsandboxextensionsv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add agent-sandbox extensions scheme: %v", err)
+	}
+	// Drains release the run's ClusterRoleBindings.
+	if err := rbacv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add rbac scheme: %v", err)
 	}
 }
 
@@ -296,9 +301,9 @@ func TestMonitorPodRunningPreservesInteractivePhases(t *testing.T) {
 
 			reconciler := &AgentRunReconciler{Client: k8sClient}
 			requeue := 7 * time.Second
-			result, err := reconciler.monitorPod(context.Background(), run, requeue)
+			result, err := reconciler.monitorPodName(context.Background(), run, podName, requeue)
 			if err != nil {
-				t.Fatalf("monitorPod() error = %v", err)
+				t.Fatalf("monitorPodName() error = %v", err)
 			}
 			if result.RequeueAfter != requeue {
 				t.Fatalf("RequeueAfter = %s, want %s", result.RequeueAfter, requeue)
@@ -374,9 +379,9 @@ func TestMonitorPodRunningRetriesStatusConflict(t *testing.T) {
 		Client: &conflictOnceStatusClient{Client: baseClient},
 	}
 
-	result, err := reconciler.monitorPod(context.Background(), run, 5*time.Second)
+	result, err := reconciler.monitorPodName(context.Background(), run, pod.Name, 5*time.Second)
 	if err != nil {
-		t.Fatalf("monitorPod() error = %v", err)
+		t.Fatalf("monitorPodName() error = %v", err)
 	}
 	if result.RequeueAfter != 5*time.Second {
 		t.Fatalf("RequeueAfter = %s, want %s", result.RequeueAfter, 5*time.Second)
@@ -441,8 +446,8 @@ func TestMonitorPodTimeoutPausesAndReconcileReleasesSandbox(t *testing.T) {
 		Build()
 
 	reconciler := &AgentRunReconciler{Client: k8sClient}
-	if _, err := reconciler.monitorPod(context.Background(), run, 5*time.Second); err != nil {
-		t.Fatalf("monitorPod() error = %v", err)
+	if _, err := reconciler.monitorAgentSandbox(context.Background(), run, 5*time.Second); err != nil {
+		t.Fatalf("monitorAgentSandbox() error = %v", err)
 	}
 
 	updated := &platformv1alpha1.AgentRun{}
@@ -462,8 +467,8 @@ func TestMonitorPodTimeoutPausesAndReconcileReleasesSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile paused run error = %v", err)
 	}
-	if !result.Requeue {
-		t.Fatalf("Requeue = false, want true while runner pod drains")
+	if result.RequeueAfter != drainRequeueAfter {
+		t.Fatalf("RequeueAfter = %s, want fixed drain interval while runner pod drains", result.RequeueAfter)
 	}
 	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(run), updated); err != nil {
 		t.Fatalf("get draining run: %v", err)
@@ -725,41 +730,6 @@ func TestResolvedGitRemoteWritesUsesRestrictiveFallback(t *testing.T) {
 	profile.Spec.Security.PermissionMode = platformv1alpha1.PermissionModeWorkspaceWrite
 	if got := resolvedGitRemoteWrites(profile); got != string(platformv1alpha1.GitRemoteWritesEnabled) {
 		t.Fatalf("resolvedGitRemoteWrites() = %q, want enabled", got)
-	}
-}
-
-func TestSyncResolvedGitRemoteWritesRefreshesActiveRun(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatal(err)
-	}
-	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "git-policy-status-run", Namespace: "default"},
-		Spec:       platformv1alpha1.AgentRunSpec{RuntimeProfileRef: &platformv1alpha1.NamedRef{Name: "runtime"}},
-		Status: platformv1alpha1.AgentRunStatus{
-			Phase:  platformv1alpha1.AgentRunPhaseRunning,
-			Policy: &platformv1alpha1.AgentRunResolvedPolicy{ResolvedGitRemoteWrites: "enabled"},
-		},
-	}
-	profile := &platformv1alpha1.RuntimeProfile{
-		ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "default"},
-		Spec: platformv1alpha1.RuntimeProfileSpec{Security: &platformv1alpha1.RuntimeProfileSecurity{
-			PermissionMode:  platformv1alpha1.PermissionModeWorkspaceWrite,
-			GitRemoteWrites: platformv1alpha1.GitRemoteWritesDisabled,
-		}},
-	}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&platformv1alpha1.AgentRun{}).WithObjects(run, profile).Build()
-	r := &AgentRunReconciler{Client: c}
-	changed, err := r.syncResolvedGitRemoteWrites(context.Background(), run)
-	if err != nil || !changed {
-		t.Fatalf("syncResolvedGitRemoteWrites() changed=%v err=%v", changed, err)
-	}
-	var updated platformv1alpha1.AgentRun
-	if err := c.Get(context.Background(), client.ObjectKeyFromObject(run), &updated); err != nil {
-		t.Fatal(err)
-	}
-	if got := updated.Status.Policy.ResolvedGitRemoteWrites; got != string(platformv1alpha1.GitRemoteWritesDisabled) {
-		t.Fatalf("resolved status = %q, want disabled", got)
 	}
 }
 
@@ -1075,6 +1045,7 @@ func TestMonitorAgentSandboxExpiredClaimWithinTimeoutReplacesForResume(t *testin
 	}
 	claim := expiredSandboxClaim("run-expired-claim-resume", "default")
 	claim.OwnerReferences = []metav1.OwnerReference{runOwnerRef(run)}
+	claim.Labels = sandboxClaimLabels(run)
 
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
@@ -1108,118 +1079,6 @@ func TestMonitorAgentSandboxExpiredClaimWithinTimeoutReplacesForResume(t *testin
 	}
 	if updated.Status.LastError != "" {
 		t.Fatalf("LastError = %q, want empty", updated.Status.LastError)
-	}
-}
-
-func TestConsumeInteractionAnnotationsNoOpWithoutApproval(t *testing.T) {
-	t.Parallel()
-
-	scheme := runtime.NewScheme()
-	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("add platform scheme: %v", err)
-	}
-	addAgentSandboxSchemes(t, scheme)
-
-	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "no-approval",
-			Namespace: "default",
-		},
-		Spec: platformv1alpha1.AgentRunSpec{
-			WorkflowMode: platformv1alpha1.WorkflowModeChat,
-		},
-		Status: platformv1alpha1.AgentRunStatus{
-			Phase: platformv1alpha1.AgentRunPhaseRunning,
-		},
-	}
-
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
-		WithObjects(run).
-		Build()
-
-	reconciler := &AgentRunReconciler{Client: k8sClient}
-	handled, err := reconciler.consumeInteractionAnnotations(context.Background(), run)
-	if err != nil {
-		t.Fatalf("consumeInteractionAnnotations() error = %v", err)
-	}
-	if handled {
-		t.Fatal("consumeInteractionAnnotations() handled = true, want false (no approval annotation)")
-	}
-}
-
-func TestConsumeInteractionAnnotationsApprovalAnnotationDoesNotAdvanceRun(t *testing.T) {
-	t.Parallel()
-
-	scheme := runtime.NewScheme()
-	if err := corev1.AddToScheme(scheme); err != nil {
-		t.Fatalf("add corev1 scheme: %v", err)
-	}
-	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("add platform scheme: %v", err)
-	}
-	addAgentSandboxSchemes(t, scheme)
-
-	podName := "run-approved-resume"
-	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "approved-resume",
-			Namespace: "default",
-			Annotations: map[string]string{
-				approvalRequestedAnnotation: "true",
-			},
-		},
-		Spec: platformv1alpha1.AgentRunSpec{
-			WorkflowMode: platformv1alpha1.WorkflowModeAuto,
-		},
-		Status: platformv1alpha1.AgentRunStatus{
-			Phase: platformv1alpha1.AgentRunPhaseRunning,
-			Queue: &platformv1alpha1.AgentRunQueueStatus{State: "Running"},
-			Sandbox: &platformv1alpha1.AgentRunSandboxStatus{
-				SandboxRef: &platformv1alpha1.NamedRef{Name: podName},
-			},
-		},
-	}
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: "default"},
-	}
-
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
-		WithObjects(run, pod).
-		Build()
-
-	reconciler := &AgentRunReconciler{Client: k8sClient}
-	handled, err := reconciler.consumeInteractionAnnotations(context.Background(), run)
-	if err != nil {
-		t.Fatalf("consumeInteractionAnnotations() error = %v", err)
-	}
-	if !handled {
-		t.Fatal("consumeInteractionAnnotations() handled = false, want true")
-	}
-
-	updated := &platformv1alpha1.AgentRun{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: run.Name, Namespace: run.Namespace}, updated); err != nil {
-		t.Fatalf("get updated run: %v", err)
-	}
-	if updated.Status.Phase != platformv1alpha1.AgentRunPhaseRunning {
-		t.Fatalf("Phase = %q, want Running", updated.Status.Phase)
-	}
-	if updated.Status.Queue == nil || updated.Status.Queue.State != "Running" {
-		t.Fatalf("Queue = %#v, want Running queue state", updated.Status.Queue)
-	}
-	if updated.Status.CompletedAt != nil {
-		t.Fatalf("CompletedAt = %#v, want nil", updated.Status.CompletedAt)
-	}
-	if got := updated.Annotations[approvalRequestedAnnotation]; got != "" {
-		t.Fatalf("approval annotation = %q, want cleared", got)
-	}
-	// Pod should still exist — persistent pod model.
-	podCheck := &corev1.Pod{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: podName, Namespace: "default"}, podCheck); err != nil {
-		t.Fatalf("pod should still exist but got err: %v", err)
 	}
 }
 
@@ -1363,7 +1222,7 @@ func TestReconcileRestartRunningRunBouncesCompute(t *testing.T) {
 		},
 	}
 	oldClaim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
-		Name: "run-restart-run", Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+		Name: "run-restart-run", Namespace: "default", Labels: sandboxClaimLabels(run), OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
 	}}
 	oldPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "old-restart-pod", Namespace: "default", Labels: map[string]string{
@@ -1383,8 +1242,8 @@ func TestReconcileRestartRunningRunBouncesCompute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile restart drain error = %v", err)
 	}
-	if !result.Requeue {
-		t.Fatalf("Requeue = false, want true while runner pod drains")
+	if result.RequeueAfter != drainRequeueAfter {
+		t.Fatalf("RequeueAfter = %s, want fixed drain interval while runner pod drains", result.RequeueAfter)
 	}
 	draining := &platformv1alpha1.AgentRun{}
 	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(run), draining); err != nil {
@@ -1526,7 +1385,7 @@ func TestReconcileWakeSucceededRunRequeuesFreshSandbox(t *testing.T) {
 		},
 	}
 	oldClaim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
-		Name: "run-wake-run", Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+		Name: "run-wake-run", Namespace: "default", Labels: sandboxClaimLabels(run), OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
 	}}
 	oldTemplate := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
 		Name: managedSandboxTemplateName(run), Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
@@ -1549,8 +1408,8 @@ func TestReconcileWakeSucceededRunRequeuesFreshSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile wake drain error = %v", err)
 	}
-	if !result.Requeue {
-		t.Fatalf("Requeue = false, want true while runner pod drains")
+	if result.RequeueAfter != drainRequeueAfter {
+		t.Fatalf("RequeueAfter = %s, want fixed drain interval while runner pod drains", result.RequeueAfter)
 	}
 	draining := &platformv1alpha1.AgentRun{}
 	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(run), draining); err != nil {
@@ -1658,7 +1517,7 @@ func TestReconcileCancelRunningRunTearsDownComputeAndMarksCancelled(t *testing.T
 		"platform.gratefulagents.dev/owner-run-uid": string(run.UID),
 	}}}
 	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
-		Name: "run-cancel-run", Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+		Name: "run-cancel-run", Namespace: "default", Labels: sandboxClaimLabels(run), OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
 	}}
 	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
 		Name: managedSandboxTemplateName(run), Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
@@ -1684,7 +1543,7 @@ func TestReconcileCancelRunningRunTearsDownComputeAndMarksCancelled(t *testing.T
 	if err != nil {
 		t.Fatalf("Reconcile cancel drain error = %v", err)
 	}
-	if !result.Requeue {
+	if result.RequeueAfter != drainRequeueAfter {
 		t.Fatalf("result = %#v, want requeue while runner pod drains", result)
 	}
 	draining := &platformv1alpha1.AgentRun{}
@@ -1957,7 +1816,7 @@ func TestReconcileDeletedRunDrainsPodBeforeDeletingSandboxOrData(t *testing.T) {
 		},
 	}
 	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
-		Name: "delete-drain-claim", Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+		Name: "delete-drain-claim", Namespace: "default", Labels: sandboxClaimLabels(run), OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
 	}}
 	template := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
 		Name: managedSandboxTemplateName(run), Namespace: "default", OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
@@ -1977,7 +1836,7 @@ func TestReconcileDeletedRunDrainsPodBeforeDeletingSandboxOrData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile deleting run drain error = %v", err)
 	}
-	if !result.Requeue {
+	if result.RequeueAfter != drainRequeueAfter {
 		t.Fatalf("result = %#v, want requeue while runner pod terminates", result)
 	}
 	if len(stateStore.calls) != 0 {
@@ -2986,4 +2845,546 @@ func sanitizeName(input string) string {
 		}
 	}
 	return string(out)
+}
+
+func newReconcilerTestScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add corev1 scheme: %v", err)
+	}
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add platform scheme: %v", err)
+	}
+	addAgentSandboxSchemes(t, scheme)
+	return scheme
+}
+
+func getRun(t *testing.T, c client.Client, run *platformv1alpha1.AgentRun) *platformv1alpha1.AgentRun {
+	t.Helper()
+	updated := &platformv1alpha1.AgentRun{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(run), updated); err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	return updated
+}
+
+func provisioningRun(name string, started time.Time) *platformv1alpha1.AgentRun {
+	startedAt := metav1.NewTime(started)
+	return &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: types.UID(name + "-uid")},
+		Spec: platformv1alpha1.AgentRunSpec{
+			Repository: platformv1alpha1.RepositoryContext{URL: "https://github.com/example/repo.git", BaseBranch: "main"},
+			Model:      "gpt-5.4",
+			Image:      "ghcr.io/example/worker:latest",
+			Limits:     &platformv1alpha1.AgentRunLimits{MaxRuntime: metav1.Duration{Duration: 6 * time.Hour}},
+		},
+		Status: platformv1alpha1.AgentRunStatus{
+			Phase:     platformv1alpha1.AgentRunPhasePending,
+			Queue:     &platformv1alpha1.AgentRunQueueStatus{State: "Queued"},
+			StartedAt: &startedAt,
+		},
+	}
+}
+
+func TestReconcileRunRetriesTransientProvisioningErrors(t *testing.T) {
+	t.Parallel()
+
+	transient := []error{
+		apierrors.NewServerTimeout(schema.GroupResource{Resource: "serviceaccounts"}, "create", 1),
+		apierrors.NewConflict(schema.GroupResource{Resource: "serviceaccounts"}, "run", errors.New("modified")),
+		apierrors.NewTooManyRequests("slow down", 1),
+		apierrors.NewInternalError(errors.New("webhook unavailable")),
+	}
+	for _, injected := range transient {
+		// A long-running run re-provisioning its sandbox: the deadline is
+		// measured from this attempt, not from the original start.
+		run := provisioningRun("transient-provision", time.Now().Add(-5*time.Hour))
+		admittedLongAgo := metav1.NewTime(time.Now().Add(-5 * time.Hour))
+		run.Status.Phase = platformv1alpha1.AgentRunPhaseRunning
+		run.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Running", AdmittedAt: &admittedLongAgo}
+		c := fake.NewClientBuilder().
+			WithScheme(newReconcilerTestScheme(t)).
+			WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+			WithObjects(run).
+			WithInterceptorFuncs(interceptor.Funcs{Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if _, ok := obj.(*corev1.ServiceAccount); ok {
+					return injected
+				}
+				return c.Create(ctx, obj, opts...)
+			}}).
+			Build()
+		r := &AgentRunReconciler{Client: c}
+		if _, err := r.reconcileRun(context.Background(), run); err == nil {
+			t.Fatalf("%v: reconcileRun() error = nil, want error returned for backoff", injected)
+		}
+		updated := getRun(t, c, run)
+		if updated.Status.Phase != platformv1alpha1.AgentRunPhaseRunning {
+			t.Fatalf("%v: phase = %q, want Running (not failed)", injected, updated.Status.Phase)
+		}
+		started := provisioningAttemptStart(updated)
+		if started == nil || time.Since(started.Time) > time.Minute {
+			t.Fatalf("%v: queue = %#v, want a fresh provisioning attempt marker", injected, updated.Status.Queue)
+		}
+	}
+}
+
+func TestReconcileRunFailsTransientProvisioningErrorPastDeadline(t *testing.T) {
+	t.Parallel()
+
+	run := provisioningRun("deadline-provision", time.Now().Add(-time.Hour))
+	attemptStarted := metav1.NewTime(time.Now().Add(-time.Hour))
+	run.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: provisioningQueueState, AdmittedAt: &attemptStarted}
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run).
+		WithInterceptorFuncs(interceptor.Funcs{Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if _, ok := obj.(*corev1.ServiceAccount); ok {
+				return apierrors.NewServerTimeout(schema.GroupResource{Resource: "serviceaccounts"}, "create", 1)
+			}
+			return c.Create(ctx, obj, opts...)
+		}}).
+		Build()
+	r := &AgentRunReconciler{Client: c}
+	if _, err := r.reconcileRun(context.Background(), run); err != nil {
+		t.Fatalf("reconcileRun() error = %v", err)
+	}
+	updated := getRun(t, c, run)
+	if updated.Status.Phase != platformv1alpha1.AgentRunPhaseFailed || !strings.Contains(updated.Status.LastError, "not provisioned within") {
+		t.Fatalf("status = %q / %q, want Failed after provisioning deadline", updated.Status.Phase, updated.Status.LastError)
+	}
+}
+
+func TestReconcileRunFailsPermanentOwnershipConflict(t *testing.T) {
+	t.Parallel()
+
+	run := provisioningRun("ownership-conflict", time.Now().Add(-time.Minute))
+	controller := true
+	foreignTemplate := &agentsandboxextensionsv1alpha1.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: managedSandboxTemplateName(run), Namespace: run.Namespace,
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: "someone-else", UID: types.UID("other"), Controller: &controller,
+		}},
+	}}
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run, foreignTemplate).
+		Build()
+	r := &AgentRunReconciler{Client: c}
+	if _, err := r.reconcileRun(context.Background(), run); err != nil {
+		t.Fatalf("reconcileRun() error = %v", err)
+	}
+	if got := getRun(t, c, run).Status.Phase; got != platformv1alpha1.AgentRunPhaseFailed {
+		t.Fatalf("phase = %q, want Failed for ownership conflict", got)
+	}
+}
+
+func TestReconcileRunWaitsForStaleServiceAccountFromPreviousIncarnation(t *testing.T) {
+	t.Parallel()
+
+	run := provisioningRun("recreated-run", time.Now().Add(-time.Minute))
+	controller := true
+	staleSA := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{
+		Name: sandboxRunResourceName("run", run), Namespace: run.Namespace,
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: platformv1alpha1.GroupVersion.String(), Kind: "AgentRun", Name: run.Name, UID: types.UID("previous-uid"), Controller: &controller,
+		}},
+	}}
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run, staleSA).
+		Build()
+	r := &AgentRunReconciler{Client: c}
+	result, err := r.reconcileRun(context.Background(), run)
+	if err != nil {
+		t.Fatalf("reconcileRun() error = %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Fatalf("result = %#v, want requeue while the stale ServiceAccount is collected", result)
+	}
+	updated := getRun(t, c, run)
+	if updated.Status.Phase != platformv1alpha1.AgentRunPhasePending || updated.Status.Sandbox != nil {
+		t.Fatalf("status = %#v, want still Pending without a sandbox", updated.Status)
+	}
+	if err := c.Get(context.Background(), client.ObjectKey{Name: sandboxClaimName(run), Namespace: run.Namespace}, &agentsandboxextensionsv1alpha1.SandboxClaim{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("claim get err = %v, want no claim while the stale ServiceAccount exists", err)
+	}
+}
+
+func claimMonitoringRun(name string, admittedAgo time.Duration) *platformv1alpha1.AgentRun {
+	run := provisioningRun(name, time.Now().Add(-admittedAgo))
+	admitted := metav1.NewTime(time.Now().Add(-admittedAgo))
+	run.Status.Phase = platformv1alpha1.AgentRunPhaseAdmitted
+	run.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Queued", AdmittedAt: &admitted}
+	run.Status.Sandbox = &platformv1alpha1.AgentRunSandboxStatus{
+		Provider: agentSandboxProvider,
+		ClaimRef: &platformv1alpha1.NamedRef{Name: sandboxClaimName(run)},
+	}
+	return run
+}
+
+func TestMonitorAgentSandboxToleratesUncachedNewClaim(t *testing.T) {
+	t.Parallel()
+
+	run := claimMonitoringRun("fresh-claim", 5*time.Second)
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run).
+		Build()
+	r := &AgentRunReconciler{Client: c}
+	result, err := r.monitorAgentSandbox(context.Background(), run, time.Second)
+	if err != nil || result.RequeueAfter != time.Second {
+		t.Fatalf("monitorAgentSandbox() = %#v, %v; want requeue within the visibility grace", result, err)
+	}
+	if got := getRun(t, c, run).Status.Phase; got != platformv1alpha1.AgentRunPhaseAdmitted {
+		t.Fatalf("phase = %q, want Admitted", got)
+	}
+}
+
+func TestMonitorAgentSandboxConfirmsMissingClaimWithAPIReader(t *testing.T) {
+	t.Parallel()
+
+	run := claimMonitoringRun("lagging-cache", 10*time.Minute)
+	scheme := newReconcilerTestScheme(t)
+	cached := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run).
+		Build()
+	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: sandboxClaimName(run), Namespace: run.Namespace, Labels: sandboxClaimLabels(run),
+		OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
+	live := fake.NewClientBuilder().WithScheme(scheme).WithObjects(claim).Build()
+
+	r := &AgentRunReconciler{Client: cached, APIReader: live}
+	if _, err := r.monitorAgentSandbox(context.Background(), run, time.Second); err != nil {
+		t.Fatalf("monitorAgentSandbox() error = %v", err)
+	}
+	if got := getRun(t, cached, run).Status.Phase; got == platformv1alpha1.AgentRunPhaseFailed {
+		t.Fatal("run failed although the uncached read found the claim")
+	}
+
+	r = &AgentRunReconciler{Client: cached, APIReader: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	if _, err := r.monitorAgentSandbox(context.Background(), run, time.Second); err != nil {
+		t.Fatalf("monitorAgentSandbox() error = %v", err)
+	}
+	if got := getRun(t, cached, run).Status.Phase; got != platformv1alpha1.AgentRunPhaseFailed {
+		t.Fatalf("phase = %q, want Failed once the claim is confirmed missing", got)
+	}
+}
+
+func TestMonitorAgentSandboxFailsUnboundClaimAfterStartupDeadline(t *testing.T) {
+	t.Parallel()
+
+	run := claimMonitoringRun("unbound-claim", time.Hour)
+	claim := &agentsandboxextensionsv1alpha1.SandboxClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: sandboxClaimName(run), Namespace: run.Namespace, Labels: sandboxClaimLabels(run),
+		OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
+	}}
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run, claim).
+		Build()
+	r := &AgentRunReconciler{Client: c}
+	if _, err := r.monitorAgentSandbox(context.Background(), run, time.Second); err != nil {
+		t.Fatalf("monitorAgentSandbox() error = %v", err)
+	}
+	updated := getRun(t, c, run)
+	if updated.Status.Phase != platformv1alpha1.AgentRunPhaseFailed || !strings.Contains(updated.Status.LastError, "was not bound") {
+		t.Fatalf("status = %q / %q, want Failed for an unbound claim past the startup deadline", updated.Status.Phase, updated.Status.LastError)
+	}
+}
+
+func TestMonitorAgentSandboxPausesTimedOutRunBeforeClaimLookup(t *testing.T) {
+	t.Parallel()
+
+	run := claimMonitoringRun("timed-out-unbound", 7*time.Hour)
+	run.Status.Phase = platformv1alpha1.AgentRunPhaseRunning
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run).
+		Build()
+	r := &AgentRunReconciler{Client: c}
+	if _, err := r.monitorAgentSandbox(context.Background(), run, time.Second); err != nil {
+		t.Fatalf("monitorAgentSandbox() error = %v", err)
+	}
+	if got := getRun(t, c, run).Status.Phase; got != platformv1alpha1.AgentRunPhasePaused {
+		t.Fatalf("phase = %q, want Paused", got)
+	}
+}
+
+func TestStatusWritesDoNotOverwriteFresherPhase(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		freshPhase platformv1alpha1.AgentRunPhase
+		write      func(*AgentRunReconciler, *platformv1alpha1.AgentRun) error
+	}{
+		{"succeeded keeps worker pause", platformv1alpha1.AgentRunPhasePaused, func(r *AgentRunReconciler, run *platformv1alpha1.AgentRun) error {
+			return r.patchSucceeded(context.Background(), run)
+		}},
+		{"running keeps worker question", platformv1alpha1.AgentRunPhaseQuestion, func(r *AgentRunReconciler, run *platformv1alpha1.AgentRun) error {
+			return r.patchRunning(context.Background(), run)
+		}},
+		{"failed keeps terminal", platformv1alpha1.AgentRunPhaseSucceeded, func(r *AgentRunReconciler, run *platformv1alpha1.AgentRun) error {
+			return r.markRunFailed(context.Background(), run, errors.New("pod failed"))
+		}},
+		{"paused keeps terminal", platformv1alpha1.AgentRunPhaseFailed, func(r *AgentRunReconciler, run *platformv1alpha1.AgentRun) error {
+			return r.markRunPaused(context.Background(), run)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			stored := provisioningRun("stale-write", time.Now().Add(-time.Minute))
+			stored.Status.Phase = tc.freshPhase
+			stored.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: string(tc.freshPhase), BlockedReason: "worker reason"}
+			c := fake.NewClientBuilder().
+				WithScheme(newReconcilerTestScheme(t)).
+				WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+				WithObjects(stored).
+				Build()
+			// The caller decided from a stale cached copy.
+			cached := stored.DeepCopy()
+			cached.Status.Phase = platformv1alpha1.AgentRunPhaseRunning
+			if err := tc.write(&AgentRunReconciler{Client: c}, cached); err != nil {
+				t.Fatalf("write error = %v", err)
+			}
+			updated := getRun(t, c, stored)
+			if updated.Status.Phase != tc.freshPhase || updated.Status.Queue.BlockedReason != "worker reason" {
+				t.Fatalf("status = %q / %#v, want fresh %q preserved", updated.Status.Phase, updated.Status.Queue, tc.freshPhase)
+			}
+		})
+	}
+}
+
+func TestPatchSandboxQueuedRecordsSandboxWithoutReactivatingTerminalRun(t *testing.T) {
+	t.Parallel()
+
+	stored := provisioningRun("cancelled-while-provisioning", time.Now().Add(-time.Minute))
+	stored.Status.Phase = platformv1alpha1.AgentRunPhaseCancelled
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(stored).
+		Build()
+	sandbox := &platformv1alpha1.AgentRunSandboxStatus{Provider: agentSandboxProvider, ClaimRef: &platformv1alpha1.NamedRef{Name: "claim"}}
+	if _, err := (&AgentRunReconciler{Client: c}).patchSandboxQueued(context.Background(), stored, sandbox); err != nil {
+		t.Fatalf("patchSandboxQueued() error = %v", err)
+	}
+	updated := getRun(t, c, stored)
+	if updated.Status.Phase != platformv1alpha1.AgentRunPhaseCancelled || updated.Status.Sandbox == nil {
+		t.Fatalf("status = %q / sandbox %#v, want Cancelled with the sandbox recorded for draining", updated.Status.Phase, updated.Status.Sandbox)
+	}
+}
+
+func pausedRun(name, reason, capUSD string, started time.Duration) *platformv1alpha1.AgentRun {
+	run := provisioningRun(name, time.Now().Add(-started))
+	run.Spec.Limits.MaxCostUsd = capUSD
+	run.Status.Phase = platformv1alpha1.AgentRunPhasePaused
+	run.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Paused", BlockedReason: reason}
+	run.Status.Metrics = &platformv1alpha1.AgentRunMetrics{CostUsd: "5.0000"}
+	return run
+}
+
+func TestPausedRunCostCapResumeIgnoresPausedTime(t *testing.T) {
+	t.Parallel()
+
+	// Paused at the cost cap at 5h of a 6h window; the cap is raised after
+	// another 2h. The paused time must not block the resume.
+	run := pausedRun("cost-cap-lifted", "Cost cap reached: $5.0000 spent of the $5.00 limit — increase spec.limits.maxCostUsd to resume.", "10", 7*time.Hour)
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run).
+		Build()
+	if _, err := (&AgentRunReconciler{Client: c}).Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(run)}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	updated := getRun(t, c, run)
+	if updated.Status.Phase != platformv1alpha1.AgentRunPhaseProvisioning {
+		t.Fatalf("phase = %q, want Provisioning", updated.Status.Phase)
+	}
+	if runPastTimeout(updated) {
+		t.Fatal("resumed run is already past its runtime window")
+	}
+}
+
+func TestPausedRunUpdatesBlockedReasonWhenBlockerChanges(t *testing.T) {
+	t.Parallel()
+
+	// Paused for the 6h timeout; maxRuntime extended to 12h but the cost cap
+	// is now exceeded: the reason must point at the cost cap.
+	run := pausedRun("blocker-changes", timeoutPauseReason(6*time.Hour), "2", 7*time.Hour)
+	run.Spec.Limits.MaxRuntime = metav1.Duration{Duration: 12 * time.Hour}
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run).
+		Build()
+	r := &AgentRunReconciler{Client: c}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(run)}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	updated := getRun(t, c, run)
+	if updated.Status.Phase != platformv1alpha1.AgentRunPhasePaused || !strings.Contains(updated.Status.Queue.BlockedReason, "maxCostUsd") {
+		t.Fatalf("status = %q / %q, want Paused with cost-cap reason", updated.Status.Phase, updated.Status.Queue.BlockedReason)
+	}
+	// Steady state: no further write once the reason is current.
+	result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(run)})
+	if err != nil || result.Requeue || result.RequeueAfter != 0 {
+		t.Fatalf("second Reconcile() = %#v, %v; want idle", result, err)
+	}
+}
+
+func TestPausedRunTimeoutStillBlocksUntilExtended(t *testing.T) {
+	t.Parallel()
+
+	run := pausedRun("timeout-paused", timeoutPauseReason(6*time.Hour), "", 7*time.Hour)
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run).
+		Build()
+	if _, err := (&AgentRunReconciler{Client: c}).Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(run)}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if got := getRun(t, c, run).Status.Phase; got != platformv1alpha1.AgentRunPhasePaused {
+		t.Fatalf("phase = %q, want Paused until maxRuntime is extended", got)
+	}
+}
+
+func TestCostCapBlockerTreatsInvalidCapAsBlocked(t *testing.T) {
+	t.Parallel()
+
+	run := pausedRun("invalid-cap", "", "0", time.Minute)
+	if blocker := costCapBlocker(run); !strings.Contains(blocker, "invalid") {
+		t.Fatalf("costCapBlocker() = %q, want invalid-cap blocker", blocker)
+	}
+	run.Spec.Limits.MaxCostUsd = ""
+	if blocker := costCapBlocker(run); blocker != "" {
+		t.Fatalf("costCapBlocker() = %q, want none without a cap", blocker)
+	}
+}
+
+func runClusterRoleBinding(run *platformv1alpha1.AgentRun) *rbacv1.ClusterRoleBinding {
+	return clusterRoleBindingForRun(clusterRoleBindingName(run, "run-"+run.Name, "admin-binding"), run, "run-"+run.Name, clusterAdminRoleName)
+}
+
+func TestReconcileTerminalRunReleasesClusterRoleBindingsAfterDrain(t *testing.T) {
+	t.Parallel()
+
+	run := provisioningRun("worker-finished", time.Now().Add(-time.Hour))
+	completed := metav1.NewTime(time.Now().Add(-time.Hour))
+	run.Status.Phase = platformv1alpha1.AgentRunPhaseSucceeded
+	run.Status.CompletedAt = &completed
+	run.Status.Sandbox = &platformv1alpha1.AgentRunSandboxStatus{Provider: agentSandboxProvider, ClaimRef: &platformv1alpha1.NamedRef{Name: "gone"}}
+	crb := runClusterRoleBinding(run)
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run, crb).
+		Build()
+	if _, err := (&AgentRunReconciler{Client: c}).reconcileTerminalRun(context.Background(), run); err != nil {
+		t.Fatalf("reconcileTerminalRun() error = %v", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(crb), &rbacv1.ClusterRoleBinding{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("ClusterRoleBinding get err = %v, want NotFound after terminal drain", err)
+	}
+}
+
+func TestPausedRunReleasesClusterRoleBindingsAfterDrain(t *testing.T) {
+	t.Parallel()
+
+	run := pausedRun("paused-admin", timeoutPauseReason(6*time.Hour), "", 7*time.Hour)
+	run.Status.Sandbox = &platformv1alpha1.AgentRunSandboxStatus{Provider: agentSandboxProvider, ClaimRef: &platformv1alpha1.NamedRef{Name: "gone"}}
+	crb := runClusterRoleBinding(run)
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run, crb).
+		Build()
+	if _, err := (&AgentRunReconciler{Client: c}).Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(run)}); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(crb), &rbacv1.ClusterRoleBinding{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("ClusterRoleBinding get err = %v, want NotFound after paused drain", err)
+	}
+	if updated := getRun(t, c, run); updated.Status.Sandbox != nil {
+		t.Fatalf("sandbox = %#v, want cleared", updated.Status.Sandbox)
+	}
+}
+
+func TestRequestsForRunPodMapsLabeledPods(t *testing.T) {
+	t.Parallel()
+
+	run := provisioningRun("pod-owner", time.Now())
+	longRun := provisioningRun(strings.Repeat("l", 70), time.Now())
+	c := fake.NewClientBuilder().WithScheme(newReconcilerTestScheme(t)).WithObjects(run, longRun).Build()
+	r := &AgentRunReconciler{Client: c}
+	pod := func(owner *platformv1alpha1.AgentRun) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "default", Labels: map[string]string{
+			ownerRunLabel: runNameLabelValue(owner.Name), ownerRunUIDLabel: string(owner.UID),
+		}}}
+	}
+	for _, owner := range []*platformv1alpha1.AgentRun{run, longRun} {
+		got := r.requestsForRunPod(context.Background(), pod(owner))
+		if len(got) != 1 || got[0].Name != owner.Name {
+			t.Fatalf("requestsForRunPod(%s) = %#v, want the owning run", owner.Name, got)
+		}
+	}
+	if got := r.requestsForRunPod(context.Background(), &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "unrelated", Namespace: "default"}}); len(got) != 0 {
+		t.Fatalf("unlabeled pod mapped to %#v", got)
+	}
+}
+
+func TestRequestsForRuntimeProfileSkipsTerminalAndOtherProfiles(t *testing.T) {
+	t.Parallel()
+
+	active := provisioningRun("profile-active", time.Now())
+	active.Spec.RuntimeProfileRef = &platformv1alpha1.NamedRef{Name: "profile"}
+	finished := provisioningRun("profile-finished", time.Now())
+	finished.Spec.RuntimeProfileRef = &platformv1alpha1.NamedRef{Name: "profile"}
+	finished.Status.Phase = platformv1alpha1.AgentRunPhaseSucceeded
+	other := provisioningRun("profile-other", time.Now())
+	other.Spec.RuntimeProfileRef = &platformv1alpha1.NamedRef{Name: "other"}
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithIndex(&platformv1alpha1.AgentRun{}, runtimeProfileRefIndex, agentRunRuntimeProfileRef).
+		WithObjects(active, finished, other).
+		Build()
+	profile := &platformv1alpha1.RuntimeProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", Namespace: "default"}}
+	got := (&AgentRunReconciler{Client: c}).requestsForRuntimeProfile(context.Background(), profile)
+	if len(got) != 1 || got[0].Name != active.Name {
+		t.Fatalf("requestsForRuntimeProfile() = %#v, want only the active run", got)
+	}
+}
+
+func TestReconcilePreservesTerminalPolicy(t *testing.T) {
+	t.Parallel()
+
+	run := provisioningRun("finished-policy", time.Now())
+	run.Spec.RuntimeProfileRef = &platformv1alpha1.NamedRef{Name: "profile"}
+	run.Status.Phase = platformv1alpha1.AgentRunPhaseSucceeded
+	run.Status.Policy = &platformv1alpha1.AgentRunResolvedPolicy{ResolvedGitRemoteWrites: "ran-under-this"}
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run).
+		Build()
+	_, err := (&AgentRunReconciler{Client: c}).Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(run)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := getRun(t, c, run).Status.Policy.ResolvedGitRemoteWrites; got != "ran-under-this" {
+		t.Fatalf("resolved policy = %q, want preserved", got)
+	}
 }

@@ -47,6 +47,7 @@ func TestRuntimeProfileReconcilerSetsResolvedDefaultsHash(t *testing.T) {
 
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
+		WithIndex(&platformv1alpha1.AgentRun{}, runtimeProfileRefIndex, agentRunRuntimeProfileRef).
 		WithStatusSubresource(&platformv1alpha1.RuntimeProfile{}).
 		WithObjects(profile).
 		Build()
@@ -139,7 +140,8 @@ func TestEnsureWorkspacePVCRejectsInvalidWorkspaceSizeWithoutPanic(t *testing.T)
 			},
 		},
 	}
-	c := fake.NewClientBuilder().WithScheme(scheme).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithIndex(&platformv1alpha1.AgentRun{}, runtimeProfileRefIndex, agentRunRuntimeProfileRef).Build()
 
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -227,6 +229,7 @@ func TestReconcileRunAppliesRuntimeProfileSandboxOverridesAndWarmPool(t *testing
 
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
+		WithIndex(&platformv1alpha1.AgentRun{}, runtimeProfileRefIndex, agentRunRuntimeProfileRef).
 		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
 		WithObjects(run, profile, baseTemplate).
 		Build()
@@ -326,6 +329,7 @@ func TestReconcileRunQueuesWhenRuntimeProfileMaxConcurrentRunsReached(t *testing
 
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
+		WithIndex(&platformv1alpha1.AgentRun{}, runtimeProfileRefIndex, agentRunRuntimeProfileRef).
 		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
 		WithObjects(profile, active, queued).
 		Build()
@@ -345,6 +349,21 @@ func TestReconcileRunQueuesWhenRuntimeProfileMaxConcurrentRunsReached(t *testing
 	}
 	if updated.Status.Queue == nil || !strings.Contains(updated.Status.Queue.BlockedReason, "maxConcurrentRuns=1") {
 		t.Fatalf("BlockedReason = %#v, want maxConcurrentRuns message", updated.Status.Queue)
+	}
+	if strings.Contains(updated.Status.Queue.BlockedReason, "active)") {
+		t.Fatalf("BlockedReason = %q, want no volatile active-run count", updated.Status.Queue.BlockedReason)
+	}
+
+	// Polling an unchanged queue must not write status again.
+	if _, err := reconciler.reconcileRun(context.Background(), updated); err != nil {
+		t.Fatalf("second reconcileRun() error = %v", err)
+	}
+	again := &platformv1alpha1.AgentRun{}
+	if err := c.Get(context.Background(), client.ObjectKeyFromObject(queued), again); err != nil {
+		t.Fatalf("Get(queued run) error = %v", err)
+	}
+	if again.ResourceVersion != updated.ResourceVersion {
+		t.Fatalf("ResourceVersion changed %s -> %s on an unchanged admission poll", updated.ResourceVersion, again.ResourceVersion)
 	}
 }
 
@@ -391,6 +410,7 @@ func TestReconcileRunQueuesWhenRuntimeProfileNamespaceLimitReached(t *testing.T)
 
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
+		WithIndex(&platformv1alpha1.AgentRun{}, runtimeProfileRefIndex, agentRunRuntimeProfileRef).
 		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
 		WithObjects(profile, active, queued).
 		Build()
@@ -446,6 +466,7 @@ func TestReconcileRunFailsWhenRuntimeProfileAdmissionBecomesStale(t *testing.T) 
 
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
+		WithIndex(&platformv1alpha1.AgentRun{}, runtimeProfileRefIndex, agentRunRuntimeProfileRef).
 		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
 		WithObjects(profile, run).
 		Build()
