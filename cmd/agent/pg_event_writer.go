@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"sync"
@@ -19,7 +20,7 @@ type pgEventWriter struct {
 
 	mu        sync.Mutex
 	notify    chan struct{}
-	buf       []json.RawMessage
+	buf       []pgBufferedEvent
 	bufBytes  int64
 	head      int
 	closed    bool
@@ -27,6 +28,18 @@ type pgEventWriter struct {
 	inFlight  int
 	dropped   int64
 	unflushed int64
+
+	// enqueued counts every event accepted (including synthetic gap
+	// markers); settled counts every event whose fate is final (written,
+	// failed every retry, dropped under backpressure, or abandoned at the
+	// close deadline). Flush waits for settled to reach the enqueued count
+	// it observed. settleCh is closed and replaced on every settle.
+	enqueued int64
+	settled  int64
+	settleCh chan struct{}
+	// markerDrops is the number of dropped events not yet reported by an
+	// events_dropped marker row.
+	markerDrops int64
 
 	dropWarnMu    sync.Mutex
 	lastDropWarn  time.Time
@@ -37,6 +50,14 @@ type pgEventWriter struct {
 	drainDone   chan struct{}
 	closeDone   chan struct{}
 	closeOnce   sync.Once
+}
+
+// pgBufferedEvent is one buffered stream event plus the idempotency key it is
+// written with, fixed at enqueue time so every retry of its batch carries the
+// same key.
+type pgBufferedEvent struct {
+	raw json.RawMessage
+	id  uuid.UUID
 }
 
 type pgEventEnvelope struct {
@@ -83,7 +104,8 @@ func newPGEventWriter(ss store.StateStore, sessionID uuid.UUID) *pgEventWriter {
 		store:       ss,
 		sessionID:   sessionID,
 		notify:      make(chan struct{}, 1),
-		buf:         make([]json.RawMessage, 0, pgEventWriterBuffer),
+		buf:         make([]pgBufferedEvent, 0, pgEventWriterBuffer),
+		settleCh:    make(chan struct{}),
 		drainCtx:    drainCtx,
 		cancelDrain: cancelDrain,
 		drainDone:   make(chan struct{}),
@@ -105,8 +127,9 @@ func (w *pgEventWriter) Write(p []byte) (int, error) {
 	if w.bufferedLocked() >= pgEventWriterMaxEvents {
 		w.dropOldestLocked()
 	}
-	w.buf = append(w.buf, json.RawMessage(cp))
+	w.buf = append(w.buf, pgBufferedEvent{raw: json.RawMessage(cp), id: uuid.New()})
 	w.bufBytes += int64(len(cp))
+	w.enqueued++
 	// The newest event always stays buffered, even when it alone exceeds
 	// the byte budget: dropping it would lose the event that just happened.
 	for w.bufBytes > pgEventWriterMaxBytes && w.bufferedLocked() > 1 {
@@ -126,11 +149,49 @@ func (w *pgEventWriter) Write(p []byte) (int, error) {
 }
 
 func (w *pgEventWriter) dropOldestLocked() {
-	w.bufBytes -= int64(len(w.buf[w.head]))
-	w.buf[w.head] = nil
+	w.bufBytes -= int64(len(w.buf[w.head].raw))
+	w.buf[w.head] = pgBufferedEvent{}
 	w.head++
 	w.dropped++
+	w.markerDrops++
+	w.settleLocked(1)
 	w.compactLocked()
+}
+
+// settleLocked records n events whose fate is final and wakes Flush waiters.
+func (w *pgEventWriter) settleLocked(n int64) {
+	if n <= 0 {
+		return
+	}
+	w.settled += n
+	close(w.settleCh)
+	w.settleCh = make(chan struct{})
+}
+
+// Flush blocks until every event accepted before the call has been written
+// to the store (or has failed, been dropped, or been abandoned at close), or
+// ctx is done. Synchronous writers call it before their own insert so a
+// notice such as turn_interrupted, or a conversation message, is never
+// recorded ahead of stream events that were emitted before it.
+func (w *pgEventWriter) Flush(ctx context.Context) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	target := w.enqueued
+	for w.settled < target && !w.expired {
+		ch := w.settleCh
+		w.mu.Unlock()
+		select {
+		case <-ch:
+		case <-w.drainDone:
+			return
+		case <-ctx.Done():
+			return
+		}
+		w.mu.Lock()
+	}
+	w.mu.Unlock()
 }
 
 // warnDropped logs backpressure drops while they happen, at most once per
@@ -172,9 +233,11 @@ func (w *pgEventWriter) close() {
 		w.mu.Lock()
 		w.expired = true
 		w.cancelDrain()
-		w.unflushed += int64(w.bufferedLocked()) + int64(w.inFlight)
+		abandoned := int64(w.bufferedLocked()) + int64(w.inFlight)
+		w.unflushed += abandoned
+		w.settleLocked(abandoned)
 		for i := w.head; i < len(w.buf); i++ {
-			w.buf[i] = nil
+			w.buf[i] = pgBufferedEvent{}
 		}
 		w.buf = w.buf[:0]
 		w.bufBytes = 0
@@ -209,21 +272,25 @@ func (w *pgEventWriter) drain() {
 	}
 }
 
-func (w *pgEventWriter) writeBatch(batchWriter activityEventBatchWriter, batch []json.RawMessage) {
+func (w *pgEventWriter) writeBatch(batchWriter activityEventBatchWriter, batch []pgBufferedEvent) {
 	inputs := make([]store.ActivityEventInput, 0, len(batch))
-	for _, raw := range batch {
-		eventType, summary := describePGEvent(raw)
-		inputs = append(inputs, store.ActivityEventInput{EventType: eventType, Summary: summary, Detail: raw})
+	for _, ev := range batch {
+		eventType, summary := describePGEvent(ev.raw)
+		inputs = append(inputs, store.ActivityEventInput{EventType: eventType, Summary: summary, Detail: ev.raw, ClientEventID: ev.id})
 	}
 	err := w.writeWithRetry(func(ctx context.Context) error {
 		_, err := batchWriter.WriteActivityEvents(ctx, w.sessionID, inputs)
 		return err
 	})
 	w.mu.Lock()
-	w.inFlight = 0
-	if err != nil && !w.expired {
-		w.unflushed += int64(len(batch))
+	if !w.expired {
+		// After expiry close() already settled the in-flight batch.
+		w.settleLocked(int64(w.inFlight))
+		if err != nil {
+			w.unflushed += int64(len(batch))
+		}
 	}
+	w.inFlight = 0
 	w.mu.Unlock()
 	if err != nil {
 		log.Printf("WARN: pgEventWriter: writing %d event(s): %v", len(batch), err)
@@ -252,8 +319,9 @@ func (w *pgEventWriter) writeWithRetry(write func(context.Context) error) error 
 	}
 }
 
-func (w *pgEventWriter) writeOneByOne(batch []json.RawMessage) {
-	for _, raw := range batch {
+func (w *pgEventWriter) writeOneByOne(batch []pgBufferedEvent) {
+	for _, ev := range batch {
+		raw := ev.raw
 		if w.drainCtx.Err() != nil {
 			// Close expired mid-batch: the remaining events were already
 			// counted as unflushed; do not spam one WARN per event.
@@ -265,10 +333,13 @@ func (w *pgEventWriter) writeOneByOne(batch []json.RawMessage) {
 			return err
 		})
 		w.mu.Lock()
-		w.inFlight--
-		if err != nil && !w.expired {
-			w.unflushed++
+		if !w.expired {
+			w.settleLocked(1)
+			if err != nil {
+				w.unflushed++
+			}
 		}
+		w.inFlight--
 		w.mu.Unlock()
 		if err != nil {
 			log.Printf("WARN: pgEventWriter: %v", err)
@@ -293,7 +364,7 @@ func describePGEvent(raw json.RawMessage) (eventType, summary string) {
 // popBatch blocks until events are buffered and hands back up to
 // pgEventWriterBatchSize of them in arrival order. It returns false once the
 // writer is closed and empty, or the close deadline expired.
-func (w *pgEventWriter) popBatch() ([]json.RawMessage, bool) {
+func (w *pgEventWriter) popBatch() ([]pgBufferedEvent, bool) {
 	for {
 		w.mu.Lock()
 		if w.expired {
@@ -304,14 +375,23 @@ func (w *pgEventWriter) popBatch() ([]json.RawMessage, bool) {
 			if n > pgEventWriterBatchSize {
 				n = pgEventWriterBatchSize
 			}
-			batch := make([]json.RawMessage, n)
-			copy(batch, w.buf[w.head:w.head+n])
+			batch := make([]pgBufferedEvent, 0, n+1)
+			// Events dropped under backpressure were the oldest buffered,
+			// so the gap sits right before the oldest survivor: lead the
+			// batch with a marker so the timeline shows the gap instead of
+			// silently skipping (e.g. a tool_start without its tool_end).
+			if w.markerDrops > 0 {
+				batch = append(batch, pgEventsDroppedMarker(w.markerDrops))
+				w.markerDrops = 0
+				w.enqueued++
+			}
+			batch = append(batch, w.buf[w.head:w.head+n]...)
 			for i := 0; i < n; i++ {
-				w.bufBytes -= int64(len(w.buf[w.head+i]))
-				w.buf[w.head+i] = nil
+				w.bufBytes -= int64(len(w.buf[w.head+i].raw))
+				w.buf[w.head+i] = pgBufferedEvent{}
 			}
 			w.head += n
-			w.inFlight = n
+			w.inFlight = len(batch)
 			w.compactLocked()
 			w.mu.Unlock()
 			return batch, true
@@ -343,4 +423,15 @@ func (w *pgEventWriter) compactLocked() {
 		w.buf = w.buf[:len(w.buf)-w.head]
 		w.head = 0
 	}
+}
+
+// pgEventsDroppedMarker builds the synthetic activity row that marks a
+// backpressure gap in the Postgres copy of the event stream.
+func pgEventsDroppedMarker(dropped int64) pgBufferedEvent {
+	raw, _ := json.Marshal(map[string]any{
+		"ts":      time.Now().UTC(),
+		"type":    "events_dropped",
+		"message": fmt.Sprintf("%d activity event(s) were dropped while the database was unavailable", dropped),
+	})
+	return pgBufferedEvent{raw: raw, id: uuid.New()}
 }

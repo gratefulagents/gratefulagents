@@ -160,6 +160,14 @@ describe("settleOutboundMessages", () => {
     expect(settleOutboundMessages([sent, unacked], [echoed])).toEqual([unacked]);
   });
 
+  it("drops a row whose echo arrives before the send response, by client message id", () => {
+    const echoed = create(ChatMessageSchema, { id: 9n, role: "user", content: "yo", pending: true, clientMessageId: "c2" });
+    expect(settleOutboundMessages([sent, unacked], [echoed])).toEqual([sent]);
+    const unrelated = create(ChatMessageSchema, { id: 10n, role: "user", content: "other", clientMessageId: "" });
+    const outbound = [sent, unacked];
+    expect(settleOutboundMessages(outbound, [unrelated])).toBe(outbound);
+  });
+
   it("returns the same array when nothing settled", () => {
     const outbound = [sent, unacked];
     expect(settleOutboundMessages(outbound, [])).toBe(outbound);

@@ -741,6 +741,16 @@ message GetActivityLogResponse {
   // Pagination metadata for unary page loads.
   int64 first_event_id = 7;
   bool has_more_before = 8;
+  // True on a reset frame that continues the client's since_event_id cursor:
+  // `entries` hold only events strictly after since_event_id, so the client
+  // must append them to its buffer instead of replacing it. Never set on a
+  // source flip or event-id regression, which always replace the buffer.
+  bool resume = 9;
+  // True when event_id values in this response are durable Postgres ids that
+  // remain valid as since_event_id across reconnects. False for synthetic
+  // ordinals (S3/pod-exec sources); clients must then resume with a full
+  // snapshot (since_event_id = 0).
+  bool event_ids_durable = 10;
 }
 
 // Pre-built subagent topology graph. Backend constructs this from activity
@@ -1347,6 +1357,12 @@ message ActivityEntry {
   // full payloads are available via GetActivityEntryDetail.
   bool input_truncated = 90;
   bool output_truncated = 91;
+  // order_unix_ms is the database commit-clock time (milliseconds) the event
+  // was recorded at, on the same clock as ChatMessage.timestamp_unix_ms and
+  // delivered_at_unix_ms. Clients interleave activity with conversation
+  // messages by this value; 0 when unknown (S3/pod-exec sources), in which
+  // case timestamp_unix * 1000 is the fallback.
+  int64 order_unix_ms = 92;
 }
 
 message ChatMessage {
@@ -1377,6 +1393,14 @@ message ChatMessage {
   int64 delivery_sequence = 9;
   // delivery_state is pending, claimed, completed, or cancelled.
   string delivery_state = 10;
+  // Millisecond-precision variants of timestamp_unix and delivered_at_unix
+  // (database clock). 0 when unknown.
+  int64 timestamp_unix_ms = 11;
+  int64 delivered_at_unix_ms = 12;
+  // client_message_id echoes the idempotency key the sending client supplied
+  // (SendAgentRunMessageRequest.client_message_id), so optimistic rows can be
+  // reconciled with the stored message. Empty when none was supplied.
+  string client_message_id = 13;
 }
 
 enum AgentRunMessageMode {

@@ -24,7 +24,7 @@ const shownKeys = new Set<string>();
 function itemTimestampMs(item: TimelineItem): number | null {
   switch (item.kind) {
     case "message":
-      return Number(item.timestamp) * 1_000;
+      return Number(item.timestampMs);
     case "activity": {
       const first = item.entries[0];
       return first ? Number(first.timestampUnix) * 1_000 : null;
@@ -77,7 +77,7 @@ function sameTimelineItem(a: TimelineItem, b: TimelineItem): boolean {
       const other = b as typeof a;
       return (
         a.role === other.role &&
-        a.timestamp === other.timestamp &&
+        a.timestampMs === other.timestampMs &&
         a.content === other.content &&
         sameRefs(a.imageDataUrls ?? [], other.imageDataUrls ?? [])
       );

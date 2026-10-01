@@ -15,7 +15,7 @@ export type QuickAction = {
 
 export type TimelineItem =
   | { kind: "user-request"; key: string; content: string }
-  | { kind: "message"; key: string; role: string; content: string; timestamp: bigint; imageDataUrls?: string[] }
+  | { kind: "message"; key: string; role: string; content: string; timestampMs: bigint; imageDataUrls?: string[] }
   | { kind: "activity"; key: string; entries: ActivityEntry[]; isLive: boolean; planContent?: string }
   | { kind: "pending"; key: string; content: string; actions?: QuickAction[] }
   | { kind: "thinking"; key: string; phase: string };
@@ -217,42 +217,54 @@ export function partitionConversation(messages: ChatMessage[]): {
   return { delivered, pending };
 }
 
+function secondsOrMs(ms: bigint, seconds: bigint): bigint {
+  return ms > 0n ? ms : seconds * 1000n;
+}
+
+/** Database-clock ms at which an activity entry was recorded. */
+export function activityEntryOrderMs(entry: ActivityEntry): bigint {
+  return secondsOrMs(entry.orderUnixMs, entry.timestampUnix);
+}
+
+function hasDeliveryStamp(message: ChatMessage): boolean {
+  return message.deliveredAtUnixMs > 0n || message.deliveredAtUnix > 0n;
+}
+
 /**
- * Timestamp used to slot a message into the activity timeline. User messages
- * anchor to the moment the agent consumed them (when known) rather than when
- * they were typed, so activity that ran while a message sat queued renders
- * before the bubble instead of after it.
+ * Millisecond timestamp used to slot a message into the activity timeline.
+ * User messages anchor to the moment the agent consumed them (when known)
+ * rather than when they were typed, so activity that ran while a message sat
+ * queued renders before the bubble instead of after it.
  */
-export function messageDeliveryTimestamp(message: ChatMessage): bigint {
-  if (message.role === "user" && message.deliveredAtUnix > 0n) {
-    return message.deliveredAtUnix;
+export function messageDeliveryTimestampMs(message: ChatMessage): bigint {
+  if (message.role === "user" && hasDeliveryStamp(message)) {
+    return secondsOrMs(message.deliveredAtUnixMs, message.deliveredAtUnix);
   }
-  return message.timestampUnix;
+  return secondsOrMs(message.timestampUnixMs, message.timestampUnix);
 }
 
 /**
  * Orders transcript messages by when they became part of the agent-visible
  * conversation. Queued user messages may be created before an older turn's
  * assistant reply but delivered afterwards, so database ID order is not a
- * valid display order. Durable IDs provide a stable tie-breaker.
+ * valid display order. The delivery sequence is authoritative when both rows
+ * carry one; otherwise the delivery timestamp decides, then the durable ID.
  */
 export function orderDeliveredMessages(messages: ChatMessage[]): ChatMessage[] {
   return messages
-    .map((message, sourceIndex) => ({ message, sourceIndex }))
+    .map((message, sourceIndex) => ({ message, sourceIndex, ms: messageDeliveryTimestampMs(message) }))
     .sort((a, b) => {
       if (a.message.deliverySequence > 0n && b.message.deliverySequence > 0n && a.message.deliverySequence !== b.message.deliverySequence) {
         return a.message.deliverySequence < b.message.deliverySequence ? -1 : 1;
       }
-      const aTimestamp = messageDeliveryTimestamp(a.message);
-      const bTimestamp = messageDeliveryTimestamp(b.message);
-      if (aTimestamp !== bTimestamp) return aTimestamp < bTimestamp ? -1 : 1;
+      if (a.ms !== b.ms) return a.ms < b.ms ? -1 : 1;
       if (a.message.role !== b.message.role && (a.message.role === "user" || b.message.role === "user")) {
+        // An unstamped user row (the seeded kickoff) precedes a same-instant
+        // reply. A stamped one falls through to the durable ID.
         const user = a.message.role === "user" ? a.message : b.message;
-        // For a user row with an explicit delivery stamp, an assistant/system
-        // row created in that same second may belong to the older turn; keep
-        // it first. Non-user role ties fall through to durable ID/source order.
-        const userFirst = user.deliveredAtUnix === 0n;
-        return (a.message.role === "user") === userFirst ? -1 : 1;
+        if (!hasDeliveryStamp(user)) {
+          return a.message.role === "user" ? -1 : 1;
+        }
       }
       if (a.message.id !== 0n && b.message.id !== 0n && a.message.id !== b.message.id) {
         return a.message.id < b.message.id ? -1 : 1;
@@ -269,47 +281,97 @@ export function orderDeliveredMessages(messages: ChatMessage[]): ChatMessage[] {
  * card never sees the completion (stuck "running") and the later segment
  * renders a duplicate. Every task-tagged entry is therefore anchored to the
  * timestamp of the task's FIRST entry, keeping a task's whole lifecycle in
- * one segment. Entries after the last message land in `trailing`.
+ * one segment. Likewise a tool result follows its tool call. Entries after
+ * the last message land in `trailing`. Timestamps are milliseconds.
  */
 export function bucketActivityByMessage(
   entries: ActivityEntry[],
-  messageTimestamps: bigint[],
+  messageTimestampsMs: bigint[],
   messageRoles: string[] = [],
 ): { segments: ActivityEntry[][]; trailing: ActivityEntry[] } {
-  const segments: ActivityEntry[][] = messageTimestamps.map(() => []);
+  const segments: ActivityEntry[][] = messageTimestampsMs.map(() => []);
   const trailing: ActivityEntry[] = [];
   // Segment i renders immediately BEFORE message i, so an entry belongs to the
   // first message whose timestamp it does not exceed. Entries are not strictly
   // time-ordered (streaming upserts keep an entry's original timestamp while
   // newer entries land behind it), so each entry is resolved on its own rather
   // than by advancing a shared monotone cursor. Ties are broken by role: a
-  // same-second entry follows the user bubble that triggered it, but precedes
+  // same-instant entry follows the user bubble that triggered it, but precedes
   // the assistant reply that concluded it.
   const placeBySelf = (e: ActivityEntry): number => {
+    const ms = activityEntryOrderMs(e);
     let seg = 0;
     while (
-      seg < messageTimestamps.length &&
-      (e.timestampUnix > messageTimestamps[seg] ||
-        (e.timestampUnix === messageTimestamps[seg] && messageRoles[seg] === "user"))
+      seg < messageTimestampsMs.length &&
+      (ms > messageTimestampsMs[seg] ||
+        (ms === messageTimestampsMs[seg] && messageRoles[seg] === "user"))
     ) {
       seg += 1;
     }
     return seg;
   };
   const taskSegment = new Map<string, number>();
+  const toolCallSegment = new Map<string, number>();
   for (const e of entries) {
     let seg: number;
-    const cached = e.taskId ? taskSegment.get(e.taskId) : undefined;
+    const cached = e.taskId
+      ? taskSegment.get(e.taskId)
+      : e.toolUseId
+        ? toolCallSegment.get(e.toolUseId)
+        : undefined;
     if (cached !== undefined) {
       seg = cached;
     } else {
       seg = placeBySelf(e);
       if (e.taskId) taskSegment.set(e.taskId, seg);
     }
-    if (seg >= messageTimestamps.length) trailing.push(e);
+    if (e.toolUseId && (e.type === "tool_use" || e.type === "tool_start") && !toolCallSegment.has(e.toolUseId)) {
+      toolCallSegment.set(e.toolUseId, seg);
+    }
+    if (seg >= messageTimestampsMs.length) trailing.push(e);
     else segments[seg].push(e);
   }
   return { segments, trailing };
+}
+
+function isFinalReplyEntry(entry: ActivityEntry, target: string): boolean {
+  return (
+    entry.type === "assistant_text" &&
+    entry.message.length >= target.length &&
+    entry.message.trim() === target
+  );
+}
+
+/**
+ * The agent's final text often arrives both as an assistant_text activity
+ * entry and as a conversation message; drop the duplicate so the feed
+ * doesn't render the same prose twice. For each assistant message i at most
+ * ONE matching entry is removed: the last match in segment i, else the first
+ * match in the following segment (or `trailing` after the last message),
+ * since the entry may be recorded a moment after the message.
+ */
+export function dedupeFinalReplies(
+  messages: ChatMessage[],
+  segments: ActivityEntry[][],
+  trailing: ActivityEntry[],
+): { segments: ActivityEntry[][]; trailing: ActivityEntry[] } {
+  const buckets = [...segments, trailing];
+  for (let i = 0; i < messages.length; i += 1) {
+    const msg = messages[i];
+    if (msg.role !== "assistant") continue;
+    const target = msg.content.trim();
+    if (target === "") continue;
+    const own = buckets[i].findLastIndex((e) => isFinalReplyEntry(e, target));
+    if (own >= 0) {
+      buckets[i] = buckets[i].toSpliced(own, 1);
+      continue;
+    }
+    const next = buckets[i + 1].findIndex((e) => isFinalReplyEntry(e, target));
+    if (next >= 0) {
+      buckets[i + 1] = buckets[i + 1].toSpliced(next, 1);
+    }
+  }
+  return { segments: buckets.slice(0, segments.length), trailing: buckets[segments.length] };
 }
 
 export function findLatestPlanPresentation(

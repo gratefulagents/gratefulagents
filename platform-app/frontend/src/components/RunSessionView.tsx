@@ -58,7 +58,7 @@ import { RunPullRequestPanel } from "@/components/run-session/RunPullRequestPane
 import { ChatScrollControls } from "@/components/run-session/ChatScrollControls";
 import { buildSlashCommands, type SlashCommand } from "@/components/run-session/slashCommands";
 import { useAvailableModes } from "@/hooks/useAvailableModes";
-import { activityGroupKey, autoChatKickoffRequest, autoExecutionKickoffRequest, bucketActivityByMessage, findLatestPlanPresentation, getActionButtonVariant, mapPendingAction, messageDeliveryTimestamp, messageTimelineKey, orderDeliveredMessages, parseUsd, partitionConversation, pendingBannerConfig, planContentForPresentationGroup, renderPlanDialogButton, TIMELINE_MIN_OVERSCAN_ITEMS, timelineScrollIndex, type QuickAction, type TimelineItem } from "@/components/run-session/helpers";
+import { activityGroupKey, autoChatKickoffRequest, autoExecutionKickoffRequest, bucketActivityByMessage, dedupeFinalReplies, findLatestPlanPresentation, getActionButtonVariant, mapPendingAction, messageDeliveryTimestampMs, messageTimelineKey, orderDeliveredMessages, parseUsd, partitionConversation, pendingBannerConfig, planContentForPresentationGroup, renderPlanDialogButton, TIMELINE_MIN_OVERSCAN_ITEMS, timelineScrollIndex, type QuickAction, type TimelineItem } from "@/components/run-session/helpers";
 import { isActionableInputType, isRunComputing, visibleInputType } from "@/lib/runStatus";
 import { TimelineRow } from "@/components/run-session/TimelineRow";
 import { StartupProgress, hasFirstAgentOutput } from "@/components/run-session/StartupProgress";
@@ -68,6 +68,13 @@ import {
   settleOutboundMessages,
   type OutboundMessage,
 } from "@/components/run-session/PendingMessages";
+import {
+  beginDraftSend,
+  persistDraft,
+  readDraft,
+  restoreDraftAfterFailedSend,
+  type SubmittedDraft,
+} from "@/components/run-session/composerDraft";
 import { ActiveSubagentsDock } from "@/components/run-session/ActiveSubagentsDock";
 import { messageForQuickAction } from "@/components/quickActions";
 
@@ -111,15 +118,6 @@ function sandboxStartupMessage(sandboxRef?: string): string {
     : "Provisioning sandbox… repositories will appear once the pod is ready.";
 }
 
-function persistDraft(key: string, value: string) {
-  try {
-    if (value) localStorage.setItem(key, value);
-    else localStorage.removeItem(key);
-  } catch {
-    // Ignore quota / storage failures.
-  }
-}
-
 const DRAFT_PERSIST_DEBOUNCE_MS = 300;
 // After a successful interrupt the stop control stays disabled until the turn
 // actually ends; past this point we assume the interrupt was lost and let the
@@ -157,9 +155,8 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   const draftKey = `draft:${namespace}/${name}`;
   const draftKeyRef = useRef(draftKey);
   const skipNextDraftPersistRef = useRef(false);
-  function readDraft(key: string): string {
-    try { return localStorage.getItem(key) ?? ""; } catch { return ""; }
-  }
+  // The draft currently being sent; never flushed back to storage.
+  const submittedDraftRef = useRef<SubmittedDraft | null>(null);
   const [reply, setReply] = useState(() => {
     return readDraft(draftKey);
   });
@@ -169,7 +166,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
   const draftFlushRef = useRef({ key: draftKey, value: reply });
   useEffect(() => {
     if (draftKeyRef.current === draftKey) return;
-    persistDraft(draftFlushRef.current.key, draftFlushRef.current.value);
+    persistDraft(draftFlushRef.current.key, draftFlushRef.current.value, submittedDraftRef.current);
     draftKeyRef.current = draftKey;
     skipNextDraftPersistRef.current = true;
     setReply(readDraft(draftKey));
@@ -180,7 +177,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
       return;
     }
     const timeout = setTimeout(
-      () => persistDraft(draftKey, reply),
+      () => persistDraft(draftKey, reply, submittedDraftRef.current),
       DRAFT_PERSIST_DEBOUNCE_MS,
     );
     return () => clearTimeout(timeout);
@@ -189,7 +186,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     draftFlushRef.current = { key: draftKey, value: reply };
   }, [reply, draftKey]);
   useEffect(
-    () => () => persistDraft(draftFlushRef.current.key, draftFlushRef.current.value),
+    () => () => persistDraft(draftFlushRef.current.key, draftFlushRef.current.value, submittedDraftRef.current),
     [],
   );
   const [sending, setSending] = useState(false);
@@ -538,10 +535,15 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     // A sub-agent task's events can span user-message boundaries (the user
     // types while tasks run); anchor each task's entries to where it started
     // so its whole lifecycle renders in one segment (see bucketActivityByMessage).
-    const { segments: segmentBuckets, trailing: trailingBucket } = bucketActivityByMessage(
+    const buckets = bucketActivityByMessage(
       activityEntries,
-      messages.map(messageDeliveryTimestamp),
+      messages.map(messageDeliveryTimestampMs),
       messages.map((message) => message.role),
+    );
+    const { segments: segmentBuckets, trailing: trailingBucket } = dedupeFinalReplies(
+      messages,
+      buckets.segments,
+      buckets.trailing,
     );
 
     for (let i = 0; i < messages.length; i += 1) {
@@ -549,35 +551,17 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
       const group = segmentBuckets[i];
 
       if (group.length > 0) {
-        // The agent's final text often arrives both as an assistant_text
-        // activity entry and as a conversation message; drop the duplicate so
-        // the feed doesn't render the same prose twice. Trim once per message
-        // and gate on length so the comparison stays cheap for big bodies.
-        let deduped = group;
-        if (msg.role === "assistant") {
-          const target = msg.content.trim();
-          deduped = group.filter(
-            (e) =>
-              !(
-                e.type === "assistant_text" &&
-                e.message.length >= target.length &&
-                e.message.trim() === target
-              ),
-          );
-        }
-        if (deduped.length > 0) {
-          items.push({
-            kind: "activity",
-            key: activityGroupKey(deduped),
-            entries: deduped,
-            isLive: false,
-            planContent: planContentForPresentationGroup(
-              deduped,
-              latestPlanPresentation,
-              timelinePlanContent,
-            ),
-          });
-        }
+        items.push({
+          kind: "activity",
+          key: activityGroupKey(group),
+          entries: group,
+          isLive: false,
+          planContent: planContentForPresentationGroup(
+            group,
+            latestPlanPresentation,
+            timelinePlanContent,
+          ),
+        });
       }
 
       const messageIdentity = `${msg.timestampUnix.toString()}:${msg.role}`;
@@ -589,7 +573,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
         key: messageTimelineKey(msg, occurrence),
         role: msg.role,
         content: msg.content,
-        timestamp: messageDeliveryTimestamp(msg),
+        timestampMs: messageDeliveryTimestampMs(msg),
         imageDataUrls: msg.imageDataUrls,
       });
     }
@@ -765,6 +749,10 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
 
     setSending(true);
     setOutboundMessages((current) => [...current, outbound]);
+    // Clear the stored draft up front: if the view unmounts mid-send, the
+    // already-submitted text must not come back on the next mount.
+    const submittedDraft = beginDraftSend(draftKey, reply);
+    submittedDraftRef.current = submittedDraft;
     try {
       const resp = await client.sendAgentRunMessage({
         namespace,
@@ -781,6 +769,9 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
         pendingRequestId: boundRequestId,
       });
       draftClientMessageIdRef.current = null;
+      if (submittedDraftRef.current === submittedDraft) {
+        submittedDraftRef.current = null;
+      }
       if (boundRequestId) {
         setAnsweredRequestId(boundRequestId);
       }
@@ -794,6 +785,10 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
       composerTextareaRef.current?.focus();
     } catch (e) {
       setOutboundMessages((current) => current.filter((m) => m.clientMessageId !== clientMessageId));
+      if (submittedDraftRef.current === submittedDraft) {
+        submittedDraftRef.current = null;
+      }
+      restoreDraftAfterFailedSend(submittedDraft);
       toast.error("Couldn't send message", {
         description: e instanceof Error ? e.message : String(e),
       });

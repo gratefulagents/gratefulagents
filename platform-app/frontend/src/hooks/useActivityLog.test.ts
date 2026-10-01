@@ -47,7 +47,7 @@ function entry(overrides: Partial<ActivityEntry>): ActivityEntry {
 }
 
 describe("applyDeltaEntries", () => {
-  it("replaces a grown assistant_thinking entry in place without duplicating", () => {
+  it("moves a grown assistant_thinking entry to the end without duplicating", () => {
     const thinking = entry({ eventId: 2n, type: "assistant_thinking", toolUseId: "think-1", message: "par" });
     const tool = entry({ eventId: 3n, timestampUnix: 2n, type: "tool_use", toolUseId: "tool-1" });
     const existing = [entry({ eventId: 1n }), thinking, tool];
@@ -58,11 +58,12 @@ describe("applyDeltaEntries", () => {
       message: "partial plus more",
     });
     const result = applyDeltaEntries(existing, [grown], 3n);
-    expect(result.entries).toHaveLength(3);
-    expect(result.entries[1]).toBe(grown);
-    expect(result.entries[1]).not.toBe(thinking);
-    expect(result.entries[0]).toBe(existing[0]);
-    expect(result.entries[2]).toBe(tool);
+    // Matches the server snapshot, which places the merged entry at its
+    // newest constituent's slot.
+    expect(result.entries).toEqual([existing[0], tool, grown]);
+    expect(result.entries[2]).toBe(grown);
+    expect(result.entries).not.toContain(thinking);
+    expect(existing).toHaveLength(3);
     expect(result.lastEventId).toBe(4n);
   });
 

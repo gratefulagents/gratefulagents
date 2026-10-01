@@ -57,6 +57,21 @@ func withClientMessageID(metadata json.RawMessage, clientMessageID string) json.
 	return encoded
 }
 
+// clientMessageIDFromMetadata returns the idempotency key a sending client
+// supplied (see withClientMessageID), or "" when none was recorded.
+func clientMessageIDFromMetadata(metadata json.RawMessage) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	var payload struct {
+		ClientMessageID string `json:"client_message_id"`
+	}
+	if json.Unmarshal(metadata, &payload) != nil {
+		return ""
+	}
+	return payload.ClientMessageID
+}
+
 // pgPoolProvider is satisfied by the Postgres store, which exposes its pool
 // for read-only lookups the store interface does not cover.
 type pgPoolProvider interface {

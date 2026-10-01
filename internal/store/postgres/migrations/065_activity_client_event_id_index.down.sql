@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_activity_events_client_event_id;
