@@ -517,10 +517,9 @@ func runChatLoop(ctx context.Context, cfg runConfig, crdClient client.Client, k8
 	}
 	defer closeRuntimeClosers(runtimeBundle.Closers)
 	if desktopBroker != nil {
-		// Publish only after the SDK has finished injecting its vision callback.
-		available := desktopTool.VisionAvailable() && toolRegistry.Get("computer_use") != nil && cfg.PermissionMode.AllowsWriteTools()
-		desktopBroker.SetVisionAvailable(func() bool { return available })
-		defer desktopBroker.SetVisionAvailable(nil)
+		available := toolRegistry.Get("computer_use") != nil && cfg.PermissionMode.AllowsWriteTools()
+		desktopBroker.SetAvailable(func() bool { return available })
+		defer desktopBroker.SetAvailable(nil)
 	}
 
 	runner := runtimeBundle.Runner
@@ -1345,6 +1344,8 @@ messageLoop:
 				ToolInputRules:            toolInputGuardrails,
 				ToolOutputRules:           toolOutputGuardrails,
 			}, runHooks)
+			// Keep only the most recent screenshots (computer_use) in context.
+			runCfg.MaxRetainedToolImages = 6
 
 			if cfg.AutoMode {
 				// Long autonomous tasks: bounce the first final answer back with

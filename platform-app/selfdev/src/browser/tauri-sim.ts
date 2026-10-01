@@ -78,6 +78,8 @@ export function buildTauriSimScript(options: TauriSimOptions = {}): string {
     return keys;
   }
 
+  let computerUseSession = { active: false, paused: false };
+
   async function invoke(cmd, args = {}, _options) {
     switch (cmd) {
       // ---- os ----
@@ -174,10 +176,33 @@ export function buildTauriSimScript(options: TauriSimOptions = {}): string {
       case "plugin:window-state|restore_state": return null;
 
       // ---- gratefulagents' custom Rust commands ----
-      case "computer_use_permissions": return { supported: cfg.platform === "macos", accessibility: cfg.platform === "macos" };
-      case "computer_use_session_status": return { revision: 0, phase: "stopped", sessionId: null, scope: null, reason: "" };
-      case "computer_use_pick_window":
-      case "computer_use_session_stop": return null;
+      // Computer use: permissions granted and one display, but no input or
+      // capture is simulated, so execute always fails.
+      case "computer_use_status": {
+        const mac = cfg.platform === "macos";
+        return {
+          supported: mac,
+          unsupportedReason: mac ? undefined : "Computer use is available in the macOS desktop app.",
+          accessibility: mac,
+          screenRecording: mac,
+          emergencyStop: mac,
+          displays: mac ? [{ id: 1, name: "Built-in Retina Display", width: 1512, height: 982, scale: 2, primary: true }] : [],
+          session: computerUseSession,
+        };
+      }
+      case "computer_use_request_permission":
+      case "computer_use_relaunch": return null;
+      case "computer_use_start":
+        computerUseSession = { active: true, paused: false, displayId: args.displayId, runKey: args.runKey, frameWidth: 1182, frameHeight: 768 };
+        return computerUseSession;
+      case "computer_use_set_paused":
+        computerUseSession = { ...computerUseSession, paused: !!args.paused };
+        return computerUseSession;
+      case "computer_use_stop":
+        computerUseSession = { active: false, paused: false, stoppedReason: args.reason || undefined };
+        return null;
+      case "computer_use_execute":
+        throw "selfdev tauri-sim: computer use input and capture are not simulated";
       case "detect_local_credentials": return cfg.localCredentials;
       case "cancel_openai_oauth": return null;
       case "start_openai_oauth":

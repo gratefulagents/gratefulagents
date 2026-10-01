@@ -14,6 +14,12 @@ import (
 	"time"
 )
 
+// connDeadline bounds one relay connection; it must outlast a PollWait long-poll.
+var connDeadline = 30 * time.Second
+
+// BridgeTimeout bounds one desktop-bridge invocation.
+const BridgeTimeout = 30 * time.Second
+
 func SocketPath(uid string) (string, error) {
 	if uid == "" || len(uid) > 256 {
 		return "", ErrRejected
@@ -69,7 +75,7 @@ func Listen(ctx context.Context, b *Broker, uid string) (io.Closer, error) {
 		}
 	}()
 	go func() {
-		slots := make(chan struct{}, 4)
+		slots := make(chan struct{}, 8)
 		for {
 			c, err := l.AcceptUnix()
 			if err != nil {
@@ -83,14 +89,14 @@ func Listen(ctx context.Context, b *Broker, uid string) (io.Closer, error) {
 			}
 			go func() {
 				defer func() { c.Close(); <-slots }()
-				_ = c.SetDeadline(time.Now().Add(3 * time.Second))
+				_ = c.SetDeadline(time.Now().Add(connDeadline))
+				exchangeCtx, cancel := context.WithTimeout(ctx, connDeadline-2*time.Second)
+				defer cancel()
 				var exchange Exchange
-				response := Response{Mode: "selected_display", Reason: "computer use request rejected"}
+				response := Response{Protocol: Protocol, Reason: ReasonInvalid}
 				if Decode(c, &exchange) == nil {
-					if result, err := b.Exchange(exchange); err == nil {
+					if result, err := b.Exchange(exchangeCtx, exchange); err == nil {
 						response = result
-					} else if errors.Is(err, ErrLegacyScope) {
-						response.Reason = ErrLegacyScope.Error()
 					}
 				}
 				_ = json.NewEncoder(c).Encode(response)
@@ -121,7 +127,7 @@ func Bridge(ctx context.Context, uid string, stdin io.Reader, stdout io.Writer) 
 		return ErrRejected
 	}
 	defer conn.Close()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(BridgeTimeout)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
@@ -135,7 +141,7 @@ func Bridge(ctx context.Context, uid string, stdin io.Reader, stdout io.Writer) 
 		return ErrRejected
 	}
 	var response Response
-	if Decode(conn, &response) != nil || response.Validate() != nil {
+	if Decode(conn, &response) != nil || response.Validate() != nil || response.Reason == ReasonInvalid {
 		return ErrRejected
 	}
 	output, err := json.Marshal(response)

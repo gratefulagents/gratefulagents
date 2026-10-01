@@ -13,7 +13,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-cc = "1"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
@@ -37,6 +36,7 @@ base64 = "0.22"
 sha2 = "0.10"
 getrandom = "0.3"
 humantime = "2"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
 # Desktop-only plugins
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
@@ -45,10 +45,15 @@ tauri-plugin-window-state = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
-# macOS-only: translucent window background
+# macOS-only: translucent window background and computer use
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSTextCheckingClient"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSTextCheckingClient", "NSApplication", "NSResponder", "NSScreen", "NSWindow", "NSGraphics"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSDictionary", "NSError", "NSGeometry", "NSString", "NSValue"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes", "CFData"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "objc2", "CGDataProvider", "CGDirectDisplay", "CGError", "CGEvent", "CGEventSource", "CGEventTypes", "CGImage", "CGRemoteOperation"] }
+objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "libc", "objc2-core-graphics", "SCShareableContent", "SCStream", "SCScreenshotManager"] }
+block2 = "0.6.2"
 window-vibrancy = "0.6"
 
 [features]

@@ -22,6 +22,8 @@ import (
 
 var execComputerUse = execComputerUseInPod
 
+const computerUseExecTimeout = 35 * time.Second
+
 func computerUseError(code connect.Code) error {
 	return connect.NewError(code, errors.New("computer use unavailable"))
 }
@@ -67,18 +69,15 @@ func (s *Server) ExchangeComputerUse(ctx context.Context, req *platform.Exchange
 	}
 	exchange := computeruse.Exchange{Namespace: run.Namespace, Run: run.Name, Owner: actor.Subject, SessionID: req.GetSessionId(), Operation: req.GetOperation(), RequestID: req.GetRequestId()}
 	if raw := req.GetOutcomeJson(); raw != "" {
-		exchange.Outcome = &computeruse.Outcome{}
-		if computeruse.Decode(bytes.NewBufferString(raw), exchange.Outcome) != nil {
+		exchange.Result = &computeruse.Result{}
+		if computeruse.Decode(bytes.NewBufferString(raw), exchange.Result) != nil {
 			return nil, computerUseError(connect.CodeInvalidArgument)
 		}
 	}
-	if err := exchange.Validate(); err != nil {
-		if errors.Is(err, computeruse.ErrLegacyScope) {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
-		}
+	if exchange.Validate() != nil {
 		return nil, computerUseError(connect.CodeInvalidArgument)
 	}
-	if exchange.Operation != "stop" && (isTerminalAgentRunPhase(run.Status.Phase) || !run.DeletionTimestamp.IsZero() || run.Annotations[cancelRequestedAnnotation] != "" || run.Annotations[promoteSucceededAnnotation] != "") {
+	if exchange.Operation != "disconnect" && (isTerminalAgentRunPhase(run.Status.Phase) || !run.DeletionTimestamp.IsZero() || run.Annotations[cancelRequestedAnnotation] != "" || run.Annotations[promoteSucceededAnnotation] != "") {
 		return nil, computerUseError(connect.CodeFailedPrecondition)
 	}
 	input, err := json.Marshal(exchange)
@@ -89,14 +88,15 @@ func (s *Server) ExchangeComputerUse(ctx context.Context, req *platform.Exchange
 	if podName == "" || run.UID == "" || s.clientset == nil || s.restConfig == nil {
 		return nil, computerUseError(connect.CodeFailedPrecondition)
 	}
-	// Resolving an observation streams up to MaxScreenshot through pod exec.
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	// next long-polls in the pod for up to PollWait and result streams a
+	// screenshot; the bridge itself gives up after BridgeTimeout.
+	ctx, cancel := context.WithTimeout(ctx, computerUseExecTimeout)
 	defer cancel()
 	pod, err := s.clientset.CoreV1().Pods(run.Namespace).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil || !isPodOwnedByAgentRun(pod, run) {
 		return nil, computerUseError(connect.CodeNotFound)
 	}
-	if exchange.Operation != "stop" && (!pod.DeletionTimestamp.IsZero() || pod.Status.Phase != corev1.PodRunning) {
+	if exchange.Operation != "disconnect" && (!pod.DeletionTimestamp.IsZero() || pod.Status.Phase != corev1.PodRunning) {
 		return nil, computerUseError(connect.CodeFailedPrecondition)
 	}
 	output, err := execComputerUse(ctx, s.clientset, s.restConfig, pod.Name, run.Namespace, input)
@@ -104,7 +104,7 @@ func (s *Server) ExchangeComputerUse(ctx context.Context, req *platform.Exchange
 		return nil, computerUseError(connect.CodeFailedPrecondition)
 	}
 	var response computeruse.Response
-	if computeruse.Decode(bytes.NewReader(output), &response) != nil || response.Validate() != nil || response.Reason == "computer use request rejected" {
+	if computeruse.Decode(bytes.NewReader(output), &response) != nil || response.Validate() != nil || response.Reason == computeruse.ReasonInvalid {
 		return nil, computerUseError(connect.CodeFailedPrecondition)
 	}
 	// Re-encode the fixed response shape; never forward arbitrary process output.

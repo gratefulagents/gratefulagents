@@ -18,12 +18,12 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         );
         match gs.on_shortcut(emergency_stop, |app, _shortcut, event| {
             if event.state == ShortcutState::Pressed {
-                crate::computer_use_session::stop(app, "Native emergency stop");
+                crate::computer_use::stop(app, "Emergency stop (Ctrl+Option+Cmd+Escape)");
             }
         }) {
             Ok(()) => app
-                .state::<crate::computer_use_session::ComputerUseSession>()
-                .shortcut_ready
+                .state::<crate::computer_use::ComputerUse>()
+                .emergency_stop
                 .store(true, std::sync::atomic::Ordering::SeqCst),
             Err(error) => {
                 log::warn!("computer use disabled: emergency stop registration failed: {error}")

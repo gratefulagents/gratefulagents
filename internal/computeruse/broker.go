@@ -2,41 +2,55 @@ package computeruse
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-type delivery struct {
-	outcome Outcome
-	err     error
-}
-type pending struct {
-	request  Request
-	ctx      context.Context
-	deadline time.Time
-	claimed  bool
-	result   chan delivery
+// Timeouts are variables so tests can shorten them.
+var (
+	LeaseDuration    = 30 * time.Second
+	PollWait         = 20 * time.Second
+	PickupTimeout    = 30 * time.Second
+	DeliveredTimeout = 300 * time.Second
+	expiryTick       = 50 * time.Millisecond
+)
+
+type outcome struct {
+	result Result
+	err    error
 }
 
+type pending struct {
+	request   Request
+	delivered bool
+	deadline  time.Time
+	done      chan outcome
+}
+
+// Broker relays computer_use actions from the agent to one desktop session.
 type Broker struct {
-	frameID                        string
-	mu                             sync.Mutex
-	namespace, run, owner, session string
-	leaseUntil                     time.Time
-	sessionContext                 context.Context
-	sessionCancel                  context.CancelFunc
-	pending                        *pending
-	closed                         bool
-	done                           chan struct{}
-	vision                         func() bool
+	mu             sync.Mutex
+	namespace, run string
+	owner, session string
+	leaseUntil     time.Time
+	pending        *pending
+	// screenW/screenH are the latest full screenshot of this session.
+	screenW, screenH int
+	// polling counts waiting long-polls; an open poll keeps the lease alive.
+	polling   int
+	wake      chan struct{}
+	closed    bool
+	done      chan struct{}
+	available func() bool
 }
 
 func New(namespace, run string) *Broker {
-	b := &Broker{namespace: namespace, run: run, done: make(chan struct{})}
+	b := &Broker{namespace: namespace, run: run, wake: make(chan struct{}), done: make(chan struct{})}
+	ticker := time.NewTicker(expiryTick)
 	go func() {
-		ticker := time.NewTicker(50 * time.Millisecond)
 		defer ticker.Stop()
 		for {
 			select {
@@ -52,68 +66,40 @@ func New(namespace, run string) *Broker {
 	return b
 }
 
-func (b *Broker) SetVisionAvailable(fn func() bool) { b.mu.Lock(); defer b.mu.Unlock(); b.vision = fn }
+// SetAvailable installs the predicate reported as Response.Available.
+func (b *Broker) SetAvailable(fn func() bool) { b.mu.Lock(); defer b.mu.Unlock(); b.available = fn }
 
-func (b *Broker) cancel() {
+func (b *Broker) notify() {
+	close(b.wake)
+	b.wake = make(chan struct{})
+}
+
+func (b *Broker) fail(err error) {
 	if b.pending != nil {
-		b.pending.result <- delivery{err: ErrRejected}
+		b.pending.done <- outcome{err: err}
 		b.pending = nil
 	}
 }
 
-func (b *Broker) drop() {
-	b.cancel()
-	if b.sessionCancel != nil {
-		b.sessionCancel()
-	}
-	b.sessionContext = nil
-	b.sessionCancel = nil
-	b.frameID = ""
-	b.owner = ""
-	b.session = ""
-}
-
-func (b *Broker) rejectPending() {
-	if b.pending != nil && b.pending.claimed {
-		b.drop()
-	} else {
-		b.cancel()
-	}
-}
-
-type sessionContextKey struct{}
-
-// SessionContext pins work to this attachment, even after its capture request resolves.
-func (b *Broker) SessionContext(ctx context.Context) (context.Context, context.CancelFunc, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.expire()
-	if b.closed || b.session == "" || ctx.Err() != nil {
-		return nil, nil, ErrRejected
-	}
-	ctx, cancel := context.WithCancel(context.WithValue(ctx, sessionContextKey{}, b.sessionContext))
-	stop := context.AfterFunc(b.sessionContext, cancel)
-	return ctx, func() { stop(); cancel() }, nil
-}
-
-func (b *Broker) sessionValid(ctx context.Context) bool {
-	return !b.closed && b.session != "" && ctx.Err() == nil && ctx.Value(sessionContextKey{}) == b.sessionContext
-}
-
-func (b *Broker) SessionValid(ctx context.Context) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.expire()
-	return b.sessionValid(ctx)
+func (b *Broker) endSession(err error) {
+	b.fail(err)
+	b.owner, b.session = "", ""
+	b.screenW, b.screenH = 0, 0
+	b.notify()
 }
 
 func (b *Broker) expire() {
 	now := time.Now()
-	if b.session != "" && !now.Before(b.leaseUntil) {
-		b.drop()
+	if p := b.pending; p != nil && !now.Before(p.deadline) {
+		if p.delivered {
+			b.fail(fmt.Errorf("%w: desktop did not finish the action within %s", ErrTimeout, DeliveredTimeout))
+		} else {
+			b.fail(fmt.Errorf("%w: desktop did not pick up the request", ErrTimeout))
+		}
+		b.notify()
 	}
-	if b.pending != nil && (b.pending.ctx.Err() != nil || !now.Before(b.pending.deadline)) {
-		b.rejectPending()
+	if b.session != "" && b.polling == 0 && !now.Before(b.leaseUntil) && (b.pending == nil || !b.pending.delivered) {
+		b.endSession(fmt.Errorf("%w: desktop connection lost", ErrDisconnected))
 	}
 }
 
@@ -122,7 +108,7 @@ func (b *Broker) Close() error {
 	defer b.mu.Unlock()
 	if !b.closed {
 		b.closed = true
-		b.drop()
+		b.endSession(ErrDisconnected)
 		close(b.done)
 	}
 	return nil
@@ -138,126 +124,158 @@ func (b *Broker) Active() bool {
 	return !b.closed && b.session != ""
 }
 
-func (b *Broker) Exchange(e Exchange) (Response, error) {
+func (b *Broker) response(active bool, reason string) Response {
+	return Response{Protocol: Protocol, Active: active, Available: b.available != nil && b.available(), Reason: reason}
+}
+
+func (b *Broker) owns(e Exchange) bool {
+	return b.session != "" && b.owner == e.Owner && b.session == e.SessionID
+}
+
+// Exchange handles one desktop operation. Refusals are reported in the
+// Response; an error means the exchange itself was malformed.
+func (b *Broker) Exchange(ctx context.Context, e Exchange) (Response, error) {
 	if err := e.Validate(); err != nil {
-		return Response{Mode: "selected_display"}, err
+		return Response{Protocol: Protocol, Reason: ReasonInvalid}, err
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.expire()
-	if b.closed || e.Namespace != b.namespace || e.Run != b.run {
-		return Response{Mode: "selected_display"}, ErrRejected
+	if e.Namespace != b.namespace || e.Run != b.run {
+		return Response{Protocol: Protocol, Reason: ReasonInvalid}, rejected("wrong run")
 	}
-	if b.session != "" && (b.owner != e.Owner || b.session != e.SessionID) {
-		return Response{Mode: "selected_display"}, ErrRejected
-	}
-	if e.Operation == "attach_desktop" && b.session == "" {
-		b.owner = e.Owner
-		b.session = e.SessionID
-		b.sessionContext, b.sessionCancel = context.WithCancel(context.Background())
-	}
-	available := b.vision != nil && b.vision()
-	if b.session == "" {
-		if e.Operation == "claim" || e.Operation == "resolve" {
-			return Response{Mode: "selected_display"}, ErrRejected
-		}
-		return Response{Mode: "selected_display", Reason: "session inactive", VisionAvailable: available}, nil
+	if b.closed {
+		return b.response(false, ReasonClosed), nil
 	}
 	switch e.Operation {
-	case "attach_desktop", "poll":
-		b.leaseUntil = time.Now().Add(Lease)
-	case "stop":
-		b.drop()
-		return Response{Mode: "selected_display", Reason: "session stopped", VisionAvailable: available}, nil
-	case "claim":
+	case "connect":
+		if b.session != "" && b.owner != e.Owner {
+			return b.response(false, ReasonForeignOwner), nil
+		}
+		if b.session != e.SessionID {
+			if b.session != "" {
+				b.endSession(fmt.Errorf("%w: desktop reconnected", ErrDisconnected))
+			}
+			b.owner, b.session = e.Owner, e.SessionID
+			b.notify()
+		}
+		b.leaseUntil = time.Now().Add(LeaseDuration)
+		return b.response(true, ""), nil
+	case "disconnect":
+		if !b.owns(e) {
+			return b.response(false, ReasonNoSession), nil
+		}
+		b.endSession(ErrDisconnected)
+		return b.response(false, ReasonDisconnected), nil
+	case "result":
+		if !b.owns(e) {
+			return b.response(false, ReasonNoSession), nil
+		}
+		b.leaseUntil = time.Now().Add(LeaseDuration)
 		p := b.pending
-		if p == nil || p.request.RequestID != e.RequestID || p.claimed {
-			return Response{Mode: "selected_display"}, ErrRejected
+		if p == nil || !p.delivered || p.request.ID != e.RequestID {
+			return b.response(true, ReasonStaleResult), nil
 		}
-		p.claimed = true
-		p.deadline = minTime(p.deadline, time.Now().Add(ClaimTimeoutFor(p.request.Action)))
-	case "resolve":
-		p := b.pending
-		if p == nil || p.request.RequestID != e.RequestID || !p.claimed {
-			return Response{Mode: "selected_display"}, ErrRejected
+		if s := e.Result.Screenshot; s != nil && p.request.Action.Action != "zoom" {
+			b.screenW, b.screenH = s.Width, s.Height
 		}
-		if e.Outcome.Capture != nil && p.request.Action.Kind != "observe" {
-			return Response{Mode: "selected_display"}, ErrRejected
-		}
-		if p.request.Action.Kind == "observe" && e.Outcome.Status == "completed" && e.Outcome.Capture == nil {
-			return Response{Mode: "selected_display"}, ErrRejected
-		}
-		o := e.Outcome
-		if o.Status == "completed" && o.Capture != nil {
-			b.frameID = o.Capture.FrameID
-		} else {
-			b.frameID = ""
-		}
-		p.result <- delivery{outcome: *e.Outcome}
+		p.done <- outcome{result: *e.Result}
 		b.pending = nil
+		b.notify()
+		return b.response(true, ""), nil
 	}
-	r := Response{Mode: "selected_display", Active: true, VisionAvailable: available}
-	if b.pending != nil && !b.pending.claimed {
-		copy := b.pending.request
-		r.Pending = &copy
-	}
-	return r, nil
+	return b.next(ctx, e)
 }
 
-func minTime(a, b time.Time) time.Time {
-	if a.Before(b) {
-		return a
+// next long-polls for an undelivered request. Called with b.mu held.
+func (b *Broker) next(ctx context.Context, e Exchange) (Response, error) {
+	if !b.owns(e) {
+		return b.response(false, ReasonNoSession), nil
 	}
-	return b
-}
-
-func (b *Broker) Request(ctx context.Context, action Action, frameID string) (Outcome, error) {
-	// wait is an agent-side pause, never a desktop request.
-	if action.Kind == "wait" || action.Validate() != nil || (frameID != "" && !identifier.MatchString(frameID)) {
-		return Outcome{}, ErrRejected
-	}
-	if ctx.Value(sessionContextKey{}) == nil {
-		var cancel context.CancelFunc
-		var err error
-		ctx, cancel, err = b.SessionContext(ctx)
-		if err != nil {
-			return Outcome{}, err
+	timer := time.NewTimer(PollWait)
+	defer timer.Stop()
+	for {
+		b.leaseUntil = time.Now().Add(LeaseDuration)
+		// The desktop only polls while idle, so a delivered but unresolved
+		// request means the earlier response was lost in transit (exec or
+		// network failure): deliver it again rather than strand the agent.
+		if p := b.pending; p != nil {
+			if !p.delivered {
+				p.delivered = true
+				p.deadline = time.Now().Add(DeliveredTimeout)
+			}
+			r := b.response(true, "")
+			request := p.request
+			r.Request = &request
+			return r, nil
 		}
-		defer cancel()
+		wake := b.wake
+		b.polling++
+		b.mu.Unlock()
+		var stop bool
+		select {
+		case <-wake:
+		case <-timer.C:
+			stop = true
+		case <-ctx.Done():
+			stop = true
+		}
+		b.mu.Lock()
+		b.polling--
+		b.expire()
+		if b.closed {
+			return b.response(false, ReasonClosed), nil
+		}
+		if !b.owns(e) {
+			return b.response(false, ReasonEnded), nil
+		}
+		if stop {
+			b.leaseUntil = time.Now().Add(LeaseDuration)
+			return b.response(true, ""), nil
+		}
+	}
+}
+
+// Request sends one action to the desktop and waits for its result. A wait
+// action is handled by the caller and rejected here.
+func (b *Broker) Request(ctx context.Context, action Action) (Result, error) {
+	if action.Action == "wait" {
+		return Result{}, rejected("wait is not a desktop action")
+	}
+	if err := action.Validate(); err != nil {
+		return Result{}, err
 	}
 	b.mu.Lock()
 	b.expire()
-	if !b.sessionValid(ctx) {
+	if b.closed || b.session == "" {
 		b.mu.Unlock()
-		return Outcome{}, ErrRejected
+		return Result{}, ErrNoDesktop
 	}
 	if b.pending != nil {
 		b.mu.Unlock()
-		return Outcome{}, ErrBusy
+		return Result{}, ErrBusy
 	}
-	if action.IsInput() && (frameID == "" || frameID != b.frameID) {
-		b.mu.Unlock()
-		return Outcome{}, ErrStaleFrame
+	if b.screenW > 0 {
+		if err := action.CheckBounds(b.screenW, b.screenH); err != nil {
+			b.mu.Unlock()
+			return Result{}, err
+		}
 	}
-	if action.IsInput() {
-		b.frameID = ""
-	}
-	p := &pending{request: Request{RequestID: uuid.NewString(), FrameID: frameID, Action: action}, ctx: ctx, deadline: time.Now().Add(RequestTimeout), result: make(chan delivery, 1)}
+	p := &pending{request: Request{ID: uuid.NewString(), Action: action}, deadline: time.Now().Add(PickupTimeout), done: make(chan outcome, 1)}
 	b.pending = p
+	b.notify()
 	b.mu.Unlock()
 	select {
-	case d := <-p.result:
-		if !b.SessionValid(ctx) {
-			return Outcome{}, ErrRejected
-		}
-		return d.outcome, d.err
+	case o := <-p.done:
+		return o.result, o.err
 	case <-ctx.Done():
 		b.mu.Lock()
+		defer b.mu.Unlock()
 		if b.pending == p {
-			b.rejectPending()
+			b.pending = nil
+			b.notify()
 		}
-		b.mu.Unlock()
-		return Outcome{}, ErrRejected
+		return Result{}, ctx.Err()
 	}
 }
 
@@ -266,4 +284,5 @@ type contextKey struct{}
 func WithBroker(ctx context.Context, b *Broker) context.Context {
 	return context.WithValue(ctx, contextKey{}, b)
 }
+
 func FromContext(ctx context.Context) *Broker { b, _ := ctx.Value(contextKey{}).(*Broker); return b }

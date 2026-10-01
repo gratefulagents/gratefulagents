@@ -1,8 +1,8 @@
 // System tray icon + menu.
 //
 // Click: show/focus the main window. Menu items: show, new run, settings,
-// quit. Each emits `tray://<id>` on the main window (except quit, which just
-// exits).
+// stop computer use (macOS), quit. Each emits `tray://<id>` on the main window
+// (except stop and quit, which act natively).
 
 use tauri::{
     menu::{Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
@@ -10,10 +10,12 @@ use tauri::{
     AppHandle, Emitter, Manager, Runtime,
 };
 
+const TRAY_ID: &str = "gratefulagents-tray";
+
 pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let menu = build_menu(app)?;
 
-    let _ = TrayIconBuilder::with_id("gratefulagents-tray")
+    let _ = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("gratefulagents")
         .icon(app.default_window_icon().cloned().unwrap_or_else(|| {
             // Fallback: 1×1 transparent PNG-equivalent image.
@@ -25,9 +27,7 @@ pub fn setup<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             "tray-show" => show_main(app),
             "tray-new-run" => relay(app, "new-run"),
             "tray-settings" => relay(app, "settings"),
-            "tray-stop-computer-use" => {
-                crate::computer_use_session::stop(app, "Stopped from native tray")
-            }
+            "tray-stop-computer-use" => crate::computer_use::stop(app, "Stopped from the tray"),
             "tray-quit" => app.exit(0),
             _ => {}
         })
@@ -62,6 +62,18 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     #[cfg(target_os = "macos")]
     let builder = builder.item(&stop_computer_use);
     builder.items(&[&sep2, &quit]).build()
+}
+
+/// Indicates in the tray tooltip while an agent is controlling this Mac.
+pub fn set_computer_use_active<R: Runtime>(app: &AppHandle<R>, active: bool) {
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let tooltip = if active {
+            "gratefulagents — computer use active"
+        } else {
+            "gratefulagents"
+        };
+        let _ = tray.set_tooltip(Some(tooltip));
+    }
 }
 
 fn show_main<R: Runtime>(app: &AppHandle<R>) {
