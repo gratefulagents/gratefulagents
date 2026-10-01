@@ -143,9 +143,11 @@ func openSDKStoredRun(
 			return nil, err
 		}
 		if time.Now().Add(delay).After(deadline) {
-			return nil, fmt.Errorf("durable SDK run %s still leased by another owner after %s: %w", runID, durableRunOpenMaxWait, err)
+			return nil, fmt.Errorf("durable SDK run %s still leased by another owner after %s: %w",
+				runID, durableRunOpenMaxWait, err)
 		}
-		log.Printf("WARN: durable SDK run %s is leased by another owner (attempt %d): %v — retrying in %s", runID, attempt, err, delay)
+		log.Printf("WARN: durable SDK run %s is leased by another owner (attempt %d): %v — retrying in %s",
+			runID, attempt, err, delay)
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()

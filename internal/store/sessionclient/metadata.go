@@ -57,8 +57,12 @@ type WorkingState struct {
 	// SelfAssistantMessageID is the worker's own durable assistant reply for
 	// the last committed pass. Its content is already in the replayed
 	// transcript, so the out-of-band fold must skip it.
-	SelfAssistantMessageID int64     `json:"self_assistant_message_id,omitempty"`
-	UpdatedAt              time.Time `json:"updated_at,omitempty"`
+	SelfAssistantMessageID int64 `json:"self_assistant_message_id,omitempty"`
+	// AutonomousTurnActive marks an autonomous turn whose driving message
+	// claim is already completed: after a crash nothing durable would resume
+	// it, so the replacement pod enqueues a continuation instead.
+	AutonomousTurnActive bool      `json:"autonomous_turn_active,omitempty"`
+	UpdatedAt            time.Time `json:"updated_at,omitempty"`
 }
 
 func (w *WorkingState) normalize() {

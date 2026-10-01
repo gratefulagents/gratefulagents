@@ -174,7 +174,7 @@ func admissionWaitStartTime(run *platformv1alpha1.AgentRun) time.Time {
 	}
 	// Resumed runs compete for capacity again, but waiting from a previous
 	// attempt must not exhaust the new attempt's admission deadline.
-	if wake := run.Status.LastWakeTime; wake != nil && wake.Time.After(start) {
+	if wake := run.Status.LastWakeTime; wake != nil && wake.After(start) {
 		start = wake.Time
 	}
 	return start

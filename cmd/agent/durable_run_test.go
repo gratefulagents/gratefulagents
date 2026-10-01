@@ -26,7 +26,9 @@ func TestReserveSDKDurablePassResumesAndAdvances(t *testing.T) {
 	if first != 1 || resumed != first {
 		t.Fatalf("first=%d resumed=%d", first, resumed)
 	}
-	if err := sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error { return completeDurablePassState(state, 101, first) }); err != nil {
+	if err := sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
+		return completeDurablePassState(state, 101, first)
+	}); err != nil {
 		t.Fatal(err)
 	}
 	second, err := reserveSDKDurablePass(ctx, sc, 101)
@@ -60,7 +62,9 @@ func TestCompleteSDKDurablePassRejectsStaleIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error { return completeDurablePassState(state, 101, pass+1) }); err == nil {
+	if err := sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
+		return completeDurablePassState(state, 101, pass+1)
+	}); err == nil {
 		t.Fatal("expected stale pass rejection")
 	}
 }
@@ -82,15 +86,19 @@ func TestOpenSDKStoredRunBoundsLeaseWaitAndHonorsStop(t *testing.T) {
 	}()
 	cfg.DurableRunOwner = "new-pod"
 	oldWait, oldInitial, oldMax := durableRunOpenMaxWait, durableRunOpenInitialDelay, durableRunOpenMaxDelay
-	durableRunOpenMaxWait, durableRunOpenInitialDelay, durableRunOpenMaxDelay = 30*time.Millisecond, time.Millisecond, 5*time.Millisecond
+	durableRunOpenMaxWait, durableRunOpenInitialDelay, durableRunOpenMaxDelay =
+		30*time.Millisecond, time.Millisecond, 5*time.Millisecond
 	t.Cleanup(func() {
 		durableRunOpenMaxWait, durableRunOpenInitialDelay, durableRunOpenMaxDelay = oldWait, oldInitial, oldMax
 	})
-	if _, err := openSDKStoredRun(context.Background(), cfg, 101, 1, func(context.Context) bool { return true }); !errors.Is(err, errDurableRunOpenStopped) {
+	if _, err := openSDKStoredRun(context.Background(), cfg, 101, 1,
+		func(context.Context) bool { return true },
+	); !errors.Is(err, errDurableRunOpenStopped) {
 		t.Fatalf("stop err=%v", err)
 	}
 	start := time.Now()
-	if _, err := openSDKStoredRun(context.Background(), cfg, 101, 1, nil); !errors.Is(err, sdkdurable.ErrLeaseHeld) && !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := openSDKStoredRun(context.Background(), cfg, 101, 1, nil); !errors.Is(err, sdkdurable.ErrLeaseHeld) &&
+		!errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("lease timeout err=%v", err)
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
@@ -124,7 +132,12 @@ func TestCommitTurnDetachedFromShutdownRetainsReplayableCheckpoint(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			model := &retryingCriticModel{responses: []*agent.ModelResponse{{Items: []agent.RunItem{{Type: agent.RunItemMessage, Message: &agent.MessageOutput{Text: "done"}}}}}}
+			model := &retryingCriticModel{responses: []*agent.ModelResponse{{
+				Items: []agent.RunItem{{
+					Type:    agent.RunItemMessage,
+					Message: &agent.MessageOutput{Text: "done"},
+				}},
+			}}}
 			runner := agent.NewRunnerWithModel(model)
 			worker := &agent.Agent{Name: "worker"}
 			result, err := runner.Run(context.Background(), worker, nil, agent.RunConfig{Durable: run.RunConfig()})
@@ -135,7 +148,9 @@ func TestCommitTurnDetachedFromShutdownRetainsReplayableCheckpoint(t *testing.T)
 			turn := &userTurn{messageID: 101, claimPending: true}
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			exit := r.commitTurn(ctx, turn, &preparedTurn{turnPolicy: &turnPolicy{}, durablePass: pass, storedRun: run}, turnOutcome{result: result}, nil)
+			exit := r.commitTurn(ctx, turn,
+				&preparedTurn{turnPolicy: &turnPolicy{}, durablePass: pass, storedRun: run},
+				turnOutcome{result: result}, nil)
 			if failTranscript {
 				if exit == nil || exit.Status != "failed" || !turn.claimPending {
 					t.Fatalf("failed commit exit=%+v turn=%+v", exit, turn)

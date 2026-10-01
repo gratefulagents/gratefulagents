@@ -2914,9 +2914,12 @@ func (r *SecurityScanReconciler) createScanTaskRun(ctx context.Context, scan *tr
 		}
 		// The per-task cost cap folds with the scan-wide budgets.maxCostUSD
 		// already in the base limits: smaller wins, so a task can narrow
-		// but never loosen the scan budget.
+		// but never loosen the scan budget. Caps parse like the controller
+		// enforces them: an invalid cap blocks the run, so it is the tightest.
 		if cost := strings.TrimSpace(task.MaxCostUSD); cost != "" {
-			if scanCost := securityBudgetCostUSD(limits.MaxCostUsd); scanCost < 0 || securityBudgetCostUSD(cost) < scanCost {
+			scanCap, scanSet, scanErr := limits.CostCapUSD()
+			taskCap, _, taskErr := (&platformv1alpha1.AgentRunLimits{MaxCostUsd: cost}).CostCapUSD()
+			if !scanSet || (scanErr == nil && (taskErr != nil || taskCap < scanCap)) {
 				limits.MaxCostUsd = cost
 			}
 		}
