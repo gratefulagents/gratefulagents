@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
-  ArrowUpRight,
   BookOpen,
   CalendarClock,
   Check,
@@ -17,7 +16,8 @@ import {
   type ProjectWithTriggers,
 } from "@/components/project-triggers/types";
 import { Button } from "@/components/ui/button";
-import { ProgressPips } from "@/components/onboarding/ProgressPips";
+import { IconTile, InsetRow, InsetSection } from "@/components/ui/inset-list";
+import { pushButtonClass, tileColor } from "@/components/ui/inset-list-styles";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMyCredentials } from "@/hooks/useMyCredentials";
 import { useProjects } from "@/hooks/useWatchedList";
@@ -32,35 +32,41 @@ import {
   shouldShowFeatureTour,
   type FeatureTourSource,
 } from "@/lib/onboarding";
-import { toneSoft } from "@/lib/status";
-import { cn } from "@/lib/utils";
 import type { Project } from "@/rpc/platform/service_pb";
 
 const DOCS_BASE = "https://gratefulagents.dev/docs";
 
 const TOUR_ITEMS: Record<
   FeatureTourSource,
-  { icon: typeof GitBranch; title: string; description: string; docsPath: string }
+  { icon: typeof GitBranch; color: string; title: string; short: string; description: string; docsPath: string }
 > = {
   github: {
+    color: tileColor.gray,
+    short: "GitHub",
     icon: GitBranch,
     title: "Set up a GitHub trigger",
     description: "Agents pick up new issues and pull requests automatically.",
     docsPath: "/integrations/github/",
   },
   slack: {
+    color: tileColor.purple,
+    short: "Slack",
     icon: MessageSquare,
     title: "Set up a Slack trigger",
     description: "@mention the bot in Slack to start and steer runs.",
     docsPath: "/integrations/slack/",
   },
   cron: {
+    color: tileColor.orange,
+    short: "Cron",
     icon: CalendarClock,
     title: "Schedule recurring runs",
     description: "Cron entry points run agent work on a schedule.",
     docsPath: "/projects/cron/",
   },
   linear: {
+    color: tileColor.indigo,
+    short: "Linear",
     icon: Layers,
     title: "Connect Linear",
     description: "Turn Linear issues into agent runs.",
@@ -110,110 +116,85 @@ export function FeatureTour({ className }: { className?: string }) {
 
   const done = featureTourStepsDone(tour);
   const pending = FEATURE_TOUR_SOURCES.filter((source) => !tour[source]);
-  const total = FEATURE_TOUR_SOURCES.length;
+  const finished = FEATURE_TOUR_SOURCES.filter((source) => tour[source]);
 
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 10 }}
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.25, 1, 0.5, 1], delay: 0.12 }}
-      aria-label="Do more with your agents"
-      className={cn("flex flex-col gap-2.5", className)}
+      transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1], delay: 0.08 }}
+      className={className}
     >
-      <div className="flex items-center justify-between gap-3 px-1">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <h2 className="text-[12.5px] font-medium">Do more with your agents</h2>
-          <ProgressPips done={done} total={total} />
-          <span className="font-mono text-[11px] text-muted-foreground">
-            {done}/{total}
-          </span>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Dismiss feature tour"
-          className="text-muted-foreground"
-          onClick={() => {
-            dismissFeatureTour(user?.id);
-            setDismissed(true);
-          }}
-        >
-          <X />
-        </Button>
-      </div>
-      <div className={cn("grid gap-2", pending.length > 1 && "sm:grid-cols-2")}>
+      <InsetSection
+        label="Do more with your agents"
+        title="Do more with your agents"
+        accessory={`${done}/${FEATURE_TOUR_SOURCES.length}`}
+        action={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Dismiss feature tour"
+            className="text-muted-foreground"
+            onClick={() => {
+              dismissFeatureTour(user?.id);
+              setDismissed(true);
+            }}
+          >
+            <X />
+          </Button>
+        }
+        footer={
+          <div className="flex flex-col gap-0.5">
+            {finished.length > 0 && (
+              <span className="flex items-center gap-1">
+                <Check className="size-3 shrink-0 text-[color:var(--tone-success)]" />
+                Already set up: {finished.map((source) => TOUR_ITEMS[source].short).join(", ")}
+              </span>
+            )}
+            <span>
+              Entry points run agents without the dashboard — find them in{" "}
+              <Link to={entryPointsTo} className="cursor-default text-primary hover:underline">
+                {project.displayName || project.name} → Entry points
+              </Link>
+              .
+            </span>
+          </div>
+        }
+      >
         {pending.map((source) => {
           const item = TOUR_ITEMS[source];
           return (
-            <div
+            <InsetRow
               key={source}
-              className="group/tile flex items-center gap-2.5 rounded-xl border border-border/70 bg-card/50 px-3 py-2.5 transition-colors hover:border-border"
-            >
-              <span className="grid size-7 shrink-0 place-items-center rounded-[7px] border border-border/60 bg-background/60 text-muted-foreground">
-                <item.icon className="size-[13px]" />
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="truncate text-[13px] font-medium leading-tight">{item.title}</span>
-                <span className="truncate text-[11.5px] leading-tight text-muted-foreground/80">
-                  {item.description}
-                </span>
-              </span>
-              <span className="flex shrink-0 items-center gap-0.5">
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  nativeButton={false}
-                  aria-label={`Open the ${item.title.toLowerCase()} guide`}
-                  title="Guide"
-                  className="text-muted-foreground"
-                  render={
-                    <a
-                      href={`${DOCS_BASE}${item.docsPath}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    />
-                  }
-                >
-                  <BookOpen />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="xs"
-                  nativeButton={false}
-                  render={<Link to={entryPointsTo} />}
-                >
-                  Set up
-                  <ArrowUpRight data-icon="inline-end" />
-                </Button>
-              </span>
-            </div>
+              icon={
+                <IconTile color={item.color}>
+                  <item.icon />
+                </IconTile>
+              }
+              title={item.title}
+              subtitle={item.description}
+              trailing={
+                <>
+                  <a
+                    href={`${DOCS_BASE}${item.docsPath}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    role="button"
+                    aria-label={`Open the ${item.title.toLowerCase()} guide`}
+                    title="Guide"
+                    className="grid size-[22px] cursor-default place-items-center rounded-[6px] text-muted-foreground outline-none hover:bg-foreground/[0.07] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+                  >
+                    <BookOpen className="size-3.5" />
+                  </a>
+                  <Link to={entryPointsTo} role="button" className={pushButtonClass()}>
+                    Set up
+                  </Link>
+                </>
+              }
+            />
           );
         })}
-      </div>
-      {done > 0 && (
-        <ul aria-label="Already set up" className="flex flex-wrap items-center gap-1.5 px-1">
-          {FEATURE_TOUR_SOURCES.filter((source) => tour[source]).map((source) => (
-            <li
-              key={source}
-              className="inline-flex items-center gap-1 text-[11.5px] text-muted-foreground/80"
-            >
-              <span className={cn("grid size-3.5 place-items-center rounded-full", toneSoft.success)}>
-                <Check className="size-2.5" />
-              </span>
-              <span className="line-through decoration-muted-foreground/40">
-                {TOUR_ITEMS[source].title}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="px-1 text-[11.5px] text-muted-foreground/80">
-        Entry points run agents without the dashboard — find them in{" "}
-        <Link to={entryPointsTo} className="underline underline-offset-2 hover:text-foreground">
-          {project.displayName || project.name} → Entry points
-        </Link>
-        .
-      </p>
-    </motion.section>
+      </InsetSection>
+    </motion.div>
   );
 }

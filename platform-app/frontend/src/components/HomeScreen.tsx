@@ -2,21 +2,27 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
-  ArrowRight,
   Bug,
+  Check,
   FileSearch,
   FlaskConical,
-  FolderKanban,
+  Folder,
   GitPullRequest,
+  MessageCircleQuestion,
   MessageSquare,
   Plus,
   ShieldHalf,
+  X,
 } from "lucide-react";
 
 import { NewChatComposer } from "@/components/NewChatComposer";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 import { FeatureTour } from "@/components/onboarding/FeatureTour";
 import { SetupChecklist } from "@/components/onboarding/SetupChecklist";
+import { SegmentedControl } from "@/components/shell/SegmentedControl";
+import { IconTile, InsetRow, InsetSection } from "@/components/ui/inset-list";
+import { pushButtonClass, tileColor } from "@/components/ui/inset-list-styles";
+import { Spinner } from "@/components/ui/spinner";
 import { useProjects } from "@/hooks/useWatchedList";
 import { useAgentRuns } from "@/hooks/useAgentRuns";
 import { useAuth } from "@/contexts/AuthContext";
@@ -27,11 +33,9 @@ import {
   isActionableInputType,
   isRunComputing,
   runStatusLabel,
-  runStatusTone,
   visibleInputType,
 } from "@/lib/runStatus";
-import { isDonePhase, phaseTone, toneColor, type StatusTone } from "@/lib/status";
-import { cn } from "@/lib/utils";
+import { isDonePhase, phaseTone } from "@/lib/status";
 import type { AgentRun } from "@/rpc/platform/service_pb";
 
 function greeting(): string {
@@ -41,21 +45,17 @@ function greeting(): string {
   return "Good evening";
 }
 
-/** Shared entrance motion — gentle rise, staggered per section. */
+/** Shared entrance motion — gentle fade, staggered per section. */
 const rise = (order: number) => ({
-  initial: { opacity: 0, y: 8 },
+  initial: { opacity: 0, y: 4 },
   animate: { opacity: 1, y: 0 },
-  transition: {
-    duration: 0.3,
-    ease: [0.25, 1, 0.5, 1] as const,
-    delay: order * 0.05,
-  },
+  transition: { duration: 0.25, ease: [0.25, 1, 0.5, 1] as const, delay: order * 0.04 },
 });
 
 /**
- * Starter prompts under the composer (ChatGPT / Claude style). Picking one
- * pre-fills the composer with an editable opener instead of starting a run,
- * so the user always finishes the sentence before anything happens.
+ * Starter prompts under the composer. Picking one pre-fills the composer with
+ * an editable opener instead of starting a run, so the user always finishes
+ * the sentence before anything happens.
  */
 const STARTERS = [
   { icon: Bug, label: "Fix a bug", text: "Find and fix the bug where " },
@@ -64,16 +64,9 @@ const STARTERS = [
   { icon: FileSearch, label: "Explain code", text: "Explain how this codebase handles " },
 ] as const;
 
-/* ── Task list (Codex / Devin style) ─────────────────────────────── */
+/* ── Tasks ───────────────────────────────────────────────────────── */
 
 type TaskFilter = "all" | "active" | "attention" | "done";
-
-const FILTERS: { id: TaskFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "active", label: "Active" },
-  { id: "attention", label: "Needs you" },
-  { id: "done", label: "Done" },
-];
 
 function runBucket(run: AgentRun): Exclude<TaskFilter, "all"> {
   if (isDonePhase(run.phase)) return "done";
@@ -90,104 +83,54 @@ function entryBucket(entry: OpsRowEntry): Exclude<TaskFilter, "all"> {
   return "done";
 }
 
-/**
- * Quiet status dot + label — reads calmer than a filled pill in a list.
- * The dot always renders (including narrow/iOS widths); only the text label
- * collapses below `sm`, and the accessible label is kept via `title`/sr-only
- * so status stays distinguishable everywhere.
- */
-function StatusDot({ tone, live, label }: { tone: StatusTone; live: boolean; label: string }) {
+/** Mail/Reminders-style status glyph: the tile color carries the state. */
+function statusTile(bucket: Exclude<TaskFilter, "all">, failed: boolean, security: boolean) {
+  if (failed) return <IconTile color={tileColor.red}><X /></IconTile>;
+  if (bucket === "attention") {
+    return <IconTile color={tileColor.purple}><MessageCircleQuestion /></IconTile>;
+  }
+  if (bucket === "done") return <IconTile color={tileColor.green}><Check /></IconTile>;
   return (
-    <span
-      title={label}
-      className="inline-flex shrink-0 items-center gap-1.5 text-[11.5px] text-muted-foreground"
-    >
-      <span
-        className="relative inline-flex size-[6px] rounded-full"
-        style={{ backgroundColor: toneColor[tone] }}
-      >
-        {live && (
-          <span
-            className="absolute inset-0 rounded-full opacity-60 motion-safe:animate-ping"
-            style={{ backgroundColor: toneColor[tone] }}
-          />
-        )}
-      </span>
+    <IconTile color={security ? tileColor.indigo : tileColor.blue}>
+      {security ? <ShieldHalf /> : <MessageSquare />}
+    </IconTile>
+  );
+}
+
+function StatusText({ label, live }: { label: string; live: boolean }) {
+  return (
+    <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+      {live && <Spinner aria-hidden className="size-3" />}
       <span className="hidden sm:inline">{label}</span>
       <span className="sr-only sm:hidden">{label}</span>
     </span>
   );
 }
 
-function TaskRow({
-  to,
-  icon,
-  title,
-  meta,
-  status,
-}: {
-  to: string;
-  icon: React.ReactNode;
-  title: string;
-  meta: string[];
-  status: React.ReactNode;
-}) {
-  return (
-    <Link
-      to={to}
-      className={cn(
-        "group/row flex items-center gap-3 px-3.5 py-2.5 outline-none",
-        "border-b border-border/50 last:border-b-0",
-        "transition-colors duration-75 hover:bg-foreground/[0.035] active:bg-foreground/[0.06]",
-        "focus-visible:bg-foreground/[0.045]",
-      )}
-    >
-      <span className="grid size-7 shrink-0 place-items-center rounded-[7px] border border-border/60 bg-background/60 text-muted-foreground [&_svg]:size-[13px]">
-        {icon}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-[13px] font-medium leading-tight tracking-[-0.006em]">
-          {title}
-        </span>
-        {meta.length > 0 && (
-          <span className="flex min-w-0 items-center gap-1.5 truncate text-[11.5px] leading-tight text-muted-foreground/80">
-            {meta.map((m, i) => (
-              <span key={i} className={cn("truncate", i > 0 && "before:mr-1.5 before:opacity-50 before:content-['·']")}>
-                {m}
-              </span>
-            ))}
-          </span>
-        )}
-      </span>
-      {status}
-    </Link>
-  );
-}
-
 function EntryRow({ entry }: { entry: OpsRowEntry }) {
+  const bucket = entryBucket(entry);
   if (entry.kind === "run") {
     const { run } = entry;
+    const failed = phaseTone(run.phase) === "danger" || visibleInputType(run) === "circuit_breaker";
     return (
-      <TaskRow
+      <InsetRow
         to={`/runs/${run.namespace}/${run.name}`}
-        icon={<MessageSquare />}
+        icon={statusTile(bucket, failed, false)}
         title={run.displayName || run.intentTitle || run.name}
-        meta={[runSourceLabel(run), formatAge(run.createdAtUnix)].filter(Boolean)}
-        status={
-          <StatusDot tone={runStatusTone(run)} live={isRunComputing(run)} label={runStatusLabel(run)} />
-        }
+        subtitle={[runSourceLabel(run), formatAge(run.createdAtUnix)].filter(Boolean).join(" · ")}
+        trailing={<StatusText label={runStatusLabel(run)} live={isRunComputing(run)} />}
       />
     );
   }
   const { group } = entry;
   const phase = scanGroupPhase(group.runs);
   return (
-    <TaskRow
+    <InsetRow
       to="/security/runs"
-      icon={<ShieldHalf />}
+      icon={statusTile(bucket, phaseTone(phase) === "danger", true)}
       title={`Security scan ${group.scanName}`}
-      meta={[`${group.runs.length} task runs`, formatAge(group.runs[0].createdAtUnix)]}
-      status={<StatusDot tone={phaseTone(phase)} live={phase === "Running"} label={phase} />}
+      subtitle={`${group.runs.length} task runs · ${formatAge(group.runs[0].createdAtUnix)}`}
+      trailing={<StatusText label={phase} live={phase === "Running"} />}
     />
   );
 }
@@ -203,56 +146,39 @@ function TaskList({ entries }: { entries: OpsRowEntry[] }) {
     () => (filter === "all" ? entries : entries.filter((e) => entryBucket(e) === filter)).slice(0, 8),
     [entries, filter],
   );
+  const withCount = (label: string, id: TaskFilter) =>
+    counts[id] > 0 ? (
+      <>
+        {label}
+        <span className="ml-1 tabular-nums opacity-55">{counts[id]}</span>
+      </>
+    ) : (
+      label
+    );
 
   return (
     <section aria-label="Tasks" className="flex min-w-0 flex-col">
-      <div className="mb-2 flex items-center justify-between gap-3 px-1">
-        <div role="tablist" aria-label="Filter tasks" className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]">
-          {FILTERS.map((f) => {
-            const selected = filter === f.id;
-            const count = counts[f.id];
-            return (
-              <button
-                key={f.id}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                onClick={() => setFilter(f.id)}
-                className={cn(
-                  "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[7px] px-2.5 text-[12.5px] font-medium transition-colors",
-                  selected
-                    ? "bg-foreground/[0.07] text-foreground"
-                    : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",
-                )}
-              >
-                {f.label}
-                {f.id !== "all" && count > 0 && (
-                  <span
-                    className={cn("font-mono text-[10.5px] tabular-nums", f.id !== "attention" && "opacity-60")}
-                    style={f.id === "attention" ? { color: toneColor.purple } : undefined}
-                  >
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-        <Link
-          to="/runs"
-          aria-label="View all tasks"
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-[12px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <span className="hidden sm:inline">View all</span>
-          <ArrowRight className="size-3" />
+      <div className="mb-2 flex items-center justify-between gap-3 px-0.5">
+        <SegmentedControl
+          size="sm"
+          value={filter}
+          onChange={setFilter}
+          className="min-w-0 overflow-x-auto [scrollbar-width:none]"
+          options={[
+            { value: "all", label: "All" },
+            { value: "active", label: withCount("Active", "active") },
+            { value: "attention", label: withCount("Needs you", "attention") },
+            { value: "done", label: withCount("Done", "done") },
+          ]}
+        />
+        <Link to="/runs" className="shrink-0 cursor-default text-[12px] text-primary hover:underline">
+          Show All
         </Link>
       </div>
-      <div className="overflow-hidden rounded-xl border border-border/70 bg-card/50">
+      <InsetSection>
         {visible.length === 0 ? (
-          <p className="px-4 py-8 text-center text-[12.5px] text-muted-foreground/80">
-            {entries.length === 0
-              ? "No tasks yet — describe one above to get started."
-              : "Nothing here right now."}
+          <p className="px-4 py-7 text-center text-[12.5px] text-muted-foreground">
+            {entries.length === 0 ? "No tasks yet — describe one above to get started." : "No tasks"}
           </p>
         ) : (
           visible.map((entry) => (
@@ -262,84 +188,74 @@ function TaskList({ entries }: { entries: OpsRowEntry[] }) {
             />
           ))
         )}
-      </div>
+      </InsetSection>
     </section>
   );
 }
 
-/* ── Projects strip ──────────────────────────────────────────────── */
+/* ── Projects ────────────────────────────────────────────────────── */
 
-function ProjectsStrip() {
+function ProjectsSection() {
   const { projects, loading } = useProjects();
   const shown = projects.slice(0, 6);
 
   return (
-    <section aria-label="Projects" className="flex min-w-0 flex-col">
-      <div className="mb-2 flex h-7 items-center justify-between gap-2 px-1">
-        <h2 className="text-[12.5px] font-medium text-muted-foreground">Projects</h2>
-        <span className="flex items-center gap-1">
+    <InsetSection
+      label="Projects"
+      title="Projects"
+      action={
+        <>
           {projects.length > shown.length && (
-            <Link
-              to="/projects"
-              className="rounded-[6px] px-1.5 py-0.5 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              All {projects.length}
+            <Link to="/projects" className="cursor-default text-[12px] text-primary hover:underline">
+              Show All
             </Link>
           )}
           <CreateProjectDialog
             trigger={
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-[6px] px-1.5 py-0.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
-              >
-                <Plus className="size-3" />
-                New
+              <button type="button" aria-label="New project" title="New project" className={pushButtonClass("w-[22px] justify-center px-0")}>
+                <Plus />
               </button>
             }
           />
-        </span>
-      </div>
+        </>
+      }
+    >
       {shown.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border/70 px-4 py-6 text-center text-[12.5px] text-muted-foreground/80">
+        <p className="px-4 py-6 text-center text-[12.5px] text-muted-foreground">
           {loading ? "Loading projects…" : "Projects keep chats, files, and instructions together."}
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {shown.map((p) => {
-            const total = p.metrics?.totalRuns ?? 0;
-            return (
-              <Link
-                key={`${p.namespace}/${p.name}`}
-                to={`/projects/${p.namespace}/${p.name}`}
-                className="group/proj flex min-w-0 items-center gap-2.5 rounded-xl border border-border/70 bg-card/50 px-3 py-2.5 outline-none transition-colors hover:border-border hover:bg-foreground/[0.035] focus-visible:border-ring"
-              >
-                <span className="grid size-7 shrink-0 place-items-center rounded-[7px] bg-primary/10 text-primary">
-                  <FolderKanban className="size-[13px]" />
+        shown.map((p) => {
+          const total = p.metrics?.totalRuns ?? 0;
+          return (
+            <InsetRow
+              key={`${p.namespace}/${p.name}`}
+              to={`/projects/${p.namespace}/${p.name}`}
+              icon={
+                <IconTile color={tileColor.blue}>
+                  <Folder />
+                </IconTile>
+              }
+              title={p.displayName || p.name}
+              trailing={
+                <span className="text-[12px] tabular-nums text-muted-foreground">
+                  {total > 0 ? `${total} ${total === 1 ? "run" : "runs"}` : "No runs"}
                 </span>
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-[13px] font-medium leading-tight">
-                    {p.displayName || p.name}
-                  </span>
-                  <span className="truncate text-[11.5px] leading-tight text-muted-foreground/80 tabular-nums">
-                    {total > 0 ? `${total} ${total === 1 ? "run" : "runs"}` : "No runs yet"}
-                  </span>
-                </span>
-              </Link>
-            );
-          })}
-        </div>
+              }
+            />
+          );
+        })
       )}
-    </section>
+    </InsetSection>
   );
 }
 
 /* ── Screen ──────────────────────────────────────────────────────── */
 
 /**
- * Home: a prompt-first launcher modelled on chat-first agent tools (ChatGPT,
- * Claude, Codex, Devin). One compact greeting, the composer with starter
- * prompts, then the work itself — a filterable task list — with onboarding
- * kept to slim cards and projects as a quick-jump grid.
+ * Home: a prompt-first launcher styled like a native macOS window — a quiet
+ * title, the composer with bezel-button starter prompts, then System
+ * Settings-style inset grouped lists for tasks, onboarding, and projects.
  */
 export function HomeScreen() {
   const { user } = useAuth();
@@ -351,55 +267,63 @@ export function HomeScreen() {
     [runs],
   );
   const firstName = (user?.name || user?.username || "").split(" ")[0];
+  const needsYou = entries.filter((e) => entryBucket(e) === "attention").length;
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col px-5 pt-[min(12vh,7rem)] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
-      <motion.div {...rise(0)} className="mb-6 flex items-center justify-center gap-3">
+    <div className="mx-auto flex min-h-full w-full max-w-[680px] flex-col px-5 pt-[min(10vh,5.5rem)] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+      <motion.div {...rise(0)} className="mb-5 flex flex-col items-center text-center">
         <img
           src="/logo.png"
           alt=""
           draggable={false}
-          className="size-9 rounded-[9px] shadow-[0_1px_2px_oklch(0_0_0_/_0.25),inset_0_0_0_1px_oklch(1_0_0_/_0.14)]"
+          className="mb-2.5 size-14 rounded-[13px] shadow-[0_2px_6px_oklch(0_0_0_/_0.3),inset_0_0_0_0.5px_oklch(1_0_0_/_0.18)]"
         />
-        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.025em]">
+        <h1 className="text-[22px] font-semibold tracking-[-0.015em]">
           {greeting()}
           {firstName ? `, ${firstName}` : ""}
         </h1>
+        <p className="mt-0.5 text-[12.5px] text-muted-foreground">
+          {needsYou > 0
+            ? `${needsYou} ${needsYou === 1 ? "task needs" : "tasks need"} your attention`
+            : "What should the agent work on?"}
+        </p>
       </motion.div>
 
       <motion.div {...rise(1)}>
         <NewChatComposer
           variant="hero"
           autoFocus
-          placeholder="What should the agent work on?"
+          placeholder="Describe a task, or ask anything…"
           prefill={prefill}
-          className="rounded-2xl shadow-[var(--elevation-mid)]"
+          className="rounded-[12px] bg-card shadow-[0_0.5px_1.5px_oklch(0_0_0_/_0.18),0_8px_24px_-12px_oklch(0_0_0_/_0.35)]"
         />
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+        <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
           {STARTERS.map((s) => (
             <button
               key={s.label}
               type="button"
               onClick={() => setPrefill((prev) => ({ text: s.text, nonce: (prev?.nonce ?? 0) + 1 }))}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 bg-card/40 px-3 text-[12.5px] text-muted-foreground transition-colors hover:border-border hover:bg-foreground/[0.05] hover:text-foreground"
+              className={pushButtonClass("h-6 px-2.5 font-normal text-muted-foreground hover:text-foreground")}
             >
-              <s.icon className="size-3.5" />
+              <s.icon />
               {s.label}
             </button>
           ))}
         </div>
       </motion.div>
 
-      <SetupChecklist className="mt-8" />
-      <FeatureTour className="mt-8" />
+      <div className="mt-8 flex flex-col gap-7">
+        <SetupChecklist />
+        <FeatureTour />
 
-      <motion.div {...rise(2)} className="mt-10">
-        <TaskList entries={entries} />
-      </motion.div>
+        <motion.div {...rise(2)}>
+          <TaskList entries={entries} />
+        </motion.div>
 
-      <motion.div {...rise(3)} className="mt-8">
-        <ProjectsStrip />
-      </motion.div>
+        <motion.div {...rise(3)}>
+          <ProjectsSection />
+        </motion.div>
+      </div>
     </div>
   );
 }

@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowUpRight, Check, FolderGit2, GitBranch, KeyRound, X } from "lucide-react";
+import { Check, FolderGit2, GitBranch, KeyRound, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { ProgressPips } from "@/components/onboarding/ProgressPips";
+import { IconTile, InsetRow, InsetSection } from "@/components/ui/inset-list";
+import { tileColor } from "@/components/ui/inset-list-styles";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMyCredentials } from "@/hooks/useMyCredentials";
 import { useProjects } from "@/hooks/useWatchedList";
@@ -15,8 +15,6 @@ import {
   setupStepsDone,
   shouldShowChecklist,
 } from "@/lib/onboarding";
-import { toneSoft } from "@/lib/status";
-import { cn } from "@/lib/utils";
 
 /**
  * SetupChecklist is the Home-screen "finish setting up" card: the three
@@ -38,6 +36,7 @@ export function SetupChecklist({ className }: { className?: string }) {
   const items = [
     {
       icon: KeyRound,
+      color: tileColor.orange,
       title: "Connect a model provider",
       description: "Claude, OpenAI, or Copilot — OAuth or API key.",
       done: progress.provider,
@@ -45,6 +44,7 @@ export function SetupChecklist({ className }: { className?: string }) {
     },
     {
       icon: GitBranch,
+      color: tileColor.gray,
       title: "Add a GitHub token",
       description: "Clone private repos, push branches, open PRs.",
       done: progress.github,
@@ -52,6 +52,7 @@ export function SetupChecklist({ className }: { className?: string }) {
     },
     {
       icon: FolderGit2,
+      color: tileColor.blue,
       title: "Create your first project",
       description: "Point the agents at a repository.",
       done: progress.project,
@@ -62,70 +63,59 @@ export function SetupChecklist({ className }: { className?: string }) {
   const done = setupStepsDone(progress);
 
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 10 }}
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.25, 1, 0.5, 1], delay: 0.12 }}
-      aria-label="Finish setting up"
-      className={cn("flex flex-col gap-2.5", className)}
+      transition={{ duration: 0.25, ease: [0.25, 1, 0.5, 1], delay: 0.08 }}
+      className={className}
     >
-      <div className="flex items-center justify-between gap-3 px-1">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <h2 className="text-[12.5px] font-medium">Finish setting up</h2>
-          <ProgressPips done={done} total={items.length} />
-          <span className="font-mono text-[11px] text-muted-foreground">{done}/3</span>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Dismiss setup checklist"
-          className="text-muted-foreground"
-          onClick={() => {
-            dismissChecklist(user?.id);
-            setDismissed(true);
-          }}
-        >
-          <X />
-        </Button>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-3">
+      <InsetSection
+        label="Finish setting up"
+        title="Finish setting up"
+        accessory={`${done}/3`}
+        action={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Dismiss setup checklist"
+            className="text-muted-foreground"
+            onClick={() => {
+              dismissChecklist(user?.id);
+              setDismissed(true);
+            }}
+          >
+            <X />
+          </Button>
+        }
+      >
         {items.map((item) =>
           item.done ? (
-            <div
+            <InsetRow
               key={item.title}
-              className="flex items-center gap-2.5 rounded-xl border border-border/50 px-3 py-2.5 opacity-60"
-            >
-              <span
-                className={cn("grid size-7 shrink-0 place-items-center rounded-[7px]", toneSoft.success)}
-              >
-                <Check className="size-3.5" />
-              </span>
-              <span className="truncate text-[13px] font-medium line-through decoration-muted-foreground/50">
-                {item.title}
-              </span>
-            </div>
+              dimmed
+              icon={
+                <IconTile color={tileColor.green}>
+                  <Check />
+                </IconTile>
+              }
+              title={item.title}
+              trailing={<span className="text-[12px] text-muted-foreground">Done</span>}
+            />
           ) : (
-            <Link
+            <InsetRow
               key={item.title}
               to={item.to}
-              className="group/tile flex flex-col gap-2 rounded-xl border border-border/70 bg-card/50 p-3 outline-none transition-colors hover:border-border hover:bg-foreground/[0.035] focus-visible:border-ring"
-            >
-              <span className="flex items-center justify-between">
-                <span className="grid size-7 place-items-center rounded-[7px] border border-border/60 bg-background/60 text-muted-foreground">
-                  <item.icon className="size-[13px]" />
-                </span>
-                <ArrowUpRight className="size-3.5 text-muted-foreground/50 transition-colors group-hover/tile:text-foreground" />
-              </span>
-              <span className="flex flex-col gap-0.5">
-                <span className="text-[13px] font-medium leading-tight">{item.title}</span>
-                <span className="text-[11.5px] leading-snug text-muted-foreground/80">
-                  {item.description}
-                </span>
-              </span>
-            </Link>
+              icon={
+                <IconTile color={item.color}>
+                  <item.icon />
+                </IconTile>
+              }
+              title={item.title}
+              subtitle={item.description}
+            />
           ),
         )}
-      </div>
-    </motion.section>
+      </InsetSection>
+    </motion.div>
   );
 }
