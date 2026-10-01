@@ -3240,7 +3240,7 @@ func TestPausedRunUpdatesBlockedReasonWhenBlockerChanges(t *testing.T) {
 	}
 	// Steady state: no further write once the reason is current.
 	result, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(run)})
-	if err != nil || result.Requeue || result.RequeueAfter != 0 {
+	if err != nil || result.RequeueAfter != 0 {
 		t.Fatalf("second Reconcile() = %#v, %v; want idle", result, err)
 	}
 }
@@ -3386,5 +3386,108 @@ func TestReconcilePreservesTerminalPolicy(t *testing.T) {
 	}
 	if got := getRun(t, c, run).Status.Policy.ResolvedGitRemoteWrites; got != "ran-under-this" {
 		t.Fatalf("resolved policy = %q, want preserved", got)
+	}
+}
+
+func TestReconcileTerminalRunReleasesClusterRoleBindingsWithinTTL(t *testing.T) {
+	t.Parallel()
+
+	run := provisioningRun("worker-just-finished", time.Now().Add(-time.Hour))
+	completed := metav1.Now()
+	run.Status.Phase = platformv1alpha1.AgentRunPhaseSucceeded
+	run.Status.CompletedAt = &completed
+	run.Status.Sandbox = &platformv1alpha1.AgentRunSandboxStatus{
+		Provider: agentSandboxProvider, ClaimRef: &platformv1alpha1.NamedRef{Name: "kept"},
+	}
+	crb := runClusterRoleBinding(run)
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run, crb).
+		Build()
+	r := &AgentRunReconciler{Client: c}
+	for range 2 {
+		result, err := r.reconcileTerminalRun(context.Background(), run)
+		if err != nil {
+			t.Fatalf("reconcileTerminalRun() error = %v", err)
+		}
+		if result.RequeueAfter <= 0 {
+			t.Fatalf("result = %#v, want requeue at TTL expiry", result)
+		}
+	}
+	err := c.Get(context.Background(), client.ObjectKeyFromObject(crb), &rbacv1.ClusterRoleBinding{})
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("ClusterRoleBinding get err = %v, want NotFound before the sandbox TTL elapses", err)
+	}
+	if updated := getRun(t, c, run); updated.Status.Sandbox == nil {
+		t.Fatal("sandbox status cleared within TTL, want it retained for log retention")
+	}
+}
+
+func TestRestartRequestOnPausedRunConsumesCounterAndStaysPaused(t *testing.T) {
+	t.Parallel()
+
+	run := pausedRun("restart-paused", timeoutPauseReason(6*time.Hour), "", 7*time.Hour)
+	run.Spec.RestartRequests = 1
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(run).
+		Build()
+	r := &AgentRunReconciler{Client: c}
+	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(run)}
+	for range 2 {
+		if _, err := r.Reconcile(context.Background(), req); err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+	}
+	updated := getRun(t, c, run)
+	if updated.Status.Phase != platformv1alpha1.AgentRunPhasePaused {
+		t.Fatalf("phase = %q, want Paused (restart must not lift an unraised limit)", updated.Status.Phase)
+	}
+	if updated.Status.RestartRequestsHandled != 1 {
+		t.Fatalf("RestartRequestsHandled = %d, want 1", updated.Status.RestartRequestsHandled)
+	}
+	if updated.Status.StartedAt == nil || updated.Status.StartedAt.Unix() != run.Status.StartedAt.Unix() {
+		t.Fatalf("StartedAt = %v, want unchanged runtime window", updated.Status.StartedAt)
+	}
+}
+
+func TestCancelRequestKeepsTerminalPhaseWrittenDuringDrain(t *testing.T) {
+	t.Parallel()
+
+	stored := provisioningRun("cancel-raced", time.Now().Add(-time.Hour))
+	stored.Annotations = map[string]string{cancelRequestedAnnotation: time.Now().Format(time.RFC3339)}
+	completed := metav1.Now()
+	stored.Status.Phase = platformv1alpha1.AgentRunPhaseSucceeded
+	stored.Status.CompletedAt = &completed
+	stored.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Succeeded"}
+	stored.Status.Sandbox = &platformv1alpha1.AgentRunSandboxStatus{
+		Provider: agentSandboxProvider, ClaimRef: &platformv1alpha1.NamedRef{Name: "gone"},
+	}
+	c := fake.NewClientBuilder().
+		WithScheme(newReconcilerTestScheme(t)).
+		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
+		WithObjects(stored).
+		Build()
+
+	// The reconciler observed the run while it was still Running; the worker
+	// wrote Succeeded while compute drained.
+	observed := stored.DeepCopy()
+	observed.Status.Phase = platformv1alpha1.AgentRunPhaseRunning
+	observed.Status.CompletedAt = nil
+	handled, err := (&AgentRunReconciler{Client: c}).handleCancelRequest(context.Background(), observed)
+	if err != nil || !handled {
+		t.Fatalf("handleCancelRequest() = %v, %v; want handled", handled, err)
+	}
+	updated := getRun(t, c, stored)
+	if updated.Status.Phase != platformv1alpha1.AgentRunPhaseSucceeded || updated.Status.Queue.State != "Succeeded" {
+		t.Fatalf("status = %#v, want worker-written Succeeded preserved", updated.Status)
+	}
+	if updated.Status.Sandbox != nil {
+		t.Fatalf("sandbox = %#v, want cleared after drain", updated.Status.Sandbox)
+	}
+	if _, ok := updated.Annotations[cancelRequestedAnnotation]; ok {
+		t.Fatal("cancel annotation not cleared")
 	}
 }

@@ -360,10 +360,13 @@ func TestClampResolvedPermissionMode(t *testing.T) {
 func TestHealedWritePermissionMode(t *testing.T) {
 	fastStartupRetries(t)
 	run, profile := writeProfileRun()
+	heal := func(c client.Client, run *platformv1alpha1.AgentRun) (agentpolicy.PermissionMode, bool) {
+		return healedWritePermissionMode(resolveRunPermissionMode(context.Background(), c, run, 1), run)
+	}
 
 	t.Run("heals when the profile now grants write", func(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(permissionModeScheme(t)).WithObjects(run, profile).Build()
-		mode, ok := healedWritePermissionMode(context.Background(), c, run)
+		mode, ok := heal(c, run)
 		if !ok {
 			t.Fatal("ok = false, want heal when resolution succeeds with write access")
 		}
@@ -374,7 +377,7 @@ func TestHealedWritePermissionMode(t *testing.T) {
 
 	t.Run("no heal while the profile is still missing", func(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(permissionModeScheme(t)).WithObjects(run).Build()
-		if _, ok := healedWritePermissionMode(context.Background(), c, run); ok {
+		if _, ok := heal(c, run); ok {
 			t.Fatal("ok = true, want false while the profile is missing")
 		}
 	})
@@ -383,7 +386,7 @@ func TestHealedWritePermissionMode(t *testing.T) {
 		roProfile := profile.DeepCopy()
 		roProfile.Spec.Security.PermissionMode = platformv1alpha1.PermissionModeReadOnly
 		c := fake.NewClientBuilder().WithScheme(permissionModeScheme(t)).WithObjects(run, roProfile).Build()
-		if _, ok := healedWritePermissionMode(context.Background(), c, run); ok {
+		if _, ok := heal(c, run); ok {
 			t.Fatal("ok = true, want false for an explicit read-only grant")
 		}
 	})
@@ -395,14 +398,14 @@ func TestHealedWritePermissionMode(t *testing.T) {
 			PermissionMode: platformv1alpha1.PermissionModeReadOnly,
 		}
 		c := fake.NewClientBuilder().WithScheme(permissionModeScheme(t)).WithObjects(clampedRun, profile).Build()
-		if _, ok := healedWritePermissionMode(context.Background(), c, clampedRun); ok {
+		if _, ok := heal(c, clampedRun); ok {
 			t.Fatal("ok = true, want false when the mode template clamps to read-only")
 		}
 	})
 
 	t.Run("no heal without a run", func(t *testing.T) {
-		c := fake.NewClientBuilder().WithScheme(permissionModeScheme(t)).Build()
-		if _, ok := healedWritePermissionMode(context.Background(), c, nil); ok {
+		res := permissionResolution{Mode: agentpolicy.PermissionModeWorkspaceWrite}
+		if _, ok := healedWritePermissionMode(res, nil); ok {
 			t.Fatal("ok = true, want false for nil run")
 		}
 	})

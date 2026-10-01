@@ -403,7 +403,7 @@ func TestClaimAndCancelExactlyOneWins(t *testing.T) {
 
 func TestClaimUserMessageSameTokenRetryPreservesClaim(t *testing.T) {
 	state := setupTestStore(t)
-	defer state.Close()
+	defer func() { _ = state.Close() }()
 	ctx := context.Background()
 	sess, err := state.CreateSession(ctx, "claim-retry", "default", "running", "")
 	if err != nil {

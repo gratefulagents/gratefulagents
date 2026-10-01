@@ -77,14 +77,6 @@ const (
 // its trigger controller has durably authorized the persisted object.
 const AuthorizationPendingAnnotation = "platform.gratefulagents.dev/authorization-pending"
 
-// InterruptRequestedAnnotation is the CRD fallback channel for a user stop
-// request, carrying the RFC3339 request time. The Postgres session is the
-// primary interrupt channel; the dashboard also writes this annotation so a
-// session-store outage cannot make "Stop" a silent no-op. The runner consumes
-// the request by deleting the annotation, which doubles as the acknowledgment
-// observable by the dashboard.
-const InterruptRequestedAnnotation = "platform.gratefulagents.dev/interrupt-requested-at"
-
 // Overseer annotations carry lifecycle state and the verdict context emitted
 // by an overseer run.
 const (
@@ -235,7 +227,8 @@ type AgentRunLimits struct {
 	// maxCostUsd is a decimal USD ceiling (e.g. "5" or "2.50") on LLM spend
 	// for one provisioning session of this run. When the tracked cost reaches
 	// the cap the agent pauses the run before the next turn; raise the cap to
-	// resume. Empty or invalid values disable the ceiling.
+	// resume. Empty disables the ceiling; a value that is not a positive
+	// decimal (e.g. "0") blocks the run until it is fixed.
 	// +kubebuilder:validation:Pattern=`^([0-9]+(\.[0-9]+)?)?$`
 	// +optional
 	MaxCostUsd string `json:"maxCostUsd,omitempty"`
