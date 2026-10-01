@@ -17,10 +17,6 @@ mod macos;
 
 mod anthropic_oauth;
 mod computer_use;
-mod computer_use_capture;
-mod computer_use_input;
-mod computer_use_picker;
-mod computer_use_session;
 mod copilot_oauth;
 mod deep_link;
 mod diagnostics;
@@ -78,7 +74,7 @@ pub fn run() {
     builder = builder
         .manage(anthropic_oauth::AnthropicOAuthState::default())
         .manage(openai_oauth::OpenAIOAuthState::default())
-        .manage(computer_use_session::ComputerUseSession::default())
+        .manage(computer_use::ComputerUse::default())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_shell::init())
@@ -116,7 +112,7 @@ pub fn run() {
                     tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
                 )
             {
-                computer_use_session::stop(window.app_handle(), "Desktop window closed");
+                computer_use::stop(window.app_handle(), "Desktop window closed");
             }
         })
         .setup(|app| {
@@ -156,9 +152,6 @@ pub fn run() {
                 log::warn!("failed to setup global shortcut: {err}");
             }
 
-            #[cfg(target_os = "macos")]
-            computer_use_session::watch(handle.clone());
-
             // Deep-link handler.
             deep_link::setup(&handle);
 
@@ -195,23 +188,13 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             platform_info,
-            computer_use::computer_use_permissions,
-            computer_use::computer_use_open_permission,
+            computer_use::computer_use_status,
+            computer_use::computer_use_request_permission,
             computer_use::computer_use_relaunch,
-            computer_use_session::computer_use_pick_window,
-            computer_use_session::computer_use_capture_window,
-            computer_use_session::computer_use_pick_display,
-            computer_use_session::computer_use_capture_display,
-            computer_use_session::computer_use_queue_request,
-            computer_use_session::computer_use_arm_request,
-            computer_use_session::computer_use_approve_request,
-            computer_use_session::computer_use_cancel_request,
-            computer_use_session::computer_use_session_start,
-            computer_use_session::computer_use_session_status,
-            computer_use_session::computer_use_session_heartbeat,
-            computer_use_session::computer_use_session_pause,
-            computer_use_session::computer_use_session_resume,
-            computer_use_session::computer_use_session_stop,
+            computer_use::computer_use_start,
+            computer_use::computer_use_stop,
+            computer_use::computer_use_set_paused,
+            computer_use::computer_use_execute,
             diagnostics::open_log_directory,
             local_creds::detect_local_credentials,
             copilot_oauth::start_copilot_oauth,
@@ -233,7 +216,7 @@ pub fn run() {
                 _event,
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
-                computer_use_session::stop(_app, "Desktop app exiting");
+                computer_use::stop(_app, "Desktop app exiting");
             }
             // Re-activation (dock icon click, notification click, …) on macOS
             // arrives as a Reopen event — surface the main window.

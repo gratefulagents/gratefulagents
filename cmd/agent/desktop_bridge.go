@@ -5,13 +5,12 @@ import (
 	"io"
 	"log"
 	"os"
-	"time"
 
 	"github.com/gratefulagents/gratefulagents/internal/computeruse"
 )
 
 func runDesktopBridge(stdin io.Reader, stdout io.Writer) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), computeruse.BridgeTimeout)
 	defer cancel()
 	return computeruse.Bridge(ctx, os.Getenv("PLANTASK_UID"), stdin, stdout)
 }

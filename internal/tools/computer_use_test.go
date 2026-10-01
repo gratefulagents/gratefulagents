@@ -5,593 +5,264 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"image"
-	"image/png"
-	"os"
+	"image/jpeg"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gratefulagents/gratefulagents/internal/computeruse"
 	"github.com/gratefulagents/sdk/pkg/agentsdk"
-	sdkvision "github.com/gratefulagents/sdk/pkg/agentsdk/tools/vision"
 )
 
-func TestComputerUsePolicyAndVisionInjection(t *testing.T) {
-	b := computeruse.New("ns", "run")
-	defer b.Close()
-	r := NewRegistry(t.TempDir(), WithVisionTools(nil))
-	tool := RegisterComputerUseTool(r, b)
-	if tool.IsEnabled(nil) {
-		t.Fatal("enabled while detached")
-	}
-	e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
-	if _, err := b.Exchange(e); err != nil {
+func testJPEG(t testing.TB, w, h int) *computeruse.Screenshot {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, image.NewRGBA(image.Rect(0, 0, w, h)), nil); err != nil {
 		t.Fatal(err)
 	}
+	return &computeruse.Screenshot{MediaType: "image/jpeg", Data: base64.StdEncoding.EncodeToString(buf.Bytes()), Width: w, Height: h}
+}
+
+// fakeDesktop drives a broker the way the desktop controller loop does.
+type fakeDesktop struct {
+	mu      sync.Mutex
+	actions []computeruse.Action
+}
+
+func startFakeDesktop(t *testing.T, b *computeruse.Broker, handle func(computeruse.Action) computeruse.Result) *fakeDesktop {
+	t.Helper()
+	d := &fakeDesktop{}
+	e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "desk"}
+	e.Operation = "connect"
+	if r, err := b.Exchange(context.Background(), e); err != nil || !r.Active {
+		t.Fatalf("connect: %+v %v", r, err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	t.Cleanup(func() { cancel(); <-done })
+	go func() {
+		defer close(done)
+		for ctx.Err() == nil {
+			next := e
+			next.Operation = "next"
+			r, err := b.Exchange(ctx, next)
+			if err != nil || !r.Active {
+				return
+			}
+			if r.Request == nil {
+				continue
+			}
+			d.mu.Lock()
+			d.actions = append(d.actions, r.Request.Action)
+			d.mu.Unlock()
+			res := handle(r.Request.Action)
+			res.RequestID = r.Request.ID
+			result := e
+			result.Operation, result.RequestID, result.Result = "result", r.Request.ID, &res
+			if _, err := b.Exchange(ctx, result); err != nil {
+				t.Errorf("result rejected: %v", err)
+				return
+			}
+		}
+	}()
+	return d
+}
+
+func (d *fakeDesktop) seen() []computeruse.Action {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]computeruse.Action(nil), d.actions...)
+}
+
+func newComputerUseTool(t *testing.T) (*ComputerUseTool, *computeruse.Broker) {
+	t.Helper()
+	b := computeruse.New("ns", "run")
+	t.Cleanup(func() { b.Close() })
+	r := NewRegistry(t.TempDir())
+	tool := RegisterComputerUseTool(r, b)
+	if tool == nil || r.Get("computer_use") == nil {
+		t.Fatal("tool not registered")
+	}
+	return tool, b
+}
+
+func runComputerUse(t *testing.T, tool *ComputerUseTool, input string) Result {
+	t.Helper()
+	res, err := tool.Execute(context.Background(), json.RawMessage(input), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func TestComputerUseToolMetadata(t *testing.T) {
+	if RegisterComputerUseTool(NewRegistry(t.TempDir()), nil) != nil {
+		t.Fatal("registered without broker")
+	}
+	tool, b := newComputerUseTool(t)
+	var schema map[string]any
+	if err := json.Unmarshal(tool.InputSchema(), &schema); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	enum := schema["properties"].(map[string]any)["action"].(map[string]any)["enum"].([]any)
+	if len(enum) != len(computeruse.ActionNames) {
+		t.Fatalf("enum %v", enum)
+	}
+	for _, field := range []string{"coordinate", "start_coordinate", "text", "scroll_direction", "scroll_amount", "repeat", "duration", "region", "url"} {
+		if schema["properties"].(map[string]any)[field] == nil {
+			t.Errorf("schema missing %s", field)
+		}
+	}
+	desc := tool.Description()
+	for _, want := range []string{"macOS", "screenshot first", "latest screenshot", "fresh screenshot", "cmd", "open_url", "zoom", "not clickable", "untrusted", "denied, do not retry"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("description missing %q", want)
+		}
+	}
+	if tool.TimeoutSeconds() != 330 || tool.IsReadOnly() {
+		t.Fatal("metadata")
+	}
 	if tool.IsEnabled(nil) {
-		t.Fatal("enabled without vision")
+		t.Fatal("enabled without desktop")
 	}
-	got, _ := tool.Execute(context.Background(), json.RawMessage(`{"action":{"kind":"observe"}}`), "")
-	if !got.IsError || !strings.Contains(got.Content, "unsupported") {
-		t.Fatalf("%+v", got)
-	}
-	v := r.Get("AnalyzeImage").(*sdkvision.Tool)
-	v.AnalyzeFn = func(context.Context, []byte, string, string) (string, error) { return "analysis", nil }
-	if !tool.IsEnabled(nil) {
-		t.Fatal("did not pick up injected vision callback")
+	startFakeDesktop(t, b, func(computeruse.Action) computeruse.Result { return computeruse.Result{Error: "unused"} })
+	if !tool.IsEnabled(&agentsdk.RunContext{}) {
+		t.Fatal("disabled with desktop")
 	}
 	if tool.IsEnabled(&agentsdk.RunContext{ToolAccessLevel: agentsdk.ToolAccessLevelReadOnly}) {
-		t.Fatal("enabled read-only")
-	}
-	readonly := NewRegistry(t.TempDir(), WithReadOnlyTools(), WithVisionTools(nil))
-	RegisterComputerUseTool(readonly, b)
-	if readonly.Get("computer_use") != nil {
-		t.Fatal("registered read-only mutation")
-	}
-	for _, raw := range []string{`{"frameId":"frame","action":{"kind":"type","text":"PRIVATE\n"}}`, `{"frameId":"frame","action":{"kind":"type"}}`, `{"action":{"kind":"activate","text":"PRIVATE"}}`, `{"action":{"kind":"type","question":"PRIVATE"}}`, `{"text":"PRIVATE","action":{"kind":"type"}}`} {
-		result, err := tool.Execute(context.Background(), json.RawMessage(raw), "")
-		if err != nil || !result.IsError || strings.Contains(result.Content, "PRIVATE") {
-			t.Fatalf("unsafe rejection: %+v %v", result, err)
-		}
-	}
-	var schema struct {
-		Properties struct {
-			Action struct {
-				Properties struct {
-					Text struct {
-						Type      string
-						MinLength int
-						MaxLength int
-						Pattern   string
-					}
-					Kind   struct{ Enum []string }
-					Key    struct{ Pattern, Description string }
-					Button struct{ Enum []string }
-					Count  struct{ Minimum, Maximum int }
-				}
-			}
-		}
-	}
-	if err := json.Unmarshal(tool.InputSchema(), &schema); err != nil {
-		t.Fatal(err)
-	}
-	text := schema.Properties.Action.Properties.Text
-	if text.Type != "string" || text.MinLength != 1 || text.MaxLength != 1000 || text.Pattern == "" {
-		t.Fatalf("missing proposed text schema bounds: %+v", text)
-	}
-	action := schema.Properties.Action.Properties
-	if kinds := strings.Join(action.Kind.Enum, ","); kinds != "observe,click,move,drag,scroll,type,key,open_url,wait" {
-		t.Fatalf("unexpected action kinds: %s", kinds)
-	}
-	if action.Key.Pattern == "" || !strings.Contains(action.Key.Description, "Cmd+A") || !strings.Contains(action.Key.Description, "Shift+Tab") {
-		t.Fatalf("schema missing hotkey guidance: %+v", action.Key)
-	}
-	if strings.Join(action.Button.Enum, ",") != "left,right,middle" || action.Count.Minimum != 1 || action.Count.Maximum != 3 {
-		t.Fatal("schema missing click button/count bounds")
-	}
-	for _, guidance := range []string{"double/triple click", "drag from x,y to toX,toY", "wait seconds (1-10)", "letters/digits need Control, Option, or Cmd", "follow-up observation should verify", "system default browser", "Keyboard events follow OS focus"} {
-		if !strings.Contains(tool.Description(), guidance) {
-			t.Errorf("description missing %q", guidance)
-		}
+		t.Fatal("enabled for read-only access")
 	}
 }
 
-func TestComputerUseObservationMemoryOnly(t *testing.T) {
-	for _, failure := range []bool{false, true} {
-		t.Run(map[bool]string{false: "success", true: "provider-error"}[failure], func(t *testing.T) {
-			b := computeruse.New("ns", "run")
-			defer b.Close()
-			e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
-			if _, err := b.Exchange(e); err != nil {
-				t.Fatal(err)
-			}
-			var imageBytes bytes.Buffer
-			if err := png.Encode(&imageBytes, image.NewRGBA(image.Rect(0, 0, 2, 3))); err != nil {
-				t.Fatal(err)
-			}
-			encoded := base64.StdEncoding.EncodeToString(imageBytes.Bytes())
-			called := false
-			v := &sdkvision.Tool{AnalyzeWithDetailFn: func(ctx context.Context, data []byte, mime, prompt, detail string) (string, error) {
-				called = true
-				if !bytes.Equal(data, imageBytes.Bytes()) || mime != "image/png" || detail != "high" || !strings.Contains(prompt, "untrusted") || !strings.Contains(prompt, "what is visible") || !strings.Contains(prompt, computerUseCoordinates) {
-					t.Error("wrong vision input")
-				}
-				if failure {
-					return "", errors.New("PRIVATE " + encoded)
-				}
-				return "A blank desktop", nil
-			}}
-			tool := &ComputerUseTool{broker: b, vision: v}
-			done := make(chan Result, 1)
-			go func() {
-				result, _ := tool.Execute(context.Background(), json.RawMessage(`{"action":{"kind":"observe","question":"what is visible"}}`), t.TempDir())
-				done <- result
-			}()
-			var request *computeruse.Request
-			deadline := time.Now().Add(time.Second)
-			for time.Now().Before(deadline) {
-				e.Operation = "poll"
-				r, err := b.Exchange(e)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if r.Pending != nil {
-					request = r.Pending
-					break
-				}
-				time.Sleep(time.Millisecond)
-			}
-			if request == nil {
-				t.Fatal("no pending observation")
-			}
-			e.Operation = "claim"
-			e.RequestID = request.RequestID
-			if _, err := b.Exchange(e); err != nil {
-				t.Fatal(err)
-			}
-			e.Operation = "resolve"
-			e.Outcome = &computeruse.Outcome{RequestID: request.RequestID, Status: "completed", Message: "PRIVATE", Capture: &computeruse.Capture{FrameID: "frame-1", DataURL: "data:image/png;base64," + encoded, PixelWidth: 2, PixelHeight: 3, Geometry: computeruse.Geometry{Width: 2, Height: 3}}}
-			if _, err := b.Exchange(e); err != nil {
-				t.Fatal(err)
-			}
-			select {
-			case result := <-done:
-				if !called || result.IsError != failure || strings.Contains(result.Content, encoded) || strings.Contains(result.Content, "PRIVATE") || strings.Contains(result.Content, "dataUrl") {
-					t.Fatalf("unsafe result: %+v", result)
-				}
-				if !failure && (!strings.Contains(result.Content, `"frameId":"frame-1"`) || !strings.Contains(result.Content, `"pixelHeight":3`) || !strings.Contains(result.Content, `"coordinates":`) || !strings.Contains(result.Content, "top-left")) {
-					t.Fatalf("missing metadata: %+v", result)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("observation hung")
-			}
-		})
+func TestComputerUseScreenshotAttachedAsImage(t *testing.T) {
+	tool, b := newComputerUseTool(t)
+	shot := testJPEG(t, 1183, 768)
+	desk := startFakeDesktop(t, b, func(a computeruse.Action) computeruse.Result {
+		res := computeruse.Result{OK: true, Screenshot: shot}
+		if a.Action == "cursor_position" {
+			res.Cursor = &computeruse.Point{X: 10, Y: 20}
+		}
+		if a.Action == "zoom" {
+			res.Screenshot = testJPEG(t, 400, 300)
+		}
+		return res
+	})
+	res := runComputerUse(t, tool, `{"action":"screenshot"}`)
+	if res.IsError || res.Content != "Screenshot taken. Screen 1183x768." || len(res.Images) != 1 {
+		t.Fatalf("screenshot: %+v", res.Content)
 	}
-}
-
-func TestComputerUseProposedTextApprovalAndOutcomes(t *testing.T) {
-	for _, tc := range []struct{ name, raw, text, status string }{
-		{"completed", `{"kind":"type","text":"PRIVATE proposed text"}`, "PRIVATE proposed text", "completed"},
-		{"observation-denied", `{"kind":"key","key":"Enter"}`, "", "completed"},
-		{"vision-failed", `{"kind":"key","key":"Enter"}`, "", "completed"},
-		{"denied", `{"kind":"type","text":"PRIVATE proposed text"}`, "PRIVATE proposed text", "denied"},
-		{"failed", `{"kind":"type","text":"PRIVATE proposed text"}`, "PRIVATE proposed text", "failed"},
-		{"escaped-limit", `{"kind":"type","text":"` + strings.Repeat(`\u0061`, 1000) + `"}`, strings.Repeat("a", 1000), "completed"},
-		{"shift-tab", `{"kind":"key","key":"Shift+Tab"}`, "", "completed"},
-		{"scroll", `{"kind":"scroll","deltaX":0,"deltaY":1000}`, "", "completed"},
+	if img := res.Images[0]; img.MediaType != "image/jpeg" || img.Detail != "high" || img.Data != shot.Data {
+		t.Fatalf("image: %s %s", img.MediaType, img.Detail)
+	}
+	for input, want := range map[string]string{
+		`{"action":"left_click","coordinate":[512,300]}`:                           "left_click at (512, 300) done. Screen 1183x768.",
+		`{"action":"left_click_drag","start_coordinate":[1,2],"coordinate":[3,4]}`: "left_click_drag from (1, 2) to (3, 4) done. Screen 1183x768.",
+		`{"action":"scroll","scroll_direction":"down","coordinate":[5,6]}`:         "scroll down by 3 at (5, 6) done. Screen 1183x768.",
+		`{"action":"key","text":"cmd+c","repeat":2}`:                               "key cmd+c x2 done. Screen 1183x768.",
+		`{"action":"type","text":"héllo"}`:                                         "type of 5 characters done. Screen 1183x768.",
+		`{"action":"cursor_position"}`:                                             "Cursor at (10, 20). Screen 1183x768.",
+		`{"action":"open_url","url":"https://example.com"}`:                        "open_url https://example.com done. Screen 1183x768.",
+		`{"action":"zoom","region":[0,0,100,75]}`:                                  "Zoomed region [0, 0, 100, 75] (image 400x300). Zoom image coordinates are not clickable; use coordinates from a full screenshot.",
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			b := computeruse.New("ns", "run")
-			defer b.Close()
-			e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
-			if _, err := b.Exchange(e); err != nil {
-				t.Fatal(err)
-			}
-			seedDesktopFrame(t, b, e)
-			tool := &ComputerUseTool{broker: b, vision: &sdkvision.Tool{AnalyzeFn: func(context.Context, []byte, string, string) (string, error) {
-				if tc.status != "completed" || tc.name == "observation-denied" {
-					t.Error("vision invoked without completed observation")
-				}
-				if tc.name == "vision-failed" {
-					return "", errors.New("provider failed")
-				}
-				return "Visible result after input", nil
-			}}}
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			done := make(chan Result, 1)
-			dir := t.TempDir()
-			go func() {
-				result, err := tool.Execute(ctx, json.RawMessage(`{"frameId":"frame","action":`+tc.raw+`}`), dir)
-				if err != nil {
-					t.Error(err)
-				}
-				done <- result
-			}()
-			var request *computeruse.Request
-			deadline := time.Now().Add(time.Second)
-			for time.Now().Before(deadline) {
-				e.Operation = "poll"
-				r, err := b.Exchange(e)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if r.Pending != nil {
-					request = r.Pending
-					break
-				}
-				time.Sleep(time.Millisecond)
-			}
-			if request == nil {
-				t.Fatal("no pending approval")
-			}
-			if request.Action.Text != tc.text {
-				t.Fatal("approval lost proposed text")
-			}
-			select {
-			case <-done:
-				t.Fatal("action completed before approval")
-			default:
-			}
-			e.Operation, e.RequestID = "claim", request.RequestID
-			if _, err := b.Exchange(e); err != nil {
-				t.Fatal(err)
-			}
-			e.Operation = "resolve"
-			e.Outcome = &computeruse.Outcome{RequestID: request.RequestID, Status: tc.status, Message: "Approved\u0000 window is\u200b not the frontmost\n application window"}
-			if _, err := b.Exchange(e); err != nil {
-				t.Fatal(err)
-			}
-			if tc.status == "completed" {
-				approvePostActionObservation(t, b, e, done, tc.name == "observation-denied")
-			}
-			select {
-			case result := <-done:
-				if tc.status != "completed" {
-					// The desktop's reason reaches the agent, sanitized to printable text, so it can adapt instead of asking the user to look.
-					if !result.IsError || result.Content != "Desktop action "+tc.status+" (desktop reported: Approved window is not the frontmost application window)."+computerUseNoRetry {
-						t.Fatalf("unexpected failed input result: %+v", result)
-					}
-				} else if tc.name == "observation-denied" || tc.name == "vision-failed" {
-					if !result.IsError || !strings.Contains(result.Content, "Input completed, but its effect is unverified. Do not repeat the input.") {
-						t.Fatalf("lost completed-input status: %+v", result)
-					}
-				} else {
-					if result.IsError || !strings.Contains(result.Content, `"actionStatus":"completed"`) || !strings.Contains(result.Content, `"frameId":"after-input"`) || !strings.Contains(result.Content, "Visible result after input") {
-						t.Fatalf("missing post-action analysis: %+v", result)
-					}
-				}
-				if strings.Contains(result.Content, "PRIVATE") || strings.Contains(result.Content, "data:image") {
-					t.Fatal("leaked input or capture")
-				}
-				e.Operation, e.RequestID, e.Outcome = "poll", "", nil
-				response, err := b.Exchange(e)
-				if err != nil || response.Pending != nil {
-					t.Fatal("unexpected retry", err)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("action hung")
-			}
-			files, err := os.ReadDir(dir)
-			if err != nil || len(files) != 0 {
-				t.Fatal("tool persisted action data", err)
-			}
-		})
-	}
-}
-
-func TestComputerUseRejectsInvalidNativeActions(t *testing.T) {
-	b := computeruse.New("ns", "run")
-	defer b.Close()
-	e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
-	if _, err := b.Exchange(e); err != nil {
-		t.Fatal(err)
-	}
-	tool := &ComputerUseTool{broker: b, vision: &sdkvision.Tool{AnalyzeFn: func(context.Context, []byte, string, string) (string, error) { return "", nil }}}
-	for _, action := range []string{
-		`{"kind":"type","text":""}`,
-		`{"kind":"type","text":"` + strings.Repeat("😀", 501) + `"}`,
-		`{"kind":"type","text":"PRIVATE\u0085"}`,
-		`{"kind":"key","key":"Cmd+Option+Escape"}`,
-		`{"kind":"key","key":"A"}`,
-
-		`{"kind":"click","x":1,"y":1,"button":"back"}`,
-		`{"kind":"click","x":1,"y":1,"count":4}`,
-		`{"kind":"drag","x":1,"y":1,"toX":1,"toY":1}`,
-		`{"kind":"drag","x":1,"y":1}`,
-		`{"kind":"move","x":1}`,
-		`{"kind":"wait","seconds":0}`,
-		`{"kind":"wait","seconds":11}`,
-		`{"kind":"wait"}`,
-		`{"kind":"open_url","url":"file:///etc/passwd"}`,
-		`{"kind":"open_url","url":"javascript:alert(1)"}`,
-		`{"kind":"open_url","url":"https://user:pw@example.com"}`,
-		`{"kind":"open_url","url":"example.com"}`,
-		`{"kind":"open_url"}`,
-		`{"kind":"click","x":1,"y":1,"url":"https://example.com"}`,
-		`{"kind":"click","x":1,"y":1,"question":"` + strings.Repeat("q", 2049) + `"}`,
-		`{"kind":"scroll","deltaX":1}`,
-		`{"kind":"scroll","deltaY":1}`,
-		`{"kind":"scroll","deltaX":0,"deltaY":0}`,
-		`{"kind":"scroll","deltaX":0.5,"deltaY":1}`,
-		`{"kind":"scroll","deltaX":0,"deltaY":1001}`,
-	} {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		result, err := tool.Execute(ctx, json.RawMessage(`{"frameId":"frame","action":`+action+`}`), "")
-		cancel()
-		if err != nil || !result.IsError || result.Content != "Invalid computer use action" {
-			t.Fatal("invalid action not rejected generically", err)
+		res := runComputerUse(t, tool, input)
+		if res.IsError || res.Content != want || len(res.Images) != 1 {
+			t.Errorf("%s: %q images=%d", input, res.Content, len(res.Images))
 		}
 	}
-}
-
-func TestComputerUseVisionSessionInvalidation(t *testing.T) {
-	for _, mode := range []string{"stop", "replacement", "lease", "caller-cancel"} {
-		t.Run(mode, func(t *testing.T) {
-			b := computeruse.New("ns", "run")
-			defer b.Close()
-			e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
-			if _, err := b.Exchange(e); err != nil {
-				t.Fatal(err)
-			}
-			started := make(chan context.Context, 1)
-			release := make(chan struct{})
-			defer close(release)
-			tool := &ComputerUseTool{broker: b, vision: &sdkvision.Tool{AnalyzeFn: func(ctx context.Context, _ []byte, _, _ string) (string, error) {
-				started <- ctx
-				<-release
-				return "PRIVATE late screen analysis", nil
-			}}}
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			done := make(chan Result, 1)
-			go func() {
-				result, _ := tool.Execute(ctx, json.RawMessage(`{"action":{"kind":"observe"}}`), "")
-				done <- result
-			}()
-			var request *computeruse.Request
-			deadline := time.Now().Add(time.Second)
-			for time.Now().Before(deadline) {
-				e.Operation = "poll"
-				r, err := b.Exchange(e)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if r.Pending != nil {
-					request = r.Pending
-					break
-				}
-				time.Sleep(time.Millisecond)
-			}
-			if request == nil {
-				t.Fatal("observation not queued")
-			}
-			e.Operation, e.RequestID = "claim", request.RequestID
-			if _, err := b.Exchange(e); err != nil {
-				t.Fatal(err)
-			}
-			var imageBytes bytes.Buffer
-			if err := png.Encode(&imageBytes, image.NewRGBA(image.Rect(0, 0, 2, 3))); err != nil {
-				t.Fatal(err)
-			}
-			e.Operation = "resolve"
-			e.Outcome = &computeruse.Outcome{RequestID: request.RequestID, Status: "completed", Capture: &computeruse.Capture{FrameID: "frame", DataURL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBytes.Bytes()), PixelWidth: 2, PixelHeight: 3, Geometry: computeruse.Geometry{Width: 2, Height: 3}}}
-			if _, err := b.Exchange(e); err != nil {
-				t.Fatal(err)
-			}
-			var visionContext context.Context
-			select {
-			case visionContext = <-started:
-			case <-time.After(time.Second):
-				t.Fatal("vision not started")
-			}
-			e.RequestID, e.Outcome = "", nil
-			switch mode {
-			case "stop", "replacement":
-				e.Operation = "stop"
-				if _, err := b.Exchange(e); err != nil {
-					t.Fatal(err)
-				}
-				if mode == "replacement" {
-					e.Operation = "attach_desktop"
-					if _, err := b.Exchange(e); err != nil {
-						t.Fatal(err)
-					}
-				}
-			case "caller-cancel":
-				cancel()
-			}
-			select {
-			case <-visionContext.Done():
-			case <-time.After(computeruse.Lease + time.Second):
-				t.Fatal("vision context not canceled")
-			}
-			release <- struct{}{}
-			select {
-			case result := <-done:
-				if !result.IsError || strings.Contains(result.Content, "PRIVATE") || strings.Contains(result.Content, "frameId") || !strings.Contains(result.Content, "Do not automatically retry") {
-					t.Fatalf("unsafe result: %+v", result)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("vision result hung")
-			}
-		})
+	// Coordinates outside the latest screenshot never reach the desktop.
+	before := len(desk.seen())
+	res = runComputerUse(t, tool, `{"action":"left_click","coordinate":[1183,10]}`)
+	if !res.IsError || !strings.Contains(res.Content, "outside the latest screenshot") || len(desk.seen()) != before {
+		t.Fatalf("out of bounds: %+v", res.Content)
 	}
 }
 
-func TestComputerUseSafetyGuidance(t *testing.T) {
-	tool := &ComputerUseTool{}
-	for _, text := range []string{"run history", "vision provider", "Do not automatically retry", "OS events may be partially applied", "fresh observation and approval", "top-left", "not desktop points", "Vision may be imperfect"} {
-		if !strings.Contains(tool.Description(), text) {
-			t.Fatalf("description missing %q", text)
-		}
+func TestComputerUseWaitIsLocal(t *testing.T) {
+	tool, b := newComputerUseTool(t)
+	desk := startFakeDesktop(t, b, func(computeruse.Action) computeruse.Result {
+		return computeruse.Result{OK: true, Screenshot: testJPEG(t, 32, 16)}
+	})
+	start := time.Now()
+	res := runComputerUse(t, tool, `{"action":"wait","duration":0.2}`)
+	if res.IsError || res.Content != "Waited 0.2s. Screen 32x16." || len(res.Images) != 1 {
+		t.Fatalf("wait: %+v", res.Content)
 	}
-}
-
-func TestComputerUseClaimedCancellationWarnsAgainstRetry(t *testing.T) {
-	b := computeruse.New("ns", "run")
-	defer b.Close()
-	e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "session", Operation: "attach_desktop"}
-	if _, err := b.Exchange(e); err != nil {
-		t.Fatal(err)
+	if time.Since(start) < 200*time.Millisecond {
+		t.Fatal("did not wait")
 	}
-	seedDesktopFrame(t, b, e)
-	tool := &ComputerUseTool{broker: b, vision: &sdkvision.Tool{AnalyzeFn: func(context.Context, []byte, string, string) (string, error) {
-		t.Error("input invoked vision")
-		return "", nil
-	}}}
+	if seen := desk.seen(); len(seen) != 1 || seen[0].Action != "screenshot" {
+		t.Fatalf("desktop saw %+v", seen)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan Result, 1)
-	go func() {
-		result, _ := tool.Execute(ctx, json.RawMessage(`{"frameId":"frame","action":{"kind":"type","text":"PRIVATE"}}`), "")
-		done <- result
-	}()
-	deadline := time.Now().Add(time.Second)
-	var request *computeruse.Request
-	for time.Now().Before(deadline) {
-		e.Operation = "poll"
-		r, err := b.Exchange(e)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if r.Pending != nil {
-			request = r.Pending
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
-	if request == nil {
-		t.Fatal("input not queued")
-	}
-	e.Operation, e.RequestID = "claim", request.RequestID
-	if _, err := b.Exchange(e); err != nil {
-		t.Fatal(err)
-	}
 	cancel()
-	select {
-	case result := <-done:
-		if !result.IsError || strings.Contains(result.Content, "PRIVATE") || !strings.Contains(result.Content, computerUseNoRetry) {
-			t.Fatalf("unsafe cancellation: %+v", result)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("input hung")
-	}
-	e.Operation, e.RequestID = "poll", ""
-	if r, err := b.Exchange(e); err != nil || r.Active {
-		t.Fatalf("canceled claim remained active: %+v %v", r, err)
+	if res, _ := tool.Execute(ctx, json.RawMessage(`{"action":"wait","duration":5}`), ""); !res.IsError {
+		t.Fatal("canceled wait succeeded")
 	}
 }
 
-func TestComputerUseWorkflowDescription(t *testing.T) {
-	description := (&ComputerUseTool{}).Description()
-	for _, requirement := range []string{"supervised Mac desktop", "local approvals", "fresh approved observation", "delivery alone is not success"} {
-		if !strings.Contains(description, requirement) {
-			t.Errorf("missing workflow guidance: %s", requirement)
+func TestComputerUseDeniedAndFailure(t *testing.T) {
+	tool, b := newComputerUseTool(t)
+	shot := testJPEG(t, 20, 10)
+	startFakeDesktop(t, b, func(a computeruse.Action) computeruse.Result {
+		switch a.Action {
+		case "left_click":
+			return computeruse.Result{Error: "user denied", Denied: true}
+		case "type":
+			return computeruse.Result{Error: "secure input\u202e active\n" + strings.Repeat("x", 900), Screenshot: shot}
 		}
+		return computeruse.Result{OK: true, Screenshot: shot}
+	})
+	runComputerUse(t, tool, `{"action":"screenshot"}`)
+	res := runComputerUse(t, tool, `{"action":"left_click","coordinate":[1,1]}`)
+	if !res.IsError || !strings.Contains(res.Content, "denied") || !strings.Contains(res.Content, "Do not retry") || len(res.Images) != 0 {
+		t.Fatalf("denied: %+v", res)
 	}
-	if strings.Contains(description, "Every action requires local human approval") {
-		t.Fatal("description contradicts session approval modes")
+	res = runComputerUse(t, tool, `{"action":"type","text":"x"}`)
+	if !res.IsError || !strings.Contains(res.Content, "type failed") || !strings.Contains(res.Content, "secure input active") || strings.ContainsAny(res.Content, "\u202e\n") || len(res.Images) != 1 {
+		t.Fatalf("failure: %q images=%d", res.Content, len(res.Images))
+	}
+	if len(res.Content) > 800 {
+		t.Fatalf("desktop error not bounded: %d", len(res.Content))
 	}
 }
 
-func approvePostActionObservation(t *testing.T, b *computeruse.Broker, e computeruse.Exchange, done <-chan Result, denied bool) {
-	t.Helper()
-	var observation *computeruse.Request
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		e.Operation, e.RequestID, e.Outcome = "poll", "", nil
-		response, err := b.Exchange(e)
-		if err != nil {
-			t.Fatal(err)
+func TestComputerUseErrors(t *testing.T) {
+	tool, b := newComputerUseTool(t)
+	res := runComputerUse(t, tool, `{"action":"screenshot"}`)
+	if !res.IsError || !strings.Contains(res.Content, "Computer tab") || !strings.Contains(res.Content, "Start") {
+		t.Fatalf("no desktop: %q", res.Content)
+	}
+	for _, input := range []string{`{"action":"observe"}`, `{"action":"left_click"}`, `{"action":"screenshot","frameId":"x"}`, `not json`, `{"action":"key","text":"cmd+alt+escape"}`} {
+		if res := runComputerUse(t, tool, input); !res.IsError || !strings.Contains(res.Content, "Invalid computer_use input") {
+			t.Errorf("%s: %q", input, res.Content)
 		}
-		if response.Pending != nil {
-			observation = response.Pending
-			break
-		}
-		time.Sleep(time.Millisecond)
 	}
-	if observation == nil || observation.Action.Kind != "observe" || observation.FrameID != "" {
-		t.Fatalf("missing fresh post-action observation: %+v", observation)
-	}
-	select {
-	case <-done:
-		t.Fatal("returned before observation approval")
-	default:
-	}
-	e.Operation, e.RequestID = "claim", observation.RequestID
-	if _, err := b.Exchange(e); err != nil {
+	// A desktop that connects but never polls lets the request time out.
+	e := computeruse.Exchange{Namespace: "ns", Run: "run", Owner: "alice", SessionID: "idle", Operation: "connect"}
+	if _, err := b.Exchange(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
-	e.Operation = "resolve"
-	e.Outcome = &computeruse.Outcome{RequestID: observation.RequestID, Status: "completed"}
-	if denied {
-		e.Outcome.Status = "denied"
-	} else {
-		var pngBytes bytes.Buffer
-		if err := png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 2, 3))); err != nil {
-			t.Fatal(err)
-		}
-		e.Outcome.Capture = &computeruse.Capture{FrameID: "after-input", DataURL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBytes.Bytes()), PixelWidth: 2, PixelHeight: 3, Geometry: computeruse.Geometry{Width: 2, Height: 3}}
+	old := computeruse.PickupTimeout
+	computeruse.PickupTimeout = 100 * time.Millisecond
+	defer func() { computeruse.PickupTimeout = old }()
+	busy := make(chan Result, 1)
+	go func() { busy <- runComputerUse(t, tool, `{"action":"screenshot"}`) }()
+	time.Sleep(30 * time.Millisecond)
+	if res := runComputerUse(t, tool, `{"action":"screenshot"}`); !res.IsError || !strings.Contains(res.Content, "still in progress") {
+		t.Fatalf("busy: %q", res.Content)
 	}
-	if _, err := b.Exchange(e); err != nil {
+	if res := <-busy; !res.IsError || !strings.Contains(res.Content, "did not pick up") {
+		t.Fatalf("timeout: %q", res.Content)
+	}
+	go func() { busy <- runComputerUse(t, tool, `{"action":"screenshot"}`) }()
+	time.Sleep(30 * time.Millisecond)
+	e.Operation = "disconnect"
+	if _, err := b.Exchange(context.Background(), e); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func TestOutcomeReasonIsBoundedPrintableText(t *testing.T) {
-	if got := outcomeReason(""); got != "." {
-		t.Fatalf("empty reason: %q", got)
-	}
-	if got := outcomeReason(" Focus\tleft \u202ethe\x1b approved\r\n app "); got != " (desktop reported: Focus left the approved app)." {
-		t.Fatalf("unsanitized reason: %q", got)
-	}
-	long := outcomeReason(strings.Repeat("a", 600))
-	if len(long) > 512+len(" (desktop reported: ).") || !strings.HasSuffix(long, ").") {
-		t.Fatalf("unbounded reason: %d", len(long))
-	}
-}
-
-func seedDesktopFrame(t *testing.T, b *computeruse.Broker, e computeruse.Exchange) {
-	t.Helper()
-	done := make(chan error, 1)
-	go func() {
-		_, err := b.Request(context.Background(), computeruse.Action{Kind: "observe"}, "")
-		done <- err
-	}()
-	var request *computeruse.Request
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		e.Operation = "poll"
-		r, err := b.Exchange(e)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if r.Pending != nil {
-			request = r.Pending
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
-	if request == nil {
-		t.Fatal("seed observation did not queue")
-	}
-	e.Operation, e.RequestID = "claim", request.RequestID
-	if _, err := b.Exchange(e); err != nil {
-		t.Fatal(err)
-	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 3))); err != nil {
-		t.Fatal(err)
-	}
-	e.Operation = "resolve"
-	e.Outcome = &computeruse.Outcome{RequestID: request.RequestID, Status: "completed", Capture: &computeruse.Capture{FrameID: "frame", DataURL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), PixelWidth: 2, PixelHeight: 3, Geometry: computeruse.Geometry{Width: 2, Height: 3}}}
-	if _, err := b.Exchange(e); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-done; err != nil {
-		t.Fatal(err)
+	if res := <-busy; !res.IsError || !strings.Contains(res.Content, "disconnected") || !strings.Contains(res.Content, "reconnect") {
+		t.Fatalf("disconnect: %q", res.Content)
 	}
 }

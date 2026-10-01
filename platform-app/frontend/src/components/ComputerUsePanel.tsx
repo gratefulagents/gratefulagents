@@ -1,734 +1,550 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  AlertTriangle, AppWindow, Eye, Globe, Keyboard, Monitor, MousePointer2, MousePointerClick,
-  Move, MoveVertical, Pause, Play, ShieldAlert, Square, Type as TypeIcon, Zap,
-} from "lucide-react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ApprovalModeBadge, ApprovalModeControl } from "@/components/ComputerUseApprovalMode";
-import { useOptionalAuth } from "@/contexts/AuthContext";
+import {
+  Accessibility, AlertTriangle, Ban, Camera, Check, Crosshair, Globe, Keyboard, Laptop, Monitor, MousePointer2,
+  MousePointerClick, Move, MoveVertical, Pause, Play, RotateCcw, ScreenShare, Square, Type, X, ZoomIn,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
-import { LiveDot } from "@/components/ui/live-dot";
+import { LiveDot, type LiveDotTone } from "@/components/ui/live-dot";
 import { Spinner } from "@/components/ui/spinner";
-import { client } from "@/lib/client";
-import { isDonePhase, toneSoft, toneText, type StatusTone } from "@/lib/status";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useNow } from "@/hooks/useNow";
+import {
+  decideComputerUse, pauseComputerUse, resumeComputerUse, setSessionApprovalMode, startComputerUse, stopComputerUse,
+  useComputerUse, UNAVAILABLE_MESSAGE, type ComputerUseState, type TimelineEntry,
+} from "@/lib/computer-use/controller";
+import { actionMarker, describeAction, type Marker } from "@/lib/computer-use/describe";
+import type { ComputerAction, Display } from "@/lib/computer-use/native";
+import type { ApprovalMode } from "@/lib/computer-use/preferences";
+import { usePermissionGrant, useNativeStatus } from "@/lib/computer-use/use-native-status";
+import { formatPollTime } from "@/lib/format";
+import { toneSoft, toneText } from "@/lib/status";
 import { cn } from "@/lib/utils";
-import { backendBaseUrl, isTauri } from "@/lib/platform";
-import {
-  computerUsePermissions, openComputerUsePermission, pickComputerUseDisplay, hotkeyGlyphs, startDesktopSession,
-  desktopSessionStatus, heartbeatDesktopSession, pauseDesktopSession,
-  resumeDesktopSession, stopDesktopSession, captureDesktopDisplay,
-  queueDesktopRequest, armDesktopRequest, approveDesktopRequest,
-  cancelDesktopRequest,
-  type DesktopAction, type DesktopSession, type DesktopRequest, type DesktopOutcome,
-  type DisplayCapture, type DisplayTarget,
-} from "@/lib/computer-use";
-import { exchangeDesktopRelay } from "@/lib/computer-use-relay";
-import {
-  APPROVAL_MODE_META, isReadOnlyAction, modeAutoApproves, setComputerUseApprovalMode, useComputerUseApprovalMode,
-} from "@/lib/computer-use-preferences";
 
-type ActionKind = DesktopAction["kind"];
-type Activity = { id: string; kind: ActionKind; status: string; summary: string; detail?: string; at: number; auto: boolean };
+export interface ComputerUseView {
+  panel: HTMLElement | null;
+  shortcut: HTMLElement | null;
+  open: () => void;
+}
 
-const ACTION_META: Record<ActionKind, { label: string; icon: ReactNode }> = {
-  observe: { label: "Observe", icon: <Eye /> },
-  click: { label: "Click", icon: <MousePointerClick /> },
-  move: { label: "Move pointer", icon: <MousePointer2 /> },
-  drag: { label: "Drag", icon: <Move /> },
-  scroll: { label: "Scroll", icon: <MoveVertical /> },
-  type: { label: "Type text", icon: <TypeIcon /> },
-  key: { label: "Key press", icon: <Keyboard /> },
-  open_url: { label: "Open URL", icon: <Globe /> },
+const ACTION_ICONS: Record<ComputerAction["action"], typeof Monitor> = {
+  screenshot: Camera, left_click: MousePointerClick, right_click: MousePointerClick, middle_click: MousePointerClick,
+  double_click: MousePointerClick, triple_click: MousePointerClick, mouse_move: MousePointer2, left_click_drag: Move,
+  left_mouse_down: MousePointerClick, left_mouse_up: MousePointerClick, scroll: MoveVertical, type: Type, key: Keyboard,
+  wait: Crosshair, cursor_position: Crosshair, zoom: ZoomIn, open_url: Globe,
 };
 
-const PHASE_TONE: Record<DesktopSession["phase"], StatusTone> = { stopped: "neutral", active: "running", paused: "warning" };
-const OUTCOME_TONE: Record<string, StatusTone> = { completed: "success", failed: "danger", denied: "neutral" };
+const isLive = (state: ComputerUseState) => state.phase === "active" || state.phase === "paused" || state.phase === "stopping";
 
-const CLICK_LABEL: Record<string, string> = {
-  "left-1": "Click", "left-2": "Double-click", "left-3": "Triple-click",
-  "right-1": "Right-click", "right-2": "Double right-click", "right-3": "Triple right-click",
-  "middle-1": "Middle-click", "middle-2": "Double middle-click", "middle-3": "Triple middle-click",
-};
-function clickLabel(action: Extract<DesktopAction, { kind: "click" }>): string {
-  return CLICK_LABEL[`${action.button ?? "left"}-${action.count ?? 1}`] ?? "Click";
+function phaseLabel(state: ComputerUseState): { label: string; tone: LiveDotTone; pulse: boolean } {
+  if (state.phase === "stopping") return { label: "Stopping…", tone: "idle", pulse: false };
+  if (state.pending?.needsApproval) return { label: "Needs approval", tone: "waiting", pulse: true };
+  if (state.phase === "paused") return { label: "Paused", tone: "waiting", pulse: false };
+  return { label: "Agent in control", tone: "running", pulse: true };
 }
 
-function HotkeyKeys({ value }: { value: string }) {
-  return <span className="inline-flex items-center gap-0.5 align-middle">
-    {hotkeyGlyphs(value).map((glyph, index) => <Kbd key={index}>{glyph}</Kbd>)}
-  </span>;
-}
-
-function describeAction(request: DesktopRequest): ReactNode {
-  const { action } = request;
-  switch (action.kind) {
-    case "observe": return <>Share a fresh capture for analysis: {action.question || "Describe the selected display"}</>;
-    case "click": return <>{clickLabel(action)} pixel ({action.x}, {action.y}) in frame {request.frameId}.</>;
-    case "move": return <>Move the pointer to pixel ({action.x}, {action.y}) without clicking (hover).</>;
-    case "drag": return <>Press the left button at ({action.x}, {action.y}), drag to ({action.toX}, {action.toY}), and release.</>;
-    case "scroll": return <>Scroll horizontally {action.deltaX}, vertically {action.deltaY} pixels (positive: right/down){action.x !== undefined ? <> with the pointer at ({action.x}, {action.y})</> : null}.</>;
-    case "key": return <><span>Press {action.key}.</span> <HotkeyKeys value={action.key} /></>;
-    case "open_url": return <>Open <span className="break-all font-mono">{action.url}</span> in the system default browser (possibly on another display).</>;
-    case "type": return null;
-  }
-}
-
-// Metadata-only narration for the timeline (Operator-style step list). Never
-// includes the proposed text itself: the run history already carries it.
-function summarizeAction(action: DesktopAction): string {
-  switch (action.kind) {
-    case "observe": return "Shared a capture for analysis";
-    case "click": return `${clickLabel(action)}ed pixel (${action.x}, ${action.y})`;
-    case "move": return `Moved the pointer to (${action.x}, ${action.y})`;
-    case "drag": return `Dragged from (${action.x}, ${action.y}) to (${action.toX}, ${action.toY})`;
-    case "scroll": return `Scrolled ${action.deltaX}, ${action.deltaY}px${action.x !== undefined ? ` at (${action.x}, ${action.y})` : ""}`;
-    case "type": return `Typed ${action.text.length} character${action.text.length === 1 ? "" : "s"}`;
-    case "key": return `Pressed ${action.key}`;
-    case "open_url": return `Opened ${action.url.length > 80 ? `${action.url.slice(0, 77)}…` : action.url}`;
-  }
-}
-
-const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-
-export function ComputerUsePanel({ namespace, name, enabled, model, view }: {
-  namespace: string; name: string; enabled: boolean; model: string;
-  view?: { panel: HTMLElement | null; shortcut: HTMLElement | null; open: () => void };
+/**
+ * Computer use for one run. Renders into the inspector's Computer tab and the
+ * chat shortcut slot through portals; the session itself lives in the
+ * module-level controller, so unmounting this never interrupts it.
+ */
+export function ComputerUsePanel({ namespace, name, enabled, view }: {
+  namespace: string;
+  name: string;
+  enabled: boolean;
+  view: ComputerUseView;
 }) {
-  const auth = useOptionalAuth();
-  const user = auth?.user?.id;
-  const [supported, setSupported] = useState<boolean | null>(null);
-  const [selected, setSelected] = useState<DisplayTarget | null>(null);
-  const sharingOwned = useRef(false);
-  const [session, setSession] = useState<DesktopSession | null>(null);
-  const [preview, setPreview] = useState<DisplayCapture | null>(null);
-  const [pending, setPending] = useState<DesktopRequest | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
-  const [activity, setActivity] = useState<Activity[]>([]);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [stopRequired, setStopRequired] = useState(false);
-  const approvalMode = useComputerUseApprovalMode();
-  // Copilot-style "allow for this session": kinds the supervisor approved for
-  // the rest of this native session. Cleared whenever the session ends.
-  const [sessionAllowed, setSessionAllowed] = useState<ReadonlySet<ActionKind>>(() => new Set());
-  const generation = useRef(0);
-  const requestVersion = useRef(0);
-  const revoked = useRef(true);
-  const localSession = useRef<DesktopSession | null>(null);
-  const pendingRef = useRef<DesktopRequest | null>(null);
-  const inFlight = useRef<string | null>(null);
+  const state = useComputerUse();
+  const mine = state.run?.namespace === namespace && state.run?.name === name;
+  const live = mine && isLive(state);
+  return (
+    <>
+      {view.panel && createPortal(
+        <div className="mx-auto flex w-full max-w-[960px] flex-col gap-3 p-3">
+          {live
+            ? <ActiveView state={state} panel={view.panel} />
+            : <SetupView state={state} mine={mine} enabled={enabled} panel={view.panel} run={{ namespace, name }} />}
+        </div>,
+        view.panel,
+      )}
+      {view.shortcut && live && createPortal(<ShortcutPill state={state} onOpen={view.open} />, view.shortcut)}
+    </>
+  );
+}
 
-  const sessionId = session?.sessionId;
-  const sessionScope = session?.scope;
-  const invalidate = useCallback(() => {
-    generation.current++;
-    revoked.current = true;
-    inFlight.current = null;
-  }, []);
+const panelVisible = (panel: HTMLElement | null) => () => !panel?.closest("[hidden]");
 
-  const disconnect = useCallback(async (message = "") => {
-    const previous = localSession.current;
-    invalidate();
-    const current = generation.current;
-    setBusy(true);
-    setStopRequired(true);
-    setPreview(null);
-    pendingRef.current = null;
-    setPending(null);
-    setConfirmed(false);
-    setSelected(null);
-    setSessionAllowed(new Set());
-    setError(message);
-    // Native revocation is first and never waits for the network.
-    const nativeStop = stopDesktopSession();
-    if (previous?.sessionId && previous.scope) {
-      void exchangeDesktopRelay(previous.sessionId, previous.scope, "stop").catch(() => {});
-    }
-    try {
-      await nativeStop;
-      if (current !== generation.current) return;
-      setStopRequired(false);
-      sharingOwned.current = false;
-      localSession.current = null;
-      setSession(null);
-    } catch {
-      if (current !== generation.current) return;
-      setError("Cannot confirm native stop. Press Control+Option+Command+Escape or use the native tray.");
-    }
-    setBusy(false);
-  }, [invalidate]);
+const SEGMENT = "text-muted-foreground aria-pressed:bg-primary/12 aria-pressed:text-foreground aria-pressed:font-semibold";
 
-  useEffect(() => {
-    if (!isTauri) return;
-    let mounted = true;
-    void computerUsePermissions().then((status) => {
-      if (mounted) setSupported(status.supported);
-    }).catch((cause: unknown) => {
-      if (mounted) setError(String(cause));
-    });
-    return () => { mounted = false; };
-  }, []);
+export function ApprovalModeToggle({ value, onChange, className }: {
+  value: ApprovalMode;
+  onChange: (mode: ApprovalMode) => void;
+  className?: string;
+}) {
+  return (
+    <ToggleGroup
+      aria-label="Approval mode"
+      value={[value]}
+      onValueChange={(next) => {
+        const mode = next[0] as ApprovalMode | undefined;
+        if (mode) onChange(mode);
+      }}
+      variant="outline"
+      size="sm"
+      spacing={0}
+      className={className}
+    >
+      <ToggleGroupItem value="auto" className={SEGMENT}>Autonomous</ToggleGroupItem>
+      <ToggleGroupItem value="ask" className={SEGMENT}>Ask first</ToggleGroupItem>
+    </ToggleGroup>
+  );
+}
 
-  useEffect(() => () => {
-    if (isTauri && (localSession.current || sharingOwned.current)) void disconnect();
-    else invalidate();
-    setSelected(null);
-    setActivity([]);
-  }, [namespace, name, user, enabled, model, disconnect, invalidate]);
-
-  useEffect(() => {
-    if (!sessionId || !sessionScope || !enabled) return;
-    const scope = sessionScope;
-    const current = generation.current;
-    let alive = true;
-    const valid = () => alive && current === generation.current && !revoked.current;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      if (!valid()) return;
-      try {
-        const version = requestVersion.current;
-        if (backendBaseUrl() !== scope.backend || user !== scope.user) throw new Error("Desktop identity or backend changed");
-        // Each exchange rechecks ownership and the actual agent pod server-side.
-        const relay = await exchangeDesktopRelay(sessionId, scope, "poll");
-        if (!valid()) return;
-        if (backendBaseUrl() !== scope.backend) throw new Error("Desktop backend changed");
-        if (!relay.active || !relay.visionAvailable) throw new Error(relay.reason || "Desktop agent connection ended");
-        // The native lease is renewed only after the backend confirmed the run.
-        await heartbeatDesktopSession(sessionId, scope);
-        if (!valid()) return;
-        const status = await desktopSessionStatus();
-        if (!valid()) return;
-        if (status.sessionId !== sessionId || status.phase === "stopped") {
-          await disconnect(status.reason || "Native desktop session ended");
-          return;
-        }
-        if (status.revision >= (localSession.current?.revision ?? 0)) {
-          if (status.phase !== "active") {
-            setPreview(null);
-            setConfirmed(false);
-          }
-          localSession.current = { ...status, scope };
-          setSession(localSession.current);
-        }
-        if (!inFlight.current && version === requestVersion.current) {
-          const next = relay.pending ?? null;
-          if (JSON.stringify(pendingRef.current) !== JSON.stringify(next)) {
-            pendingRef.current = next;
-            setPending(next);
-            setConfirmed(false);
-          }
-        }
-        timer = setTimeout(() => void poll(), 1500);
-      } catch (cause) {
-        if (valid()) await disconnect(String(cause));
-      }
-    };
-    void poll();
-    return () => { alive = false; clearTimeout(timer); };
-  }, [sessionId, sessionScope, enabled, namespace, name, user, disconnect]);
-
-  async function operate(work: () => Promise<void>) {
-    const current = generation.current;
-    setBusy(true);
-    setError("");
-    try { await work(); }
-    catch (cause) {
-      if (generation.current === current) setError(String(cause));
-    } finally {
-      if (generation.current === current) setBusy(false);
-    }
-  }
-
-  async function start() {
-    const target = selected;
-    if (!target || !user || !enabled || stopRequired) return;
-    const current = generation.current;
-    const backend = backendBaseUrl();
-    const run = await client.getAgentRun({ namespace, name }, { timeoutMs: 4000 });
-    if (run.namespace !== namespace || run.name !== name ||
-        !["owner", "admin"].includes(run.myPermission) || isDonePhase(run.phase)) {
-      throw new Error("Only a run owner or admin can start desktop supervision on an unfinished run");
-    }
-    if (current !== generation.current) return;
-    const observed = await desktopSessionStatus();
-    if (current !== generation.current) return;
-    if (backend !== backendBaseUrl()) throw new Error("Backend changed; grant fresh consent");
-    const started = await startDesktopSession({
-      backend, user, namespace, run: name,
-      mode: "selected_display", displayId: target.displayId,
-    }, true, true, observed.revision, target.selectionId);
-    if (current !== generation.current) {
-      // The panel was invalidated while native start was in flight: nothing
-      // else holds this session, so revoke it rather than leaking it.
-      await stopDesktopSession().catch(() => {});
-      return;
-    }
-    localSession.current = started;
-    try {
-      if (!started.sessionId || !started.scope) throw new Error("Native session did not start");
-      if (started.scope.mode !== "selected_display" || started.scope.displayId !== target.displayId) throw new Error("Legacy desktop authorization; update and reconnect with fresh consent");
-      const relay = await exchangeDesktopRelay(started.sessionId, started.scope, "attach");
-      if (current !== generation.current) {
-        await exchangeDesktopRelay(started.sessionId, started.scope, "stop").catch(() => {});
-        return;
-      }
-      if (!relay.active) throw new Error("The agent is not available for computer use");
-      if (!relay.visionAvailable) throw new Error("This run has no supported vision analyzer. Select a vision-capable provider/model before connecting.");
-      // The attach round trip consumed part of the ten-second native lease;
-      // renew it now that the backend confirmed so the first poll has full margin.
-      await heartbeatDesktopSession(started.sessionId, started.scope);
-      if (current !== generation.current) return;
-      const status = await desktopSessionStatus();
-      if (current !== generation.current) return;
-      if (status.sessionId !== started.sessionId || status.phase !== "active") throw new Error("Native authorization ended while connecting");
-      revoked.current = false;
-      localSession.current = { ...status, scope: started.scope };
-      setSession(localSession.current);
-      pendingRef.current = relay.pending ?? null;
-      setPending(pendingRef.current);
-      setActivity([]);
-      setSessionAllowed(new Set());
-      setPreview(null);
-      setConfirmed(false);
-    } catch (cause) {
-      if (current === generation.current) await disconnect(String(cause));
-      else if (started.sessionId && started.scope) {
-        await exchangeDesktopRelay(started.sessionId, started.scope, "stop").catch(() => {});
-      }
-    }
-  }
-
-  async function capture() {
-    if (revoked.current) throw new Error("Desktop session revoked; confirm stop before starting again");
-    if (!session?.sessionId || !session.scope) return;
-    const current = generation.current;
-    const image = await captureDesktopDisplay(session.sessionId, session.scope);
-    if (current === generation.current && !revoked.current && backendBaseUrl() === session.scope.backend &&
-        localSession.current?.phase === "active" && localSession.current.revision === session.revision) setPreview(image);
-  }
-
-  const autoApproves = (kind: ActionKind) => modeAutoApproves(approvalMode, kind) || sessionAllowed.has(kind);
-
-  // Auto-approval: the moment a request lands while the session is active,
-  // it is approved on the supervisor's behalf if the approval mode or a
-  // session allowance covers its kind. The same native validation, claim, arm
-  // and permit path runs; only the human confirmation is skipped.
-  const autoDecide = useRef<() => void>(() => {});
-  useEffect(() => {
-    autoDecide.current = () => {
-      if (!pending || !autoApproves(pending.action.kind)) return;
-      if (busy || inFlight.current || revoked.current || stopRequired || !enabled || session?.phase !== "active") return;
-      void operate(() => decide(true, { auto: true }));
-    };
-  });
-  useEffect(() => { autoDecide.current(); }, [approvalMode, sessionAllowed, pending, busy, session, enabled, stopRequired]);
-
-  async function decide(allow: boolean, { auto = false } = {}) {
-    if (revoked.current || inFlight.current || !pending || !session?.sessionId || !session.scope) return;
-    if (allow && ((!confirmed && !auto) || session.phase !== "active")) return;
-    const request = pending;
-    const id = session.sessionId;
-    const scope = session.scope;
-    const current = generation.current;
-    const valid = () => current === generation.current && !revoked.current && backendBaseUrl() === scope.backend;
-    inFlight.current = request.requestId;
-    requestVersion.current++;
-    setConfirmed(false);
-    let mayHaveExecuted = false;
-    try {
-      let outcome: DesktopOutcome;
-      if (allow) {
-        // Native validation (queue) runs before the claim so a local rejection
-        // can be reported without ever authorizing input. Arming comes after the
-        // claim round trip so the short-lived permit covers only native execution.
-        let localFailure: unknown = null;
-        let permit: string | null = null;
-        try { await queueDesktopRequest(id, scope, request); }
-        catch (cause) { localFailure = cause; }
-        if (!valid()) return;
-        const relay = await exchangeDesktopRelay(id, scope, "claim", request.requestId);
-        if (!valid()) return;
-        if (!relay.active) throw new Error("The remote request expired");
-        if (localFailure === null) {
-          if (!relay.visionAvailable) throw new Error("The remote request expired or vision is unavailable");
-          try { permit = (await armDesktopRequest(id, scope, request.requestId)).permit; }
-          catch (cause) { localFailure = cause; }
-          if (!valid()) return;
-        }
-        if (permit === null) {
-          // Report local validation failure without ever authorizing an input.
-          // The native reason is forwarded so the agent can adapt instead of asking the user to look.
-          outcome = { requestId: request.requestId, status: "failed", message: `Native validation rejected the request: ${String(localFailure).slice(0, 1024)}. Obtain a fresh observation and human approval.` };
-          setError(String(localFailure));
-          await cancelDesktopRequest(id, scope, request.requestId).catch(() => {});
-        } else {
-          mayHaveExecuted = true;
-          outcome = await approveDesktopRequest(id, scope, request.requestId, permit);
-        }
-      } else {
-        await exchangeDesktopRelay(id, scope, "claim", request.requestId);
-        outcome = { requestId: request.requestId, status: "denied", message: "Denied by supervisor" };
-      }
-      if (!valid()) return;
-      if (outcome.requestId !== request.requestId || (outcome.capture && request.action.kind !== "observe")) {
-        throw new Error("Unexpected native response; stopped without sharing it");
-      }
-      if (request.action.kind === "observe" && outcome.status === "completed" && !outcome.capture) {
-        // The broker rejects a completed observation without its capture.
-        outcome = { ...outcome, status: "failed", message: "Native capture returned no image" };
-      }
-      const status = await desktopSessionStatus();
-      if (!valid()) return;
-      if (status.sessionId !== id || status.phase === "stopped") throw new Error("Desktop authorization ended before delivery");
-      // A native failure pauses input but must still reach the agent with its reason.
-      if (outcome.status === "completed" && status.phase !== "active") throw new Error("Desktop authorization paused before delivery");
-      if (outcome.capture) setPreview(outcome.capture);
-      await exchangeDesktopRelay(id, scope, "resolve", request.requestId, outcome);
-      if (!valid()) return;
-      setActivity((old) => [{
-        id: request.requestId, kind: request.action.kind, status: outcome.status, at: Date.now(), auto,
-        summary: outcome.status === "completed" ? summarizeAction(request.action)
-          : outcome.status === "denied" ? `Denied ${ACTION_META[request.action.kind].label.toLowerCase()}`
-          : `${ACTION_META[request.action.kind].label} failed`,
-        detail: outcome.status === "failed" ? outcome.message : undefined,
-      }, ...old].slice(0, 20));
-      if (outcome.status === "failed") {
-        const readOnly = request.action.kind === "observe";
-        setError(readOnly
-          ? `${outcome.message} No input was sent to the desktop.`
-          : `${outcome.message} The action may be partially applied. Do not retry automatically.`);
-      }
-      pendingRef.current = null;
-      setPending(null);
-    } catch (cause) {
-      if (valid()) await disconnect(mayHaveExecuted
-        ? `Action result could not be confirmed (${String(cause).slice(0, 512)}). It may already have happened. Session stopped; inspect the desktop before any retry.`
-        : "The request expired or the connection failed. Session stopped without authorizing further input.");
-    } finally {
-      if (current === generation.current && inFlight.current === request.requestId) {
-        inFlight.current = null;
-        requestVersion.current++;
-      }
-    }
-  }
-
-  if (!isTauri || !user) return null;
-  // Viewers and finished runs get no controls unless a session or a pending
-  // native stop still needs the operator's attention.
-  if (!enabled && !session && !stopRequired && !busy) return null;
-  if (supported === false && !session && !stopRequired) {
-    const unavailable = <p className="p-3 text-xs text-muted-foreground">
-      Computer use requires macOS 15.2 or later. The rest of the app is unchanged.
-    </p>;
-    return view ? view.panel && createPortal(unavailable, view.panel) : unavailable;
-  }
-  // Pointer markers are drawn only when the proposal targets the previewed frame.
-  const inFrame = (x: number, y: number) => !!preview && x < preview.pixelWidth && y < preview.pixelHeight;
-  const pointer = pending && preview && pending.frameId === preview.frameId &&
-    (pending.action.kind === "click" || pending.action.kind === "move" || pending.action.kind === "drag" ||
-      (pending.action.kind === "scroll" && pending.action.x !== undefined && pending.action.y !== undefined)) &&
-    inFrame(pending.action.x!, pending.action.y!) &&
-    (pending.action.kind !== "drag" || inFrame(pending.action.toX, pending.action.toY)) ? pending.action : null;
-  const pointerTo = pointer?.kind === "drag" ? { x: pointer.toX, y: pointer.toY } : null;
-  const phase = session?.phase ?? "stopped";
-  const phaseLabel = phase.charAt(0).toUpperCase() + phase.slice(1);
-  const controlsLocked = busy || stopRequired || !enabled;
-  const canApprove = !controlsLocked && phase === "active";
-  const pendingMeta = pending ? ACTION_META[pending.action.kind] : null;
-  const pendingAuto = !!pending && autoApproves(pending.action.kind);
-  const pendingAutoReason = pending && sessionAllowed.has(pending.action.kind) && !modeAutoApproves(approvalMode, pending.action.kind)
-    ? `${ACTION_META[pending.action.kind].label} is allowed for this session` : APPROVAL_MODE_META[approvalMode].label;
-  const skipAll = approvalMode === "auto";
-  const allowedList = [...sessionAllowed].map((kind) => ACTION_META[kind].label);
-
-  const panel = (
-    <section aria-label="Desktop control" className="text-sm">
-      <header className="flex flex-wrap items-center gap-2.5 px-3 py-2 md:px-4">
-        <span className="grid size-6 shrink-0 place-items-center rounded-md bg-muted/60 text-muted-foreground ring-1 ring-inset ring-border/60 [&_svg]:size-3.5">
-          <Monitor />
+export function PermissionRow({ icon, title, detail, granted, onGrant, children }: {
+  icon: ReactNode;
+  title: string;
+  detail: string;
+  granted: boolean;
+  onGrant: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <li className="flex items-start gap-3 py-2.5">
+      <span className={cn(
+        "mt-0.5 grid size-7 shrink-0 place-items-center rounded-full [&_svg]:size-3.5",
+        granted ? toneSoft.success : "bg-muted/60 text-muted-foreground ring-1 ring-inset ring-border/70",
+      )}>
+        {granted ? <Check /> : icon}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-medium leading-6">{title}</p>
+        <p className="text-[12px] leading-snug text-muted-foreground">{detail}</p>
+        {children}
+      </div>
+      {granted ? (
+        <span className="mt-1 inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
+          <LiveDot tone="success" size="xs" />Granted
         </span>
-        <span className="font-medium">Computer use</span>
-        <span role="status" aria-label={`Session ${phase}`}
-          className={cn("inline-flex h-5 items-center gap-1.5 rounded-full px-2 text-[11px] font-medium", toneSoft[PHASE_TONE[phase]])}>
-          <LiveDot tone={phase === "active" ? "running" : phase === "paused" ? "waiting" : "idle"} pulse={phase === "active"} size="xs" />
-          {phaseLabel}
-        </span>
-        {session?.scope && (
-          <span className="hidden min-w-0 truncate text-xs text-muted-foreground sm:inline">
-            {`Display ${session.scope.displayId} · desktop input`}
-          </span>
-        )}
-        <ApprovalModeBadge mode={approvalMode} />
-        {pending && !pendingAuto && (
-          <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium", toneSoft.info)}>
-            Needs your approval
-          </span>
-        )}
-        {session && (
-          <Button size="xs" variant="destructive" className="ml-auto"
-            onClick={(event) => { event.preventDefault(); void disconnect(); }}>
-            <Square data-icon="inline-start" /> Stop computer use
-          </Button>
-        )}
+      ) : (
+        <Button size="sm" variant="outline" className="mt-0.5" onClick={onGrant} aria-label={`Grant ${title}`}>
+          <LiveDot tone="waiting" size="xs" />Grant
+        </Button>
+      )}
+    </li>
+  );
+}
+
+export function RelaunchHint({ onRelaunch }: { onRelaunch: () => void }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
+      <span>macOS applies Screen Recording after the app restarts.</span>
+      <Button size="xs" variant="secondary" onClick={onRelaunch}><RotateCcw />Relaunch app</Button>
+    </div>
+  );
+}
+
+function Notice({ tone, icon, children }: { tone: "warning" | "danger" | "info"; icon: ReactNode; children: ReactNode }) {
+  return (
+    <div role={tone === "info" ? "note" : "alert"} className={cn("flex items-start gap-2 rounded-lg px-3 py-2 text-[12px] leading-snug [&_svg]:mt-px [&_svg]:size-3.5 [&_svg]:shrink-0", toneSoft[tone])}>
+      {icon}<div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
+function SetupView({ state, mine, enabled, panel, run }: {
+  state: ComputerUseState;
+  mine: boolean;
+  enabled: boolean;
+  panel: HTMLElement;
+  run: { namespace: string; name: string };
+}) {
+  const { status, error: statusError, refresh } = useNativeStatus(panelVisible(panel));
+  const { grant, relaunch, requestedScreen, error: grantError } = usePermissionGrant(refresh);
+  const [chosen, setChosen] = useState<number | undefined>();
+  const displays = status?.displays ?? [];
+  const displayId = displays.some((display) => display.id === chosen)
+    ? chosen
+    : (displays.find((display) => display.primary) ?? displays[0])?.id;
+  const starting = mine && state.phase === "starting";
+  const elsewhere = !mine && state.run && state.phase !== "idle" && state.phase !== "error" ? state.run : undefined;
+  const ready = !!status?.supported && status.accessibility && status.screenRecording && displayId !== undefined;
+
+  if (!status) {
+    return (
+      <div className="surface-card flex items-center gap-2 p-4 text-[12.5px] text-muted-foreground" role="status">
+        {statusError ? <><AlertTriangle className="size-4" />Could not check this Mac: {statusError}</> : <><Spinner />Checking this Mac…</>}
+      </div>
+    );
+  }
+
+  if (!status.supported) {
+    return (
+      <section className="surface-card flex items-start gap-3 p-4">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted/60 text-muted-foreground"><Laptop className="size-4.5" /></span>
+        <div>
+          <h2 className="text-[14px] font-semibold tracking-[-0.01em]">Computer use runs in the Mac app</h2>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+            Open this run in the Grateful Agents desktop app on macOS to let the agent see a display and use the mouse and keyboard.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="surface-card overflow-hidden" aria-labelledby="computer-use-setup-title">
+      <header className="flex items-start gap-3 px-4 pt-4">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Monitor className="size-4.5" /></span>
+        <div className="min-w-0">
+          <h2 id="computer-use-setup-title" className="text-[14px] font-semibold leading-6 tracking-[-0.01em]">Let the agent use this Mac</h2>
+          <p className="text-[12.5px] leading-snug text-muted-foreground">You watch every step live and can pause or stop at any time.</p>
+        </div>
       </header>
 
-      <div className="space-y-3 px-3 pb-3 md:px-4">
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          The agent captures the selected display and controls your desktop while you supervise. Keyboard input follows OS focus and can affect other displays; there is no window isolation, and
-          on-screen content is untrusted: review the target and effect yourself. You remain responsible for every action taken.
-          Emergency stop: <Kbd>⌃⌥⌘⎋</Kbd> or the native tray.
-        </p>
-
-        {session?.phase === "paused" && <p role="status" className="text-xs text-amber-700">Target unavailable or paused: {session.reason || "Paused by supervisor"}</p>}
-
-        {error && (
-          <p role="alert" className={cn("flex items-start gap-2 rounded-md px-3 py-2 text-xs", toneSoft.danger)}>
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-            <span>{error}</span>
-          </p>
+      <div className="space-y-2 px-4 pt-3">
+        {mine && state.phase === "error" && (
+          state.available
+            ? <Notice tone="danger" icon={<AlertTriangle />}>{state.error}</Notice>
+            : <Notice tone="warning" icon={<Ban />}>{UNAVAILABLE_MESSAGE}</Notice>
         )}
-
-        {skipAll && (
-          <div className={cn("flex flex-wrap items-center gap-2 rounded-md px-3 py-2 text-xs", toneSoft.warning)} role="note">
-            <ShieldAlert className="size-3.5 shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="font-medium">Skipping all approvals.</span> Every agent request — including clicks, typing, and key presses — runs in the selected display without a per-action review.
-            </span>
-            <Button size="xs" variant="outline" onClick={() => setComputerUseApprovalMode("manual")}>Switch to manual</Button>
-          </div>
+        {mine && state.phase === "idle" && state.stoppedReason && (
+          <Notice tone="info" icon={<Square />}>Session ended: {state.stoppedReason}</Notice>
         )}
-
-        {!session && (
-          <div className="space-y-3">
-            <Button variant="outline" size="xs" disabled={controlsLocked} onClick={() => void operate(() => openComputerUsePermission("screen_recording"))}>Enable Screen Recording</Button>
-            <Button variant="outline" size="xs" disabled={controlsLocked} onClick={() => void operate(() => openComputerUsePermission("accessibility"))}>Enable Accessibility</Button>
-            <div className="rounded-lg border p-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-xs font-medium"><span className="mr-1.5 text-muted-foreground">1</span>Selected display</span>
-                <Button variant="outline" size="xs" disabled={busy || !enabled || !supported || stopRequired}
-                  onClick={() => void operate(async () => {
-                    const current = generation.current;
-                    sharingOwned.current = true;
-                    setSelected(null);
-                    const observed = await desktopSessionStatus();
-                    if (current !== generation.current) return;
-                    const target = await pickComputerUseDisplay(observed.revision);
-                    if (current === generation.current) setSelected(target);
-                  })}>
-                  <AppWindow data-icon="inline-start" />
-                  Choose display with macOS
-                </Button>
-              </div>
-
-              <p className="text-xs text-muted-foreground">
-                {selected ? `${selected.name} · display ${selected.displayId}` : "No display selected"}
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                All visible content on the chosen display may be captured, including sensitive apps and this supervisor. Screen Recording and Accessibility permissions are required.
-              </p>
-            </div>
-
-
-            <div className="rounded-lg border p-3">
-              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs font-medium"><span className="mr-1.5 text-muted-foreground">2</span>Approval mode</span>
-                <ApprovalModeControl variant="compact" disabled={busy || !enabled} />
-              </div>
-              <p className="text-[11px] text-muted-foreground">{APPROVAL_MODE_META[approvalMode].description} You can change this at any time, including during a session.</p>
-            </div>
-
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Starting shares captures of the entire selected display with this run’s backend and vision service ({model || "configured model"})
-              and authorizes desktop input under your selected approval mode. Captures may include private information; provider retention policies apply.
-              Keyboard input follows OS focus and URLs open in your default browser, possibly on other displays. There is no window isolation.
-            </p>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" disabled={!enabled || !selected || busy || !supported || stopRequired}
-                onClick={() => void operate(start)}>
-                {busy ? <Spinner data-icon="inline-start" /> : <Play data-icon="inline-start" />}
-                Start desktop control
-              </Button>
-              {selected && !busy && <Button size="sm" variant="outline" onClick={() => void disconnect()}>Clear selection</Button>}
-              {busy && <Button size="sm" variant="destructive" onClick={() => void disconnect()}>Cancel connection</Button>}
-              {stopRequired && !busy && <Button size="sm" variant="destructive" onClick={() => void disconnect()}>Retry native stop</Button>}
-            </div>
-          </div>
+        {elsewhere && (
+          <Notice tone="info" icon={<ScreenShare />}>
+            Another run (<span className="font-mono">{elsewhere.name}</span>) is using this Mac. Starting here stops it.
+          </Notice>
         )}
-
-        {session && (
-          <div className="sticky top-0 z-10 -mx-3 flex flex-wrap items-center gap-2 border-y bg-background px-3 py-1.5 md:-mx-4 md:px-4">
-            {session.scope && (
-              <span className="flex min-w-0 items-center gap-1.5 text-xs">
-                <AppWindow className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate">{`Display ${session.scope.displayId} · desktop input`}</span>
-              </span>
-            )}
-            <ApprovalModeControl variant="compact" disabled={stopRequired || !enabled} className="ml-1" />
-            <div className="ml-auto flex flex-wrap gap-1.5">
-              <Button size="sm" variant="outline" disabled={controlsLocked || session.phase !== "active"} onClick={() => void operate(capture)}>
-                <Eye data-icon="inline-start" />
-                Local preview
-              </Button>
-              <Button size="sm" variant="outline" disabled={controlsLocked}
-                title={session.phase === "paused" ? "Let the agent act again" : "Take control: the agent cannot act until you resume"}
-                onClick={() => void operate(async () => {
-                if (revoked.current) throw new Error("Desktop session revoked");
-                const current = generation.current;
-                let status: DesktopSession;
-                if (session.phase === "paused" && session.sessionId && session.scope) {
-                  status = await resumeDesktopSession(session.sessionId, session.scope);
-                } else {
-                  await pauseDesktopSession();
-                  status = await desktopSessionStatus();
-                }
-                if (current === generation.current && !revoked.current) {
-                  setPreview(null); setConfirmed(false); setSession(status); localSession.current = status;
-                }
-              })}>
-                {session.phase === "paused" ? <Play data-icon="inline-start" /> : <Pause data-icon="inline-start" />}
-                {session.phase === "paused" ? "Resume" : "Pause"}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {session && allowedList.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-            <span>Allowed for this session:</span>
-            {allowedList.map((label) => <span key={label} className={cn("inline-flex h-5 items-center rounded-full px-2 font-medium", toneSoft.info)}>{label}</span>)}
-            <Button size="xs" variant="ghost" onClick={() => setSessionAllowed(new Set())}>Reset</Button>
-          </div>
-        )}
-
-        {preview && (
-          <figure className="space-y-1">
-            <div className="relative inline-block max-w-full overflow-hidden rounded-md border bg-muted/30">
-              <img src={preview.dataUrl} alt="Preview of the selected display" className="max-h-80 w-auto max-w-full" />
-              {pointer && pointerTo && <svg aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" viewBox={`0 0 ${preview.pixelWidth} ${preview.pixelHeight}`} preserveAspectRatio="none">
-                <line x1={pointer.x!} y1={pointer.y!} x2={pointerTo.x} y2={pointerTo.y} stroke="var(--tone-danger)" strokeWidth={Math.max(2, preview.pixelWidth / 300)} strokeDasharray={`${preview.pixelWidth / 60} ${preview.pixelWidth / 120}`} vectorEffect="non-scaling-stroke" />
-              </svg>}
-              {pointer && <span aria-label={pointer.kind === "drag" ? "Proposed drag start" : pointer.kind === "click" ? "Proposed click location" : pointer.kind === "move" ? "Proposed pointer location" : "Proposed scroll location"}
-                className={cn("pointer-events-none absolute size-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[color:var(--tone-danger)] shadow-[0_0_0_2px_var(--color-background)]",
-                  pointer.kind === "click" || pointer.kind === "drag" ? "bg-[color-mix(in_oklch,var(--tone-danger)_30%,transparent)]" : "border-dashed")}
-                style={{ left: `${100 * pointer.x! / preview.pixelWidth}%`, top: `${100 * pointer.y! / preview.pixelHeight}%` }} />}
-              {pointer && pointerTo && <span aria-label="Proposed drag destination"
-                className="pointer-events-none absolute size-5 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-[color:var(--tone-danger)] bg-[color-mix(in_oklch,var(--tone-danger)_30%,transparent)] shadow-[0_0_0_2px_var(--color-background)]"
-                style={{ left: `${100 * pointerTo.x / preview.pixelWidth}%`, top: `${100 * pointerTo.y / preview.pixelHeight}%` }} />}
-            </div>
-            <figcaption className="text-[11px] text-muted-foreground">
-              Local preview, not shared · {preview.pixelWidth}×{preview.pixelHeight}px · frame {preview.frameId}
-              {pointer?.kind === "click" ? " · red marker shows the proposed click" : pointer?.kind === "drag" ? " · red markers show the proposed drag path" : pointer?.kind === "move" ? " · dashed marker shows the proposed pointer position" : pointer?.kind === "scroll" ? " · dashed marker shows where scrolling is aimed" : ""}
-            </figcaption>
-          </figure>
-        )}
-
-        {pending && pendingMeta && (
-          <section aria-label="Action awaiting approval"
-            className={cn("space-y-3 rounded-lg border p-3", pendingAuto ? "border-[color-mix(in_oklch,var(--tone-warning)_45%,transparent)]" : "border-[color-mix(in_oklch,var(--tone-info)_45%,transparent)]")}>
-            <div className="flex items-start gap-2.5">
-              <span className={cn("grid size-7 shrink-0 place-items-center rounded-md [&_svg]:size-4", toneSoft[pendingAuto ? "warning" : "info"])}>
-                {pendingMeta.icon}
-              </span>
-              <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-[13px] font-medium leading-7">Agent requests: {pending.action.kind}</h3>
-                  <span className={cn("inline-flex h-5 items-center rounded-full px-2 text-[11px] font-medium", isReadOnlyAction(pending.action.kind) ? toneSoft.neutral : toneSoft.warning)}>
-                    {isReadOnlyAction(pending.action.kind) ? "Read-only" : "Enters input"}
-                  </span>
-                </div>
-                {pending.action.kind === "type"
-                  ? <>
-                    <p className="text-xs text-muted-foreground">Type exactly the text below into the focused field:</p>
-                    <pre aria-label="Proposed text" className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-2 font-mono text-xs">{pending.action.text}</pre>
-                  </>
-                  : <p className="text-xs text-muted-foreground">{describeAction(pending)}</p>}
-              </div>
-            </div>
-
-            {pendingAuto
-              ? <div className={cn("flex items-center gap-2 rounded-md px-3 py-2 text-xs", toneSoft.warning)}>
-                {busy ? <Spinner className="size-3.5" /> : <Zap className="size-3.5" />}
-                <span className="flex-1">{busy ? "Approving automatically…" : phase === "active" ? "Will be approved automatically." : "Automatic approval waits until the session is resumed."} <span className="opacity-80">({pendingAutoReason})</span></span>
-              </div>
-              : <label className="flex items-start gap-2 text-xs leading-relaxed">
-                <input type="checkbox" className="mt-0.5 shrink-0" checked={confirmed} disabled={!canApprove} onChange={(event) => setConfirmed(event.target.checked)} />
-                <span className="text-muted-foreground">I reviewed this target and action, including any send, submit, deletion, purchase, or security effect. Never enter passwords.</span>
-              </label>}
-
-            <div className="flex flex-wrap gap-2">
-              {!pendingAuto && <>
-                <Button size="sm" disabled={!canApprove || !confirmed} onClick={() => void operate(() => decide(true))}>Allow once</Button>
-                <Button size="sm" variant="outline" disabled={!canApprove || !confirmed}
-                  title={`Approve every "${pendingMeta.label.toLowerCase()}" request until this session stops`}
-                  onClick={() => {
-                    const kind = pending.action.kind;
-                    setSessionAllowed((old) => new Set([...old, kind]));
-                    void operate(() => decide(true));
-                  }}>Allow for this session</Button>
-              </>}
-              <Button size="sm" variant={pendingAuto ? "outline" : "ghost"} disabled={controlsLocked} onClick={() => void operate(() => decide(false))}>Deny</Button>
-            </div>
-          </section>
-        )}
-
-        {session && !pending && (
-          <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <LiveDot tone={phase === "active" ? "running" : "idle"} pulse={phase === "active"} size="xs" />
-            {phase === "paused"
-              ? "Paused — you have control. Resume to let the agent act again."
-              : skipAll
-                ? "Waiting for an agent request. Requests will run automatically while approvals are skipped."
-                : approvalMode === "assisted"
-                  ? "Waiting for an agent request. Read-only observations run automatically; input asks first."
-                  : "Waiting for an agent request. Nothing executes without your approval."}
-          </p>
-        )}
-
-        {!!activity.length && (
-          <div className="space-y-1.5">
-            <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Recent actions</h4>
-            <ol aria-label="Recent computer actions" aria-live="polite" className="divide-y rounded-md border text-xs">
-              {activity.map((entry) => {
-                const tone = OUTCOME_TONE[entry.status] ?? "neutral";
-                return (
-                  <li key={entry.id} className="flex items-center gap-2 px-2.5 py-1.5">
-                    <span className={cn("grid size-5 shrink-0 place-items-center [&_svg]:size-3.5", toneText[tone])}>{ACTION_META[entry.kind].icon}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate">
-                        <span className="sr-only">{entry.kind} — {entry.status}</span>
-                        {entry.summary}
-                        {entry.auto && <span className="ml-1.5 text-muted-foreground">· auto-approved</span>}
-                      </span>
-                      {entry.detail && <span className="block truncate text-[11px] text-muted-foreground" title={entry.detail}>{entry.detail}</span>}
-                    </span>
-                    <time className="shrink-0 font-mono text-[10.5px] text-muted-foreground" dateTime={new Date(entry.at).toISOString()}>{timeFormat.format(entry.at)}</time>
-                    <span className={cn("inline-flex h-4.5 shrink-0 items-center rounded-full px-1.5 text-[10.5px] font-medium", toneSoft[tone])}>{entry.status}</span>
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-        )}
+        {!enabled && <Notice tone="info" icon={<Ban />}>Only the run owner can start computer use, and only while the run is active.</Notice>}
+        {(grantError || statusError) && <Notice tone="danger" icon={<AlertTriangle />}>{grantError || statusError}</Notice>}
       </div>
+
+      <ol className="mx-4 mt-1 divide-y divide-border/60">
+        <PermissionRow icon={<Accessibility />} title="Accessibility" detail="Lets the agent click, scroll and type."
+          granted={status.accessibility} onGrant={() => void grant("accessibility")} />
+        <PermissionRow icon={<ScreenShare />} title="Screen Recording" detail="Lets the agent see the display you choose."
+          granted={status.screenRecording} onGrant={() => void grant("screen_recording")}>
+          {requestedScreen && !status.screenRecording && <RelaunchHint onRelaunch={() => void relaunch()} />}
+        </PermissionRow>
+        <li className="flex items-start gap-3 py-2.5">
+          <span className={cn(
+            "mt-0.5 grid size-7 shrink-0 place-items-center rounded-full [&_svg]:size-3.5",
+            displayId !== undefined ? toneSoft.success : "bg-muted/60 text-muted-foreground ring-1 ring-inset ring-border/70",
+          )}>
+            {displayId !== undefined ? <Check /> : <Monitor />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium leading-6">Display</p>
+            <p className="text-[12px] leading-snug text-muted-foreground">The agent sees and controls only this display.</p>
+            <DisplayPicker displays={displays} value={displayId} onChange={setChosen} />
+          </div>
+        </li>
+      </ol>
+
+      <footer className="mt-1 flex flex-col gap-2.5 border-t bg-muted/25 px-4 py-3 sm:flex-row sm:items-center">
+        <Button size="lg" className="px-4" disabled={!ready || !enabled || starting}
+          onClick={() => void startComputerUse(run, displayId!)}>
+          {starting ? <Spinner /> : <Play />}{starting ? "Starting…" : "Start"}
+        </Button>
+        <p className="text-[11.5px] leading-snug text-muted-foreground">
+          The agent will see the selected display and can control the mouse and keyboard.
+          Stop anytime with <Kbd className="mx-0.5 tracking-wider">⌃⌥⌘⎋</Kbd>.
+        </p>
+      </footer>
     </section>
   );
-
-  if (!view) return panel;
-  // The run owns this controller; responsive inspector/chat hosts may unmount
-  // without ending the native session or interrupting its lease/relay polling.
-  return <>
-    {view.panel && createPortal(panel, view.panel)}
-    {view.shortcut && createPortal(
-      <div className="flex shrink-0 items-center gap-2 border-t px-3 py-1.5 text-xs md:px-4" aria-label="Computer status">
-        <Button size="xs" variant="ghost" onClick={view.open}>
-          <Monitor data-icon="inline-start" /> Computer · {phaseLabel}
-          {pending && !pendingAuto ? " · Needs your approval" : error ? " · Needs attention" : ""}
-        </Button>
-        {(session || stopRequired) && <Button size="xs" variant="destructive" className="ml-auto" onClick={() => void disconnect()}>
-          <Square data-icon="inline-start" /> {stopRequired ? "Retry native stop" : "Stop computer use"}
-        </Button>}
-      </div>, view.shortcut)}
-  </>;
 }
+
+function DisplayPicker({ displays, value, onChange }: { displays: Display[]; value?: number; onChange: (id: number) => void }) {
+  if (!displays.length) return <p className="mt-2 text-[12px] text-muted-foreground">No displays found.</p>;
+  return (
+    <div role="radiogroup" aria-label="Display" className="mt-2 grid gap-1.5">
+      {displays.map((display) => {
+        const selected = display.id === value;
+        return (
+          <button key={display.id} type="button" role="radio" aria-checked={selected} onClick={() => onChange(display.id)}
+            className={cn(
+              "flex items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+              selected ? "border-primary/60 bg-primary/5" : "border-border hover:bg-muted/60",
+            )}>
+            <span className={cn("grid size-4 shrink-0 place-items-center rounded-full border", selected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40")}>
+              {selected && <span className="size-1.5 rounded-full bg-current" />}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{display.name}</span>
+            {display.primary && <span className="rounded-full bg-muted px-1.5 text-[10.5px] text-muted-foreground">Primary</span>}
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{display.width}×{display.height}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ActiveView({ state, panel }: { state: ComputerUseState; panel: HTMLElement }) {
+  const { status } = useNativeStatus(() => false);
+  const display = status?.displays.find((candidate) => candidate.id === state.displayId);
+  const phase = phaseLabel(state);
+  const paused = state.phase === "paused";
+  const stopping = state.phase === "stopping";
+  return (
+    <>
+      <header className="surface-card flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
+        <div role="status" aria-label={`Computer use: ${phase.label}`}
+          className={cn("inline-flex h-7 items-center gap-2 rounded-full px-2.5 text-[12px] font-medium",
+            phase.tone === "running" ? toneSoft.running : phase.tone === "waiting" ? toneSoft.warning : toneSoft.neutral)}>
+          <LiveDot tone={phase.tone} pulse={phase.pulse} />{phase.label}
+        </div>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px] text-muted-foreground">
+          <Monitor className="size-3.5 shrink-0" />
+          <span className="truncate">{display?.name ?? `Display ${state.displayId ?? ""}`}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Button size="sm" variant="outline" disabled={stopping}
+            onClick={() => void (paused ? resumeComputerUse() : pauseComputerUse())}>
+            {paused ? <Play /> : <Pause />}{paused ? "Resume" : "Pause"}
+          </Button>
+          <Button size="sm" disabled={stopping} onClick={() => void stopComputerUse()}
+            className="bg-[color:var(--tone-danger)] text-white hover:bg-[color:var(--tone-danger)]/90">
+            <Square className="fill-current" />Stop
+          </Button>
+        </div>
+      </header>
+
+      {state.error && <Notice tone="danger" icon={<AlertTriangle />}>{state.error}</Notice>}
+
+      <LiveView state={state} panel={panel} />
+
+      <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
+        <div>
+          <p className="text-[12px] font-medium">Approval</p>
+          <p className="text-[11.5px] text-muted-foreground">
+            {state.approvalMode === "ask" ? "You allow each click, keystroke and URL." : "Actions run as soon as the agent asks."}
+          </p>
+        </div>
+        <ApprovalModeToggle value={state.approvalMode} onChange={setSessionApprovalMode} />
+      </div>
+
+      <Timeline entries={state.timeline} />
+    </>
+  );
+}
+
+function LiveView({ state, panel }: { state: ComputerUseState; panel: HTMLElement }) {
+  const { latest, pending, current } = state;
+  const live = pending?.request.action ?? current?.action;
+  // Without a live action, mark the most recent pointer action: that is where typing lands.
+  const marker = latest
+    ? live
+      ? actionMarker(live, latest, latest.cursor)
+      : state.timeline.filter((entry) => entry.status !== "denied")
+        .map((entry) => actionMarker(entry.action, latest, latest.cursor)).find(Boolean) ?? null
+    : null;
+  const waiting = !pending && !current && state.phase === "active";
+  return (
+    <figure className="relative overflow-hidden rounded-xl border bg-[oklch(0.18_0_0)] shadow-sm"
+      style={{ aspectRatio: latest ? `${latest.width} / ${latest.height}` : "16 / 10" }}>
+      {latest ? (
+        <img src={latest.dataUrl} alt="Latest screenshot of the controlled display" className="absolute inset-0 size-full object-contain" />
+      ) : (
+        <div className="absolute inset-0 grid place-items-center text-[12px] text-white/50">
+          <span className="flex flex-col items-center gap-2"><Monitor className="size-6" />The first screenshot appears here</span>
+        </div>
+      )}
+      {latest && marker && <MarkerOverlay marker={marker} width={latest.width} height={latest.height} live={!!live} />}
+      {waiting && (
+        <div className="absolute left-1/2 top-2.5 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11.5px] text-white/85 backdrop-blur-sm">
+          <Spinner className="size-3" />Waiting for the agent…
+        </div>
+      )}
+      {current && (
+        <div className="absolute left-1/2 top-2.5 inline-flex max-w-[90%] -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11.5px] text-white/90 backdrop-blur-sm">
+          <Spinner className="size-3" /><span className="truncate">{describeAction(current.action)}</span>
+        </div>
+      )}
+      {pending?.needsApproval && (
+        <ApprovalCard action={pending.request.action} panel={panel}
+          top={!!latest && markerY(marker) > latest.height / 2} />
+      )}
+      {pending && !pending.needsApproval && state.phase === "paused" && (
+        <div className="absolute inset-x-2.5 bottom-2.5 flex items-center gap-2 rounded-lg bg-black/60 px-3 py-2 text-[12px] text-white/90 backdrop-blur-sm">
+          <Pause className="size-3.5 shrink-0" /><span className="truncate">Paused. Next: {describeAction(pending.request.action)}</span>
+        </div>
+      )}
+    </figure>
+  );
+}
+
+const markerY = (marker: Marker | null) =>
+  !marker ? 0 : marker.kind === "drag" ? Math.max(marker.y1, marker.y2) : marker.kind === "rect" ? marker.y + marker.height / 2 : marker.y;
+
+function MarkerOverlay({ marker, width, height, live }: { marker: Marker; width: number; height: number; live: boolean }) {
+  const arrowId = `cu-arrow-${useId().replace(/[^\w-]/g, "")}`;
+  const unit = Math.max(width, height) / 100;
+  const color = live ? "var(--tone-info)" : "var(--tone-warning)";
+  const stroke = { stroke: color, strokeWidth: 2.5, vectorEffect: "non-scaling-stroke" as const, fill: "none" };
+  const halo = { stroke: "white", strokeOpacity: 0.85, strokeWidth: 5, vectorEffect: "non-scaling-stroke" as const, fill: "none" };
+  const arrow = (x1: number, y1: number, x2: number, y2: number) => (
+    <>
+      <line x1={x1} y1={y1} x2={x2} y2={y2} {...halo} />
+      <line x1={x1} y1={y1} x2={x2} y2={y2} {...stroke} markerEnd={`url(#${arrowId})`} />
+    </>
+  );
+  let shape: ReactNode;
+  switch (marker.kind) {
+    case "point":
+      shape = (
+        <g>
+          <circle cx={marker.x} cy={marker.y} r={2.2 * unit} {...halo} />
+          <circle cx={marker.x} cy={marker.y} r={2.2 * unit} {...stroke} fill={color} fillOpacity={0.18} />
+          <circle cx={marker.x} cy={marker.y} r={0.35 * unit} fill={color} stroke="white" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+          {live && <circle cx={marker.x} cy={marker.y} r={2.2 * unit} {...stroke} className="origin-center animate-ping [transform-box:fill-box]" />}
+        </g>
+      );
+      break;
+    case "drag":
+      shape = (
+        <g>
+          <circle cx={marker.x1} cy={marker.y1} r={0.8 * unit} fill={color} stroke="white" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+          {arrow(marker.x1, marker.y1, marker.x2, marker.y2)}
+        </g>
+      );
+      break;
+    case "scroll":
+      shape = (
+        <g>
+          <circle cx={marker.x} cy={marker.y} r={0.8 * unit} fill={color} stroke="white" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+          {arrow(marker.x, marker.y, marker.x + marker.dx * 7 * unit, marker.y + marker.dy * 7 * unit)}
+        </g>
+      );
+      break;
+    case "rect":
+      shape = (
+        <g>
+          <rect x={marker.x} y={marker.y} width={marker.width} height={marker.height} {...halo} />
+          <rect x={marker.x} y={marker.y} width={marker.width} height={marker.height} {...stroke} fill={color} fillOpacity={0.12} />
+        </g>
+      );
+      break;
+  }
+  return (
+    <svg className="pointer-events-none absolute inset-0 size-full" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet"
+      data-testid="action-marker" data-kind={marker.kind} aria-hidden>
+      <defs>
+        <marker id={arrowId} viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill={color} />
+        </marker>
+      </defs>
+      {shape}
+    </svg>
+  );
+}
+
+const isEditable = (target: EventTarget | null) =>
+  target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+
+/** `top` moves the card out of the way when the target sits in the lower half of the frame. */
+function ApprovalCard({ action, panel, top }: { action: ComputerAction; panel: HTMLElement; top: boolean }) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || event.defaultPrevented || isEditable(event.target) || panel.closest("[hidden]")) return;
+      event.preventDefault();
+      decideComputerUse(true);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [panel]);
+  const Icon = ACTION_ICONS[action.action];
+  const detail = action.action === "type" ? action.text : action.action === "open_url" ? action.url : undefined;
+  return (
+    <div role="alertdialog" aria-label="Approve the agent's next action"
+      className={cn("absolute inset-x-2.5 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur-md", top ? "top-2.5" : "bottom-2.5")}>
+      <div className="flex items-start gap-2.5">
+        <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg [&_svg]:size-4", toneSoft.warning)}><Icon /></span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">The agent wants to</p>
+          <p className="truncate text-[13.5px] font-medium">{describeAction(action)}</p>
+          {detail && (
+            <pre className="mt-1.5 max-h-24 overflow-auto rounded-md bg-muted/70 px-2 py-1.5 font-mono text-[11.5px] whitespace-pre-wrap break-all">{detail}</pre>
+          )}
+        </div>
+      </div>
+      <div className="mt-3 flex justify-end gap-2">
+        <Button size="sm" variant="outline" onClick={() => decideComputerUse(false)}><X />Deny</Button>
+        <Button size="sm" onClick={() => decideComputerUse(true)} aria-keyshortcuts="Enter">
+          <Check />Allow<Kbd className="ml-0.5 h-4 bg-primary-foreground/15 text-primary-foreground">↩</Kbd>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+const STATUS_META: Record<TimelineEntry["status"], { label: string; className: string }> = {
+  running: { label: "Running", className: toneSoft.running },
+  done: { label: "Done", className: "bg-muted/60 text-muted-foreground ring-1 ring-inset ring-border/70" },
+  failed: { label: "Failed", className: toneSoft.danger },
+  denied: { label: "Denied", className: toneSoft.neutral },
+};
+
+function Timeline({ entries }: { entries: TimelineEntry[] }) {
+  const now = useNow(10_000);
+  return (
+    <section aria-label="Recent actions" className="surface-card px-3 py-2">
+      <h3 className="py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Recent actions</h3>
+      {entries.length === 0 ? (
+        <p className="py-3 text-[12px] text-muted-foreground">Nothing yet. Actions appear here as the agent works.</p>
+      ) : (
+        <ol className="divide-y divide-border/60">
+          {entries.map((entry) => {
+            const Icon = ACTION_ICONS[entry.action.action];
+            const meta = STATUS_META[entry.status];
+            return (
+              <li key={entry.id} className="flex items-center gap-2.5 py-2">
+                <span className={cn("grid size-7 shrink-0 place-items-center rounded-lg [&_svg]:size-3.5", meta.className)}>
+                  {entry.status === "running" ? <Spinner className="size-3.5" /> : <Icon />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[12.5px] font-medium">{describeAction(entry.action)}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    <span className={cn(entry.status === "failed" && toneText.danger)}>{meta.label}</span>
+                    {" · "}{now - entry.startedAt < 10_000
+                      ? "just now"
+                      : formatPollTime(BigInt(Math.floor(entry.startedAt / 1000)), now)}
+                  </p>
+                  {entry.error && entry.status !== "running" && (
+                    <p className={cn("mt-0.5 line-clamp-2 text-[11.5px]", entry.status === "failed" ? toneText.danger : "text-muted-foreground")}>{entry.error}</p>
+                  )}
+                </div>
+                {entry.thumbnail && (
+                  <img src={entry.thumbnail} alt="" className="h-10 w-16 shrink-0 rounded-md border object-cover" />
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function ShortcutPill({ state, onOpen }: { state: ComputerUseState; onOpen: () => void }) {
+  const phase = phaseLabel(state);
+  const needsApproval = !!state.pending?.needsApproval;
+  return (
+    <div className="border-t px-3 py-2 md:px-4">
+      <div role="status" aria-label={`Computer: ${phase.label}`}
+        className={cn("flex items-center gap-2 rounded-full py-1 pr-1 pl-3 text-[12px]",
+          needsApproval ? toneSoft.warning : "bg-muted/50 ring-1 ring-inset ring-border/70")}>
+        <LiveDot tone={phase.tone} pulse={phase.pulse} />
+        <span className="font-medium">Computer</span>
+        <span className="text-muted-foreground">·</span>
+        <span className="min-w-0 flex-1 truncate">{phase.label}</span>
+        <Button size="xs" variant={needsApproval ? "default" : "ghost"} onClick={onOpen}>Open</Button>
+        <Button size="xs" variant="ghost" className={toneText.danger} aria-label="Stop computer use" onClick={() => void stopComputerUse()}>
+          <Square className="fill-current" />Stop
+        </Button>
+      </div>
+    </div>
+  );
+}
+

@@ -1485,8 +1485,8 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     <SubagentContextProvider graph={subagentGraph} onOpenGraph={openGraphTab}>
     <MotionConfig reducedMotion="user">
     <RunActionsProvider value={runActions}>
-    <ComputerUsePanel key={`${namespace}/${name}/${run.model}`} namespace={namespace} name={name}
-      enabled={isOwnerOrAdmin && !isTerminal} model={run.model}
+    <ComputerUsePanel key={`${namespace}/${name}`} namespace={namespace} name={name}
+      enabled={isOwnerOrAdmin && !isTerminal}
       view={{ panel: computerPanel, shortcut: computerShortcut, open: () => openInspector("computer") }} />
     <div className="flex h-full gap-px overflow-hidden bg-muted/30">
       {confirmDialog && (

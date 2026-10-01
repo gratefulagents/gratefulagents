@@ -242,3 +242,10 @@ jobs:
       - name: Test native shell
         working-directory: platform-app/tauri/src-tauri
         run: cargo test --locked --lib --target aarch64-apple-darwin
+
+      # Hosted runners usually lack Accessibility/Screen Recording grants, in
+      # which case the smoke test prints a skip message and passes.
+      - name: Computer use smoke test
+        working-directory: platform-app/tauri/src-tauri
+        continue-on-error: true
+        run: cargo test --locked --lib --target aarch64-apple-darwin -- --ignored computer_use_smoke --nocapture

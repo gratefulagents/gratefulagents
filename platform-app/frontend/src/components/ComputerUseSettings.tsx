@@ -1,213 +1,59 @@
-import { useEffect, useState } from "react";
-import {
-  Accessibility,
-  AlertTriangle,
-  CheckCircle2,
-  Circle,
-  ExternalLink,
-  Monitor,
-  RotateCcw,
-} from "lucide-react";
+import { Accessibility, AlertTriangle, Monitor, ScreenShare } from "lucide-react";
 import { SettingsSection } from "@/components/settings-section";
-import { Button } from "@/components/ui/button";
-import { ApprovalModeControl } from "@/components/ComputerUseApprovalMode";
-import {
-  computerUsePermissions,
-  openComputerUsePermission,
-  relaunchComputerUse,
-  type ComputerUsePermission,
-  type ComputerUsePermissions,
-} from "@/lib/computer-use";
-import { useComputerUseApprovalMode } from "@/lib/computer-use-preferences";
+import { ApprovalModeToggle, PermissionRow, RelaunchHint } from "@/components/ComputerUsePanel";
+import { setDefaultApprovalMode, useDefaultApprovalMode } from "@/lib/computer-use/preferences";
+import { usePermissionGrant, useNativeStatus } from "@/lib/computer-use/use-native-status";
 import { toneSoft } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 export function ComputerUseSettings() {
-  const [permissions, setPermissions] = useState<ComputerUsePermissions | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [requested, setRequested] = useState(false);
-  const mode = useComputerUseApprovalMode();
-
-  useEffect(() => {
-    let active = true;
-    const refresh = () => {
-      void computerUsePermissions().then((status) => {
-        if (active) {
-          setPermissions(status);
-          setError("");
-        }
-      }).catch((cause: unknown) => {
-        if (active) {
-          setPermissions(null);
-          setError(String(cause));
-        }
-      });
-    };
-    refresh();
-    window.addEventListener("focus", refresh);
-    // The webview does not always receive a focus event when System Settings
-    // closes; poll while this section is visible so grants show without a click.
-    const timer = setInterval(refresh, 2000);
-    return () => {
-      active = false;
-      window.removeEventListener("focus", refresh);
-      clearInterval(timer);
-    };
-  }, []);
-
-  async function openPermission(permission: ComputerUsePermission) {
-    setBusy(true);
-    setError("");
-    try {
-      await openComputerUsePermission(permission);
-      setRequested(true);
-      setPermissions(await computerUsePermissions());
-    } catch (cause) {
-      setPermissions(null);
-      setError(String(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function relaunch() {
-    setBusy(true);
-    setError("");
-    try {
-      await relaunchComputerUse();
-    } catch (cause) {
-      setError(String(cause));
-      setBusy(false);
-    }
-  }
-
-  const missing = !!permissions?.supported && !permissions.accessibility;
+  const mode = useDefaultApprovalMode();
+  const { status, error: statusError, refresh } = useNativeStatus();
+  const { grant, relaunch, requestedScreen, error: grantError } = usePermissionGrant(refresh);
+  const error = grantError || statusError;
 
   return (
     <SettingsSection
       icon={<Monitor />}
       title="Computer use"
-      description="Let an agent observe and act in the selected Mac display and control the desktop while you supervise."
+      description="Let an agent see one display of this Mac and use the mouse and keyboard. Start it from a run's Computer tab; stop anytime with ⌃⌥⌘⎋."
     >
       <div className="space-y-4 text-sm">
-        <p className="text-[12px] leading-relaxed text-muted-foreground">
-          Granting Accessibility permission does not capture your screen, send screen content, or
-          authorize an agent to control your Mac. Supervised sessions start only from a run
-          you own, and in the default Manual mode every action still needs your explicit approval.
-        </p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-[13px] font-medium">Default approval</p>
+            <p className="text-[12px] text-muted-foreground">
+              {mode === "ask"
+                ? "Ask first: you allow each click, keystroke and URL. Screenshots never ask."
+                : "Autonomous: actions run as soon as the agent asks. You can still pause or stop."}
+            </p>
+          </div>
+          <ApprovalModeToggle value={mode} onChange={setDefaultApprovalMode} />
+        </div>
 
         {error && (
-          <p role="alert" className={cn("rounded-md px-3 py-2 text-[12px]", toneSoft.danger)}>
-            Could not check or update permissions: {error}
+          <p role="alert" className={cn("flex items-center gap-2 rounded-md px-3 py-2 text-[12px]", toneSoft.danger)}>
+            <AlertTriangle className="size-3.5" />{error}
           </p>
         )}
-        {!permissions && !error && <p role="status" className="text-[12px] text-muted-foreground">Checking permissions…</p>}
-        {permissions && !permissions.supported && (
-          <p className="text-[12px] text-muted-foreground">
-            Computer use requires the macOS desktop app on macOS 15.2 or later; it is unavailable on this platform. The rest of the app is unchanged.
-          </p>
+        {!status && !error && <p role="status" className="text-[12px] text-muted-foreground">Checking permissions…</p>}
+        {status && !status.supported && (
+          <p className="text-[12px] text-muted-foreground">Computer use is available in the macOS desktop app.</p>
         )}
-
-        {permissions?.supported && (
-          <div className="space-y-3">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">macOS permissions</h3>
-            <dl className="grid gap-2">
-              <PermissionRow
-                icon={<Accessibility />}
-                name="Accessibility"
-                detail="Allows clicks, scrolling, and typing."
-                granted={permissions.accessibility}
-                disabled={busy}
-                onOpen={() => void openPermission("accessibility")}
-              />
-              <PermissionRow
-                icon={<Monitor />}
-                name="Screen Recording"
-                detail="Required to capture the entire selected display, including all visible applications."
-                granted={permissions.screenRecording === true}
-                disabled={busy}
-                onOpen={() => void openPermission("screen_recording")}
-              />
-            </dl>
-            <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-              Selected-display desktop control requires both permissions above. Keyboard input follows OS focus and can affect other displays; there is no window isolation. Granting it does not start a session
-              or authorize control: select a display and give capture plus desktop-wide input consent in a run's Computer use panel.
-              After enabling it in System Settings, relaunch if macOS requests it, then reconnect.
-              Stop from the supervisor or native tray to revoke session access. OS permissions can be revoked in System Settings.
-            </p>
-            {missing && (
-              <p className={cn("rounded-md px-3 py-2 text-[11.5px] leading-relaxed", toneSoft.warning)} role="note">
-                If Accessibility is
-                enabled in System Settings but still shows Not granted here, macOS is holding the grant for a
-                different build of the app (development and unsigned builds are re-signed every time they are
-                built): remove gratefulagents from that list with −, click the button again to re-add it, enable it,
-                then relaunch.
-              </p>
-            )}
-            {(requested || missing) && (
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => void relaunch()}>
-                <RotateCcw data-icon="inline-start" />
-                Relaunch gratefulagents
-              </Button>
-            )}
-          </div>
-        )}
-
-        {permissions?.supported && <div className="space-y-3 border-t pt-4">
+        {status?.supported && (
           <div>
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Approval mode</h3>
-            <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
-              How much a supervised session asks before acting. You can also change this from the Computer use panel while a session is running.
-            </p>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">macOS permissions</h3>
+            <ul className="divide-y divide-border/60">
+              <PermissionRow icon={<Accessibility />} title="Accessibility" detail="Lets the agent click, scroll and type."
+                granted={status.accessibility} onGrant={() => void grant("accessibility")} />
+              <PermissionRow icon={<ScreenShare />} title="Screen Recording" detail="Lets the agent see the display you choose."
+                granted={status.screenRecording} onGrant={() => void grant("screen_recording")}>
+                {requestedScreen && !status.screenRecording && <RelaunchHint onRelaunch={() => void relaunch()} />}
+              </PermissionRow>
+            </ul>
           </div>
-          <ApprovalModeControl />
-          {mode === "auto" && (
-            <p className={cn("flex items-start gap-1.5 rounded-md px-3 py-2 text-[11.5px] leading-relaxed", toneSoft.warning)} role="note">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-              <span>
-                Skip all approvals is on: the agent can send, submit, delete, or purchase on your behalf across your desktop,
-                and on-screen instructions may steer it. Only use with non-sensitive desktop content and stay at the keyboard.
-              </span>
-            </p>
-          )}
-          <p className="text-[11px] text-muted-foreground">
-            Stored on this Mac only. Emergency stop: Control+Option+Command+Escape or the native tray.
-          </p>
-        </div>}
+        )}
       </div>
-
     </SettingsSection>
-  );
-}
-
-function PermissionRow({ icon, name, detail, granted, disabled, onOpen }: {
-  icon: React.ReactNode;
-  name: string;
-  detail: string;
-  granted: boolean;
-  disabled: boolean;
-  onOpen: () => void;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3 rounded-lg border p-3">
-      <div className="flex min-w-0 items-start gap-2.5">
-        <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-muted/60 text-muted-foreground ring-1 ring-inset ring-border/60 [&_svg]:size-3.5">
-          {icon}
-        </span>
-        <div className="min-w-0">
-          <dt className="text-[13px] font-medium">{name}</dt>
-          <dd className="text-[11.5px] text-muted-foreground">{detail}</dd>
-          <dd className={cn("mt-1.5 inline-flex h-5 items-center gap-1 rounded-full px-2 text-[11px] font-medium", granted ? toneSoft.success : toneSoft.neutral)}>
-            {granted ? <CheckCircle2 className="size-3" /> : <Circle className="size-3" />}
-            {granted ? "Granted" : "Not granted"}
-          </dd>
-        </div>
-      </div>
-      <Button variant="outline" size="sm" disabled={disabled} onClick={onOpen} aria-label={`${name} settings`}>
-        <ExternalLink data-icon="inline-start" />
-        Open
-      </Button>
-    </div>
   );
 }

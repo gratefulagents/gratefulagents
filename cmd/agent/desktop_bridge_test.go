@@ -30,7 +30,7 @@ func TestDesktopBridgeRoundTrip(t *testing.T) {
 		t.Fatalf("socket permissions: %v %v", info, err)
 	}
 	e := computeruse.Exchange{
-		Namespace: "ns", Run: "run", Owner: "alice", SessionID: "desktop", Operation: "attach_desktop",
+		Namespace: "ns", Run: "run", Owner: "alice", SessionID: "desktop", Operation: "connect",
 	}
 	raw, _ := json.Marshal(e)
 	var out bytes.Buffer
@@ -38,7 +38,7 @@ func TestDesktopBridgeRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	var response computeruse.Response
-	if err := json.Unmarshal(out.Bytes(), &response); err != nil || !response.Active {
+	if err := json.Unmarshal(out.Bytes(), &response); err != nil || !response.Active || response.Protocol != computeruse.Protocol {
 		t.Fatalf("response: %+v %v", response, err)
 	}
 	if !computeruse.FromContext(ctx).Active() {

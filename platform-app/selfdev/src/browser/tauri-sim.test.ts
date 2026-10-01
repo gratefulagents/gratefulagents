@@ -60,14 +60,20 @@ describe("tauri-sim init script", () => {
     await expect(invoke("plugin:event|listen", { event: "tauri://focus" })).resolves.toBeTypeOf("number");
   });
 
-  it("simulates window sharing setup without broad permissions or a fabricated capture grant", async () => {
+  it("simulates computer use setup without fabricating input or captures", async () => {
     const invoke = evalSim(buildTauriSimScript()).__TAURI_INTERNALS__!.invoke;
-    await expect(invoke("computer_use_permissions")).resolves.toEqual({ supported: true, accessibility: true });
-    await expect(invoke("computer_use_pick_window", { expectedRevision: 0 })).resolves.toBeNull();
-    await expect(invoke("computer_use_session_status")).resolves.toMatchObject({ phase: "stopped", sessionId: null });
-    await expect(invoke("computer_use_session_stop")).resolves.toBeNull();
-    await expect(evalSim(buildTauriSimScript({ platform: "ios" })).__TAURI_INTERNALS__!.invoke("computer_use_permissions"))
-      .resolves.toEqual({ supported: false, accessibility: false });
+    await expect(invoke("computer_use_status")).resolves.toMatchObject({
+      supported: true, accessibility: true, screenRecording: true,
+      displays: [{ id: 1, primary: true }], session: { active: false, paused: false },
+    });
+    await expect(invoke("computer_use_request_permission", { permission: "accessibility" })).resolves.toBeNull();
+    await expect(invoke("computer_use_start", { displayId: 1, runKey: "ns/run" })).resolves.toMatchObject({ active: true, paused: false, displayId: 1, runKey: "ns/run" });
+    await expect(invoke("computer_use_set_paused", { paused: true })).resolves.toMatchObject({ active: true, paused: true });
+    await expect(invoke("computer_use_execute", { action: { action: "screenshot" } })).rejects.toMatch(/not simulated/);
+    await expect(invoke("computer_use_stop", { reason: null })).resolves.toBeNull();
+    await expect(invoke("computer_use_status")).resolves.toMatchObject({ session: { active: false } });
+    await expect(evalSim(buildTauriSimScript({ platform: "ios" })).__TAURI_INTERNALS__!.invoke("computer_use_status"))
+      .resolves.toMatchObject({ supported: false, accessibility: false, screenRecording: false, displays: [] });
   });
 
   it("backs the store plugin with localStorage so storageState captures auth", async () => {

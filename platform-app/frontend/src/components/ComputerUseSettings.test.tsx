@@ -1,166 +1,58 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { nativeStatus, relaunchApp, requestPermission } from "@/lib/computer-use/native";
+import { getDefaultApprovalMode } from "@/lib/computer-use/preferences";
 import { ComputerUseSettings } from "./ComputerUseSettings";
-import { computerUsePermissions, openComputerUsePermission, relaunchComputerUse } from "@/lib/computer-use";
-import { getComputerUseApprovalMode, setComputerUseApprovalMode } from "@/lib/computer-use-preferences";
 
-vi.mock("@/lib/computer-use", () => ({
-  computerUsePermissions: vi.fn(),
-  openComputerUsePermission: vi.fn(),
-  relaunchComputerUse: vi.fn(),
-}));
+vi.mock("@/lib/computer-use/native", () => ({ nativeStatus: vi.fn(), requestPermission: vi.fn(), relaunchApp: vi.fn() }));
 
-const denied = { supported: true, accessibility: false, screenRecording: false };
+const missing = {
+  supported: true, accessibility: false, screenRecording: false, emergencyStop: true, displays: [],
+  session: { active: false, paused: false },
+};
 
 beforeEach(() => {
-  vi.resetAllMocks();
-  setComputerUseApprovalMode("manual");
-  vi.mocked(computerUsePermissions).mockResolvedValue(denied);
-  vi.mocked(openComputerUsePermission).mockResolvedValue();
-  vi.mocked(relaunchComputerUse).mockResolvedValue();
+  vi.clearAllMocks();
+  localStorage.clear();
+  vi.mocked(nativeStatus).mockResolvedValue(missing);
+  vi.mocked(requestPermission).mockResolvedValue();
+  vi.mocked(relaunchApp).mockResolvedValue();
 });
 afterEach(cleanup);
 
-describe("computer use permission setup", () => {
-  it("checks permissions without prompting or implying control is enabled", async () => {
+describe("ComputerUseSettings", () => {
+  it("sets the default approval mode", async () => {
     render(<ComputerUseSettings />);
-    expect(await screen.findAllByText("Not granted")).toHaveLength(2);
-    expect(screen.getByText(/does not capture your screen/)).toBeTruthy();
-    expect(openComputerUsePermission).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Screen Recording settings" })).toBeTruthy();
-    expect(screen.getByText(/Required to capture the entire selected display/)).toBeTruthy();
-    expect(screen.getByText(/requires both permissions above/)).toBeTruthy();
-    expect(relaunchComputerUse).not.toHaveBeenCalled();
-    expect(screen.getByRole("note").textContent).toContain("different build");
+    expect(getDefaultApprovalMode()).toBe("auto");
+    expect(screen.getByText(/Autonomous: actions run/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Ask first" }));
+    expect(getDefaultApprovalMode()).toBe("ask");
+    expect(await screen.findByText(/Ask first: you allow/)).toBeTruthy();
   });
 
-  it("polls OS status while visible and relaunches only on request", async () => {
-    vi.useFakeTimers();
-    try {
-      render(<ComputerUseSettings />);
-      await vi.waitFor(() => expect(computerUsePermissions).toHaveBeenCalledTimes(1));
-      vi.mocked(computerUsePermissions).mockResolvedValue({ supported: true, accessibility: true });
-      await vi.advanceTimersByTimeAsync(2100);
-      expect(computerUsePermissions).toHaveBeenCalledTimes(2);
-      await vi.waitFor(() => expect(screen.getAllByText("Granted")).toHaveLength(1));
-      expect(screen.queryByRole("note")).toBeNull();
-      expect(screen.queryByRole("button", { name: "Relaunch gratefulagents" })).toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("offers a relaunch while a permission is missing", async () => {
+  it("shows permission status and grants on request", async () => {
     render(<ComputerUseSettings />);
-    fireEvent.click(await screen.findByRole("button", { name: "Relaunch gratefulagents" }));
-    await waitFor(() => expect(relaunchComputerUse).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole("button", { name: "Grant Accessibility" }));
+    await waitFor(() => expect(requestPermission).toHaveBeenCalledWith("accessibility"));
+    vi.mocked(nativeStatus).mockResolvedValue({ ...missing, accessibility: true });
+    fireEvent.click(screen.getByRole("button", { name: "Grant Screen Recording" }));
+    await waitFor(() => expect(requestPermission).toHaveBeenCalledWith("screen_recording"));
+    expect(await screen.findByText("Granted")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Relaunch app/ }));
+    await waitFor(() => expect(relaunchApp).toHaveBeenCalled());
   });
 
-  it.each([
-    ["Accessibility settings", "accessibility"],
-    ["Screen Recording settings", "screen_recording"],
-  ])("opens %s only after a click", async (label, permission) => {
+  it("surfaces native errors", async () => {
+    vi.mocked(requestPermission).mockRejectedValue(new Error("System Settings could not be opened"));
     render(<ComputerUseSettings />);
-    fireEvent.click(await screen.findByRole("button", { name: label }));
-    await waitFor(() => expect(openComputerUsePermission).toHaveBeenCalledWith(permission));
+    fireEvent.click(await screen.findByRole("button", { name: "Grant Accessibility" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("System Settings could not be opened");
   });
 
-  it("refreshes OS status when returning from Settings", async () => {
+  it("explains unsupported platforms", async () => {
+    vi.mocked(nativeStatus).mockResolvedValue({ ...missing, supported: false });
     render(<ComputerUseSettings />);
-    await screen.findAllByText("Not granted");
-    vi.mocked(computerUsePermissions).mockResolvedValue({
-      supported: true, accessibility: true, screenRecording: true,
-    });
-    fireEvent.focus(window);
-    expect(await screen.findAllByText("Granted")).toHaveLength(2);
-  });
-
-  it("refreshes Screen Recording after an explicit request and offers relaunch", async () => {
-    vi.mocked(computerUsePermissions).mockResolvedValue({ ...denied, accessibility: true });
-    render(<ComputerUseSettings />);
-    const button = await screen.findByRole("button", { name: "Screen Recording settings" });
-    expect(screen.queryByRole("button", { name: "Relaunch gratefulagents" })).toBeNull();
-    vi.mocked(computerUsePermissions).mockResolvedValue({ ...denied, accessibility: true, screenRecording: true });
-    fireEvent.click(button);
-    await waitFor(() => expect(screen.getAllByText("Granted")).toHaveLength(2));
-    expect(openComputerUsePermission).toHaveBeenCalledWith("screen_recording");
-    expect(screen.getByRole("button", { name: "Relaunch gratefulagents" })).toBeTruthy();
-    expect(relaunchComputerUse).not.toHaveBeenCalled();
-    expect(getComputerUseApprovalMode()).toBe("manual");
-  });
-
-  it("does not show permission controls on unsupported platforms", async () => {
-    vi.mocked(computerUsePermissions).mockResolvedValue({ ...denied, supported: false });
-    render(<ComputerUseSettings />);
-    await screen.findByText(/unavailable on this platform/);
-    expect(screen.queryByRole("button")).toBeNull();
-  });
-
-  it("clears stale permission status when refresh fails", async () => {
-    render(<ComputerUseSettings />);
-    await screen.findAllByText("Not granted");
-    vi.mocked(computerUsePermissions).mockRejectedValue(new Error("IPC unavailable"));
-    fireEvent.focus(window);
-    expect((await screen.findByRole("alert")).textContent).toContain("IPC unavailable");
-    expect(screen.queryByText("Not granted")).toBeNull();
-  });
-
-  it("reports a failed settings launch", async () => {
-    vi.mocked(openComputerUsePermission).mockRejectedValue(new Error("Launch failed"));
-    render(<ComputerUseSettings />);
-    fireEvent.click(await screen.findByRole("button", { name: "Accessibility settings" }));
-    expect((await screen.findByRole("alert")).textContent).toContain("Launch failed");
-  });
-
-  it("removes the refresh listener on unmount", async () => {
-    const view = render(<ComputerUseSettings />);
-    await screen.findAllByText("Not granted");
-    view.unmount();
-    vi.mocked(computerUsePermissions).mockClear();
-    fireEvent.focus(window);
-    expect(computerUsePermissions).not.toHaveBeenCalled();
-  });
-
-  describe("approval mode", () => {
-    it("defaults to manual and requires confirmation before skipping all approvals", async () => {
-      render(<ComputerUseSettings />);
-      const group = await screen.findByRole("radiogroup", { name: "Approval mode" });
-      expect(screen.getByRole("radio", { name: /Manually approve/ }).getAttribute("aria-checked")).toBe("true");
-      fireEvent.click(screen.getByRole("radio", { name: /Skip all approvals/ }));
-      expect(getComputerUseApprovalMode()).toBe("manual");
-      const dialog = await screen.findByRole("dialog");
-      expect(dialog.textContent).toContain("Skip all approvals?");
-      expect(dialog.textContent).toContain("remain responsible");
-      fireEvent.click(screen.getByRole("button", { name: "Skip all approvals" }));
-      await waitFor(() => expect(getComputerUseApprovalMode()).toBe("auto"));
-      await waitFor(() => expect(screen.getByRole("radio", { name: /Skip all approvals/ }).getAttribute("aria-checked")).toBe("true"));
-      expect(group.textContent).toContain("Skip all approvals");
-      expect(screen.getByText(/can send, submit, delete, or purchase/)).toBeTruthy();
-    });
-
-    it("cancelling the confirmation leaves the mode unchanged", async () => {
-      render(<ComputerUseSettings />);
-      fireEvent.click(await screen.findByRole("radio", { name: /Skip all approvals/ }));
-      fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
-      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-      expect(getComputerUseApprovalMode()).toBe("manual");
-    });
-
-    it("switches to assisted, and back down, without confirmation", async () => {
-      setComputerUseApprovalMode("auto");
-      render(<ComputerUseSettings />);
-      fireEvent.click(await screen.findByRole("radio", { name: /Automatically approve read-only/ }));
-      await waitFor(() => expect(getComputerUseApprovalMode()).toBe("assisted"));
-      expect(screen.queryByRole("dialog")).toBeNull();
-      fireEvent.click(screen.getByRole("radio", { name: /Manually approve/ }));
-      await waitFor(() => expect(getComputerUseApprovalMode()).toBe("manual"));
-    });
-
-    it("is hidden on unsupported platforms", async () => {
-      vi.mocked(computerUsePermissions).mockResolvedValue({ ...denied, supported: false });
-      render(<ComputerUseSettings />);
-      await screen.findByText(/unavailable on this platform/);
-      expect(screen.queryByRole("radiogroup")).toBeNull();
-    });
+    expect(await screen.findByText(/macOS desktop app/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Grant/ })).toBeNull();
   });
 });

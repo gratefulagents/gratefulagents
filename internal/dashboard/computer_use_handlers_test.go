@@ -87,31 +87,44 @@ func TestExchangeComputerUseAuthorizationAndRouting(t *testing.T) {
 				if computeruse.Decode(bytes.NewReader(input), &e) != nil || e.Owner != tc.subject || e.Namespace != "ns" || e.Run != "run" {
 					t.Error("identity not backend-bound")
 				}
-				if e.Operation == "claim" {
-					return []byte(`{"mode":"selected_display","active":false,"reason":"computer use request rejected","visionAvailable":true}`), nil
+				if e.Operation == "result" {
+					if e.Result == nil || e.Result.RequestID != "expired" || e.Result.Error != "boom" {
+						t.Error("result not forwarded")
+					}
+					return []byte(`{"protocol":2,"active":false,"available":true,"reason":"invalid computer use request"}`), nil
 				}
-				return []byte(`{"mode":"selected_display","active":true,"visionAvailable":true}`), nil
+				if e.Operation == "next" {
+					return []byte(`{"protocol":2,"active":true,"available":true,"reason":"","request":{"id":"r1","action":{"action":"wait"}}}`), nil
+				}
+				// The handler re-encodes the fixed response shape.
+				return []byte(`{"active":true, "available":true, "protocol":2}`), nil
 			}
 			ctx := context.Background()
 			if tc.recorded {
 				ctx = context.WithValue(ctx, requestActorContextKey{}, requestActor{Subject: tc.subject, Role: tc.role})
 			}
-			response, err := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "attach_desktop"})
+			response, err := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "connect"})
 			if tc.code != 0 {
 				if connect.CodeOf(err) != tc.code || calls != 0 {
 					t.Fatalf("code=%v calls=%d", connect.CodeOf(err), calls)
 				}
-			} else if err != nil || response.ResponseJson != `{"mode":"selected_display","active":true,"visionAvailable":true}` || calls != 1 {
+			} else if err != nil || response.ResponseJson != `{"protocol":2,"active":true,"available":true,"reason":""}` || calls != 1 {
 				t.Fatalf("response=%+v error=%v calls=%d", response, err, calls)
 			}
 			if tc.code == 0 {
-				agentResponse, agentErr := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "agent-session", Operation: "attach_agent"})
-				if connect.CodeOf(agentErr) != connect.CodeFailedPrecondition || agentResponse != nil {
-					t.Fatalf("agent attachment: %v", agentErr)
+				legacy, legacyErr := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "attach_desktop"})
+				if connect.CodeOf(legacyErr) != connect.CodeInvalidArgument || legacy != nil || calls != 1 {
+					t.Fatalf("legacy operation: %v", legacyErr)
 				}
-				_, err := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "claim", RequestId: "expired"})
+				if _, err := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "result", RequestId: "expired", OutcomeJson: `{"requestId":"expired","ok":true,"error":"","denied":false}`}); connect.CodeOf(err) != connect.CodeInvalidArgument || calls != 1 {
+					t.Fatalf("invalid result: code=%v calls=%d", connect.CodeOf(err), calls)
+				}
+				_, err := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "result", RequestId: "expired", OutcomeJson: `{"requestId":"expired","ok":false,"error":"boom","denied":false}`})
 				if connect.CodeOf(err) != connect.CodeFailedPrecondition || calls != 2 {
-					t.Fatalf("rejected claim: code=%v calls=%d", connect.CodeOf(err), calls)
+					t.Fatalf("rejected result: code=%v calls=%d", connect.CodeOf(err), calls)
+				}
+				if _, err := srv.ExchangeComputerUse(ctx, &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "next"}); connect.CodeOf(err) != connect.CodeFailedPrecondition || calls != 3 {
+					t.Fatalf("invalid pod response forwarded: code=%v calls=%d", connect.CodeOf(err), calls)
 				}
 			}
 		})
@@ -179,9 +192,9 @@ func TestExchangeComputerUseLifecycleTransitions(t *testing.T) {
 			calls := 0
 			execComputerUse = func(context.Context, *kubernetes.Clientset, *rest.Config, string, string, []byte) ([]byte, error) {
 				calls++
-				return []byte(`{"mode":"selected_display","active":true,"visionAvailable":true}`), nil
+				return []byte(`{"protocol":2,"active":true,"available":true,"reason":""}`), nil
 			}
-			req := &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "attach_desktop"}
+			req := &platform.ExchangeComputerUseRequest{Namespace: "ns", Name: "run", SessionId: "session", Operation: "connect"}
 			if _, err := srv.ExchangeComputerUse(ctx, req); err != nil || calls != 1 {
 				t.Fatalf("live attach: %v calls=%d", err, calls)
 			}
@@ -227,21 +240,19 @@ func TestExchangeComputerUseLifecycleTransitions(t *testing.T) {
 				}
 			}
 			currentPod.Store(nextPod)
-			for _, operation := range []string{"attach_desktop", "poll", "claim", "resolve"} {
+			for _, operation := range []string{"connect", "next", "result"} {
 				req.Operation, req.RequestId, req.OutcomeJson = operation, "", ""
-				if operation == "claim" || operation == "resolve" {
+				if operation == "result" {
 					req.RequestId = "request"
-				}
-				if operation == "resolve" {
-					req.OutcomeJson = `{"requestId":"request","status":"completed"}`
+					req.OutcomeJson = `{"requestId":"request","ok":false,"error":"failed","denied":false}`
 				}
 				if _, err := srv.ExchangeComputerUse(ctx, req); connect.CodeOf(err) != connect.CodeFailedPrecondition || calls != 1 {
 					t.Fatalf("%s: code=%v calls=%d", operation, connect.CodeOf(err), calls)
 				}
 			}
-			req.Operation, req.RequestId, req.OutcomeJson = "stop", "", ""
+			req.Operation, req.RequestId, req.OutcomeJson = "disconnect", "", ""
 			if _, err := srv.ExchangeComputerUse(ctx, req); err != nil || calls != 2 {
-				t.Fatalf("best-effort stop: %v calls=%d", err, calls)
+				t.Fatalf("best-effort disconnect: %v calls=%d", err, calls)
 			}
 		})
 	}
