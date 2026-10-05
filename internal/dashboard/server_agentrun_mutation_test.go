@@ -257,6 +257,20 @@ func (m *mockStateStore) MergeSessionMetadata(_ context.Context, id uuid.UUID, k
 		m.mergedMetadata[id] = map[string]json.RawMessage{}
 	}
 	m.mergedMetadata[id][key] = append(json.RawMessage(nil), value...)
+	if sess := m.sessions[id]; sess != nil {
+		metadata := map[string]json.RawMessage{}
+		if len(sess.Metadata) > 0 {
+			if err := json.Unmarshal(sess.Metadata, &metadata); err != nil {
+				return err
+			}
+		}
+		metadata[key] = value
+		encoded, err := json.Marshal(metadata)
+		if err != nil {
+			return err
+		}
+		sess.Metadata = encoded
+	}
 	return nil
 }
 func (m *mockStateStore) ListAllSessionMetrics(context.Context) ([]store.SessionMetricsEntry, error) {
@@ -822,12 +836,12 @@ func TestRetryAgentRunAllowsOwnerToWakeFailedRun(t *testing.T) {
 	if updated.Spec.WakeRequests != 3 {
 		t.Fatalf("wakeRequests = %d, want 3", updated.Spec.WakeRequests)
 	}
-	msgs := ms.messagesFor(sess.ID)
-	if len(msgs) != 1 {
-		t.Fatalf("messages appended = %d, want 1", len(msgs))
+	if msgs := ms.messagesFor(sess.ID); len(msgs) != 0 {
+		t.Fatalf("messages appended = %d, want 0", len(msgs))
 	}
-	if msgs[0].Role != "user" || msgs[0].Content != "Retry requested — continue from where the run failed." {
-		t.Fatalf("appended message = (%q, %q), want default retry user message", msgs[0].Role, msgs[0].Content)
+	refreshed, err := ms.GetSession(context.Background(), sess.ID)
+	if err != nil || !strings.Contains(string(refreshed.Metadata), "resume_request") {
+		t.Fatalf("missing resume control: session=%+v err=%v", refreshed, err)
 	}
 }
 
@@ -857,6 +871,7 @@ func TestRetryAgentRunAllowsOwnerToResumeStoppedRun(t *testing.T) {
 	if _, err := srv.RetryAgentRun(actorContext("user-1", "", "", ""), &platform.RetryAgentRunRequest{
 		Namespace: "default",
 		Name:      "run-resume",
+		Message:   " \n\t ",
 	}); err != nil {
 		t.Fatalf("RetryAgentRun() error = %v", err)
 	}
@@ -868,12 +883,12 @@ func TestRetryAgentRunAllowsOwnerToResumeStoppedRun(t *testing.T) {
 	if updated.Spec.WakeRequests != 5 {
 		t.Fatalf("wakeRequests = %d, want 5", updated.Spec.WakeRequests)
 	}
-	msgs := ms.messagesFor(sess.ID)
-	if len(msgs) != 1 {
-		t.Fatalf("messages appended = %d, want 1", len(msgs))
+	if msgs := ms.messagesFor(sess.ID); len(msgs) != 0 {
+		t.Fatalf("messages appended = %d, want 0", len(msgs))
 	}
-	if msgs[0].Role != "user" || msgs[0].Content != "Resume requested — continue from where the run stopped." {
-		t.Fatalf("appended message = (%q, %q), want default resume user message", msgs[0].Role, msgs[0].Content)
+	refreshed, err := ms.GetSession(context.Background(), sess.ID)
+	if err != nil || !strings.Contains(string(refreshed.Metadata), "resume_request") {
+		t.Fatalf("missing resume control: session=%+v err=%v", refreshed, err)
 	}
 }
 
@@ -2688,5 +2703,44 @@ func TestSendAgentRunMessageFailedAnswerPersistKeepsPrompt(t *testing.T) {
 	// The prompt must survive a failed continuation persist so the user can retry.
 	if sess.PendingRequestID != "request-1" || sess.PendingQuestion == "" {
 		t.Fatalf("pending prompt cleared despite failed persist: %#v", sess)
+	}
+}
+
+func TestRetryAgentRunPreservesExplicitMessage(t *testing.T) {
+	for _, phase := range []platformv1alpha1.AgentRunPhase{platformv1alpha1.AgentRunPhaseFailed, platformv1alpha1.AgentRunPhaseCancelled, platformv1alpha1.AgentRunPhaseBlocked} {
+		t.Run(string(phase), func(t *testing.T) {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "retry", Namespace: "default"}, Status: platformv1alpha1.AgentRunStatus{Phase: phase}}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(run).Build()
+			ms := newMockStateStore()
+			sess, err := ms.CreateSession(ctx, "retry", "default", string(phase), "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ms.SetResourceOwner(ctx, "agent_run", "retry", "default", "owner"); err != nil {
+				t.Fatal(err)
+			}
+			if phase == platformv1alpha1.AgentRunPhaseBlocked {
+				if err := ms.SetPendingQuestion(ctx, sess.ID, "Blocked", "outage", string(platformv1alpha1.UserInputCircuitBreak)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			srv := &Server{k8sClient: c, scheme: scheme, stateStore: ms}
+			if _, err := srv.RetryAgentRun(actorContext("owner", "", "", ""), &platform.RetryAgentRunRequest{Namespace: "default", Name: "retry", Message: "  try another approach  "}); err != nil {
+				t.Fatal(err)
+			}
+			msgs := ms.messagesFor(sess.ID)
+			if len(msgs) != 1 || msgs[0].Role != "user" || msgs[0].Content != "try another approach" {
+				t.Fatalf("messages=%+v", msgs)
+			}
+			refreshed, err := ms.GetSession(ctx, sess.ID)
+			if err != nil || strings.Contains(string(refreshed.Metadata), "resume_request") {
+				t.Fatalf("unexpected resume control: %+v err=%v", refreshed, err)
+			}
+		})
 	}
 }

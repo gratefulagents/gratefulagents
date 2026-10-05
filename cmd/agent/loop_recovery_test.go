@@ -13,6 +13,7 @@ import (
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
+	"github.com/gratefulagents/gratefulagents/internal/tools"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
 	sdkdurable "github.com/gratefulagents/sdk/pkg/agentsdk/durable"
 	agentpolicy "github.com/gratefulagents/sdk/pkg/agentsdk/policy"
@@ -98,6 +99,7 @@ func TestPreflightAllowsDegradedPodWithoutRemoteWrites(t *testing.T) {
 type recoveryStore struct {
 	transcriptErr    error
 	transcriptWrites int
+	history          []store.Message
 	*stopQueueFakeStore
 	appended          []store.Message
 	activities        []string
@@ -110,6 +112,8 @@ type recoveryStore struct {
 	stoppedHook       func()
 	inputTypes        []string
 	sessionErr        error
+	workingStateErr   error
+	historyErr        error
 }
 
 func (s *recoveryStore) GetSession(ctx context.Context, id uuid.UUID) (*store.Session, error) {
@@ -119,8 +123,15 @@ func (s *recoveryStore) GetSession(ctx context.Context, id uuid.UUID) (*store.Se
 	return s.stopQueueFakeStore.GetSession(ctx, id)
 }
 
+func (s *recoveryStore) UpdateSessionMetadataSection(ctx context.Context, id uuid.UUID, key string, mutate func(json.RawMessage) (json.RawMessage, error)) error {
+	if key == "working_state" && s.workingStateErr != nil {
+		return s.workingStateErr
+	}
+	return s.stopQueueFakeStore.UpdateSessionMetadataSection(ctx, id, key, mutate)
+}
+
 func (s *recoveryStore) GetMessages(context.Context, uuid.UUID) ([]store.Message, error) {
-	return nil, nil
+	return s.history, s.historyErr
 }
 
 func (s *recoveryStore) GetSessionTranscript(context.Context, uuid.UUID) ([]byte, error) {
@@ -560,5 +571,181 @@ func TestPreflightParksWhenGitPolicyRestartCannotBeRequested(t *testing.T) {
 	if fmt.Sprint(ss.activities) != "[runtime_config]" || len(ss.inputTypes) != 1 ||
 		ss.inputTypes[0] != string(platformv1alpha1.UserInputCircuitBreak) {
 		t.Fatalf("activities=%v inputs=%v", ss.activities, ss.inputTypes)
+	}
+}
+
+func TestNextUserTurnPreparesResumeWithoutClaimingFollowup(t *testing.T) {
+	sc, ss := newRecoveryClient(t)
+	ss.history = []store.Message{{ID: 7, Role: "user", Content: "original request"}, {ID: 8, Role: "user", Content: "queued followup", DeliveryState: "pending"}}
+	ss.pending = append([]store.Message(nil), ss.history[1:]...)
+	if _, err := reserveSDKDurablePass(context.Background(), sc, 7); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := sessionclient.RequestResume(ctx, ss, sc.SessionID(), "retry-1", "circuit-break-1"); err != nil {
+		t.Fatal(err)
+	}
+	r := &chatRuntime{sc: sc}
+	turn, exit := r.nextUserTurn(ctx)
+	if exit != nil || turn == nil {
+		t.Fatalf("turn=%+v exit=%+v", turn, exit)
+	}
+	if turn.prompt == "" || turn.messageID != 7 || turn.promptMessageID != 0 || turn.claimPending || !turn.firstPass {
+		t.Fatalf("unexpected resume turn: %+v", turn)
+	}
+	if len(ss.pending) != 1 || ss.pending[0].Content != "queued followup" || len(ss.appended) != 0 || len(ss.claimedIDs) != 0 {
+		t.Fatalf("resume wrote/claimed messages: appended=%v claimed=%v", ss.appended, ss.claimedIDs)
+	}
+	if again, err := sc.PendingResume(ctx); err != nil || again == nil {
+		t.Fatalf("resume lost before commit: %v %v", again, err)
+	}
+	if pass, err := reserveSDKDurablePass(ctx, sc, turn.messageID); err != nil || pass != 2 {
+		t.Fatalf("resume cannot start durable pass: pass=%d err=%v", pass, err)
+	}
+}
+
+func TestRestoreWithResumeControlDoesNotQueueContinuation(t *testing.T) {
+	sc, ss := newRecoveryClient(t)
+	ctx := context.Background()
+	if err := sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error { state.AutonomousTurnActive = true; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := sessionclient.RequestResume(ctx, ss, sc.SessionID(), "retry-1", "pending-1"); err != nil {
+		t.Fatal(err)
+	}
+	r := &chatRuntime{sc: sc}
+	if exit := r.restore(ctx); exit != nil {
+		t.Fatalf("restore failed: %+v", exit)
+	}
+	if len(ss.appended) != 0 {
+		t.Fatalf("resume queued continuation: %+v", ss.appended)
+	}
+	if req, err := sc.PendingResume(ctx); err != nil || req == nil {
+		t.Fatalf("lost resume: %+v %v", req, err)
+	}
+}
+
+func TestResumeControlClaimsRecoveredRequest(t *testing.T) {
+	sc, ss := newRecoveryClient(t)
+	ss.pending = []store.Message{{ID: 7, Role: "user", Content: "original request", DeliveryState: "pending"}}
+	ss.pending = append(ss.pending, store.Message{ID: 8, Role: "user", Content: "unrelated followup", DeliveryState: "pending"})
+	ss.history = append([]store.Message(nil), ss.pending...)
+	if _, err := reserveSDKDurablePass(context.Background(), sc, 7); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := sessionclient.RequestResume(ctx, ss, sc.SessionID(), "retry-1", "pending-1"); err != nil {
+		t.Fatal(err)
+	}
+	r := &chatRuntime{sc: sc}
+	turn, exit := r.nextUserTurn(ctx)
+	if turn == nil || exit != nil || turn.messageID != 7 || len(ss.pending) != 1 || ss.pending[0].ID != 8 || len(ss.claimedIDs) != 1 {
+		t.Fatalf("turn=%+v exit=%+v pending=%v claims=%v", turn, exit, ss.pending, ss.claimedIDs)
+	}
+	if len(ss.appended) != 0 {
+		t.Fatalf("resume appended messages: %v", ss.appended)
+	}
+}
+
+func TestResumePreparationFailureAndCrashRemainRecoverable(t *testing.T) {
+	for _, failure := range []string{"history", "working-state", "crash"} {
+		t.Run(failure, func(t *testing.T) {
+			sc, ss := newRecoveryClient(t)
+			ctx := context.Background()
+			ss.history = []store.Message{{ID: 7, Role: "user", Content: "original"}}
+			ss.pending = []store.Message{{ID: 8, Role: "user", Content: "followup", DeliveryState: "pending"}}
+			if _, err := reserveSDKDurablePass(ctx, sc, 7); err != nil {
+				t.Fatal(err)
+			}
+			if err := sessionclient.RequestResume(ctx, ss, sc.SessionID(), "retry", ""); err != nil {
+				t.Fatal(err)
+			}
+			if failure == "history" {
+				ss.historyErr = errors.New("history unavailable")
+			}
+			if failure == "working-state" {
+				ss.workingStateErr = errors.New("write unavailable")
+			}
+			turn, exit := (&chatRuntime{sc: sc}).nextUserTurn(ctx)
+			if failure != "crash" && (exit == nil || turn != nil) {
+				t.Fatalf("turn=%+v exit=%+v", turn, exit)
+			}
+			if failure == "crash" && (exit != nil || turn == nil) {
+				t.Fatalf("turn=%+v exit=%+v", turn, exit)
+			}
+			if req, err := sc.PendingResume(ctx); err != nil || req == nil {
+				t.Fatalf("lost retry: %v %v", req, err)
+			}
+			ss.historyErr, ss.workingStateErr = nil, nil
+			replacement := &chatRuntime{sc: sc}
+			if exit := replacement.restore(ctx); exit != nil {
+				t.Fatalf("restore=%+v", exit)
+			}
+			turn, exit = replacement.nextUserTurn(ctx)
+			if exit != nil || turn == nil || turn.messageID != 7 {
+				t.Fatalf("replacement turn=%+v exit=%+v", turn, exit)
+			}
+			if pass, err := reserveSDKDurablePass(ctx, sc, 7); err != nil || pass != 2 {
+				t.Fatalf("pass=%d err=%v", pass, err)
+			}
+			if len(ss.pending) != 1 || ss.pending[0].ID != 8 || len(ss.claimedIDs) != 0 || len(ss.appended) != 0 {
+				t.Fatalf("queue mutated: %+v claims=%v appended=%v", ss.pending, ss.claimedIDs, ss.appended)
+			}
+		})
+	}
+}
+func TestResumeBeforeFirstClaimLeavesQueueIntact(t *testing.T) {
+	sc, ss := newRecoveryClient(t)
+	ctx := context.Background()
+	ss.pending = []store.Message{{ID: 7, Role: "user", Content: "original", DeliveryState: "pending"}}
+	ss.history = append([]store.Message(nil), ss.pending...)
+	if err := sessionclient.RequestResume(ctx, ss, sc.SessionID(), "retry", ""); err != nil {
+		t.Fatal(err)
+	}
+	if turn, exit := (&chatRuntime{sc: sc}).nextUserTurn(ctx); turn != nil || exit != nil {
+		t.Fatalf("turn=%+v exit=%+v", turn, exit)
+	}
+	if len(ss.pending) != 1 || len(ss.claimedIDs) != 0 {
+		t.Fatalf("pending=%v claims=%v", ss.pending, ss.claimedIDs)
+	}
+	if req, err := sc.PendingResume(ctx); err != nil || req != nil {
+		t.Fatalf("empty resume=%v err=%v", req, err)
+	}
+}
+
+func TestResumeAcknowledgedOnlyAfterDurableCommit(t *testing.T) {
+	for _, failTranscript := range []bool{false, true} {
+		t.Run(fmt.Sprint(failTranscript), func(t *testing.T) {
+			sc, ss := newRecoveryClient(t)
+			ctx := context.Background()
+			ss.history = []store.Message{{ID: 7, Role: "user", Content: "original"}}
+			if err := sessionclient.RequestResume(ctx, ss, sc.SessionID(), "retry", ""); err != nil {
+				t.Fatal(err)
+			}
+			r := &chatRuntime{sc: sc, finishSummary: &tools.FinishSummaryHolder{}}
+			turn, exit := r.nextUserTurn(ctx)
+			if exit != nil || turn == nil {
+				t.Fatalf("turn=%+v exit=%+v", turn, exit)
+			}
+			pass, err := reserveSDKDurablePass(ctx, sc, 7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if failTranscript {
+				ss.transcriptErr = errors.New("transcript unavailable")
+			}
+			result := &agent.RunResult{NewItems: []agent.RunItem{{Type: agent.RunItemMessage, Message: &agent.MessageOutput{Text: "done"}}}}
+			r.tx.items = result.NewItems
+			err = r.commitTurnState(ctx, turn, &preparedTurn{turnPolicy: &turnPolicy{}, durablePass: pass}, result, nil)
+			if (err != nil) != failTranscript {
+				t.Fatalf("commit error=%v", err)
+			}
+			req, err := sc.PendingResume(ctx)
+			if err != nil || (req != nil) != failTranscript {
+				t.Fatalf("pending=%v err=%v", req, err)
+			}
+		})
 	}
 }

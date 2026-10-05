@@ -17,7 +17,7 @@ import (
 
 // TestRetryAgentRunResumesCircuitBreakBlockedRun verifies that a run parked
 // in Blocked by a circuit breaker (e.g. provider outage) is retryable: the
-// retry is delivered as a session message to the live pod instead of failing
+// retry is delivered as a session control to the live pod instead of failing
 // with FailedPrecondition or bouncing compute through the wake machinery.
 func TestRetryAgentRunResumesCircuitBreakBlockedRun(t *testing.T) {
 	scheme := runtime.NewScheme()
@@ -65,17 +65,16 @@ func TestRetryAgentRunResumesCircuitBreakBlockedRun(t *testing.T) {
 		t.Fatalf("wakeRequests = %d, want 0 (message-post path)", updated.Spec.WakeRequests)
 	}
 
-	msgs := ms.messagesFor(sess.ID)
-	if len(msgs) != 1 {
-		t.Fatalf("messages appended = %d, want 1", len(msgs))
-	}
-	if msgs[0].Role != "user" || !strings.Contains(msgs[0].Content, "Retry requested") {
-		t.Fatalf("message = %q role %q, want default retry user message", msgs[0].Content, msgs[0].Role)
+	if msgs := ms.messagesFor(sess.ID); len(msgs) != 0 {
+		t.Fatalf("messages appended = %d, want 0", len(msgs))
 	}
 
 	refreshed, err := ms.GetSession(context.Background(), sess.ID)
 	if err != nil {
 		t.Fatalf("GetSession() error = %v", err)
+	}
+	if !strings.Contains(string(refreshed.Metadata), "resume_request") {
+		t.Fatalf("missing resume control: %s", refreshed.Metadata)
 	}
 	if refreshed.PendingInputType != "" {
 		t.Fatalf("PendingInputType = %q, want cleared", refreshed.PendingInputType)

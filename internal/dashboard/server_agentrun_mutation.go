@@ -217,8 +217,7 @@ func (s *Server) RetryAgentRun(ctx context.Context, req *platform.RetryAgentRunR
 	if run.Status.Phase != platformv1alpha1.AgentRunPhaseFailed && run.Status.Phase != platformv1alpha1.AgentRunPhaseCancelled {
 		// Circuit-break parked runs (provider outage, repeated turn failures)
 		// stay Blocked with a live pod waiting in its message loop. Retry
-		// resumes them by posting the retry message to the session — the same
-		// path a chat message takes — instead of bouncing healthy compute
+		// resumes them through the session instead of bouncing healthy compute
 		// through the wake machinery.
 		if handled, resp, retryErr := s.retryCircuitBreakRun(ctx, req, run); handled {
 			return resp, retryErr
@@ -227,13 +226,6 @@ func (s *Server) RetryAgentRun(ctx context.Context, req *platform.RetryAgentRunR
 	}
 
 	message := strings.TrimSpace(req.GetMessage())
-	if message == "" {
-		if run.Status.Phase == platformv1alpha1.AgentRunPhaseCancelled {
-			message = "Resume requested — continue from where the run stopped."
-		} else {
-			message = "Retry requested — continue from where the run failed."
-		}
-	}
 
 	if s.stateStore != nil {
 		idempotencyKey := strings.TrimSpace(req.GetIdempotencyKey())
@@ -271,9 +263,8 @@ func (s *Server) RetryAgentRun(ctx context.Context, req *platform.RetryAgentRunR
 
 // retryCircuitBreakRun resumes a run parked in the Blocked phase by a circuit
 // breaker (provider outage after the SDK exhausted its retries, repeated turn
-// failures). The pod is alive and waiting for a message, so the retry is
-// delivered as a session user message — exactly what typing in the chat does —
-// and the pending circuit-break input is cleared. Returns handled=false when
+// failures). The live pod consumes a resume control unless the caller supplied
+// a user message. The pending circuit-break input is cleared. Returns handled=false when
 // the run is not in a retryable circuit-break state.
 func (s *Server) retryCircuitBreakRun(ctx context.Context, req *platform.RetryAgentRunRequest, run *platformv1alpha1.AgentRun) (bool, *platform.AgentRun, error) {
 	if s.stateStore == nil || run.Status.Phase != platformv1alpha1.AgentRunPhaseBlocked {
@@ -289,11 +280,18 @@ func (s *Server) retryCircuitBreakRun(ctx context.Context, req *platform.RetryAg
 
 	message := strings.TrimSpace(req.GetMessage())
 	if message == "" {
-		message = "Retry requested — continue from where the run stopped."
-	}
-	metadata := userMessageMetadataForPendingRequest(platform.AgentRunMessageMode_AGENT_RUN_MESSAGE_MODE_UNSPECIFIED, sess.PendingRequestID)
-	if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", message, metadata); err != nil {
-		return true, nil, connect.NewError(connect.CodeInternal, fmt.Errorf("recording retry message: %w", err))
+		requestID := strings.TrimSpace(req.GetIdempotencyKey())
+		if requestID == "" {
+			requestID = sess.PendingRequestID
+		}
+		if err := sessionclient.RequestResume(ctx, s.stateStore, sess.ID, requestID, sess.PendingRequestID); err != nil {
+			return true, nil, connect.NewError(connect.CodeInternal, fmt.Errorf("recording retry request: %w", err))
+		}
+	} else {
+		metadata := userMessageMetadataForPendingRequest(platform.AgentRunMessageMode_AGENT_RUN_MESSAGE_MODE_UNSPECIFIED, sess.PendingRequestID)
+		if _, err := s.stateStore.AppendMessage(ctx, sess.ID, "user", message, metadata); err != nil {
+			return true, nil, connect.NewError(connect.CodeInternal, fmt.Errorf("recording retry message: %w", err))
+		}
 	}
 	if clearer, ok := s.stateStore.(store.PendingInputClearer); ok && sess.PendingRequestID != "" {
 		if _, err := clearer.ClearPendingInputIfID(ctx, sess.ID, sess.PendingRequestID, "running"); err != nil {
