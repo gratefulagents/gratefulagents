@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -752,66 +754,133 @@ func TestSessionTranscripts(t *testing.T) {
 	}
 }
 
+func TestAnswerPendingInputRejectsEmptyAnswer(t *testing.T) {
+	for _, metadata := range []string{
+		"", `null`, `{}`, `{"mode":"immediate","pending_request_id":"request-1"}`,
+		`{"images":null}`, `{"images":[]}`, `{"images":[null,{}]}`,
+		`{"images":[{"media_type":"image/png","data":" \t\n","asset_id":"asset-1"}]}`,
+		`{"images":[{"media_type":"image/png"}]}`, `{"images":"invalid"}`, `{"images":[{"data":42}]}`, `{`,
+	} {
+		t.Run(metadata, func(t *testing.T) {
+			s := pgstore.NewFromPool(nil)
+			msg, answered, err := s.AnswerPendingInput(context.Background(), uuid.New(), store.PendingInputAnswer{
+				RequestID: "request-1", Phase: "running", Content: " \n\t", Metadata: json.RawMessage(metadata),
+			})
+			if err == nil || answered || msg != nil {
+				t.Fatalf("empty answer = (%#v, %v, %v), want rejection", msg, answered, err)
+			}
+		})
+	}
+}
+
+func TestAnswerPendingInputRequiresRequestAndPhase(t *testing.T) {
+	for _, answer := range []store.PendingInputAnswer{
+		{RequestID: " ", Phase: "running", Metadata: json.RawMessage(`{"images":[{"data":"AQID"}]}`)},
+		{RequestID: "request-1", Phase: " ", Metadata: json.RawMessage(`{"images":[{"data":"AQID"}]}`)},
+	} {
+		msg, answered, err := pgstore.NewFromPool(nil).AnswerPendingInput(context.Background(), uuid.New(), answer)
+		if err == nil || answered || msg != nil {
+			t.Fatalf("missing required field = (%#v, %v, %v), want rejection", msg, answered, err)
+		}
+	}
+}
+
 func TestAnswerPendingInputIsAtomicAndStaleSafe(t *testing.T) {
-	s := setupTestStore(t)
-	defer func() { _ = s.Close() }()
-	ctx := context.Background()
-	answerer, ok := s.(store.PendingInputAnswerer)
-	if !ok {
-		t.Fatal("Postgres store does not implement PendingInputAnswerer")
-	}
-	sess, err := s.CreateSession(ctx, "answer-run", "default", "running", "auto")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetPendingAction(ctx, sess.ID, "waiting_input", "Choose?", json.RawMessage(`[{"id":"approve","label":"Approve"}]`), "question"); err != nil {
-		t.Fatal(err)
-	}
-	pending, _ := s.GetSession(ctx, sess.ID)
-	if pending.PendingRequestID == "" {
-		t.Fatal("pending request ID missing")
-	}
+	for _, tt := range []struct {
+		name, content, metadata string
+	}{
+		{"text", "  yes do it  ", `{"mode":"enqueue"}`},
+		{"inline image", "", `{"mode":"immediate","images":[{"media_type":"image/png","data":"AQID"}]}`},
+		{"persisted image", " \n\t", `{"mode":"immediate","images":[{"media_type":"image/png","data":"AQID","asset_id":"a7806cf4-e038-4a43-a7bc-5c3a413f682f","asset_version":1,"asset_path":"chat-attachments/run/image.png","project_name":"project"}]}`},
+		{"video frame", "", `{"mode":"immediate","images":[{"media_type":"image/jpeg","data":"AQID"},{"media_type":"image/jpeg","data":"BAUG"}]}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := setupTestStore(t)
+			defer func() { _ = s.Close() }()
+			ctx := context.Background()
+			answerer, ok := s.(store.PendingInputAnswerer)
+			if !ok {
+				t.Fatal("Postgres store does not implement PendingInputAnswerer")
+			}
+			sess, err := s.CreateSession(ctx, "answer-run", "default", "running", "auto")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetPendingAction(ctx, sess.ID, "waiting_input", "Choose?", json.RawMessage(`[{"id":"approve","label":"Approve"}]`), "question"); err != nil {
+				t.Fatal(err)
+			}
+			pending, _ := s.GetSession(ctx, sess.ID)
+			if pending.PendingRequestID == "" {
+				t.Fatal("pending request ID missing")
+			}
 
-	msg, answered, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
-		RequestID: pending.PendingRequestID, Phase: "running", Content: "yes do it",
-		Metadata: json.RawMessage(`{"mode":"enqueue"}`),
-	})
-	if err != nil || !answered || msg == nil {
-		t.Fatalf("AnswerPendingInput() = (%#v, %v, %v)", msg, answered, err)
-	}
-	after, _ := s.GetSession(ctx, sess.ID)
-	if after.PendingRequestID != "" || after.PendingQuestion != "" || after.PendingInputType != "" {
-		t.Fatalf("request not consumed: %#v", after)
-	}
-	// The answer is immediately visible to agent polling — no hold phase.
-	polled, err := s.PollNewUserMessages(ctx, sess.ID)
-	if err != nil || len(polled) != 1 || polled[0].Content != "yes do it" {
-		t.Fatalf("answer not pollable: messages=%#v err=%v", polled, err)
-	}
+			if msg, answered, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
+				RequestID: pending.PendingRequestID, Phase: "running", Content: " \n\t",
+				Metadata: json.RawMessage(`{"mode":"enqueue","images":[{"data":" "}]}`),
+			}); err == nil || answered || msg != nil {
+				t.Fatalf("empty answer = (%#v, %v, %v), want rejection", msg, answered, err)
+			}
+			unchanged, err := s.GetSession(ctx, sess.ID)
+			if err != nil || unchanged.PendingRequestID != pending.PendingRequestID || unchanged.PendingQuestion != pending.PendingQuestion || unchanged.Phase != pending.Phase {
+				t.Fatalf("empty answer changed pending request: %#v, err=%v", unchanged, err)
+			}
+			if messages, err := s.GetMessages(ctx, sess.ID); err != nil || len(messages) != 0 {
+				t.Fatalf("empty answer messages = %#v, err=%v", messages, err)
+			}
 
-	// A second answer bound to the same (now consumed) request inserts nothing.
-	_, answered, err = answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
-		RequestID: pending.PendingRequestID, Phase: "running", Content: "me too",
-	})
-	if err != nil || answered {
-		t.Fatalf("stale AnswerPendingInput() = (answered=%v, err=%v), want rejected", answered, err)
-	}
-	if polled, _ := s.PollNewUserMessages(ctx, sess.ID); len(polled) != 1 {
-		t.Fatalf("stale answer inserted a message: %#v", polled)
-	}
+			msg, answered, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
+				RequestID: pending.PendingRequestID, Phase: "running", Content: tt.content,
+				Metadata: json.RawMessage(tt.metadata),
+			})
+			if err != nil || !answered || msg == nil {
+				t.Fatalf("AnswerPendingInput() = (%#v, %v, %v)", msg, answered, err)
+			}
+			after, _ := s.GetSession(ctx, sess.ID)
+			if after.PendingRequestID != "" || after.PendingQuestion != "" || after.PendingInputType != "" || after.Phase != "running" {
+				t.Fatalf("request not consumed: %#v", after)
+			}
+			// The answer is immediately visible to agent polling — no hold phase.
+			polled, err := s.PollNewUserMessages(ctx, sess.ID)
+			if err != nil || len(polled) != 1 || polled[0].Content != strings.TrimSpace(tt.content) {
+				t.Fatalf("answer not pollable: messages=%#v err=%v", polled, err)
+			}
 
-	// A terminal session refuses answers entirely.
-	if err := s.SetPendingAction(ctx, sess.ID, "waiting_input", "Again?", json.RawMessage(`[]`), "question"); err != nil {
-		t.Fatal(err)
-	}
-	replaced, _ := s.GetSession(ctx, sess.ID)
-	if err := s.UpdatePhase(ctx, sess.ID, "succeeded", "done"); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
-		RequestID: replaced.PendingRequestID, Phase: "running", Content: "late",
-	}); !errors.Is(err, store.ErrSessionEnded) {
-		t.Fatalf("terminal AnswerPendingInput() err = %v, want ErrSessionEnded", err)
+			var wantMetadata, gotMetadata any
+			if err := json.Unmarshal([]byte(tt.metadata), &wantMetadata); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(polled[0].Metadata, &gotMetadata); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(gotMetadata, wantMetadata) {
+				t.Fatalf("metadata = %s, want %s", polled[0].Metadata, tt.metadata)
+			}
+
+			// A second answer bound to the same (now consumed) request inserts nothing.
+			_, answered, err = answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
+				RequestID: pending.PendingRequestID, Phase: "running", Content: tt.content, Metadata: json.RawMessage(tt.metadata),
+			})
+			if err != nil || answered {
+				t.Fatalf("stale AnswerPendingInput() = (answered=%v, err=%v), want rejected", answered, err)
+			}
+			if polled, _ := s.PollNewUserMessages(ctx, sess.ID); len(polled) != 1 {
+				t.Fatalf("stale answer inserted a message: %#v", polled)
+			}
+
+			// A terminal session refuses answers entirely.
+			if err := s.SetPendingAction(ctx, sess.ID, "waiting_input", "Again?", json.RawMessage(`[]`), "question"); err != nil {
+				t.Fatal(err)
+			}
+			replaced, _ := s.GetSession(ctx, sess.ID)
+			if err := s.UpdatePhase(ctx, sess.ID, "succeeded", "done"); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := answerer.AnswerPendingInput(ctx, sess.ID, store.PendingInputAnswer{
+				RequestID: replaced.PendingRequestID, Phase: "running", Content: tt.content, Metadata: json.RawMessage(tt.metadata),
+			}); !errors.Is(err, store.ErrSessionEnded) {
+				t.Fatalf("terminal AnswerPendingInput() err = %v, want ErrSessionEnded", err)
+			}
+		})
 	}
 }
 

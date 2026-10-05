@@ -18,6 +18,7 @@ import (
 
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/internal/store/postgres/sqlc"
+	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 )
 
 // Store implements store.StateStore backed by Postgres via pgx + sqlc.
@@ -468,8 +469,11 @@ func (s *Store) AnswerPendingInput(ctx context.Context, sessionID uuid.UUID, ans
 	answer.RequestID = strings.TrimSpace(answer.RequestID)
 	answer.Phase = strings.TrimSpace(answer.Phase)
 	answer.Content = strings.TrimSpace(answer.Content)
-	if answer.RequestID == "" || answer.Phase == "" || answer.Content == "" {
-		return nil, false, fmt.Errorf("request ID, phase, and content are required")
+	if answer.RequestID == "" || answer.Phase == "" {
+		return nil, false, fmt.Errorf("request ID and phase are required")
+	}
+	if answer.Content == "" && len(sessionclient.ImagesFromMetadata(answer.Metadata)) == 0 {
+		return nil, false, fmt.Errorf("content or an image attachment is required")
 	}
 	metadata := answer.Metadata
 	if len(metadata) == 0 {
