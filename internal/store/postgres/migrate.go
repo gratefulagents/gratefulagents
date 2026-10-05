@@ -246,6 +246,9 @@ type schemaMigration struct {
 //go:embed migrations/067_retire_reports_and_scans.up.sql
 var migration067Up string
 
+//go:embed migrations/068_message_free_wake.up.sql
+var migration068Up string
+
 // orderedMigrations lists every embedded migration in application order. A
 // migration missing from this list is never applied, so new files must be
 // registered here.
@@ -313,6 +316,7 @@ func orderedMigrations() []schemaMigration {
 		{65, migration065Up, false},
 		{66, migration066Up, false},
 		{67, migration067Up, false},
+		{68, migration068Up, false},
 	}
 }
 

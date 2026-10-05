@@ -984,3 +984,36 @@ func TestInterruptDeliversSessionChangeWakeup(t *testing.T) {
 		t.Fatal("no wake-up hint delivered after an interrupt insert")
 	}
 }
+
+func TestReserveWakeIntentWithoutMessage(t *testing.T) {
+	ss := setupTestStore(t)
+	ctx := context.Background()
+	sess, err := ss.CreateSession(ctx, "retry-no-message", "default", "failed", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	intents := ss.(store.WakeIntentStore)
+	for i := 0; i < 2; i++ {
+		msg, target, created, err := intents.ReserveWakeIntent(ctx, sess.ID, "retry-1", "", 3+int64(i))
+		if err != nil || msg != nil || target != 3 || created != (i == 0) {
+			t.Fatalf("reserve=(%+v,%d,%v,%v)", msg, target, created, err)
+		}
+		if err := intents.MarkWakeIntentApplied(ctx, sess.ID, "retry-1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	msgs, err := ss.GetMessages(ctx, sess.ID)
+	if err != nil || len(msgs) != 0 {
+		t.Fatalf("messages=%+v err=%v", msgs, err)
+	}
+	for i := 0; i < 2; i++ {
+		msg, target, created, err := intents.ReserveWakeIntent(ctx, sess.ID, "retry-2", "explicit retry", 3)
+		if err != nil || msg == nil || msg.Content != "explicit retry" || target != 4 || created != (i == 0) {
+			t.Fatalf("explicit reserve=(%+v,%d,%v,%v)", msg, target, created, err)
+		}
+	}
+	msgs, err = ss.GetMessages(ctx, sess.ID)
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("messages=%+v err=%v", msgs, err)
+	}
+}

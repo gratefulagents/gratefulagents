@@ -51,9 +51,10 @@ type WorkingState struct {
 	LastStoppedUserMessageID int64 `json:"last_stopped_user_message_id,omitempty"`
 	// DurableRun* coordinates one stable SDK Runner invocation across pod
 	// replacement and autonomous passes for the same user message.
-	DurableRunMessageID int64 `json:"durable_run_message_id,omitempty"`
-	DurableRunPass      int64 `json:"durable_run_pass,omitempty"`
-	DurableRunNextPass  int64 `json:"durable_run_next_pass,omitempty"`
+	DurableRunMessageID int64  `json:"durable_run_message_id,omitempty"`
+	DurableRunPass      int64  `json:"durable_run_pass,omitempty"`
+	DurableRunNextPass  int64  `json:"durable_run_next_pass,omitempty"`
+	PreparedResumeID    string `json:"prepared_resume_id,omitempty"`
 	// SelfAssistantMessageID is the worker's own durable assistant reply for
 	// the last committed pass. Its content is already in the replayed
 	// transcript, so the out-of-band fold must skip it.

@@ -199,6 +199,8 @@ type UserMessage struct {
 	store.Message
 	Mode   UserMessageMode
 	Images []MessageImage
+	// Resume is an out-of-band control, never a persisted conversation message.
+	Resume *ResumeRequest
 }
 
 // MessageImage is a base64-encoded image attached to a user message. Data holds
@@ -451,7 +453,7 @@ func (c *Client) ResumeState(ctx context.Context) (session *store.Session, messa
 	return session, messages, cursor, nil
 }
 
-// PollForUserMessages blocks until any pending user messages appear. Pending
+// PollForUserMessages blocks until a resume control or pending user messages appear. Pending
 // delivery state in the store is authoritative; there is no cursor. With a
 // push-capable store (Postgres LISTEN/NOTIFY session_change hints) new
 // messages wake the loop within milliseconds and pollInterval relaxes to a
@@ -467,11 +469,17 @@ func (c *Client) PollForUserMessages(ctx context.Context, pollInterval time.Dura
 		// Subscribe before querying so an event landing between the query and
 		// the wait still wakes us.
 		wake := c.SubscribeSessionEvents()
-		msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID)
-		if err != nil {
-			log.Printf("WARN: polling for user messages: %v", err)
-		} else if len(msgs) > 0 {
-			return wrapUserMessages(msgs), nil
+		if resume, err := c.PendingResume(ctx); err != nil {
+			log.Printf("WARN: polling for resume requests: %v", err)
+		} else if resume != nil {
+			return []UserMessage{{Resume: resume}}, nil
+		} else {
+			msgs, err := c.store.PollNewUserMessages(ctx, c.sessionID)
+			if err != nil {
+				log.Printf("WARN: polling for user messages: %v", err)
+			} else if len(msgs) > 0 {
+				return wrapUserMessages(msgs), nil
+			}
 		}
 
 		// Relax the poll interval only while the LISTEN connection is actually
@@ -648,7 +656,7 @@ func (c *Client) ClearUserInputRequestIfID(ctx context.Context, requestID string
 			// break-glass decisions clear their own request before this path can run.
 			switch run.Status.Phase {
 			case platformv1alpha1.AgentRunPhaseRunning, platformv1alpha1.AgentRunPhaseQuestion,
-				platformv1alpha1.AgentRunPhaseWaitingApproval:
+				platformv1alpha1.AgentRunPhaseBlocked, platformv1alpha1.AgentRunPhaseWaitingApproval:
 				run.Status.Phase = platformv1alpha1.AgentRunPhaseRunning
 				run.Status.Queue = &platformv1alpha1.AgentRunQueueStatus{State: "Running"}
 				run.Status.CurrentStep = "chat-followup"
