@@ -59,6 +59,14 @@ import {
   modeCatalog,
   runtimeImageCatalog,
 } from "./common";
+import {
+  catalogInstalledSkill,
+  guardrailCatalog,
+  mcpServerCatalog,
+  roleCatalog,
+  runtimeProfileCatalog,
+  skillCatalogEntries,
+} from "./resources";
 
 const REPO_URL = "https://github.com/acme/operator-app";
 
@@ -1173,6 +1181,15 @@ const skills = [
     phase: "Ready",
     resolvedName: "github-tools",
   }),
+  catalogInstalledSkill(),
+  create(SkillInfoSchema, {
+    name: "flaky-upstream",
+    description: "Skill whose upstream repository moved.",
+    gitUrl: "https://github.com/acme/retired-skill",
+    gitRef: "main",
+    phase: "Error",
+    statusMessage: "clone failed: repository not found (HTTP 404)",
+  }),
 ];
 
 const credentials = create(MyCredentialsSchema, {
@@ -1443,6 +1460,11 @@ export const defaultScenario: Scenario = {
   slackDrafts,
 
   skillPackages: skills,
+  skillCatalog: skillCatalogEntries(),
+  mcpServers: mcpServerCatalog(),
+  runtimeProfiles: runtimeProfileCatalog(),
+  guardrailPolicies: guardrailCatalog(),
+  roleInstructions: roleCatalog(),
   runtimeImages: runtimeImageCatalog(),
   modes: modeCatalog(),
   models: MODEL_LIST,
@@ -1493,7 +1515,12 @@ export const defaultScenario: Scenario = {
     { name: "settings-connection", path: "/settings/connection" },
     { name: "settings-credentials", path: "/settings/credentials" },
     { name: "settings-usage", path: "/settings/usage" },
-    { name: "settings-skills", path: "/settings/skills" },
+    { name: "resources-skills", path: "/resources/skills" },
+    { name: "resources-mcp-servers", path: "/resources/mcp-servers" },
+    { name: "resources-runtime-profiles", path: "/resources/runtime-profiles" },
+    { name: "resources-guardrails", path: "/resources/guardrails" },
+    { name: "resources-modes", path: "/resources/modes" },
+    { name: "resources-roles", path: "/resources/roles" },
     { name: "settings-git", path: "/settings/git" },
   ],
 };

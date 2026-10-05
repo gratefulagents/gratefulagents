@@ -12,8 +12,10 @@ import type {
   GetAgentTraceResponse,
   GitHubRepository,
   GitIdentity,
+  GuardrailPolicy,
   ModelDefaults,
   LinearProject,
+  MCPServerInfo,
   MaintainerWorkItem,
   ModeTemplate,
   MyAnthropicUsage,
@@ -24,10 +26,13 @@ import type {
   Project,
   PullRequestDetails,
   RepositoryInfo,
+  RoleInstruction,
   ResourceOwner,
   ResourceShareInfo,
   RuntimeImageOption,
+  RuntimeProfile,
   SharedResource,
+  SkillCatalogEntry,
   SkillInfo,
   SlackAgent,
   SlackDraft,
@@ -91,6 +96,12 @@ export interface Scenario {
   slackDrafts: SlackDraft[];
 
   skillPackages: SkillInfo[];
+  /** skills.sh catalog served by listSkillCatalog. */
+  skillCatalog: SkillCatalogEntry[];
+  mcpServers: MCPServerInfo[];
+  runtimeProfiles: RuntimeProfile[];
+  guardrailPolicies: GuardrailPolicy[];
+  roleInstructions: RoleInstruction[];
   runtimeImages: RuntimeImageOption[];
   modes: ModeTemplate[];
   models: { provider: string; baseUrl: string; models: string[] };
