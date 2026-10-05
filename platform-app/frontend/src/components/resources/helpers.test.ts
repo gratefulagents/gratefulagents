@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildLinearCreateRequest, initialLinearCreateValues } from "@/components/linear-create";
-import { canCreateResource, canDeleteResource, canMutateResource, formatProviderModels, parseProviderModels, resourceTabs } from "@/components/resources/resource-helpers";
+import {
+  canCreateResource, canDeleteResource, canMutateResource, countError, durationError, formatProviderModels, joinFacts, keyValueRowsError,
+  parseProviderModels, quantityError, recordToRows, regexError, resourceTabs, rowsToRecord, splitTokens,
+} from "@/components/resources/resource-helpers";
 
 describe("resource permissions", () => {
   it("lists only supported reusable resources", () => {
@@ -65,5 +68,35 @@ describe("provider model fields", () => {
 
   it("formats mappings in deterministic provider order", () => {
     expect(formatProviderModels({ openai: "gpt-5.6-sol", anthropic: "luna" })).toBe("anthropic=luna, openai=gpt-5.6-sol");
+  });
+});
+
+describe("editor value helpers", () => {
+  it("validates key/value rows and converts them to records", () => {
+    expect(keyValueRowsError([{ key: "A", value: "1" }, { key: "", value: "" }])).toBeNull();
+    expect(keyValueRowsError([{ key: "", value: "1" }], "Variable")).toBe("Variable names cannot be empty.");
+    expect(keyValueRowsError([{ key: "A", value: "1" }, { key: " A ", value: "2" }], "Variable")).toBe("Duplicate variable: A");
+    expect(rowsToRecord([{ key: " cpu ", value: "500m" }, { key: "", value: "" }])).toEqual({ cpu: "500m" });
+    expect(() => rowsToRecord([{ key: "", value: "x" }])).toThrow("Key names cannot be empty.");
+    expect(recordToRows({ b: "2", a: "1" })).toEqual([{ key: "a", value: "1" }, { key: "b", value: "2" }]);
+  });
+
+  it("validates durations, quantities, counts, and regular expressions", () => {
+    expect(durationError("")).toBeNull();
+    expect(durationError("1h30m")).toBeNull();
+    expect(durationError("90")).toMatch(/Go duration/);
+    expect(quantityError("10Gi")).toBeNull();
+    expect(quantityError("500m")).toBeNull();
+    expect(quantityError("10 GB")).toMatch(/Kubernetes quantity/);
+    expect(countError("0", "Max turns")).toBeNull();
+    expect(countError("-1", "Max turns")).toMatch(/whole number/);
+    expect(countError("1.5", "Max turns")).toMatch(/whole number/);
+    expect(regexError("rm\\s+-rf")).toBeNull();
+    expect(regexError("(")).toBeTruthy();
+  });
+
+  it("splits tokens and joins facts", () => {
+    expect(splitTokens("a, b\nc,,")).toEqual(["a", "b", "c"]);
+    expect(joinFacts(["x", null, "", false, "y"])).toBe("x · y");
   });
 });

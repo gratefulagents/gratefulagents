@@ -248,6 +248,11 @@ export const errorScenario: Scenario = {
   slackDrafts: [],
 
   skillPackages: [],
+  skillCatalog: [],
+  mcpServers: [],
+  runtimeProfiles: [],
+  guardrailPolicies: [],
+  roleInstructions: [],
   runtimeImages: runtimeImageCatalog(),
   modes: modeCatalog(),
   models: MODEL_LIST,

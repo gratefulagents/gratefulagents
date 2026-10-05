@@ -40,16 +40,23 @@ import {
   ListAvailableModesResponseSchema,
   ListCronsResponseSchema,
   ListGitHubRepositoriesResponseSchema,
+  ListGuardrailPoliciesResponseSchema,
   ListGitHubBranchesResponseSchema,
   ListLinearProjectsResponseSchema,
+  ListMCPServersResponseSchema,
   ListMaintainerWorkItemsResponseSchema,
+  ListModeTemplatesResponseSchema,
   ListNotificationsResponseSchema,
   ListProjectsResponseSchema,
   ListRepositoriesResponseSchema,
+  ListRoleInstructionsResponseSchema,
   ListRuntimeImagesResponseSchema,
+  ListRuntimeProfilesResponseSchema,
   ListSharesResponseSchema,
   ListSharedWithMeResponseSchema,
+  ListSkillCatalogResponseSchema,
   ListSkillsResponseSchema,
+  MCPServerInfoSchema,
   ListSlackAgentsResponseSchema,
   ListSlackDraftsResponseSchema,
   ListSlackWorkspacesResponseSchema,
@@ -68,6 +75,11 @@ import {
   SkillInfoSchema,
   SwitchAgentRunModeResponseSchema,
   type AgentRun,
+  type GuardrailPolicy,
+  type ModeTemplate,
+  type RoleInstruction,
+  type RuntimeProfile,
+  type UpsertMCPServerRequest,
   type UpsertSkillRequest,
 } from "../../../frontend/src/rpc/platform/service_pb";
 import {
@@ -102,6 +114,36 @@ function clientGone(ctx: HandlerContext): Promise<void> {
 
 function notFound(what: string): ConnectError {
   return new ConnectError(`${what} not found`, Code.NotFound);
+}
+
+/**
+ * Name-keyed create/update/delete over a fixture array, mirroring the
+ * dashboard's Kubernetes semantics: create rejects duplicates, update
+ * requires an existing object, delete is idempotent. Lists stay sorted.
+ */
+function namedCrud<T extends { name: string }>(items: T[], label: string) {
+  const byName = (a: T, b: T) => a.name.localeCompare(b.name);
+  return {
+    create(item: T): T {
+      if (items.some((x) => x.name === item.name)) {
+        throw new ConnectError(`${label} ${item.name} already exists`, Code.AlreadyExists);
+      }
+      items.push(item);
+      items.sort(byName);
+      return item;
+    },
+    update(item: T): T {
+      const index = items.findIndex((x) => x.name === item.name);
+      if (index < 0) throw notFound(`${label} ${item.name}`);
+      items.splice(index, 1, item);
+      return item;
+    },
+    remove(name: string): Record<string, never> {
+      const index = items.findIndex((x) => x.name === name);
+      if (index >= 0) items.splice(index, 1);
+      return {};
+    },
+  };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -413,6 +455,94 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
       if (existing >= 0) s.skillPackages.splice(existing, 1);
       return {};
     },
+    listSkillCatalog: async (req: { query: string; page: number }) => {
+      const pageSize = 5;
+      const query = req.query.trim().toLowerCase();
+      const matches = query
+        ? s.skillCatalog.filter((entry) => `${entry.source} ${entry.skillId} ${entry.name}`.toLowerCase().includes(query))
+        : s.skillCatalog;
+      const start = req.page * pageSize;
+      return create(ListSkillCatalogResponseSchema, {
+        skills: matches.slice(start, start + pageSize),
+        total: BigInt(matches.length),
+        hasMore: start + pageSize < matches.length,
+        page: req.page,
+      });
+    },
+    installSkillFromCatalog: async (req: { source: string; skillId: string }) => {
+      const entry = s.skillCatalog.find((item) => item.source === req.source && item.skillId === req.skillId);
+      if (!entry) throw notFound(`catalog skill ${req.source}/${req.skillId}`);
+      const skill = create(SkillInfoSchema, {
+        name: entry.skillId,
+        description: `Installed from skills.sh (${entry.source}).`,
+        gitUrl: `https://github.com/${entry.source}/tree/main/${entry.skillId}`,
+        gitRef: "main",
+        gitPath: entry.skillId,
+        phase: "Ready",
+        resolvedName: entry.skillId,
+        catalogSource: entry.source,
+        catalogSkillId: entry.skillId,
+        catalogUrl: entry.catalogUrl,
+      });
+      const existing = s.skillPackages.findIndex((item) => item.name === skill.name);
+      if (existing >= 0) s.skillPackages.splice(existing, 1, skill);
+      else s.skillPackages.push(skill);
+      s.skillPackages.sort((a, b) => a.name.localeCompare(b.name));
+      return skill;
+    },
+
+    // ---- Resources: MCP servers, runtime profiles, guardrails, modes, roles --
+    listMCPServers: async () =>
+      create(ListMCPServersResponseSchema, { namespace: s.namespace, servers: s.mcpServers }),
+    upsertMCPServer: async (req: UpsertMCPServerRequest) => {
+      const server = create(MCPServerInfoSchema, {
+        name: req.name.trim().toLowerCase(),
+        version: req.version,
+        description: req.description,
+        command: req.command,
+        args: req.args,
+        env: req.env,
+        allowEnv: req.allowEnv,
+        secretEnv: req.secretEnv,
+        trustReadOnlyHint: req.trustReadOnlyHint,
+        allowNetwork: req.allowNetwork,
+      });
+      const existing = s.mcpServers.findIndex((item) => item.name === server.name);
+      if (existing >= 0) s.mcpServers.splice(existing, 1, server);
+      else s.mcpServers.push(server);
+      s.mcpServers.sort((a, b) => a.name.localeCompare(b.name));
+      return server;
+    },
+    deleteMCPServer: async (req: { name: string }) => namedCrud(s.mcpServers, "MCP server").remove(req.name),
+
+    listRuntimeProfiles: async () =>
+      create(ListRuntimeProfilesResponseSchema, { namespace: s.namespace, profiles: s.runtimeProfiles }),
+    createRuntimeProfile: async (req: { profile?: RuntimeProfile }) =>
+      namedCrud(s.runtimeProfiles, "runtime profile").create({ ...req.profile!, namespace: s.namespace }),
+    updateRuntimeProfile: async (req: { profile?: RuntimeProfile }) =>
+      namedCrud(s.runtimeProfiles, "runtime profile").update({ ...req.profile!, namespace: s.namespace }),
+    deleteRuntimeProfile: async (req: { name: string }) => namedCrud(s.runtimeProfiles, "runtime profile").remove(req.name),
+
+    listGuardrailPolicies: async () =>
+      create(ListGuardrailPoliciesResponseSchema, { namespace: s.namespace, policies: s.guardrailPolicies }),
+    createGuardrailPolicy: async (req: { policy?: GuardrailPolicy }) =>
+      namedCrud(s.guardrailPolicies, "guardrail policy").create({ ...req.policy!, namespace: s.namespace }),
+    updateGuardrailPolicy: async (req: { policy?: GuardrailPolicy }) =>
+      namedCrud(s.guardrailPolicies, "guardrail policy").update({ ...req.policy!, namespace: s.namespace }),
+    deleteGuardrailPolicy: async (req: { name: string }) => namedCrud(s.guardrailPolicies, "guardrail policy").remove(req.name),
+
+    listModeTemplates: async () => create(ListModeTemplatesResponseSchema, { templates: s.modes }),
+    createModeTemplate: async (req: { template?: ModeTemplate }) => namedCrud(s.modes, "mode template").create(req.template!),
+    updateModeTemplate: async (req: { template?: ModeTemplate }) => namedCrud(s.modes, "mode template").update(req.template!),
+    deleteModeTemplate: async (req: { name: string }) => namedCrud(s.modes, "mode template").remove(req.name),
+
+    listRoleInstructions: async () =>
+      create(ListRoleInstructionsResponseSchema, { instructions: s.roleInstructions }),
+    createRoleInstruction: async (req: { instruction?: RoleInstruction }) =>
+      namedCrud(s.roleInstructions, "role instruction").create(req.instruction!),
+    updateRoleInstruction: async (req: { instruction?: RoleInstruction }) =>
+      namedCrud(s.roleInstructions, "role instruction").update(req.instruction!),
+    deleteRoleInstruction: async (req: { name: string }) => namedCrud(s.roleInstructions, "role instruction").remove(req.name),
     listRuntimeImages: async () => create(ListRuntimeImagesResponseSchema, { images: s.runtimeImages }),
     listAvailableModes: async () => create(ListAvailableModesResponseSchema, { modes: s.modes }),
     getModeTemplate: async (req: { name: string }) => {

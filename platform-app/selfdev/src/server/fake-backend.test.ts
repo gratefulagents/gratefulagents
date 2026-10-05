@@ -135,4 +135,34 @@ describe("fake backend", () => {
     await platform.deleteSkill({ name });
     expect((await platform.listSkills({})).skills.some((skill) => skill.name === name)).toBe(false);
   });
+
+  it("serves the resource catalogs and applies name-keyed CRUD", async () => {
+    expect((await platform.listMCPServers({})).servers.map((server) => server.name)).toEqual([
+      "duckduckgo", "grafana", "postgres-readonly",
+    ]);
+    expect((await platform.listRuntimeProfiles({})).profiles.length).toBe(3);
+    expect((await platform.listGuardrailPolicies({})).policies[0].rules.length).toBe(3);
+    expect((await platform.listModeTemplates({})).templates.some((mode) => mode.name === "autopilot")).toBe(true);
+    expect((await platform.listRoleInstructions({})).instructions.map((role) => role.name)).toContain("executor");
+
+    await platform.createGuardrailPolicy({ policy: { name: "zzz-test", rules: [] } });
+    const names = (await platform.listGuardrailPolicies({})).policies.map((policy) => policy.name);
+    expect(names[names.length - 1]).toBe("zzz-test");
+    await expect(platform.createGuardrailPolicy({ policy: { name: "zzz-test", rules: [] } })).rejects.toThrow(/already exists/);
+    await expect(platform.updateRuntimeProfile({ profile: { name: "missing" } })).rejects.toThrow(/not found/);
+    await platform.deleteGuardrailPolicy({ name: "zzz-test" });
+    expect((await platform.listGuardrailPolicies({})).policies.some((policy) => policy.name === "zzz-test")).toBe(false);
+  });
+
+  it("pages and searches the skills.sh catalog and installs from it", async () => {
+    const first = await platform.listSkillCatalog({ query: "", page: 0 });
+    expect(first.skills.length).toBe(5);
+    expect(first.hasMore).toBe(true);
+    const search = await platform.listSkillCatalog({ query: "grafana", page: 0 });
+    expect(search.skills.map((entry) => entry.skillId)).toEqual(["grafana-dashboards"]);
+
+    const installed = await platform.installSkillFromCatalog({ source: "grafana/skills", skillId: "grafana-dashboards" });
+    expect(installed.catalogSource).toBe("grafana/skills");
+    expect((await platform.listSkills({})).skills.some((skill) => skill.name === "grafana-dashboards")).toBe(true);
+  });
 });
