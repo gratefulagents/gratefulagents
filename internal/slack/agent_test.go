@@ -242,7 +242,7 @@ func TestStartStreamOmitsRecipientInDM(t *testing.T) {
 
 func TestAppendStreamSkipsEmptyChunk(t *testing.T) {
 	f, c := newFakeSlack(t)
-	if err := c.AppendStream(context.Background(), "C1", "1.1", "   "); err != nil {
+	if err := c.AppendStream(context.Background(), "C1", "1.1", ""); err != nil {
 		t.Fatalf("AppendStream() error: %v", err)
 	}
 	f.mu.Lock()
@@ -266,17 +266,63 @@ func TestPostMarkdownAsBot(t *testing.T) {
 	}
 }
 
-func TestTruncateMarkdown(t *testing.T) {
-	long := strings.Repeat("ü", MaxMarkdownChars+10)
-	got := TruncateMarkdown(long)
-	if n := len([]rune(got)); n != MaxMarkdownChars {
-		t.Fatalf("rune length = %d, want %d", n, MaxMarkdownChars)
+func TestAppendStreamPreservesWhitespace(t *testing.T) {
+	f, c := newFakeSlack(t)
+	if err := c.AppendStream(context.Background(), "C1", "1.1", " \n "); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.HasSuffix(got, "…") {
-		t.Fatal("truncated markdown should end with an ellipsis")
+	if got := f.last().Params["markdown_text"]; got != " \n " {
+		t.Fatalf("chunk whitespace changed: %q", got)
 	}
-	if TruncateMarkdown("  short  ") != "short" {
-		t.Fatal("short markdown should be trimmed only")
+}
+
+func TestSplitMarkdown(t *testing.T) {
+	for _, text := range []string{"", "  short  ", strings.Repeat("ü", MaxMarkdownChars), strings.Repeat("🙂", MaxMarkdownChars-1) + " \n tail", strings.Repeat("x", 2*MaxMarkdownChars+1)} {
+		chunks := SplitMarkdown(text)
+		if strings.Join(chunks, "") != text {
+			t.Fatal("chunks must reconstruct the original text exactly")
+		}
+		for _, chunk := range chunks {
+			if n := len([]rune(chunk)); n == 0 || n > MaxMarkdownChars {
+				t.Fatalf("invalid chunk length: %d", n)
+			}
+		}
+	}
+}
+
+func TestPostMarkdownAsBotPreservesLongReply(t *testing.T) {
+	f, c := newFakeSlack(t)
+	text := strings.Repeat("🙂", MaxMarkdownChars-1) + " \n" + strings.Repeat("ü", MaxMarkdownChars) + " tail"
+	if _, err := c.PostMarkdownAsBot(context.Background(), "C1", text, "1.1"); err != nil {
+		t.Fatal(err)
+	}
+	var got strings.Builder
+	for _, call := range f.calls {
+		chunk := call.Params["markdown_text"]
+		if call.Method != "chat.postMessage" || call.Params["thread_ts"] != "1.1" || len([]rune(chunk)) > MaxMarkdownChars {
+			t.Fatalf("invalid chunk call: %+v", call)
+		}
+		got.WriteString(chunk)
+	}
+	if len(f.calls) != 3 || got.String() != text {
+		t.Fatal("long reply was lost or changed")
+	}
+}
+
+func TestStreamRejectsOversizedChunks(t *testing.T) {
+	f, c := newFakeSlack(t)
+	text := strings.Repeat("ü", MaxMarkdownChars+1)
+	if _, err := c.StartStream(context.Background(), StreamTarget{ChannelID: "C1", ThreadTS: "1.1"}, text); err == nil {
+		t.Fatal("start must reject oversized chunk")
+	}
+	if err := c.AppendStream(context.Background(), "C1", "1.1", text); err == nil {
+		t.Fatal("append must reject oversized chunk")
+	}
+	if err := c.StopStream(context.Background(), "C1", "1.1", text, SessionActive); err == nil {
+		t.Fatal("stop must reject oversized chunk")
+	}
+	if len(f.calls) != 0 {
+		t.Fatal("invalid chunks must not reach Slack")
 	}
 }
 

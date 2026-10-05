@@ -78,7 +78,7 @@ func (o *slackOrchestrator) streamTarget(w replyWatch) internalslack.StreamTarge
 // first) into the thread as a single streamed message rendered from the
 // agent's native markdown, finishing with feedback buttons and the session
 // back in the active state. When streaming is unavailable (missing scope,
-// legacy app) it falls back to one markdown chat.postMessage per message and
+// legacy app) it falls back to bounded markdown posts followed by feedback and
 // sets the session status explicitly. Returns false when nothing could be
 // delivered.
 func (o *slackOrchestrator) deliverReply(ctx context.Context, w replyWatch, texts []string) bool {
@@ -96,6 +96,13 @@ func (o *slackOrchestrator) deliverReply(ctx context.Context, w replyWatch, text
 		}
 		posted++
 	}
+	if posted == len(texts) {
+		// Blocks cannot be combined with markdown_text in chat.postMessage.
+		if _, err := o.web.PostMessageAsBotBlocks(ctx, w.channelID, "Was this reply helpful?", w.threadTS,
+			internalslack.BuildReplyFeedbackBlocks(w.runName)...); err != nil {
+			log.Printf("slack connector %s: posting feedback for %s: %v", o.agentName, w.runName, err)
+		}
+	}
 	o.setSession(ctx, w.channelID, w.threadTS, internalslack.SessionActive)
 	return posted > 0
 }
@@ -105,13 +112,17 @@ func (o *slackOrchestrator) deliverReply(ctx context.Context, w replyWatch, text
 // a failure after it opened is closed out best-effort (Slack keeps whatever was
 // streamed) and still counts as delivered.
 func (o *slackOrchestrator) streamReply(ctx context.Context, w replyWatch, texts []string) bool {
-	ts, err := o.web.StartStream(ctx, o.streamTarget(w), texts[0])
+	chunks := internalslack.SplitMarkdown(strings.Join(texts, "\n\n"))
+	if len(chunks) == 0 {
+		return false
+	}
+	ts, err := o.web.StartStream(ctx, o.streamTarget(w), chunks[0])
 	if err != nil {
 		log.Printf("slack connector %s: streaming reply for %s unavailable (%v); posting instead", o.agentName, w.runName, err)
 		return false
 	}
-	for _, text := range texts[1:] {
-		if err := o.web.AppendStream(ctx, w.channelID, ts, "\n\n"+text); err != nil {
+	for _, chunk := range chunks[1:] {
+		if err := o.web.AppendStream(ctx, w.channelID, ts, chunk); err != nil {
 			log.Printf("slack connector %s: appending reply for %s: %v", o.agentName, w.runName, err)
 			break
 		}
