@@ -96,6 +96,8 @@ describe("ProjectSettingsPanel", () => {
       expect(screen.getByRole("heading", { name: title })).toBeTruthy();
     }
     expect(screen.queryByRole("heading", { name: "Privileged access" })).toBeNull();
+    expect(screen.queryByLabelText(/MCPPolicy|Allowed MCP servers|Default action/)).toBeNull();
+    expect(screen.getByLabelText("RuntimeProfile ref")).toBeTruthy();
 
     expect((screen.getByLabelText(/Display name/) as HTMLInputElement).value).toBe("Payments");
     expect((screen.getByLabelText("Repository URL") as HTMLInputElement).value).toBe(

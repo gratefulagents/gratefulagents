@@ -100,12 +100,6 @@ func crdDefaultsToProto(d triggersv1alpha1.AgentRunDefaults) *platform.AgentRunD
 	if d.RuntimeProfileRef != nil {
 		pb.RuntimeProfileRef = d.RuntimeProfileRef.Name
 	}
-	if d.MCPPolicyRef != nil {
-		pb.McpPolicyRef = d.MCPPolicyRef.Name
-	}
-	if d.SSHTunnelRef != nil {
-		pb.SshTunnelRef = d.SSHTunnelRef.Name
-	}
 	for _, ref := range d.MCPServerRefs {
 		pb.McpServerRefs = append(pb.McpServerRefs, ref.Name)
 	}

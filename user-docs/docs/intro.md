@@ -19,8 +19,8 @@ This guide covers the user-facing app. Features, available models, integrations,
 - Use **Agent Ops** to find and follow runs, and **Observability** to inspect operational data when your deployment provides it.
 - Organize repository-backed work in the **Projects** tree.
 - Find projects and runs others shared with you under **Shared**.
-- Configure reusable agent building blocks under [**Resources**](./settings/resources.md), including skills, MCP servers, runtime profiles, policies, guardrails, modes, and roles.
-- Set up personal credentials, personas, model preferences, and Git commit identity in [**Settings**](./settings/account-appearance.md).
+- Configure reusable agent building blocks under [**Resources**](./settings/resources.md), including skills, MCP servers, runtime profiles, guardrails, modes, and roles.
+- Set up personal credentials, model preferences, and Git commit identity in [**Settings**](./settings/account-appearance.md).
 
 ## Common first path
 
@@ -42,8 +42,7 @@ See [Quick start](./getting-started/quick-start.md) for the detailed path.
 | **Personal project** | A project the app creates for a first chat when no project exists and a saved provider credential is available. Shown in the app as "Personal workspace". It does not require a repository. |
 | **Project** | Reusable defaults for runs. A project can include a repository and model, credential, runtime, and instruction choices. |
 | **Run** | One agent session with its chat history, activity, and any results your deployment exposes. A run is backed by a Kubernetes `AgentRun` resource. |
-| **Resource** | A reusable workspace configuration object. [Resources](./settings/resources.md) include skills, MCP servers, runtime profiles, MCP policies, guardrails, modes, and roles. |
+| **Resource** | A reusable workspace configuration object. [Resources](./settings/resources.md) include skills, MCP servers, runtime profiles, guardrails, modes, and roles. |
 | **Skill** | Reusable agent instructions, written inline or installed from the skills.sh catalog. A skill can require MCP servers. |
 | **MCP server** | A configured tool server that agents can connect to. It is distinct from a skill. |
-| **SOUL** | A stylized name for your personal agent persona. Teammates can ask an agent for your perspective, and it answers using the guidance you save. |
 | **Mode** | A configurable behavior and execution template. Available modes and their behavior depend on workspace configuration. |

@@ -5,7 +5,7 @@ import (
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 )
 
-// applyPolicyRefs copies RuntimeProfileRef, MCPPolicyRef, MCPServerRefs,
+// applyPolicyRefs copies RuntimeProfileRef, MCPServerRefs,
 // SkillRefs, the command-sandbox opt-out, the Kubernetes-admin grant, and the
 // run timeout from AgentRunDefaults onto the AgentRunSpec.
 func applyPolicyRefs(spec *platformv1alpha1.AgentRunSpec, defaults triggersv1alpha1.AgentRunDefaults) {
@@ -28,12 +28,6 @@ func applyPolicyRefs(spec *platformv1alpha1.AgentRunSpec, defaults triggersv1alp
 			spec.Limits = &platformv1alpha1.AgentRunLimits{}
 		}
 		spec.Limits.MaxRuntime = defaults.Timeout
-	}
-	if defaults.MCPPolicyRef != nil {
-		spec.MCPPolicyRef = defaults.MCPPolicyRef.DeepCopy()
-	}
-	if defaults.SSHTunnelRef != nil {
-		spec.SSHTunnelRef = defaults.SSHTunnelRef.DeepCopy()
 	}
 	if len(defaults.MCPServerRefs) > 0 {
 		refs := make([]platformv1alpha1.NamedRef, len(defaults.MCPServerRefs))

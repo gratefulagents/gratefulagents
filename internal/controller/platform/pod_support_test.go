@@ -265,8 +265,12 @@ func TestRunRBACRulesGiveOverseerReadOnlyAccessToSupervisedRun(t *testing.T) {
 func TestRunRBACRulesGrantNamespacedPolicyReads(t *testing.T) {
 	rules := runRBACRules(&platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "run"}}, "", "", "")
 	assertHasRuleVerbs(t, rules, "platform.gratefulagents.dev", "runtimeprofiles", "get")
-	assertHasRuleVerbs(t, rules, "platform.gratefulagents.dev", "mcppolicies", "get")
 	assertHasRuleVerbs(t, rules, "platform.gratefulagents.dev", "guardrailpolicies", "get")
+	for _, rule := range rules {
+		if contains(rule.Resources, "runtimeprofiles") && !slices.Equal(rule.Resources, []string{"runtimeprofiles", "guardrailpolicies"}) {
+			t.Fatalf("namespaced policy resources = %v, want only runtimeprofiles and guardrailpolicies", rule.Resources)
+		}
+	}
 }
 
 func TestEnsureRunRBACUpdatesExistingRunRoleRules(t *testing.T) {
@@ -310,7 +314,6 @@ func TestEnsureRunRBACUpdatesExistingRunRoleRules(t *testing.T) {
 	assertHasRuleVerbs(t, updated.Rules, "platform.gratefulagents.dev", "mcpservers", "get")
 	assertHasRuleVerbs(t, updated.Rules, "platform.gratefulagents.dev", "skills", "get")
 	assertHasRuleVerbs(t, updated.Rules, "platform.gratefulagents.dev", "runtimeprofiles", "get")
-	assertHasRuleVerbs(t, updated.Rules, "platform.gratefulagents.dev", "mcppolicies", "get")
 	assertHasRuleVerbs(t, updated.Rules, "platform.gratefulagents.dev", "guardrailpolicies", "get")
 }
 
@@ -529,7 +532,7 @@ func TestSandboxTemplateUsesUnifiedRunCommand(t *testing.T) {
 		},
 	}
 
-	pod := corev1.Pod{Spec: buildManagedSandboxTemplateSpec(run, nil, "run-chat", nil, "", nil, nil).PodTemplate.Spec}
+	pod := corev1.Pod{Spec: buildManagedSandboxTemplateSpec(run, nil, "run-chat", nil, "", nil).PodTemplate.Spec}
 	if len(pod.Spec.Containers) == 0 || len(pod.Spec.Containers[0].Command) < 2 || pod.Spec.Containers[0].Command[1] != "run" {
 		t.Fatalf("pod command = %#v, want unified agent run", pod.Spec.Containers[0].Command)
 	}
@@ -565,7 +568,7 @@ func TestSandboxTemplateForcesNonRootWorker(t *testing.T) {
 		},
 	}
 
-	pod := corev1.Pod{Spec: buildManagedSandboxTemplateSpec(run, nil, "run-elixir", nil, "", nil, nil).PodTemplate.Spec}
+	pod := corev1.Pod{Spec: buildManagedSandboxTemplateSpec(run, nil, "run-elixir", nil, "", nil).PodTemplate.Spec}
 
 	if len(pod.Spec.Containers) != 1 {
 		t.Fatalf("len(Containers) = %d, want 1 worker container", len(pod.Spec.Containers))

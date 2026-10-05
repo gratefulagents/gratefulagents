@@ -7,12 +7,12 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/auth"
 )
 
-// setupModelDefaultsTestStore reuses the soul-store harness (Postgres-backed,
+// setupModelDefaultsTestStore reuses the auth-store harness (Postgres-backed,
 // skips without TEST_DATABASE_URL) and additionally cleans the model defaults
 // table.
 func setupModelDefaultsTestStore(t *testing.T) *auth.PGStore {
 	t.Helper()
-	store, pool := setupSoulTestStore(t)
+	store, pool := setupAuthTestStore(t)
 	if _, err := pool.Exec(context.Background(), "DELETE FROM auth_user_model_defaults"); err != nil {
 		t.Fatalf("cleaning table auth_user_model_defaults: %v", err)
 	}

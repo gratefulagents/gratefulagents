@@ -1,9 +1,8 @@
-import { KeyRound, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { FlowField, FlowSwitchRow, OptionRow } from "@/components/create-flow/create-flow";
-import { MCPServerPicker } from "@/components/MCPServerPicker";
 import type { TriggerPolicies } from "@/rpc/platform/service_pb";
 
 const selectClassName =
@@ -14,8 +13,6 @@ export interface TriggerPolicyRowsProps {
   onPoliciesChange: (policies: TriggerPolicies) => void;
   runtimeProfileRef: string;
   onRuntimeProfileRefChange: (value: string) => void;
-  mcpPolicyRef: string;
-  onMcpPolicyRefChange: (value: string) => void;
   /** Prefix for element ids so multiple forms can coexist. */
   idPrefix?: string;
 }
@@ -29,22 +26,11 @@ function runtimePolicySummary(p: TriggerPolicies, runtimeProfileRef: string): st
   return runtimeProfileRef.trim() ? `ref ${runtimeProfileRef.trim()}` : "Default";
 }
 
-function mcpPolicySummary(p: TriggerPolicies, mcpPolicyRef: string): string {
-  if (p.configureMcpPolicy) {
-    const parts = [`${p.mcpPolicyDefaultAction || "Deny"} by default`];
-    const allowed = p.mcpPolicyAllowedServers.filter(Boolean).length;
-    if (allowed) parts.push(`${allowed} server${allowed === 1 ? "" : "s"} allowed`);
-    if (mcpPolicyRef.trim()) parts.push(mcpPolicyRef.trim());
-    return parts.join(" · ");
-  }
-  return mcpPolicyRef.trim() ? `ref ${mcpPolicyRef.trim()}` : "Off";
-}
-
 /**
- * Trigger-agnostic editor for the dashboard-managed runtime/MCP policy
+ * Trigger-agnostic editor for the dashboard-managed runtime policy
  * provisioning options (TriggerPolicies), rendered as OptionRow disclosures
  * in the same style as RunDefaultsRows. When a configure_* toggle is on the
- * server provisions or updates the RuntimeProfile/MCPPolicy named by the
+ * server provisions or updates the RuntimeProfile named by the
  * optional ref (deriving a managed name when empty); when it is off the ref
  * is stored as-is. Compose inside an <OptionRows> stack alongside
  * RunDefaultsRows in trigger create/edit dialogs (Cron, GitHubRepository,
@@ -55,8 +41,6 @@ export function TriggerPolicyRows({
   onPoliciesChange,
   runtimeProfileRef,
   onRuntimeProfileRefChange,
-  mcpPolicyRef,
-  onMcpPolicyRefChange,
   idPrefix = "trigger-policies",
 }: TriggerPolicyRowsProps) {
   function set<K extends keyof TriggerPolicies>(field: K, fieldValue: TriggerPolicies[K]) {
@@ -135,77 +119,6 @@ export function TriggerPolicyRows({
                 value={runtimeProfileRef}
                 onChange={(event) => onRuntimeProfileRefChange(event.target.value)}
                 placeholder="my-runtime"
-              />
-            </FlowField>
-          </div>
-        )}
-      </OptionRow>
-
-      {/* MCP policy */}
-      <OptionRow
-        icon={KeyRound}
-        title="MCP policy"
-        summary={mcpPolicySummary(policies, mcpPolicyRef)}
-        modified={policies.configureMcpPolicy || Boolean(mcpPolicyRef.trim())}
-      >
-        <FlowSwitchRow
-          id={`${idPrefix}-configure-mcp-policy`}
-          label="Manage MCP policy"
-          hint="Creates/updates an MCPPolicy restricting which MCP servers these runs may reach."
-          control={
-            <Switch
-              id={`${idPrefix}-configure-mcp-policy`}
-              checked={policies.configureMcpPolicy}
-              onCheckedChange={(checked) => set("configureMcpPolicy", checked)}
-            />
-          }
-        />
-        {policies.configureMcpPolicy ? (
-          <>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FlowField id={`${idPrefix}-mcp-policy-default-action`} label="Default action">
-                <select
-                  id={`${idPrefix}-mcp-policy-default-action`}
-                  value={policies.mcpPolicyDefaultAction}
-                  onChange={(event) => set("mcpPolicyDefaultAction", event.target.value)}
-                  className={selectClassName}
-                >
-                  <option value="Deny">Deny</option>
-                  <option value="Allow">Allow</option>
-                </select>
-              </FlowField>
-              <FlowField
-                id={`${idPrefix}-mcp-policy-ref`}
-                label="Policy name"
-                hint="Optional — a managed name is derived when empty."
-              >
-                <Input
-                  id={`${idPrefix}-mcp-policy-ref`}
-                  value={mcpPolicyRef}
-                  onChange={(event) => onMcpPolicyRefChange(event.target.value)}
-                  placeholder="my-mcp-policy"
-                />
-              </FlowField>
-            </div>
-            <FlowField label="Allowed MCP servers" hint="Servers these runs may reach.">
-              <MCPServerPicker
-                selected={policies.mcpPolicyAllowedServers}
-                onChange={(names) => set("mcpPolicyAllowedServers", names)}
-              />
-            </FlowField>
-          </>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FlowField
-              id={`${idPrefix}-mcp-policy-ref`}
-              label="MCPPolicy ref"
-              hint="Optional existing MCPPolicy, stored as-is."
-            >
-              <Input
-                id={`${idPrefix}-mcp-policy-ref`}
-                value={mcpPolicyRef}
-                onChange={(event) => onMcpPolicyRefChange(event.target.value)}
-                placeholder="my-mcp-policy"
               />
             </FlowField>
           </div>

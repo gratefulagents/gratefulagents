@@ -19,7 +19,6 @@ import {
   Server,
   KeyRound,
   Blocks,
-  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { palette as paletteMotion, fade } from "@/lib/motion";
@@ -142,18 +141,10 @@ export function CommandPalette({ open, onOpenChange, extraItems = [], runLabels 
         id: "nav.resources",
         group: "Go to",
         label: "Resources",
-        hint: "Skills, MCP, runtime profiles, policies, guardrails, modes, and roles",
+        hint: "Skills, MCP, runtime profiles, guardrails, modes, and roles",
         icon: <Blocks className="size-4" />,
-        keywords: ["skills", "mcp", "runtime profiles", "policies", "guardrails", "modes", "roles"],
+        keywords: ["skills", "mcp", "runtime profiles", "guardrails", "modes", "roles"],
         action: () => navigate("/resources/skills"),
-      },
-      {
-        id: "nav.settings-soul",
-        group: "Go to",
-        label: "Settings: SOUL",
-        icon: <Sparkles className="size-4" />,
-        keywords: ["soul", "persona", "agent", "settings"],
-        action: () => navigate("/settings/soul"),
       },
     ],
     [navigate],
@@ -370,7 +361,6 @@ function isActiveRoute(item: PaletteItem, pathname: string): boolean {
     "nav.settings-connection": "/settings/connection",
     "nav.settings-credentials": "/settings/credentials",
     "nav.resources": "/resources/skills",
-    "nav.settings-soul": "/settings/soul",
   };
   const expected = map[item.id];
   return expected === pathname;

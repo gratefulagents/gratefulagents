@@ -6,7 +6,7 @@ import Heading from '@theme/Heading';
 const cards = [
   {title: 'Start your first chat', to: '/docs/getting-started/quick-start', text: 'Save a provider credential and start a repo-free chat in a Personal workspace.'},
   {title: 'Navigate the app', to: '/docs/getting-started/navigation', text: 'Find Home, Agent Ops, Observability, Projects, Shared, Resources, and Settings.'},
-  {title: 'Configure Resources', to: '/docs/settings/resources', text: 'Manage skills, MCP servers, runtime profiles, policies, guardrails, modes, and roles.'},
+  {title: 'Configure Resources', to: '/docs/settings/resources', text: 'Manage skills, MCP servers, runtime profiles, guardrails, modes, and roles.'},
   {title: 'Collaborate safely', to: '/docs/collaboration/sharing-and-permissions', text: 'Share projects or runs with the right workspace permission.'},
 ];
 

@@ -115,13 +115,11 @@ rules:
   - agentruns
   - agentrunteamruntimes
   - guardrailpolicies
-  - mcppolicies
   - mcpservers
   - modetemplates
   - roleinstructions
   - runtimeprofiles
   - skills
-  - sshtunnels
   verbs:
   - create
   - delete
@@ -144,7 +142,6 @@ rules:
   - mcpservers/status
   - runtimeprofiles/status
   - skills/status
-  - sshtunnels/status
   verbs:
   - get
   - patch

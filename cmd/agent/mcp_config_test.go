@@ -9,7 +9,6 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/mcpattach"
-	agentpolicy "github.com/gratefulagents/sdk/pkg/agentsdk/policy"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -54,7 +53,7 @@ func TestBuildMCPConfigPropagatesAllowEnvAndReadOnlyHint(t *testing.T) {
 		WithObjects(srv).
 		Build()
 
-	cfg, _, networkAllowed, _ := buildMCPConfig(context.Background(), c, "default", t.TempDir(), run, agentpolicy.PermissionModeWorkspaceWrite)
+	cfg, _, networkAllowed := buildMCPConfig(context.Background(), c, "default", t.TempDir(), run)
 
 	got, ok := cfg.MCPServers["github-mcp"]
 	if !ok {
@@ -71,7 +70,7 @@ func TestBuildMCPConfigPropagatesAllowEnvAndReadOnlyHint(t *testing.T) {
 	}
 }
 
-func TestBuildMCPConfigFiltersServersBeforeSpawn(t *testing.T) {
+func TestBuildMCPConfigAllowsConfiguredServersWithoutPolicy(t *testing.T) {
 	t.Parallel()
 
 	scheme := runtime.NewScheme()
@@ -81,76 +80,21 @@ func TestBuildMCPConfigFiltersServersBeforeSpawn(t *testing.T) {
 	workDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(workDir, ".mcp.json"), []byte(`{
 		"mcpServers": {
-			"repo-evil": {"command": "sh", "args": ["-c", "echo evil"]},
-			"repo-allowed": {"command": "echo", "args": ["ok"]}
+			"repo-first": {"command": "sh", "args": ["-c", "echo first"]},
+			"repo-second": {"command": "echo", "args": ["ok"]}
 		}
 	}`), 0o644); err != nil {
 		t.Fatalf("writing .mcp.json: %v", err)
 	}
 
 	srv := &platformv1alpha1.MCPServer{
-		ObjectMeta: metav1.ObjectMeta{Name: "cluster-denied", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-managed", Namespace: "default"},
 		Spec: platformv1alpha1.MCPServerSpec{
 			MCPServerConfig: &platformv1alpha1.MCPServerConfig{Command: "cluster-mcp", AllowNetwork: true},
 		},
 	}
-	policy := &platformv1alpha1.MCPPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "mcp-policy", Namespace: "default"},
-		Spec: platformv1alpha1.MCPPolicySpec{
-			DefaultAction: platformv1alpha1.MCPDefaultActionDeny,
-			AllowedServers: []platformv1alpha1.MCPAllowedServer{
-				{Name: "repo-allowed"},
-			},
-		},
-	}
 	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "run-mcp-filter", Namespace: "default"},
-		Spec: platformv1alpha1.AgentRunSpec{
-			MCPPolicyRef:  &platformv1alpha1.NamedRef{Name: "mcp-policy"},
-			MCPServerRefs: []platformv1alpha1.NamedRef{{Name: "cluster-denied"}},
-		},
-	}
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(run, srv, policy).
-		Build()
-
-	cfg, _, networkAllowed, _ := buildMCPConfig(context.Background(), c, "default", workDir, run, agentpolicy.PermissionModeWorkspaceWrite)
-	if _, ok := cfg.MCPServers["repo-allowed"]; !ok {
-		t.Fatal("repo-allowed server not present")
-	}
-	if _, ok := cfg.MCPServers["repo-evil"]; ok {
-		t.Fatal("repo-evil server present despite deny policy")
-	}
-	if _, ok := cfg.MCPServers["cluster-denied"]; ok {
-		t.Fatal("cluster-denied server present despite deny policy")
-	}
-	if _, ok := networkAllowed["cluster-denied"]; ok {
-		t.Fatal("cluster-denied server retained its network opt-in despite deny policy")
-	}
-}
-
-func TestBuildMCPConfigDropsRepoServersInReadOnlyWithoutPolicy(t *testing.T) {
-	t.Parallel()
-
-	scheme := runtime.NewScheme()
-	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("AddToScheme(platform): %v", err)
-	}
-	workDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workDir, ".mcp.json"), []byte(`{
-		"mcpServers": {"repo-server": {"command": "echo", "args": ["ok"]}}
-	}`), 0o644); err != nil {
-		t.Fatalf("writing .mcp.json: %v", err)
-	}
-	srv := &platformv1alpha1.MCPServer{
-		ObjectMeta: metav1.ObjectMeta{Name: "cluster-managed", Namespace: "default"},
-		Spec: platformv1alpha1.MCPServerSpec{
-			MCPServerConfig: &platformv1alpha1.MCPServerConfig{Command: "cluster-mcp"},
-		},
-	}
-	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "run-mcp-readonly", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "run-mcp-configured", Namespace: "default"},
 		Spec: platformv1alpha1.AgentRunSpec{
 			MCPServerRefs: []platformv1alpha1.NamedRef{{Name: "cluster-managed"}},
 		},
@@ -160,15 +104,23 @@ func TestBuildMCPConfigDropsRepoServersInReadOnlyWithoutPolicy(t *testing.T) {
 		WithObjects(run, srv).
 		Build()
 
-	cfg, _, _, dropped := buildMCPConfig(context.Background(), c, "default", workDir, run, agentpolicy.PermissionModeReadOnly)
-	if _, ok := cfg.MCPServers["repo-server"]; ok {
-		t.Fatal("repo server present in read-only mode without policy")
+	cfg, clusterManaged, networkAllowed := buildMCPConfig(context.Background(), c, "default", workDir, run)
+	for _, name := range []string{"repo-first", "repo-second", "cluster-managed"} {
+		if _, ok := cfg.MCPServers[name]; !ok {
+			t.Errorf("configured server %q not present", name)
+		}
 	}
-	if len(dropped) != 1 || !strings.Contains(dropped[0], "repo-server") || !strings.Contains(dropped[0], "read-only") {
-		t.Fatalf("dropped = %v, want repo-server with read-only reason", dropped)
+	if len(clusterManaged) != 1 {
+		t.Fatalf("clusterManaged = %v, want only cluster-managed", clusterManaged)
 	}
-	if _, ok := cfg.MCPServers["cluster-managed"]; !ok {
-		t.Fatal("cluster-managed server not present")
+	if _, ok := clusterManaged["cluster-managed"]; !ok {
+		t.Fatal("CRD server not marked cluster-managed")
+	}
+	if len(networkAllowed) != 1 {
+		t.Fatalf("networkAllowed = %v, want only cluster-managed", networkAllowed)
+	}
+	if _, ok := networkAllowed["cluster-managed"]; !ok {
+		t.Fatal("CRD server lost its network opt-in")
 	}
 }
 
@@ -209,7 +161,7 @@ func TestBuildMCPConfigBridgesSecretEnvFromPodEnv(t *testing.T) {
 		WithObjects(srv).
 		Build()
 
-	cfg, _, _, _ := buildMCPConfig(context.Background(), c, "default", t.TempDir(), run, agentpolicy.PermissionModeWorkspaceWrite)
+	cfg, _, _ := buildMCPConfig(context.Background(), c, "default", t.TempDir(), run)
 
 	got, ok := cfg.MCPServers["grafana"]
 	if !ok {
@@ -273,7 +225,7 @@ func TestBuildMCPConfigSecretEnvRespectsExistingAllowEnv(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(srv).Build()
 
-	cfg, _, _, _ := buildMCPConfig(context.Background(), c, "default", t.TempDir(), run, agentpolicy.PermissionModeWorkspaceWrite)
+	cfg, _, _ := buildMCPConfig(context.Background(), c, "default", t.TempDir(), run)
 
 	got := cfg.MCPServers["paired"]
 	if n := len(got.AllowEnv); n != 1 || got.AllowEnv[0] != "SOME_TOKEN" {
@@ -307,7 +259,7 @@ func TestBuildMCPConfigIsolatesSameNamedSecretEnvAcrossServers(t *testing.T) {
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(dev, prod).Build()
 
-	cfg, _, _, _ := buildMCPConfig(context.Background(), c, "default", t.TempDir(), run, agentpolicy.PermissionModeWorkspaceWrite)
+	cfg, _, _ := buildMCPConfig(context.Background(), c, "default", t.TempDir(), run)
 	if got := cfg.MCPServers[dev.Name].Env["GRAFANA_URL"]; got != "https://dev.example" {
 		t.Errorf("dev GRAFANA_URL = %q", got)
 	}
@@ -335,22 +287,20 @@ func TestBuildMCPConfigMarksCRDOverrideTrusted(t *testing.T) {
 			MCPServerConfig: &platformv1alpha1.MCPServerConfig{Command: "uvx", Args: []string{"cluster-package"}},
 		},
 	}
-	policy := &platformv1alpha1.MCPPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "approved", Namespace: "default"},
-		Spec:       platformv1alpha1.MCPPolicySpec{AllowedServers: []platformv1alpha1.MCPAllowedServer{{Name: "shared"}}},
-	}
 	run := &platformv1alpha1.AgentRun{
 		ObjectMeta: metav1.ObjectMeta{Name: "run-precedence", Namespace: "default"},
 		Spec: platformv1alpha1.AgentRunSpec{
-			MCPPolicyRef:  &platformv1alpha1.NamedRef{Name: "approved"},
 			MCPServerRefs: []platformv1alpha1.NamedRef{{Name: "shared"}},
 		},
 	}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(srv, policy).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(srv).Build()
 
-	cfg, clusterManaged, _, _ := buildMCPConfig(context.Background(), c, "default", workDir, run, agentpolicy.PermissionModeWorkspaceWrite)
+	cfg, clusterManaged, networkAllowed := buildMCPConfig(context.Background(), c, "default", workDir, run)
 	if got := cfg.MCPServers["shared"]; len(got.Args) != 1 || got.Args[0] != "cluster-package" {
 		t.Fatalf("CRD did not take precedence: %+v", got)
+	}
+	if len(networkAllowed) != 0 {
+		t.Fatalf("server without network opt-in granted access: %v", networkAllowed)
 	}
 	if _, ok := clusterManaged["shared"]; !ok {
 		t.Fatal("CRD server name not marked cluster-managed")

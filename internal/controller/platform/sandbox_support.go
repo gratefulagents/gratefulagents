@@ -167,10 +167,6 @@ func ensureRunSandboxTemplate(ctx context.Context, c client.Client, run *platfor
 	}
 
 	name := managedSandboxTemplateName(run)
-	sshTunnel, err := resolveSSHTunnel(ctx, c, run)
-	if err != nil {
-		return "", err
-	}
 	secretEnvs, err := resolveMCPServerSecretEnvs(ctx, c, run)
 	if err != nil {
 		return "", err
@@ -182,7 +178,7 @@ func ensureRunSandboxTemplate(ctx context.Context, c client.Client, run *platfor
 			Labels:          sandboxTemplateLabels(run),
 			OwnerReferences: []metav1.OwnerReference{runOwnerRef(run)},
 		},
-		Spec: buildManagedSandboxTemplateSpec(run, runtimeProfile, saName, baseTemplate, workspacePVCName, secretEnvs, sshTunnel),
+		Spec: buildManagedSandboxTemplateSpec(run, runtimeProfile, saName, baseTemplate, workspacePVCName, secretEnvs),
 	}
 	if err := c.Create(ctx, template); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
@@ -227,12 +223,10 @@ func buildManagedSandboxTemplateSpec(
 	baseTemplate *extensionsv1alpha1.SandboxTemplate,
 	workspacePVCName string,
 	secretEnvs []corev1.EnvVar,
-	sshTunnel *platformv1alpha1.SSHTunnel,
 ) extensionsv1alpha1.SandboxTemplateSpec {
 	envs := runExecutionEnvVars(run)
 	envs = append(envs, secretEnvs...)
 	podSpec := buildCommonPodSpec(run, saName, []string{"/opt/gratefulagents/bin/agent", "run"}, envs, nil, nil)
-	ensureSSHTunnelSidecar(&podSpec, sshTunnel)
 	podSpec.AutomountServiceAccountToken = boolPtr(true)
 	applyRuntimeProfileSandboxOverrides(&podSpec, runtimeProfile, workspacePVCName)
 

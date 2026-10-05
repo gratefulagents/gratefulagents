@@ -185,10 +185,6 @@ export function SlackAgentCreateDialog({
         image: "",
         permissionMode: "workspace-write",
         egressMode: "unrestricted",
-        mcpPolicyRef: "",
-        configureMcpPolicy: false,
-        mcpPolicyDefaultAction: "Deny",
-        mcpPolicyAllowedServers: [],
       });
       setOpen(false);
       reset();

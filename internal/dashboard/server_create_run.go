@@ -304,9 +304,6 @@ func (s *Server) createAgentRunFromRequest(ctx context.Context, req *platform.Cr
 	if defaults.Team != nil {
 		run.Spec.Team = defaults.Team.DeepCopy()
 	}
-	if defaults.SSHTunnelRef != nil {
-		run.Spec.SSHTunnelRef = defaults.SSHTunnelRef.DeepCopy()
-	}
 	if project, ok := owner.(*triggersv1alpha1.Project); ok {
 		if project.Spec.ReviewLoop != nil && !project.Spec.ReviewLoop.Disabled {
 			run.Annotations[projectReviewLoopAnnotation] = projectReviewLoopEnabled
@@ -334,11 +331,6 @@ func (s *Server) createAgentRunFromRequest(ctx context.Context, req *platform.Cr
 		return nil, err
 	}
 	applyRuntimeProfileDefaultsToAgentRun(run, profile, profileRef)
-	mcpPolicy, mcpPolicyRef, err := s.resolveMCPPolicy(ctx, namespace, defaults.MCPPolicyRef)
-	if err != nil {
-		return nil, err
-	}
-	applyMCPPolicyDefaultsToAgentRun(run, mcpPolicy, mcpPolicyRef)
 	// Attach the source's MCP servers and skills, mirroring the trigger run
 	// builder's applyPolicyRefs.
 	if len(defaults.MCPServerRefs) > 0 {

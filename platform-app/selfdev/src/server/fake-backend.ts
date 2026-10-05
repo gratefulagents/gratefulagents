@@ -47,7 +47,6 @@ import {
   ListProjectsResponseSchema,
   ListRepositoriesResponseSchema,
   ListRuntimeImagesResponseSchema,
-  ListSSHTunnelsResponseSchema,
   ListSharesResponseSchema,
   ListSharedWithMeResponseSchema,
   ListSkillsResponseSchema,
@@ -415,8 +414,6 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
       return {};
     },
     listRuntimeImages: async () => create(ListRuntimeImagesResponseSchema, { images: s.runtimeImages }),
-    listSSHTunnels: async () =>
-      create(ListSSHTunnelsResponseSchema, { namespace: s.user.username, tunnels: s.sshTunnels }),
     listAvailableModes: async () => create(ListAvailableModesResponseSchema, { modes: s.modes }),
     getModeTemplate: async (req: { name: string }) => {
       const mode = s.modes.find((m) => m.name === req.name);
@@ -486,11 +483,6 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
         email: s.user.email,
         credentials: s.credentials,
       });
-    },
-    getMySoul: async () => s.soul,
-    updateMySoul: async (req: { content: string }) => {
-      s.soul.content = req.content;
-      return s.soul;
     },
     getMyGitIdentity: async () => s.gitIdentity,
     updateMyGitIdentity: async (req: { name: string; email: string }) => {

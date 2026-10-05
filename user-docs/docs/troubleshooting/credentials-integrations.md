@@ -74,7 +74,6 @@ The exact callback path must be publicly reachable through HTTPS without an inte
 1. Open **Settings → Credentials** and confirm the integration and required key names exist.
 2. Open **Resources → MCP servers** and verify each secret environment row references the intended integration and key.
 3. Confirm the MCP server and any related Skill are attached to the Project.
-4. If an MCP policy denies by default, allow the intended server and tools.
 
 ## Slack connection problems
 

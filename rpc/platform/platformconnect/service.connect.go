@@ -145,9 +145,6 @@ const (
 	// PlatformServiceListRuntimeProfilesProcedure is the fully-qualified name of the PlatformService's
 	// ListRuntimeProfiles RPC.
 	PlatformServiceListRuntimeProfilesProcedure = "/platform.v1.PlatformService/ListRuntimeProfiles"
-	// PlatformServiceListSSHTunnelsProcedure is the fully-qualified name of the PlatformService's
-	// ListSSHTunnels RPC.
-	PlatformServiceListSSHTunnelsProcedure = "/platform.v1.PlatformService/ListSSHTunnels"
 	// PlatformServiceCreateRuntimeProfileProcedure is the fully-qualified name of the PlatformService's
 	// CreateRuntimeProfile RPC.
 	PlatformServiceCreateRuntimeProfileProcedure = "/platform.v1.PlatformService/CreateRuntimeProfile"
@@ -157,18 +154,6 @@ const (
 	// PlatformServiceDeleteRuntimeProfileProcedure is the fully-qualified name of the PlatformService's
 	// DeleteRuntimeProfile RPC.
 	PlatformServiceDeleteRuntimeProfileProcedure = "/platform.v1.PlatformService/DeleteRuntimeProfile"
-	// PlatformServiceListMCPPoliciesProcedure is the fully-qualified name of the PlatformService's
-	// ListMCPPolicies RPC.
-	PlatformServiceListMCPPoliciesProcedure = "/platform.v1.PlatformService/ListMCPPolicies"
-	// PlatformServiceCreateMCPPolicyProcedure is the fully-qualified name of the PlatformService's
-	// CreateMCPPolicy RPC.
-	PlatformServiceCreateMCPPolicyProcedure = "/platform.v1.PlatformService/CreateMCPPolicy"
-	// PlatformServiceUpdateMCPPolicyProcedure is the fully-qualified name of the PlatformService's
-	// UpdateMCPPolicy RPC.
-	PlatformServiceUpdateMCPPolicyProcedure = "/platform.v1.PlatformService/UpdateMCPPolicy"
-	// PlatformServiceDeleteMCPPolicyProcedure is the fully-qualified name of the PlatformService's
-	// DeleteMCPPolicy RPC.
-	PlatformServiceDeleteMCPPolicyProcedure = "/platform.v1.PlatformService/DeleteMCPPolicy"
 	// PlatformServiceListGuardrailPoliciesProcedure is the fully-qualified name of the
 	// PlatformService's ListGuardrailPolicies RPC.
 	PlatformServiceListGuardrailPoliciesProcedure = "/platform.v1.PlatformService/ListGuardrailPolicies"
@@ -208,12 +193,6 @@ const (
 	// PlatformServiceListRuntimeImagesProcedure is the fully-qualified name of the PlatformService's
 	// ListRuntimeImages RPC.
 	PlatformServiceListRuntimeImagesProcedure = "/platform.v1.PlatformService/ListRuntimeImages"
-	// PlatformServiceGetMySoulProcedure is the fully-qualified name of the PlatformService's GetMySoul
-	// RPC.
-	PlatformServiceGetMySoulProcedure = "/platform.v1.PlatformService/GetMySoul"
-	// PlatformServiceUpdateMySoulProcedure is the fully-qualified name of the PlatformService's
-	// UpdateMySoul RPC.
-	PlatformServiceUpdateMySoulProcedure = "/platform.v1.PlatformService/UpdateMySoul"
 	// PlatformServiceGetMyRoleModelPreferencesProcedure is the fully-qualified name of the
 	// PlatformService's GetMyRoleModelPreferences RPC.
 	PlatformServiceGetMyRoleModelPreferencesProcedure = "/platform.v1.PlatformService/GetMyRoleModelPreferences"
@@ -600,16 +579,9 @@ type PlatformServiceClient interface {
 	// Namespaced dashboard resources always resolve to the verified caller's
 	// personal namespace. These requests intentionally carry no namespace.
 	ListRuntimeProfiles(context.Context, *connect.Request[platform.ListRuntimeProfilesRequest]) (*connect.Response[platform.ListRuntimeProfilesResponse], error)
-	// SSHTunnel resources are kubectl/GitOps-authored; the dashboard lists them
-	// (name + health) so run defaults can reference a tunnel by picking it.
-	ListSSHTunnels(context.Context, *connect.Request[platform.ListSSHTunnelsRequest]) (*connect.Response[platform.ListSSHTunnelsResponse], error)
 	CreateRuntimeProfile(context.Context, *connect.Request[platform.CreateRuntimeProfileRequest]) (*connect.Response[platform.RuntimeProfile], error)
 	UpdateRuntimeProfile(context.Context, *connect.Request[platform.UpdateRuntimeProfileRequest]) (*connect.Response[platform.RuntimeProfile], error)
 	DeleteRuntimeProfile(context.Context, *connect.Request[platform.DeleteRuntimeProfileRequest]) (*connect.Response[emptypb.Empty], error)
-	ListMCPPolicies(context.Context, *connect.Request[platform.ListMCPPoliciesRequest]) (*connect.Response[platform.ListMCPPoliciesResponse], error)
-	CreateMCPPolicy(context.Context, *connect.Request[platform.CreateMCPPolicyRequest]) (*connect.Response[platform.MCPPolicy], error)
-	UpdateMCPPolicy(context.Context, *connect.Request[platform.UpdateMCPPolicyRequest]) (*connect.Response[platform.MCPPolicy], error)
-	DeleteMCPPolicy(context.Context, *connect.Request[platform.DeleteMCPPolicyRequest]) (*connect.Response[emptypb.Empty], error)
 	ListGuardrailPolicies(context.Context, *connect.Request[platform.ListGuardrailPoliciesRequest]) (*connect.Response[platform.ListGuardrailPoliciesResponse], error)
 	CreateGuardrailPolicy(context.Context, *connect.Request[platform.CreateGuardrailPolicyRequest]) (*connect.Response[platform.GuardrailPolicy], error)
 	UpdateGuardrailPolicy(context.Context, *connect.Request[platform.UpdateGuardrailPolicyRequest]) (*connect.Response[platform.GuardrailPolicy], error)
@@ -628,10 +600,6 @@ type PlatformServiceClient interface {
 	// ListRuntimeImages lists the curated worker image catalog (language →
 	// official image) offered when configuring projects, agents, and runs.
 	ListRuntimeImages(context.Context, *connect.Request[platform.ListRuntimeImagesRequest]) (*connect.Response[platform.ListRuntimeImagesResponse], error)
-	GetMySoul(context.Context, *connect.Request[platform.GetMySoulRequest]) (*connect.Response[platform.Soul], error)
-	UpdateMySoul(context.Context, *connect.Request[platform.UpdateMySoulRequest]) (*connect.Response[platform.Soul], error)
-	// Personal role-model preferences override cluster RoleInstruction model
-	// defaults for runs created by the calling user.
 	GetMyRoleModelPreferences(context.Context, *connect.Request[platform.GetMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
 	UpdateMyRoleModelPreferences(context.Context, *connect.Request[platform.UpdateMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
 	// Personal model defaults seed the provider/model/reasoning fields whenever
@@ -1008,12 +976,6 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(platformServiceMethods.ByName("ListRuntimeProfiles")),
 			connect.WithClientOptions(opts...),
 		),
-		listSSHTunnels: connect.NewClient[platform.ListSSHTunnelsRequest, platform.ListSSHTunnelsResponse](
-			httpClient,
-			baseURL+PlatformServiceListSSHTunnelsProcedure,
-			connect.WithSchema(platformServiceMethods.ByName("ListSSHTunnels")),
-			connect.WithClientOptions(opts...),
-		),
 		createRuntimeProfile: connect.NewClient[platform.CreateRuntimeProfileRequest, platform.RuntimeProfile](
 			httpClient,
 			baseURL+PlatformServiceCreateRuntimeProfileProcedure,
@@ -1030,30 +992,6 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			httpClient,
 			baseURL+PlatformServiceDeleteRuntimeProfileProcedure,
 			connect.WithSchema(platformServiceMethods.ByName("DeleteRuntimeProfile")),
-			connect.WithClientOptions(opts...),
-		),
-		listMCPPolicies: connect.NewClient[platform.ListMCPPoliciesRequest, platform.ListMCPPoliciesResponse](
-			httpClient,
-			baseURL+PlatformServiceListMCPPoliciesProcedure,
-			connect.WithSchema(platformServiceMethods.ByName("ListMCPPolicies")),
-			connect.WithClientOptions(opts...),
-		),
-		createMCPPolicy: connect.NewClient[platform.CreateMCPPolicyRequest, platform.MCPPolicy](
-			httpClient,
-			baseURL+PlatformServiceCreateMCPPolicyProcedure,
-			connect.WithSchema(platformServiceMethods.ByName("CreateMCPPolicy")),
-			connect.WithClientOptions(opts...),
-		),
-		updateMCPPolicy: connect.NewClient[platform.UpdateMCPPolicyRequest, platform.MCPPolicy](
-			httpClient,
-			baseURL+PlatformServiceUpdateMCPPolicyProcedure,
-			connect.WithSchema(platformServiceMethods.ByName("UpdateMCPPolicy")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteMCPPolicy: connect.NewClient[platform.DeleteMCPPolicyRequest, emptypb.Empty](
-			httpClient,
-			baseURL+PlatformServiceDeleteMCPPolicyProcedure,
-			connect.WithSchema(platformServiceMethods.ByName("DeleteMCPPolicy")),
 			connect.WithClientOptions(opts...),
 		),
 		listGuardrailPolicies: connect.NewClient[platform.ListGuardrailPoliciesRequest, platform.ListGuardrailPoliciesResponse](
@@ -1132,18 +1070,6 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			httpClient,
 			baseURL+PlatformServiceListRuntimeImagesProcedure,
 			connect.WithSchema(platformServiceMethods.ByName("ListRuntimeImages")),
-			connect.WithClientOptions(opts...),
-		),
-		getMySoul: connect.NewClient[platform.GetMySoulRequest, platform.Soul](
-			httpClient,
-			baseURL+PlatformServiceGetMySoulProcedure,
-			connect.WithSchema(platformServiceMethods.ByName("GetMySoul")),
-			connect.WithClientOptions(opts...),
-		),
-		updateMySoul: connect.NewClient[platform.UpdateMySoulRequest, platform.Soul](
-			httpClient,
-			baseURL+PlatformServiceUpdateMySoulProcedure,
-			connect.WithSchema(platformServiceMethods.ByName("UpdateMySoul")),
 			connect.WithClientOptions(opts...),
 		),
 		getMyRoleModelPreferences: connect.NewClient[platform.GetMyRoleModelPreferencesRequest, platform.RoleModelPreferences](
@@ -1818,14 +1744,9 @@ type platformServiceClient struct {
 	upsertSkill                            *connect.Client[platform.UpsertSkillRequest, platform.SkillInfo]
 	deleteSkill                            *connect.Client[platform.DeleteSkillRequest, emptypb.Empty]
 	listRuntimeProfiles                    *connect.Client[platform.ListRuntimeProfilesRequest, platform.ListRuntimeProfilesResponse]
-	listSSHTunnels                         *connect.Client[platform.ListSSHTunnelsRequest, platform.ListSSHTunnelsResponse]
 	createRuntimeProfile                   *connect.Client[platform.CreateRuntimeProfileRequest, platform.RuntimeProfile]
 	updateRuntimeProfile                   *connect.Client[platform.UpdateRuntimeProfileRequest, platform.RuntimeProfile]
 	deleteRuntimeProfile                   *connect.Client[platform.DeleteRuntimeProfileRequest, emptypb.Empty]
-	listMCPPolicies                        *connect.Client[platform.ListMCPPoliciesRequest, platform.ListMCPPoliciesResponse]
-	createMCPPolicy                        *connect.Client[platform.CreateMCPPolicyRequest, platform.MCPPolicy]
-	updateMCPPolicy                        *connect.Client[platform.UpdateMCPPolicyRequest, platform.MCPPolicy]
-	deleteMCPPolicy                        *connect.Client[platform.DeleteMCPPolicyRequest, emptypb.Empty]
 	listGuardrailPolicies                  *connect.Client[platform.ListGuardrailPoliciesRequest, platform.ListGuardrailPoliciesResponse]
 	createGuardrailPolicy                  *connect.Client[platform.CreateGuardrailPolicyRequest, platform.GuardrailPolicy]
 	updateGuardrailPolicy                  *connect.Client[platform.UpdateGuardrailPolicyRequest, platform.GuardrailPolicy]
@@ -1839,8 +1760,6 @@ type platformServiceClient struct {
 	updateRoleInstruction                  *connect.Client[platform.UpdateRoleInstructionRequest, platform.RoleInstruction]
 	deleteRoleInstruction                  *connect.Client[platform.DeleteRoleInstructionRequest, emptypb.Empty]
 	listRuntimeImages                      *connect.Client[platform.ListRuntimeImagesRequest, platform.ListRuntimeImagesResponse]
-	getMySoul                              *connect.Client[platform.GetMySoulRequest, platform.Soul]
-	updateMySoul                           *connect.Client[platform.UpdateMySoulRequest, platform.Soul]
 	getMyRoleModelPreferences              *connect.Client[platform.GetMyRoleModelPreferencesRequest, platform.RoleModelPreferences]
 	updateMyRoleModelPreferences           *connect.Client[platform.UpdateMyRoleModelPreferencesRequest, platform.RoleModelPreferences]
 	getMyModelDefaults                     *connect.Client[platform.GetMyModelDefaultsRequest, platform.ModelDefaults]
@@ -2133,11 +2052,6 @@ func (c *platformServiceClient) ListRuntimeProfiles(ctx context.Context, req *co
 	return c.listRuntimeProfiles.CallUnary(ctx, req)
 }
 
-// ListSSHTunnels calls platform.v1.PlatformService.ListSSHTunnels.
-func (c *platformServiceClient) ListSSHTunnels(ctx context.Context, req *connect.Request[platform.ListSSHTunnelsRequest]) (*connect.Response[platform.ListSSHTunnelsResponse], error) {
-	return c.listSSHTunnels.CallUnary(ctx, req)
-}
-
 // CreateRuntimeProfile calls platform.v1.PlatformService.CreateRuntimeProfile.
 func (c *platformServiceClient) CreateRuntimeProfile(ctx context.Context, req *connect.Request[platform.CreateRuntimeProfileRequest]) (*connect.Response[platform.RuntimeProfile], error) {
 	return c.createRuntimeProfile.CallUnary(ctx, req)
@@ -2151,26 +2065,6 @@ func (c *platformServiceClient) UpdateRuntimeProfile(ctx context.Context, req *c
 // DeleteRuntimeProfile calls platform.v1.PlatformService.DeleteRuntimeProfile.
 func (c *platformServiceClient) DeleteRuntimeProfile(ctx context.Context, req *connect.Request[platform.DeleteRuntimeProfileRequest]) (*connect.Response[emptypb.Empty], error) {
 	return c.deleteRuntimeProfile.CallUnary(ctx, req)
-}
-
-// ListMCPPolicies calls platform.v1.PlatformService.ListMCPPolicies.
-func (c *platformServiceClient) ListMCPPolicies(ctx context.Context, req *connect.Request[platform.ListMCPPoliciesRequest]) (*connect.Response[platform.ListMCPPoliciesResponse], error) {
-	return c.listMCPPolicies.CallUnary(ctx, req)
-}
-
-// CreateMCPPolicy calls platform.v1.PlatformService.CreateMCPPolicy.
-func (c *platformServiceClient) CreateMCPPolicy(ctx context.Context, req *connect.Request[platform.CreateMCPPolicyRequest]) (*connect.Response[platform.MCPPolicy], error) {
-	return c.createMCPPolicy.CallUnary(ctx, req)
-}
-
-// UpdateMCPPolicy calls platform.v1.PlatformService.UpdateMCPPolicy.
-func (c *platformServiceClient) UpdateMCPPolicy(ctx context.Context, req *connect.Request[platform.UpdateMCPPolicyRequest]) (*connect.Response[platform.MCPPolicy], error) {
-	return c.updateMCPPolicy.CallUnary(ctx, req)
-}
-
-// DeleteMCPPolicy calls platform.v1.PlatformService.DeleteMCPPolicy.
-func (c *platformServiceClient) DeleteMCPPolicy(ctx context.Context, req *connect.Request[platform.DeleteMCPPolicyRequest]) (*connect.Response[emptypb.Empty], error) {
-	return c.deleteMCPPolicy.CallUnary(ctx, req)
 }
 
 // ListGuardrailPolicies calls platform.v1.PlatformService.ListGuardrailPolicies.
@@ -2236,16 +2130,6 @@ func (c *platformServiceClient) DeleteRoleInstruction(ctx context.Context, req *
 // ListRuntimeImages calls platform.v1.PlatformService.ListRuntimeImages.
 func (c *platformServiceClient) ListRuntimeImages(ctx context.Context, req *connect.Request[platform.ListRuntimeImagesRequest]) (*connect.Response[platform.ListRuntimeImagesResponse], error) {
 	return c.listRuntimeImages.CallUnary(ctx, req)
-}
-
-// GetMySoul calls platform.v1.PlatformService.GetMySoul.
-func (c *platformServiceClient) GetMySoul(ctx context.Context, req *connect.Request[platform.GetMySoulRequest]) (*connect.Response[platform.Soul], error) {
-	return c.getMySoul.CallUnary(ctx, req)
-}
-
-// UpdateMySoul calls platform.v1.PlatformService.UpdateMySoul.
-func (c *platformServiceClient) UpdateMySoul(ctx context.Context, req *connect.Request[platform.UpdateMySoulRequest]) (*connect.Response[platform.Soul], error) {
-	return c.updateMySoul.CallUnary(ctx, req)
 }
 
 // GetMyRoleModelPreferences calls platform.v1.PlatformService.GetMyRoleModelPreferences.
@@ -2849,16 +2733,9 @@ type PlatformServiceHandler interface {
 	// Namespaced dashboard resources always resolve to the verified caller's
 	// personal namespace. These requests intentionally carry no namespace.
 	ListRuntimeProfiles(context.Context, *connect.Request[platform.ListRuntimeProfilesRequest]) (*connect.Response[platform.ListRuntimeProfilesResponse], error)
-	// SSHTunnel resources are kubectl/GitOps-authored; the dashboard lists them
-	// (name + health) so run defaults can reference a tunnel by picking it.
-	ListSSHTunnels(context.Context, *connect.Request[platform.ListSSHTunnelsRequest]) (*connect.Response[platform.ListSSHTunnelsResponse], error)
 	CreateRuntimeProfile(context.Context, *connect.Request[platform.CreateRuntimeProfileRequest]) (*connect.Response[platform.RuntimeProfile], error)
 	UpdateRuntimeProfile(context.Context, *connect.Request[platform.UpdateRuntimeProfileRequest]) (*connect.Response[platform.RuntimeProfile], error)
 	DeleteRuntimeProfile(context.Context, *connect.Request[platform.DeleteRuntimeProfileRequest]) (*connect.Response[emptypb.Empty], error)
-	ListMCPPolicies(context.Context, *connect.Request[platform.ListMCPPoliciesRequest]) (*connect.Response[platform.ListMCPPoliciesResponse], error)
-	CreateMCPPolicy(context.Context, *connect.Request[platform.CreateMCPPolicyRequest]) (*connect.Response[platform.MCPPolicy], error)
-	UpdateMCPPolicy(context.Context, *connect.Request[platform.UpdateMCPPolicyRequest]) (*connect.Response[platform.MCPPolicy], error)
-	DeleteMCPPolicy(context.Context, *connect.Request[platform.DeleteMCPPolicyRequest]) (*connect.Response[emptypb.Empty], error)
 	ListGuardrailPolicies(context.Context, *connect.Request[platform.ListGuardrailPoliciesRequest]) (*connect.Response[platform.ListGuardrailPoliciesResponse], error)
 	CreateGuardrailPolicy(context.Context, *connect.Request[platform.CreateGuardrailPolicyRequest]) (*connect.Response[platform.GuardrailPolicy], error)
 	UpdateGuardrailPolicy(context.Context, *connect.Request[platform.UpdateGuardrailPolicyRequest]) (*connect.Response[platform.GuardrailPolicy], error)
@@ -2877,10 +2754,6 @@ type PlatformServiceHandler interface {
 	// ListRuntimeImages lists the curated worker image catalog (language →
 	// official image) offered when configuring projects, agents, and runs.
 	ListRuntimeImages(context.Context, *connect.Request[platform.ListRuntimeImagesRequest]) (*connect.Response[platform.ListRuntimeImagesResponse], error)
-	GetMySoul(context.Context, *connect.Request[platform.GetMySoulRequest]) (*connect.Response[platform.Soul], error)
-	UpdateMySoul(context.Context, *connect.Request[platform.UpdateMySoulRequest]) (*connect.Response[platform.Soul], error)
-	// Personal role-model preferences override cluster RoleInstruction model
-	// defaults for runs created by the calling user.
 	GetMyRoleModelPreferences(context.Context, *connect.Request[platform.GetMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
 	UpdateMyRoleModelPreferences(context.Context, *connect.Request[platform.UpdateMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error)
 	// Personal model defaults seed the provider/model/reasoning fields whenever
@@ -3253,12 +3126,6 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		connect.WithSchema(platformServiceMethods.ByName("ListRuntimeProfiles")),
 		connect.WithHandlerOptions(opts...),
 	)
-	platformServiceListSSHTunnelsHandler := connect.NewUnaryHandler(
-		PlatformServiceListSSHTunnelsProcedure,
-		svc.ListSSHTunnels,
-		connect.WithSchema(platformServiceMethods.ByName("ListSSHTunnels")),
-		connect.WithHandlerOptions(opts...),
-	)
 	platformServiceCreateRuntimeProfileHandler := connect.NewUnaryHandler(
 		PlatformServiceCreateRuntimeProfileProcedure,
 		svc.CreateRuntimeProfile,
@@ -3275,30 +3142,6 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		PlatformServiceDeleteRuntimeProfileProcedure,
 		svc.DeleteRuntimeProfile,
 		connect.WithSchema(platformServiceMethods.ByName("DeleteRuntimeProfile")),
-		connect.WithHandlerOptions(opts...),
-	)
-	platformServiceListMCPPoliciesHandler := connect.NewUnaryHandler(
-		PlatformServiceListMCPPoliciesProcedure,
-		svc.ListMCPPolicies,
-		connect.WithSchema(platformServiceMethods.ByName("ListMCPPolicies")),
-		connect.WithHandlerOptions(opts...),
-	)
-	platformServiceCreateMCPPolicyHandler := connect.NewUnaryHandler(
-		PlatformServiceCreateMCPPolicyProcedure,
-		svc.CreateMCPPolicy,
-		connect.WithSchema(platformServiceMethods.ByName("CreateMCPPolicy")),
-		connect.WithHandlerOptions(opts...),
-	)
-	platformServiceUpdateMCPPolicyHandler := connect.NewUnaryHandler(
-		PlatformServiceUpdateMCPPolicyProcedure,
-		svc.UpdateMCPPolicy,
-		connect.WithSchema(platformServiceMethods.ByName("UpdateMCPPolicy")),
-		connect.WithHandlerOptions(opts...),
-	)
-	platformServiceDeleteMCPPolicyHandler := connect.NewUnaryHandler(
-		PlatformServiceDeleteMCPPolicyProcedure,
-		svc.DeleteMCPPolicy,
-		connect.WithSchema(platformServiceMethods.ByName("DeleteMCPPolicy")),
 		connect.WithHandlerOptions(opts...),
 	)
 	platformServiceListGuardrailPoliciesHandler := connect.NewUnaryHandler(
@@ -3377,18 +3220,6 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		PlatformServiceListRuntimeImagesProcedure,
 		svc.ListRuntimeImages,
 		connect.WithSchema(platformServiceMethods.ByName("ListRuntimeImages")),
-		connect.WithHandlerOptions(opts...),
-	)
-	platformServiceGetMySoulHandler := connect.NewUnaryHandler(
-		PlatformServiceGetMySoulProcedure,
-		svc.GetMySoul,
-		connect.WithSchema(platformServiceMethods.ByName("GetMySoul")),
-		connect.WithHandlerOptions(opts...),
-	)
-	platformServiceUpdateMySoulHandler := connect.NewUnaryHandler(
-		PlatformServiceUpdateMySoulProcedure,
-		svc.UpdateMySoul,
-		connect.WithSchema(platformServiceMethods.ByName("UpdateMySoul")),
 		connect.WithHandlerOptions(opts...),
 	)
 	platformServiceGetMyRoleModelPreferencesHandler := connect.NewUnaryHandler(
@@ -4097,22 +3928,12 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceDeleteSkillHandler.ServeHTTP(w, r)
 		case PlatformServiceListRuntimeProfilesProcedure:
 			platformServiceListRuntimeProfilesHandler.ServeHTTP(w, r)
-		case PlatformServiceListSSHTunnelsProcedure:
-			platformServiceListSSHTunnelsHandler.ServeHTTP(w, r)
 		case PlatformServiceCreateRuntimeProfileProcedure:
 			platformServiceCreateRuntimeProfileHandler.ServeHTTP(w, r)
 		case PlatformServiceUpdateRuntimeProfileProcedure:
 			platformServiceUpdateRuntimeProfileHandler.ServeHTTP(w, r)
 		case PlatformServiceDeleteRuntimeProfileProcedure:
 			platformServiceDeleteRuntimeProfileHandler.ServeHTTP(w, r)
-		case PlatformServiceListMCPPoliciesProcedure:
-			platformServiceListMCPPoliciesHandler.ServeHTTP(w, r)
-		case PlatformServiceCreateMCPPolicyProcedure:
-			platformServiceCreateMCPPolicyHandler.ServeHTTP(w, r)
-		case PlatformServiceUpdateMCPPolicyProcedure:
-			platformServiceUpdateMCPPolicyHandler.ServeHTTP(w, r)
-		case PlatformServiceDeleteMCPPolicyProcedure:
-			platformServiceDeleteMCPPolicyHandler.ServeHTTP(w, r)
 		case PlatformServiceListGuardrailPoliciesProcedure:
 			platformServiceListGuardrailPoliciesHandler.ServeHTTP(w, r)
 		case PlatformServiceCreateGuardrailPolicyProcedure:
@@ -4139,10 +3960,6 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceDeleteRoleInstructionHandler.ServeHTTP(w, r)
 		case PlatformServiceListRuntimeImagesProcedure:
 			platformServiceListRuntimeImagesHandler.ServeHTTP(w, r)
-		case PlatformServiceGetMySoulProcedure:
-			platformServiceGetMySoulHandler.ServeHTTP(w, r)
-		case PlatformServiceUpdateMySoulProcedure:
-			platformServiceUpdateMySoulHandler.ServeHTTP(w, r)
 		case PlatformServiceGetMyRoleModelPreferencesProcedure:
 			platformServiceGetMyRoleModelPreferencesHandler.ServeHTTP(w, r)
 		case PlatformServiceUpdateMyRoleModelPreferencesProcedure:
@@ -4510,10 +4327,6 @@ func (UnimplementedPlatformServiceHandler) ListRuntimeProfiles(context.Context, 
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListRuntimeProfiles is not implemented"))
 }
 
-func (UnimplementedPlatformServiceHandler) ListSSHTunnels(context.Context, *connect.Request[platform.ListSSHTunnelsRequest]) (*connect.Response[platform.ListSSHTunnelsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSSHTunnels is not implemented"))
-}
-
 func (UnimplementedPlatformServiceHandler) CreateRuntimeProfile(context.Context, *connect.Request[platform.CreateRuntimeProfileRequest]) (*connect.Response[platform.RuntimeProfile], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateRuntimeProfile is not implemented"))
 }
@@ -4524,22 +4337,6 @@ func (UnimplementedPlatformServiceHandler) UpdateRuntimeProfile(context.Context,
 
 func (UnimplementedPlatformServiceHandler) DeleteRuntimeProfile(context.Context, *connect.Request[platform.DeleteRuntimeProfileRequest]) (*connect.Response[emptypb.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteRuntimeProfile is not implemented"))
-}
-
-func (UnimplementedPlatformServiceHandler) ListMCPPolicies(context.Context, *connect.Request[platform.ListMCPPoliciesRequest]) (*connect.Response[platform.ListMCPPoliciesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListMCPPolicies is not implemented"))
-}
-
-func (UnimplementedPlatformServiceHandler) CreateMCPPolicy(context.Context, *connect.Request[platform.CreateMCPPolicyRequest]) (*connect.Response[platform.MCPPolicy], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.CreateMCPPolicy is not implemented"))
-}
-
-func (UnimplementedPlatformServiceHandler) UpdateMCPPolicy(context.Context, *connect.Request[platform.UpdateMCPPolicyRequest]) (*connect.Response[platform.MCPPolicy], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateMCPPolicy is not implemented"))
-}
-
-func (UnimplementedPlatformServiceHandler) DeleteMCPPolicy(context.Context, *connect.Request[platform.DeleteMCPPolicyRequest]) (*connect.Response[emptypb.Empty], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.DeleteMCPPolicy is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) ListGuardrailPolicies(context.Context, *connect.Request[platform.ListGuardrailPoliciesRequest]) (*connect.Response[platform.ListGuardrailPoliciesResponse], error) {
@@ -4592,14 +4389,6 @@ func (UnimplementedPlatformServiceHandler) DeleteRoleInstruction(context.Context
 
 func (UnimplementedPlatformServiceHandler) ListRuntimeImages(context.Context, *connect.Request[platform.ListRuntimeImagesRequest]) (*connect.Response[platform.ListRuntimeImagesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListRuntimeImages is not implemented"))
-}
-
-func (UnimplementedPlatformServiceHandler) GetMySoul(context.Context, *connect.Request[platform.GetMySoulRequest]) (*connect.Response[platform.Soul], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.GetMySoul is not implemented"))
-}
-
-func (UnimplementedPlatformServiceHandler) UpdateMySoul(context.Context, *connect.Request[platform.UpdateMySoulRequest]) (*connect.Response[platform.Soul], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.UpdateMySoul is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) GetMyRoleModelPreferences(context.Context, *connect.Request[platform.GetMyRoleModelPreferencesRequest]) (*connect.Response[platform.RoleModelPreferences], error) {

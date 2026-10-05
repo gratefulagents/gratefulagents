@@ -66,13 +66,12 @@ func TestUpdateProjectEditsDefaultsWithoutAutoCreatingPolicies(t *testing.T) {
 			SecretKey:  "api-key",
 		}},
 		RuntimeProfileRef: "shared-runtime",
-		McpPolicyRef:      "shared-policy",
 	})
 	if err != nil {
 		t.Fatalf("UpdateProject() error = %v", err)
 	}
-	if resp.DisplayName != "Payments API" || resp.RuntimeProfileRef != "shared-runtime" || resp.McpPolicyRef != "shared-policy" || resp.ModeRef != "review" {
-		t.Fatalf("response = %#v, want updated display/runtime/mcp/mode refs", resp)
+	if resp.DisplayName != "Payments API" || resp.RuntimeProfileRef != "shared-runtime" || resp.ModeRef != "review" {
+		t.Fatalf("response = %#v, want updated display/runtime/mode refs", resp)
 	}
 	if !resp.ReviewLoopDisabled {
 		t.Fatalf("ReviewLoopDisabled = false, want true")
@@ -98,9 +97,6 @@ func TestUpdateProjectEditsDefaultsWithoutAutoCreatingPolicies(t *testing.T) {
 	if defaults.RuntimeProfileRef == nil || defaults.RuntimeProfileRef.Name != "shared-runtime" {
 		t.Fatalf("RuntimeProfileRef = %#v, want shared-runtime", defaults.RuntimeProfileRef)
 	}
-	if defaults.MCPPolicyRef == nil || defaults.MCPPolicyRef.Name != "shared-policy" {
-		t.Fatalf("MCPPolicyRef = %#v, want shared-policy", defaults.MCPPolicyRef)
-	}
 	if defaults.ReasoningLevel != platformv1alpha1.ReasoningMedium {
 		t.Fatalf("ReasoningLevel = %q, want medium", defaults.ReasoningLevel)
 	}
@@ -109,9 +105,6 @@ func TestUpdateProjectEditsDefaultsWithoutAutoCreatingPolicies(t *testing.T) {
 	}
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: projectRuntimeProfileName("payments")}, &platformv1alpha1.RuntimeProfile{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("default RuntimeProfile lookup err = %v, want not found", err)
-	}
-	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: projectMCPPolicyName("payments")}, &platformv1alpha1.MCPPolicy{}); !apierrors.IsNotFound(err) {
-		t.Fatalf("default MCPPolicy lookup err = %v, want not found", err)
 	}
 }
 
@@ -220,7 +213,7 @@ func TestUpdateProjectKubernetesAdminPresenceAndAdminGate(t *testing.T) {
 	}
 }
 
-func TestUpdateProjectCanConfigureRuntimeProfileAndMCPPolicy(t *testing.T) {
+func TestUpdateProjectCanConfigureRuntimeProfile(t *testing.T) {
 	scheme := testProjectScheme(t)
 	ns := testUserNS()
 	existing := &triggersv1alpha1.Project{
@@ -258,18 +251,12 @@ func TestUpdateProjectCanConfigureRuntimeProfileAndMCPPolicy(t *testing.T) {
 		ConfigureRuntimeProfile: true,
 		PermissionMode:          "read-only",
 		EgressMode:              "disabled",
-		ConfigureMcpPolicy:      true,
-		McpPolicyDefaultAction:  "Deny",
-		McpPolicyAllowedServers: []string{"fetch", "github"},
 	})
 	if err != nil {
 		t.Fatalf("UpdateProject() error = %v", err)
 	}
 	if resp.RuntimeProfileRef != "payments-runtime" || resp.PermissionMode != "read-only" || resp.EgressMode != "disabled" {
 		t.Fatalf("runtime response = %q/%q/%q, want payments-runtime/read-only/disabled", resp.RuntimeProfileRef, resp.PermissionMode, resp.EgressMode)
-	}
-	if resp.McpPolicyRef != "payments-mcp-policy" || resp.McpPolicyDefaultAction != "Deny" {
-		t.Fatalf("mcp response = %q/%q, want payments-mcp-policy/Deny", resp.McpPolicyRef, resp.McpPolicyDefaultAction)
 	}
 
 	profile := &platformv1alpha1.RuntimeProfile{}
@@ -281,13 +268,6 @@ func TestUpdateProjectCanConfigureRuntimeProfileAndMCPPolicy(t *testing.T) {
 	}
 	if profile.Spec.Sandbox == nil || !profile.Spec.Sandbox.EnablePrivateProcfs {
 		t.Fatalf("RuntimeProfile sandbox = %#v, want legacy profile migrated to private procfs", profile.Spec.Sandbox)
-	}
-	policy := &platformv1alpha1.MCPPolicy{}
-	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "payments-mcp-policy"}, policy); err != nil {
-		t.Fatalf("Get(MCPPolicy) error = %v", err)
-	}
-	if policy.Spec.DefaultAction != platformv1alpha1.MCPDefaultActionDeny || len(policy.Spec.AllowedServers) != 2 {
-		t.Fatalf("MCPPolicy spec = %#v, want Deny with two allowed servers", policy.Spec)
 	}
 }
 
@@ -348,7 +328,6 @@ func TestUpdateProjectUsesSavedCredentials(t *testing.T) {
 		Provider:                "anthropic",
 		AuthMode:                "api-key",
 		UseSavedCredentials:     true,
-		ConfigureMcpPolicy:      false,
 		ConfigureRuntimeProfile: false,
 	})
 	if err != nil {

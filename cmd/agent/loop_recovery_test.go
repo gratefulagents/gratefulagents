@@ -299,6 +299,21 @@ func (s *recoveryStore) AppendAssistantForDurablePass(ctx context.Context, id uu
 	return s.AppendMessage(ctx, id, "assistant", content, nil)
 }
 
+func TestDecideNextIgnoresObsoleteMCPApprovalAnnotation(t *testing.T) {
+	sc, _ := newRecoveryClient(t)
+	r := &chatRuntime{sc: sc}
+	post := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+			"platform.gratefulagents.dev/mcp-break-glass-request": `{"id":"old-request","server":"github"}`,
+		}},
+		Status: platformv1alpha1.AgentRunStatus{Phase: platformv1alpha1.AgentRunPhaseWaitingApproval},
+	}
+	action, exit := r.decideNext(context.Background(), &userTurn{tracker: &agent.AutoTracker{}}, turnOutcome{result: &agent.RunResult{}}, post)
+	if action != continueAgent || exit != nil {
+		t.Fatalf("obsolete MCP approval paused the run: action=%v exit=%+v", action, exit)
+	}
+}
+
 func TestDelegatedChildInputAndCircuitBreakerAreTerminal(t *testing.T) {
 	for _, toolName := range []string{"AskUserQuestion", "present_plan"} {
 		t.Run(toolName, func(t *testing.T) {

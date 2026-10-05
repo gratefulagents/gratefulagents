@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// applyTriggerPolicies provisions or updates the RuntimeProfile and MCPPolicy
+// applyTriggerPolicies provisions or updates the RuntimeProfile
 // a trigger's policies request configures, mirroring the Project create/update
 // semantics, and rewires defaults' refs to the resulting objects. It returns
 // cleanup funcs that undo its writes — deleting objects it created and
@@ -74,43 +74,8 @@ func (s *Server) applyTriggerPolicies(
 		cleanup = append(cleanup, func() { s.cleanupRuntimeProfile(cleanupCtx, namespace, runtimeProfileRef.Name) })
 	}
 
-	mcpRefName := ""
-	if defaults.MCPPolicyRef != nil {
-		mcpRefName = defaults.MCPPolicyRef.Name
-	}
-	if policies.GetConfigureMcpPolicy() {
-		name := strings.TrimSpace(mcpRefName)
-		if name == "" {
-			name = defaultManagedResourceName(triggerName, "mcp-policy")
-		}
-		prior := &platformv1alpha1.MCPPolicy{}
-		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, prior); err == nil {
-			priorSpec := prior.Spec.DeepCopy()
-			policyName := name
-			cleanup = append(cleanup, func() {
-				s.restoreMCPPolicySpec(cleanupCtx, namespace, policyName, priorSpec)
-			})
-		}
-	}
-	mcpPolicyRef, mcpPolicyCreated, err := s.applyConfiguredMCPPolicy(
-		ctx,
-		namespace,
-		defaultManagedResourceName(triggerName, "mcp-policy"),
-		policies.GetConfigureMcpPolicy(),
-		mcpRefName,
-		policies.GetMcpPolicyDefaultAction(),
-		policies.GetMcpPolicyAllowedServers(),
-	)
-	if err != nil {
-		runCleanup(cleanup)
-		return nil, err
-	}
-	if mcpPolicyCreated {
-		cleanup = append(cleanup, func() { s.cleanupMCPPolicy(cleanupCtx, namespace, mcpPolicyRef.Name) })
-	}
-
 	defaults.RuntimeProfileRef = runtimeProfileRef
-	defaults.MCPPolicyRef = mcpPolicyRef
+
 	return cleanup, nil
 }
 
@@ -128,33 +93,15 @@ func (s *Server) restoreRuntimeProfileSpec(ctx context.Context, namespace, name 
 	}
 }
 
-// restoreMCPPolicySpec best-effort restores an MCPPolicy's spec to a snapshot
-// taken before a rolled-back trigger write updated it in place.
-func (s *Server) restoreMCPPolicySpec(ctx context.Context, namespace, name string, spec *platformv1alpha1.MCPPolicySpec) {
-	policy := &platformv1alpha1.MCPPolicy{}
-	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, policy); err != nil {
-		log.Printf("WARN: failed to read MCPPolicy %s/%s for rollback: %v", namespace, name, err)
-		return
-	}
-	policy.Spec = *spec
-	if err := s.k8sClient.Update(ctx, policy); err != nil {
-		log.Printf("WARN: failed to restore MCPPolicy %s/%s after rollback: %v", namespace, name, err)
-	}
-}
-
-// resolveTriggerPolicyModes resolves a trigger's referenced RuntimeProfile and
-// MCPPolicy into the flattened read-model fields, the same way Project
-// enrichment does.
+// resolveTriggerPolicyModes resolves a trigger's referenced RuntimeProfile
+// into the flattened read-model fields, the same way Project enrichment does.
 func (s *Server) resolveTriggerPolicyModes(
 	ctx context.Context,
 	namespace string,
 	d triggersv1alpha1.AgentRunDefaults,
-) (permissionMode, egressMode, mcpDefaultAction string, mcpAllowedServers []string) {
+) (permissionMode, egressMode string) {
 	if d.RuntimeProfileRef != nil {
 		permissionMode, egressMode = s.runtimeProfileModes(ctx, namespace, d.RuntimeProfileRef.Name)
 	}
-	if d.MCPPolicyRef != nil {
-		mcpDefaultAction, mcpAllowedServers = s.mcpPolicyConfig(ctx, namespace, d.MCPPolicyRef.Name)
-	}
-	return permissionMode, egressMode, mcpDefaultAction, mcpAllowedServers
+	return permissionMode, egressMode
 }

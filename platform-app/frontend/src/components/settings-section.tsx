@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 /**
  * Shared card shell for settings sections: icon chip + title + description
  * header, then content. Keeps every section on the settings page (and the
- * standalone Credentials / SOUL sections) visually identical.
+ * standalone Credentials section) visually identical.
  */
 export function SettingsSection({
   icon,

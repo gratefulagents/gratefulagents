@@ -169,9 +169,6 @@ jobs:
           - image: injector
             dockerfile: ./Dockerfile.injector
             runner: ubuntu-24.04
-          - image: tunnel
-            dockerfile: ./Dockerfile.tunnel
-            runner: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 

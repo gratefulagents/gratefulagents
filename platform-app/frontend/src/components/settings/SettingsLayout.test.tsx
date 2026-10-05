@@ -41,6 +41,8 @@ describe("SettingsLayout", () => {
     expect(screen.getByRole("link", { name: /Credentials/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Usage/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Skills/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Role models/ }).getAttribute("href")).toBe("/settings/role-models");
+    expect(screen.queryByRole("link", { name: /SOUL/i })).toBeNull();
     expect(screen.getByText("general-pane")).toBeTruthy();
     // Web build: desktop-only sections stay hidden.
     expect(screen.queryByRole("link", { name: /Connection/ })).toBeNull();
@@ -65,6 +67,14 @@ describe("SettingsLayout", () => {
     expect(screen.getByRole("link", { name: /General/ })).toBeTruthy();
 
     fireEvent.change(search, { target: { value: "zzz-nothing" } });
+    expect(screen.getByText(/No settings match/)).toBeTruthy();
+  });
+
+  it("does not expose the retired persona through settings search", () => {
+    renderAt("/settings");
+    fireEvent.change(screen.getByLabelText("Search settings"), {
+      target: { value: "persona" },
+    });
     expect(screen.getByText(/No settings match/)).toBeTruthy();
   });
 });

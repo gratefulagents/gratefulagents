@@ -30,11 +30,6 @@ func (in *AgentRunDefaults) DeepCopyInto(out *AgentRunDefaults) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	if in.SSHTunnelRef != nil {
-		in, out := &in.SSHTunnelRef, &out.SSHTunnelRef
-		*out = new(platformv1alpha1.NamedRef)
-		**out = **in
-	}
 	out.Timeout = in.Timeout
 	in.Secrets.DeepCopyInto(&out.Secrets)
 	if in.Team != nil {
@@ -49,11 +44,6 @@ func (in *AgentRunDefaults) DeepCopyInto(out *AgentRunDefaults) {
 	}
 	if in.RuntimeProfileRef != nil {
 		in, out := &in.RuntimeProfileRef, &out.RuntimeProfileRef
-		*out = new(platformv1alpha1.NamedRef)
-		**out = **in
-	}
-	if in.MCPPolicyRef != nil {
-		in, out := &in.MCPPolicyRef, &out.MCPPolicyRef
 		*out = new(platformv1alpha1.NamedRef)
 		**out = **in
 	}

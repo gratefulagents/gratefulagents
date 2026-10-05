@@ -76,16 +76,9 @@ service PlatformService {
   // Namespaced dashboard resources always resolve to the verified caller's
   // personal namespace. These requests intentionally carry no namespace.
   rpc ListRuntimeProfiles(ListRuntimeProfilesRequest) returns (ListRuntimeProfilesResponse);
-  // SSHTunnel resources are kubectl/GitOps-authored; the dashboard lists them
-  // (name + health) so run defaults can reference a tunnel by picking it.
-  rpc ListSSHTunnels(ListSSHTunnelsRequest) returns (ListSSHTunnelsResponse);
   rpc CreateRuntimeProfile(CreateRuntimeProfileRequest) returns (RuntimeProfile);
   rpc UpdateRuntimeProfile(UpdateRuntimeProfileRequest) returns (RuntimeProfile);
   rpc DeleteRuntimeProfile(DeleteRuntimeProfileRequest) returns (google.protobuf.Empty);
-  rpc ListMCPPolicies(ListMCPPoliciesRequest) returns (ListMCPPoliciesResponse);
-  rpc CreateMCPPolicy(CreateMCPPolicyRequest) returns (MCPPolicy);
-  rpc UpdateMCPPolicy(UpdateMCPPolicyRequest) returns (MCPPolicy);
-  rpc DeleteMCPPolicy(DeleteMCPPolicyRequest) returns (google.protobuf.Empty);
   rpc ListGuardrailPolicies(ListGuardrailPoliciesRequest) returns (ListGuardrailPoliciesResponse);
   rpc CreateGuardrailPolicy(CreateGuardrailPolicyRequest) returns (GuardrailPolicy);
   rpc UpdateGuardrailPolicy(UpdateGuardrailPolicyRequest) returns (GuardrailPolicy);
@@ -104,10 +97,6 @@ service PlatformService {
   // ListRuntimeImages lists the curated worker image catalog (language →
   // official image) offered when configuring projects, agents, and runs.
   rpc ListRuntimeImages(ListRuntimeImagesRequest) returns (ListRuntimeImagesResponse);
-  rpc GetMySoul(GetMySoulRequest) returns (Soul);
-  rpc UpdateMySoul(UpdateMySoulRequest) returns (Soul);
-  // Personal role-model preferences override cluster RoleInstruction model
-  // defaults for runs created by the calling user.
   rpc GetMyRoleModelPreferences(GetMyRoleModelPreferencesRequest) returns (RoleModelPreferences);
   rpc UpdateMyRoleModelPreferences(UpdateMyRoleModelPreferencesRequest) returns (RoleModelPreferences);
   // Personal model defaults seed the provider/model/reasoning fields whenever
@@ -724,7 +713,8 @@ message AgentRun {
   string spec_artifact_name = 18;
   string spec_artifact_key = 19;
   string runtime_profile_ref = 20;
-  string mcp_policy_ref = 21;
+  reserved 21;
+  reserved "mcp_policy_ref";
   reserved 22;
   reserved "skill_package_refs";
   // mcp_server_refs lists MCPServer names attached to this run; skill_refs
@@ -744,9 +734,8 @@ message AgentRun {
   // additional_repo_urls are extra git repositories cloned into the run's
   // sandbox at startup (under repos/<name> next to the primary repository).
   repeated string additional_repo_urls = 35;
-  // ssh_tunnel_ref names the SSHTunnel resource fronting this run's
-  // OpenAI-compatible inference endpoint (empty when the run does not use one).
-  string ssh_tunnel_ref = 36;
+  reserved 36;
+  reserved "ssh_tunnel_ref";
 
   // status
   string phase = 40;
@@ -768,7 +757,8 @@ message AgentRun {
   string resolved_permission_mode = 57;
   repeated string resolved_agent_kinds = 58;
   repeated string resolved_skills = 59;
-  repeated string resolved_mcp_servers = 60;
+  reserved 60;
+  reserved "resolved_mcp_servers";
   string cost_usd = 61;
   int64 input_tokens = 62;
   int64 output_tokens = 63;
@@ -986,12 +976,13 @@ message LinearProject {
   // defaults is the canonical AgentRunDefaults view. The flattened fields
   // above are kept for wire compat; new UI should read defaults.
   AgentRunDefaults defaults = 41;
-  // Resolved runtime/MCP policy view (from the referenced RuntimeProfile and
-  // MCPPolicy), mirroring the Project read model.
+  // Resolved runtime profile view, mirroring the Project read model.
   string permission_mode = 42;
   string egress_mode = 43;
-  string mcp_policy_default_action = 44;
-  repeated string mcp_policy_allowed_servers = 47;
+  reserved 44;
+  reserved "mcp_policy_default_action";
+  reserved 47;
+  reserved "mcp_policy_allowed_servers";
   // ownership / sharing
   ResourceOwner owner = 45;
   string my_permission = 46; // populated per-request: "owner", "collaborator", "viewer", "admin"
@@ -1403,9 +1394,12 @@ message SlackAgent {
   string permission_mode = 19; // read-only | workspace-write | danger-full-access
   string egress_mode = 20;     // unrestricted | restricted | disabled
   string runtime_profile_ref = 21;
-  string mcp_policy_ref = 22;
-  string mcp_policy_default_action = 23; // Allow | Deny
-  repeated string mcp_policy_allowed_servers = 24;
+  reserved 22;
+  reserved "mcp_policy_ref";
+  reserved 23;
+  reserved "mcp_policy_default_action";
+  reserved 24;
+  reserved "mcp_policy_allowed_servers";
   // Former inbox-triage controls (monitoring removed); numbers stay reserved.
   reserved 25, 26, 27, 28, 29;
   reserved "allow_users", "deny_users", "quiet_hours_start", "quiet_hours_end", "quiet_hours_tz";
@@ -1603,62 +1597,9 @@ message ListRuntimeProfilesResponse {
   repeated RuntimeProfile profiles = 2;
 }
 
-// SSHTunnel summarizes a namespaced SSHTunnel resource (kubectl/GitOps-
-// managed) so the dashboard can reference tunnels by name in run defaults and
-// surface their health. Secret contents never appear here.
-message SSHTunnel {
-  string namespace = 1;
-  string name = 2;
-  // host/port/user identify the SSH server; remote_host/remote_port are the
-  // forward destination as resolved on that server.
-  string host = 3;
-  int32 port = 4;
-  string user = 5;
-  string remote_host = 6;
-  int32 remote_port = 7;
-  string description = 8;
-  // phase mirrors status.phase: "Ready", "Invalid", or empty while pending.
-  string phase = 9;
-  // message is the human-readable detail from the Ready condition (why the
-  // tunnel is or is not usable).
-  string message = 10;
-  int64 created_at_unix = 11;
-}
-message ListSSHTunnelsRequest {}
-message ListSSHTunnelsResponse {
-  string namespace = 1;
-  repeated SSHTunnel tunnels = 2;
-}
 message CreateRuntimeProfileRequest { RuntimeProfile profile = 1; }
 message UpdateRuntimeProfileRequest { RuntimeProfile profile = 1; }
 message DeleteRuntimeProfileRequest { string name = 1; }
-
-message MCPAllowedServer {
-  string name = 1;
-  repeated string tools = 2;
-}
-message MCPBreakGlass {
-  bool enabled = 1;
-  bool require_audit_reason = 2;
-  bool admin_mediated = 3;
-}
-// MCPPolicy exposes every configurable MCPPolicy spec field.
-message MCPPolicy {
-  string namespace = 1;
-  string name = 2;
-  string default_action = 3; // Allow | Deny
-  repeated MCPAllowedServer allowed_servers = 4;
-  MCPBreakGlass break_glass = 5;
-  bool replace_spec = 6; // New clients set true; false preserves break-glass for legacy clients.
-}
-message ListMCPPoliciesRequest {}
-message ListMCPPoliciesResponse {
-  string namespace = 1;
-  repeated MCPPolicy policies = 2;
-}
-message CreateMCPPolicyRequest { MCPPolicy policy = 1; }
-message UpdateMCPPolicyRequest { MCPPolicy policy = 1; }
-message DeleteMCPPolicyRequest { string name = 1; }
 
 message GuardrailRule {
   string name = 1;
@@ -1768,13 +1709,14 @@ message UpdateSlackAgentRequest {
   string egress_mode = 16;     // unrestricted | restricted | disabled
   string runtime_profile_ref = 17;
   bool configure_runtime_profile = 18;
-  // MCP policy for runs the agent creates. The dashboard provisions an MCPPolicy
-  // only when configure_mcp_policy is true. If false and mcp_policy_ref is
-  // non-empty, the SlackAgent references that existing policy.
-  string mcp_policy_ref = 19;
-  bool configure_mcp_policy = 20;
-  string mcp_policy_default_action = 21; // Allow | Deny
-  repeated string mcp_policy_allowed_servers = 22;
+  reserved 19;
+  reserved "mcp_policy_ref";
+  reserved 20;
+  reserved "configure_mcp_policy";
+  reserved 21;
+  reserved "mcp_policy_default_action";
+  reserved 22;
+  reserved "mcp_policy_allowed_servers";
   // Kubernetes-safe SlackAgent name.
   string name = 23;
   // Former inbox-triage controls (monitoring removed); numbers stay reserved.
@@ -1900,21 +1842,6 @@ message UpdateSlackWorkspaceRequest {
 
 message DeleteSlackWorkspaceRequest {
   string name = 1;
-}
-// own agent. Other users' agents can consult it (via the ask_teammate tool) to
-// get that teammate's likely perspective on a question, plan, or diff.
-message Soul {
-  string content = 1;
-  // updated_at is unset when the user has never saved a SOUL.
-  google.protobuf.Timestamp updated_at = 2;
-}
-
-message GetMySoulRequest {}
-
-// UpdateMySoulRequest sets the calling user's own SOUL content. The content is
-// stored verbatim (trimmed) and bounded by the server.
-message UpdateMySoulRequest {
-  string content = 1;
 }
 
 // RoleModelPreference is one personal specialist-model setting. Provider/model
@@ -2449,13 +2376,14 @@ message CreateProjectRequest {
   string runtime_profile_ref = 21;
   string permission_mode = 22; // read-only | workspace-write | danger-full-access
   string egress_mode = 23;     // unrestricted | restricted | disabled
-  // Optional MCP policy. The dashboard provisions an MCPPolicy only when
-  // configure_mcp_policy is true. If false and mcp_policy_ref is non-empty, the
-  // Project references that existing policy.
-  bool configure_mcp_policy = 24;
-  string mcp_policy_ref = 25;
-  string mcp_policy_default_action = 26; // Allow | Deny
-  repeated string mcp_policy_allowed_servers = 27;
+  reserved 24;
+  reserved "configure_mcp_policy";
+  reserved 25;
+  reserved "mcp_policy_ref";
+  reserved 26;
+  reserved "mcp_policy_default_action";
+  reserved 27;
+  reserved "mcp_policy_allowed_servers";
   reserved 28;
   reserved "skill_package_refs";
   // mcp_server_refs / skill_refs list MCPServer and Skill names attached to
@@ -2511,10 +2439,14 @@ message UpdateProjectRequest {
   string runtime_profile_ref = 19;
   string permission_mode = 20;
   string egress_mode = 21;
-  bool configure_mcp_policy = 22;
-  string mcp_policy_ref = 23;
-  string mcp_policy_default_action = 24;
-  repeated string mcp_policy_allowed_servers = 25;
+  reserved 22;
+  reserved "configure_mcp_policy";
+  reserved 23;
+  reserved "mcp_policy_ref";
+  reserved 24;
+  reserved "mcp_policy_default_action";
+  reserved 25;
+  reserved "mcp_policy_allowed_servers";
   reserved 26;
   reserved "skill_package_refs";
   // mcp_server_refs / skill_refs replace the project's attached MCPServer and
@@ -2750,11 +2682,14 @@ message Project {
   ProjectCredentialStatus credential_status = 31;
   repeated ProviderKeyRef provider_keys = 32;
   string runtime_profile_ref = 33;
-  string mcp_policy_ref = 34;
+  reserved 34;
+  reserved "mcp_policy_ref";
   string permission_mode = 35;
   string egress_mode = 36;
-  string mcp_policy_default_action = 37;
-  repeated string mcp_policy_allowed_servers = 38;
+  reserved 37;
+  reserved "mcp_policy_default_action";
+  reserved 38;
+  reserved "mcp_policy_allowed_servers";
   reserved 39;
   reserved "skill_package_refs";
   // mcp_server_refs / skill_refs list MCPServer and Skill names attached to
@@ -3071,12 +3006,13 @@ message GitHubRepository {
   // defaults is the canonical AgentRunDefaults view. The flattened fields
   // 20-30 above are kept for wire compat; new UI should read defaults.
   AgentRunDefaults defaults = 41;
-  // Resolved runtime/MCP policy view (from the referenced RuntimeProfile and
-  // MCPPolicy), mirroring the Project read model.
+  // Resolved runtime profile view, mirroring the Project read model.
   string permission_mode = 42;
   string egress_mode = 43;
-  string mcp_policy_default_action = 44;
-  repeated string mcp_policy_allowed_servers = 47;
+  reserved 44;
+  reserved "mcp_policy_default_action";
+  reserved 47;
+  reserved "mcp_policy_allowed_servers";
   // ownership / sharing (owner=3 is the GitHub org/user, so use resource_owner)
   ResourceOwner resource_owner = 45;
   string my_permission = 46; // populated per-request: "owner", "collaborator", "viewer", "admin"
@@ -3088,8 +3024,10 @@ message GitHubRepository {
   // Resolved policy view for reviewer_defaults.
   string reviewer_permission_mode = 50;
   string reviewer_egress_mode = 51;
-  string reviewer_mcp_policy_default_action = 52;
-  repeated string reviewer_mcp_policy_allowed_servers = 53;
+  reserved 52;
+  reserved "reviewer_mcp_policy_default_action";
+  reserved 53;
+  reserved "reviewer_mcp_policy_allowed_servers";
   // Maintainer status (empty when the maintainer is disabled).
   GitHubRepositoryMaintainerStatus maintainer_status = 54;
 }
@@ -3156,7 +3094,7 @@ message CreateGitHubRepositoryFromInstallationRequest {
   // timeout, provider, allowed_models, auth_mode, secret refs,
   // custom_instructions). The repository URL is still derived from owner/repo.
   AgentRunDefaults defaults = 18;
-  // policies optionally provisions managed RuntimeProfile/MCPPolicy objects
+  // policies optionally provisions managed RuntimeProfile objects
   // for this trigger (see TriggerPolicies).
   TriggerPolicies policies = 19;
 }
@@ -3195,7 +3133,7 @@ message CreateGitHubRepositoryFromTokenRequest {
   // timeout, provider, allowed_models, auth_mode, secret refs,
   // custom_instructions). The repository URL is still derived from owner/repo.
   AgentRunDefaults defaults = 18;
-  // policies optionally provisions managed RuntimeProfile/MCPPolicy objects
+  // policies optionally provisions managed RuntimeProfile objects
   // for this trigger (see TriggerPolicies).
   TriggerPolicies policies = 19;
 }
@@ -3229,7 +3167,8 @@ message AgentRunDefaults {
   repeated ProviderKeyRef provider_keys = 17;
   // Policy/mode references (names in the same namespace unless cluster-scoped).
   string runtime_profile_ref = 18;
-  string mcp_policy_ref = 19;
+  reserved 19;
+  reserved "mcp_policy_ref";
   reserved 20;
   reserved "skill_package_refs";
   // mcp_server_refs / skill_refs list MCPServer and Skill names attached to
@@ -3239,30 +3178,30 @@ message AgentRunDefaults {
   string workflow_mode = 21;  // auto | chat
   string mode_ref = 22;       // ModeTemplate name
   string execution_mode = 23; // linear | team
-  // ssh_tunnel_ref names an SSHTunnel resource (same namespace) fronting a
-  // self-hosted OpenAI-compatible inference endpoint. Runs created from these
-  // defaults get a hardened per-run SSH port-forward sidecar and their
-  // OPENAI_BASE_URL points at the tunnel (overriding openai_base_url).
-  string ssh_tunnel_ref = 26;
+  reserved 26;
+  reserved "ssh_tunnel_ref";
   // docker_in_docker gives runs created from these defaults a privileged
   // docker:dind sidecar. Dashboard writes are restricted to cluster admins.
   optional bool docker_in_docker = 27;
 }
 
-// TriggerPolicies carries the dashboard-managed runtime/MCP policy
+// TriggerPolicies carries the dashboard-managed runtime profile
 // provisioning options shared by trigger write RPCs (same semantics as the
 // flattened fields on Create/UpdateProjectRequest): when configure_* is true
-// the server provisions or updates the RuntimeProfile/MCPPolicy named by the
-// trigger defaults' runtime_profile_ref/mcp_policy_ref (deriving a managed
+// the server provisions or updates the RuntimeProfile named by the
+// trigger defaults' runtime_profile_ref (deriving a managed
 // name when the ref is empty) and points the trigger at it. When configure_*
 // is false the refs in defaults are stored as-is.
 message TriggerPolicies {
   bool configure_runtime_profile = 1;
   string permission_mode = 2; // read-only | workspace-write | danger-full-access
   string egress_mode = 3;     // unrestricted | restricted | disabled
-  bool configure_mcp_policy = 4;
-  string mcp_policy_default_action = 5; // Allow | Deny
-  repeated string mcp_policy_allowed_servers = 6;
+  reserved 4;
+  reserved "configure_mcp_policy";
+  reserved 5;
+  reserved "mcp_policy_default_action";
+  reserved 6;
+  reserved "mcp_policy_allowed_servers";
 }
 
 // UpdateGitHubRepositoryRequest replaces the trigger's run defaults with the
@@ -3356,7 +3295,7 @@ message CreateCronRequest {
   // credentials (plus saved GitHub token) for the selected provider/auth mode,
   // instead of the explicit secret refs in defaults.
   bool use_saved_credentials = 9;
-  // policies optionally provisions managed RuntimeProfile/MCPPolicy objects
+  // policies optionally provisions managed RuntimeProfile objects
   // for this trigger (see TriggerPolicies).
   TriggerPolicies policies = 10;
 }
@@ -3373,7 +3312,7 @@ message UpdateCronRequest {
   string prompt = 7;
   AgentRunDefaults defaults = 8;
   bool use_saved_credentials = 9;
-  // policies optionally provisions managed RuntimeProfile/MCPPolicy objects
+  // policies optionally provisions managed RuntimeProfile objects
   // for this trigger (see TriggerPolicies).
   TriggerPolicies policies = 10;
 }
@@ -3418,12 +3357,13 @@ message Cron {
   // defaults is the canonical AgentRunDefaults view. The flattened fields
   // 20-31 above are kept for wire compat; new UI should read defaults.
   AgentRunDefaults defaults = 41;
-  // Resolved runtime/MCP policy view (from the referenced RuntimeProfile and
-  // MCPPolicy), mirroring the Project read model.
+  // Resolved runtime profile view, mirroring the Project read model.
   string permission_mode = 42;
   string egress_mode = 43;
-  string mcp_policy_default_action = 44;
-  repeated string mcp_policy_allowed_servers = 47;
+  reserved 44;
+  reserved "mcp_policy_default_action";
+  reserved 47;
+  reserved "mcp_policy_allowed_servers";
   // ownership / sharing
   ResourceOwner owner = 45;
   string my_permission = 46; // populated per-request: "owner", "collaborator", "viewer", "admin"

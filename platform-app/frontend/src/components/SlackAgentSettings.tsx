@@ -183,10 +183,6 @@ export function SlackAgentSettings({
   const [image, setImage] = useState("");
   const [permissionMode, setPermissionMode] = useState("workspace-write");
   const [egressMode, setEgressMode] = useState("unrestricted");
-  const [mcpPolicyRef, setMcpPolicyRef] = useState("");
-  const [configureMcpPolicy, setConfigureMcpPolicy] = useState(false);
-  const [mcpPolicyDefaultAction, setMcpPolicyDefaultAction] = useState("Deny");
-  const [mcpPolicyAllowedServers, setMcpPolicyAllowedServers] = useState("");
 
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -224,10 +220,6 @@ export function SlackAgentSettings({
     setImage(a.image || "");
     setPermissionMode(a.permissionMode || "workspace-write");
     setEgressMode(a.egressMode || "unrestricted");
-    setMcpPolicyRef(a.mcpPolicyRef || "");
-    setConfigureMcpPolicy(false);
-    setMcpPolicyDefaultAction(a.mcpPolicyDefaultAction || "Deny");
-    setMcpPolicyAllowedServers((a.mcpPolicyAllowedServers ?? []).join(", "));
     setBotToken("");
     setUserToken("");
     setAppToken("");
@@ -361,10 +353,6 @@ export function SlackAgentSettings({
         image: image.trim(),
         permissionMode,
         egressMode,
-        mcpPolicyRef: mcpPolicyRef.trim(),
-        configureMcpPolicy,
-        mcpPolicyDefaultAction,
-        mcpPolicyAllowedServers: splitCommaList(mcpPolicyAllowedServers),
       });
       toast.success("Slack agent saved");
       onSaved?.();
@@ -818,16 +806,6 @@ export function SlackAgentSettings({
                   />
                 </div>
               ))}
-            {configureMcpPolicy &&
-              mcpPolicyDefaultAction === "Deny" &&
-              mcpServerRefs.some(
-                (name) => !splitCommaList(mcpPolicyAllowedServers).includes(name),
-              ) && (
-                <p className="text-[12px] text-amber-600">
-                  Your MCP policy denies by default — add the selected server names to its allowed
-                  servers or their tools won't load.
-                </p>
-              )}
           </div>
         )}
         {availableSkills.length === 0 && skillRefs.length === 0 ? (
@@ -971,61 +949,6 @@ export function SlackAgentSettings({
             onChange={setAdditionalRepoUrls}
           />
         </Field>
-      </FormSection>
-
-      <FormSection
-        title="MCP policy"
-        description="Which MCP servers the agent may reach."
-        aside={
-          <Switch
-            aria-label="Create or update MCPPolicy"
-            checked={configureMcpPolicy}
-            onCheckedChange={setConfigureMcpPolicy}
-          />
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field id="slack-mcp-ref" label="MCPPolicy ref">
-            <Input
-              id="slack-mcp-ref"
-              value={mcpPolicyRef}
-              onChange={(e) => setMcpPolicyRef(e.target.value)}
-              placeholder="support-policy"
-              className="font-mono"
-            />
-          </Field>
-          {configureMcpPolicy && (
-            <>
-              <Field id="slack-mcp-default" label="Default action">
-                <Select
-                  value={mcpPolicyDefaultAction}
-                  onValueChange={(v) => setMcpPolicyDefaultAction((v as string) ?? "Deny")}
-                >
-                  <SelectTrigger id="slack-mcp-default" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Deny">Deny</SelectItem>
-                    <SelectItem value="Allow">Allow</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field
-                id="slack-mcp-servers"
-                label="Allowed MCP servers"
-                hint="Comma-separated server names."
-              >
-                <Input
-                  id="slack-mcp-servers"
-                  value={mcpPolicyAllowedServers}
-                  onChange={(e) => setMcpPolicyAllowedServers(e.target.value)}
-                  placeholder="fetch, github"
-                  className="font-mono"
-                />
-              </Field>
-            </>
-          )}
-        </div>
       </FormSection>
 
       <FormSection title="Availability">

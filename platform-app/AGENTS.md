@@ -61,7 +61,7 @@ proto schemas (`frontend/src/rpc`), so they type-check against the real API:
   pending actions, team, failed, queued), activity log with tool calls and a
   sub-agent, PR with checks + review thread, usage, diff, trace, projects,
   Linear/GitHub/Cron triggers, Slack agents + drafts, skills, credentials,
-  soul, git identity, notifications, shares.
+  git identity, notifications, shares.
 - `empty` — first boot, all empty states.
 - `error` — failed/blocked runs, unhealthy triggers, disconnected Slack.
 

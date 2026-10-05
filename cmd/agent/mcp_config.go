@@ -2,21 +2,17 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"regexp"
 	"strings"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/mcpattach"
-	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	sdkmcp "github.com/gratefulagents/sdk/pkg/agentsdk/mcp"
-	agentpolicy "github.com/gratefulagents/sdk/pkg/agentsdk/policy"
 )
 
 // buildMCPConfig merges MCP configs from two sources into one Config:
@@ -28,20 +24,11 @@ import (
 // CRD entries take precedence over .mcp.json entries with the same name.
 //
 // The second return value is the set of configured names sourced from MCPServer
-// CRDs. The third is the subset explicitly opted into network access. The fourth
-// lists servers dropped by policy/permission-mode filtering as human-readable
-// "name (source): reason" strings.
-func buildMCPConfig(ctx context.Context, c client.Client, namespace, workDir string, run *platformv1alpha1.AgentRun, permissionMode agentpolicy.PermissionMode) (sdkmcp.Config, map[string]struct{}, map[string]struct{}, []string) {
+// CRDs. The third is the subset explicitly opted into network access.
+func buildMCPConfig(ctx context.Context, c client.Client, namespace, workDir string, run *platformv1alpha1.AgentRun) (sdkmcp.Config, map[string]struct{}, map[string]struct{}) {
 	cfg := sdkmcp.Config{MCPServers: make(map[string]sdkmcp.ServerConfig)}
 	clusterManaged := make(map[string]struct{})
 	networkAllowed := make(map[string]struct{})
-	var dropped []string
-	evaluator, hasPolicy, err := resolveMCPConfigPolicy(ctx, c, namespace, run)
-	if err != nil {
-		log.Printf("WARN: failed to resolve MCPPolicy for config filtering: %v", err)
-		evaluator = mcppolicy.NewEvaluator(run, nil)
-		hasPolicy = true
-	}
 
 	// Source 1: repo .mcp.json (optional).
 	cfgPath := sdkmcp.ConfigPathForWorkDir(workDir)
@@ -50,10 +37,6 @@ func buildMCPConfig(ctx context.Context, c client.Client, namespace, workDir str
 		log.Printf("WARN: loading repo .mcp.json: %v", err)
 	} else if exists {
 		for name, srv := range repoCfg.MCPServers {
-			if reason := allowMCPServerConfig(name, "repo .mcp.json", evaluator, hasPolicy, permissionMode, false); reason != "" {
-				dropped = append(dropped, fmt.Sprintf("%s (repo .mcp.json): %s", name, reason))
-				continue
-			}
 			cfg.MCPServers[name] = srv
 		}
 		log.Printf("Loaded %d MCP server(s) from repo .mcp.json", len(repoCfg.MCPServers))
@@ -62,11 +45,11 @@ func buildMCPConfig(ctx context.Context, c client.Client, namespace, workDir str
 	// Source 2: MCPServer CRDs (cluster-managed), including servers required
 	// by attached skills.
 	if run == nil {
-		return cfg, clusterManaged, networkAllowed, dropped
+		return cfg, clusterManaged, networkAllowed
 	}
 	refs := mcpattach.EffectiveMCPServerRefs(ctx, c, run)
 	if len(refs) == 0 {
-		return cfg, clusterManaged, networkAllowed, dropped
+		return cfg, clusterManaged, networkAllowed
 	}
 	crdCount := 0
 	for _, ref := range refs {
@@ -80,25 +63,17 @@ func buildMCPConfig(ctx context.Context, c client.Client, namespace, workDir str
 			log.Printf("MCPServer %s has no server config — skipping", srv.Name)
 			continue
 		}
-		if reason := allowMCPServerConfig(srv.Name, "MCPServer", evaluator, hasPolicy, permissionMode, true); reason != "" {
-			dropped = append(dropped, fmt.Sprintf("%s (MCPServer): %s", srv.Name, reason))
-			continue
-		}
 		cfg.MCPServers[srv.Name] = crdServerConfig(srv)
 		if srv.Spec.MCPServerConfig.AllowNetwork {
 			networkAllowed[srv.Name] = struct{}{}
 		}
-		// Host materialization is more privileged than sandbox execution and
-		// requires an explicit MCPPolicy in addition to cluster provenance.
-		if hasPolicy {
-			clusterManaged[srv.Name] = struct{}{}
-		}
+		clusterManaged[srv.Name] = struct{}{}
 		crdCount++
 	}
 	if crdCount > 0 {
 		log.Printf("Resolved %d MCPServer CRD(s) into MCP config", crdCount)
 	}
-	return cfg, clusterManaged, networkAllowed, dropped
+	return cfg, clusterManaged, networkAllowed
 }
 
 // crdServerConfig converts an MCPServer CRD into the SDK server config,
@@ -166,54 +141,6 @@ func crdServerConfig(srv *platformv1alpha1.MCPServer) sdkmcp.ServerConfig {
 		AllowEnv:          allowEnv,
 		TrustReadOnlyHint: mc.TrustReadOnlyHint,
 	}
-}
-
-func resolveMCPConfigPolicy(ctx context.Context, c client.Client, namespace string, run *platformv1alpha1.AgentRun) (mcppolicy.Evaluator, bool, error) {
-	if run == nil {
-		return mcppolicy.NewEvaluator(nil, nil), false, nil
-	}
-	current := run
-	if c != nil && strings.TrimSpace(run.Name) != "" {
-		fresh := &platformv1alpha1.AgentRun{}
-		key := types.NamespacedName{Name: run.Name, Namespace: namespace}
-		if err := c.Get(ctx, key, fresh); err == nil {
-			current = fresh
-		} else if !apierrors.IsNotFound(err) {
-			return mcppolicy.Evaluator{}, false, err
-		}
-	}
-	hasPolicy := current.Spec.MCPPolicyRef != nil && strings.TrimSpace(current.Spec.MCPPolicyRef.Name) != ""
-	var policyObj *platformv1alpha1.MCPPolicy
-	if hasPolicy && c != nil {
-		policy := &platformv1alpha1.MCPPolicy{}
-		policyKey := types.NamespacedName{Name: current.Spec.MCPPolicyRef.Name, Namespace: namespace}
-		if err := c.Get(ctx, policyKey, policy); err == nil {
-			policyObj = policy
-		} else if !apierrors.IsNotFound(err) {
-			return mcppolicy.Evaluator{}, true, err
-		}
-	}
-	return mcppolicy.NewEvaluator(current, policyObj), hasPolicy, nil
-}
-
-// allowMCPServerConfig returns "" when the server may load, or a short
-// human-readable reason when it must be dropped.
-func allowMCPServerConfig(name, source string, evaluator mcppolicy.Evaluator, hasPolicy bool, permissionMode agentpolicy.PermissionMode, clusterManaged bool) string {
-	if hasPolicy {
-		if evaluator.AllowsServer(name) {
-			return ""
-		}
-		log.Printf("WARN: dropping MCP server %q from %s: not allowed by MCPPolicy", name, source)
-		return "not allowed by MCPPolicy"
-	}
-	if clusterManaged {
-		return ""
-	}
-	if agentpolicy.NormalizePermissionMode(string(permissionMode)) == agentpolicy.PermissionModeReadOnly {
-		log.Printf("WARN: dropping MCP server %q from %s: repo MCP servers are disabled in read-only mode without MCPPolicy", name, source)
-		return "repo MCP servers are disabled in read-only mode without an MCPPolicy"
-	}
-	return ""
 }
 
 // mcpPromptContext builds the per-turn prompt block describing the connected

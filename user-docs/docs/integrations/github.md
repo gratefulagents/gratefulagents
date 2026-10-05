@@ -44,7 +44,7 @@ The connection must have **Token Secret**, or all three GitHub App fields. A con
 | **Repository** | Yes | GitHub owner and repository, entered as `owner/repository`. |
 | **Events** | No | **Issues** enables issue polling and **Comments** enables issue/pull-request comment handling. Both are on for a new trigger; unticking both creates a trigger that reacts to nothing. |
 
-This Entry point inherits the Project's repository defaults, model and credential defaults, runtime, Skills, MCP policy, and custom instructions. It does not have its own run-defaults form.
+This Entry point inherits the Project's repository defaults, model and credential defaults, runtime, Skills, and custom instructions. It does not have its own run-defaults form.
 
 ## Inbound behavior
 

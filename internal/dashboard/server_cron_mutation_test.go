@@ -43,7 +43,6 @@ func fullCronDefaults() *platform.AgentRunDefaults {
 			{Provider: "anthropic", SecretName: "anthropic-cred", SecretKey: "api-key"},
 		},
 		RuntimeProfileRef: "cron-runtime",
-		McpPolicyRef:      "cron-policy",
 		McpServerRefs:     []string{"mcp-a", "mcp-b"},
 		SkillRefs:         []string{"skill-a"},
 		WorkflowMode:      "auto",
@@ -114,9 +113,6 @@ func TestCreateCronHappyPathFullDefaults(t *testing.T) {
 	if d.RuntimeProfileRef == nil || d.RuntimeProfileRef.Name != "cron-runtime" {
 		t.Fatalf("RuntimeProfileRef = %#v", d.RuntimeProfileRef)
 	}
-	if d.MCPPolicyRef == nil || d.MCPPolicyRef.Name != "cron-policy" {
-		t.Fatalf("MCPPolicyRef = %#v", d.MCPPolicyRef)
-	}
 	if len(d.MCPServerRefs) != 2 || d.MCPServerRefs[0].Name != "mcp-a" {
 		t.Fatalf("MCPServerRefs = %#v", d.MCPServerRefs)
 	}
@@ -142,7 +138,7 @@ func TestCreateCronHappyPathFullDefaults(t *testing.T) {
 		t.Fatal("resp.Defaults is nil")
 	}
 	if pd.RepoUrl != d.RepoURL || pd.Model != d.Model || pd.Timeout != "45m0s" ||
-		pd.RuntimeProfileRef != "cron-runtime" || pd.McpPolicyRef != "cron-policy" ||
+		pd.RuntimeProfileRef != "cron-runtime" ||
 		pd.ModeRef != "deep-research" || pd.WorkflowMode != "auto" || pd.ExecutionMode != "linear" {
 		t.Fatalf("proto defaults = %+v", pd)
 	}

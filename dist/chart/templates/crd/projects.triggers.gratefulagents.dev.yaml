@@ -159,17 +159,6 @@ spec:
                       additionally expose the admin-gated spec.kubernetesAdmin field for
                       dashboard-created runs.
                     type: boolean
-                  mcpPolicyRef:
-                    description: |-
-                      mcpPolicyRef references an MCPPolicy in the same namespace.
-                      The policy controls which MCP servers are allowed or denied.
-                      When omitted, the agent defaults to deny-all for MCP tools (zero trust).
-                    properties:
-                      name:
-                        type: string
-                    required:
-                    - name
-                    type: object
                   mcpServerRefs:
                     description: |-
                       mcpServerRefs lists MCPServer resources in the same namespace to inject
@@ -262,7 +251,6 @@ spec:
                       - max
                     - enum:
                       - none
-                      - minimal
                       - low
                       - medium
                       - high
@@ -348,19 +336,6 @@ spec:
                       type: object
                     type: array
                     x-kubernetes-list-type: atomic
-                  sshTunnelRef:
-                    description: |-
-                      sshTunnelRef names an SSHTunnel resource (same namespace as the created
-                      runs) that fronts a self-hosted OpenAI-compatible inference endpoint.
-                      Runs created from these defaults get a hardened per-run SSH port-forward
-                      sidecar, and their OPENAI_BASE_URL points at the tunnel's loopback
-                      listener (overriding openaiBaseURL).
-                    properties:
-                      name:
-                        type: string
-                    required:
-                    - name
-                    type: object
                   team:
                     description: |-
                       team configures the predeclared team-mode orchestration contract for

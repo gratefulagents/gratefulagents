@@ -116,14 +116,6 @@ type AgentRunDefaults struct {
 	// +optional
 	OpenAIBaseURL string `json:"openaiBaseURL,omitempty"`
 
-	// sshTunnelRef names an SSHTunnel resource (same namespace as the created
-	// runs) that fronts a self-hosted OpenAI-compatible inference endpoint.
-	// Runs created from these defaults get a hardened per-run SSH port-forward
-	// sidecar, and their OPENAI_BASE_URL points at the tunnel's loopback
-	// listener (overriding openaiBaseURL).
-	// +optional
-	SSHTunnelRef *platformv1alpha1.NamedRef `json:"sshTunnelRef,omitempty"`
-
 	// openaiApi selects which OpenAI endpoint family to use when provider is
 	// OpenAI-compatible:
 	// - "responses": force /v1/responses (default)
@@ -205,12 +197,6 @@ type AgentRunDefaults struct {
 	// Projects additionally expose the admin-gated spec.dockerInDocker field.
 	// +optional
 	DockerInDocker bool `json:"dockerInDocker,omitempty"`
-
-	// mcpPolicyRef references an MCPPolicy in the same namespace.
-	// The policy controls which MCP servers are allowed or denied.
-	// When omitted, the agent defaults to deny-all for MCP tools (zero trust).
-	// +optional
-	MCPPolicyRef *platformv1alpha1.NamedRef `json:"mcpPolicyRef,omitempty"`
 
 	// mcpServerRefs lists MCPServer resources in the same namespace to inject
 	// into created AgentRuns.

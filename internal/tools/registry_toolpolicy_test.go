@@ -48,7 +48,7 @@ func TestRegistry_ToolNameFilterNeverWidensPermissionPolicy(t *testing.T) {
 }
 
 func TestRegistry_ToolNameFilterExemptsControlFlowTools(t *testing.T) {
-	exempt := []string{"finish", "save_plan", "get_plan", "RequestMCPBreakGlass"}
+	exempt := []string{"finish", "save_plan", "get_plan"}
 	r := NewRegistry("/tmp/test", WithToolNameFilter([]string{"read_file"}, exempt))
 	for _, name := range exempt {
 		r.Register(&controlFlowTestTool{name: name})

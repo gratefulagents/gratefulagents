@@ -1,6 +1,6 @@
 export const resourceTabs = [
   ["skills", "Skills"], ["mcp-servers", "MCP servers"], ["runtime-profiles", "Runtime profiles"],
-  ["mcp-policies", "MCP policies"], ["guardrails", "Guardrails"], ["modes", "Modes"], ["roles", "Roles"],
+  ["guardrails", "Guardrails"], ["modes", "Modes"], ["roles", "Roles"],
 ] as const;
 export type ResourceKind = (typeof resourceTabs)[number][0];
 

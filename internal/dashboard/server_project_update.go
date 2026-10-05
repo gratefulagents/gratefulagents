@@ -115,21 +115,6 @@ func (s *Server) UpdateProject(ctx context.Context, req *platform.UpdateProjectR
 	if err != nil {
 		return nil, err
 	}
-	mcpPolicyRef, mcpPolicyCreated, err := s.applyConfiguredMCPPolicy(
-		ctx,
-		namespace,
-		projectMCPPolicyName(name),
-		req.GetConfigureMcpPolicy(),
-		req.GetMcpPolicyRef(),
-		req.GetMcpPolicyDefaultAction(),
-		req.GetMcpPolicyAllowedServers(),
-	)
-	if err != nil {
-		if runtimeProfileCreated {
-			s.cleanupRuntimeProfile(ctx, namespace, runtimeProfileRef.Name)
-		}
-		return nil, err
-	}
 
 	updated, err := s.patchProjectWithRetry(ctx, namespace, name, func(fresh *triggersv1alpha1.Project) error {
 		fresh.Spec.DisplayName = displayName
@@ -161,7 +146,6 @@ func (s *Server) UpdateProject(ctx context.Context, req *platform.UpdateProjectR
 		}
 		fresh.Spec.Defaults.Secrets = secrets
 		fresh.Spec.Defaults.RuntimeProfileRef = runtimeProfileRef
-		fresh.Spec.Defaults.MCPPolicyRef = mcpPolicyRef
 		fresh.Spec.Defaults.MCPServerRefs = namedRefsFromNames(req.GetMcpServerRefs())
 		fresh.Spec.Defaults.SkillRefs = namedRefsFromNames(req.GetSkillRefs())
 		return nil
@@ -169,9 +153,6 @@ func (s *Server) UpdateProject(ctx context.Context, req *platform.UpdateProjectR
 	if err != nil {
 		if runtimeProfileCreated {
 			s.cleanupRuntimeProfile(ctx, namespace, runtimeProfileRef.Name)
-		}
-		if mcpPolicyCreated {
-			s.cleanupMCPPolicy(ctx, namespace, mcpPolicyRef.Name)
 		}
 		if connect.CodeOf(err) != connect.CodeUnknown {
 			return nil, err

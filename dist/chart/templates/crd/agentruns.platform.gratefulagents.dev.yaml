@@ -144,14 +144,6 @@ spec:
                     format: int32
                     type: integer
                 type: object
-              mcpPolicyRef:
-                description: NamedRef references another namespaced resource by name.
-                properties:
-                  name:
-                    type: string
-                required:
-                - name
-                type: object
               mcpServerRefs:
                 description: |-
                   MCPServerRefs lists MCPServer resources (same namespace) whose MCP
@@ -439,18 +431,6 @@ spec:
                     type: string
                 required:
                 - kind
-                - name
-                type: object
-              sshTunnelRef:
-                description: |-
-                  SSHTunnelRef names an SSHTunnel (same namespace) that fronts the run's
-                  OpenAI-compatible inference endpoint. When set, a hardened SSH
-                  port-forward sidecar joins the run pod and OPENAI_BASE_URL points at
-                  the tunnel's loopback listener, overriding spec.openaiBaseURL.
-                properties:
-                  name:
-                    type: string
-                required:
                 - name
                 type: object
               team:
@@ -1004,11 +984,6 @@ spec:
                       ResolvedGitRemoteWrites reports whether remote Git mutations are enabled
                       after RuntimeProfile defaults are applied.
                     type: string
-                  resolvedMcpServers:
-                    items:
-                      type: string
-                    type: array
-                    x-kubernetes-list-type: atomic
                   resolvedPermissionMode:
                     type: string
                   resolvedSkills:

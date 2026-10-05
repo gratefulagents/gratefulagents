@@ -122,12 +122,6 @@ type AuthUserRoleParentModel struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-type AuthUserSoul struct {
-	UserID    uuid.UUID `json:"user_id"`
-	Content   string    `json:"content"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
 type ConversationMessage struct {
 	ID               int64              `json:"id"`
 	SessionID        uuid.UUID          `json:"session_id"`

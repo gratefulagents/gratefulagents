@@ -25,7 +25,7 @@ Only two fields are shown by default:
 
 The **Model** row shows what the Project will use as a receipt (`Anthropic · claude-sonnet-4-6 · saved credentials`). It starts from your **Settings → Model defaults** and **Settings → Credentials**; expand it only to change the provider, model, reasoning level, authentication mode, or to enter inline credentials instead of saved ones. If no saved credential covers the provider, the row opens on its own and explains what to add.
 
-**More options** reveals the remaining groups — **Repository** (base branch, additional repositories), **Agent** (default mode, PR review loop, custom instructions), **Runtime** (image, timeout, RuntimeProfile), and **Tools** (MCP servers and policy). Every one of them can be changed later on the Project's **Settings** tab, so you never need to open them to create a working Project.
+**More options** reveals the remaining groups — **Repository** (base branch, additional repositories), **Agent** (default mode, PR review loop, custom instructions), **Runtime** (image, timeout, RuntimeProfile), and **Tools** (MCP servers). Every one of them can be changed later on the Project's **Settings** tab, so you never need to open them to create a working Project.
 
 The form validates that the chosen credential path is usable. Saved credentials are used only when they are present and applicable to the selected provider. A saved GitHub token is also wired when configured; repository operations that need GitHub authentication can fail without one.
 
@@ -38,7 +38,7 @@ Project settings are the defaults for dashboard-chat runs, **New Run** runs, and
 | Repositories and base branch | Selects the primary checkout, extra checkouts, and starting branch. |
 | Provider, model, authentication, and reasoning level | Selects the model and credential wiring. |
 | Runtime image, timeout, RuntimeProfile, permissions, and egress | Selects the execution environment and its access policy. |
-| MCP servers, Skills, and MCP policy | Selects available tools and policy restrictions. |
+| MCP servers and Skills | Selects available tools and reusable guidance. |
 | Allowed models | Restricts model switching within the run. |
 | Custom instructions | Adds Project guidance to each run. Repository-local `CLAUDE.md` guidance can override it. |
 

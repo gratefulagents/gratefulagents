@@ -612,7 +612,7 @@ func TestRunDoesNotInheritNamespaceSkillCatalog(t *testing.T) {
 	}
 }
 
-func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
+func TestEnsureInitializedAppliesRuntimeDefaults(t *testing.T) {
 	t.Parallel()
 
 	scheme := runtime.NewScheme()
@@ -631,7 +631,6 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 			Repository:        platformv1alpha1.RepositoryContext{URL: "https://github.com/example/repo.git"},
 			WorkflowMode:      platformv1alpha1.WorkflowModeChat,
 			RuntimeProfileRef: &platformv1alpha1.NamedRef{Name: "interactive-readonly"},
-			MCPPolicyRef:      &platformv1alpha1.NamedRef{Name: "safe-mcp"},
 			SkillRefs:         []platformv1alpha1.NamedRef{{Name: explicitSkillName}},
 		},
 	}
@@ -642,15 +641,6 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 				PermissionMode:  platformv1alpha1.PermissionMode("read-only"),
 				GitRemoteWrites: platformv1alpha1.GitRemoteWritesDisabled,
 				DefaultTimeout:  metav1.Duration{Duration: 45 * time.Minute},
-			},
-		},
-	}
-	mcpPolicy := &platformv1alpha1.MCPPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "safe-mcp", Namespace: "default"},
-		Spec: platformv1alpha1.MCPPolicySpec{
-			AllowedServers: []platformv1alpha1.MCPAllowedServer{
-				{Name: "github"},
-				{Name: "filesystem"},
 			},
 		},
 	}
@@ -670,7 +660,7 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&platformv1alpha1.AgentRun{}).
-		WithObjects(run, runtimeProfile, mcpPolicy, zetaSkill, alphaSkill).
+		WithObjects(run, runtimeProfile, zetaSkill, alphaSkill).
 		Build()
 
 	reconciler := &AgentRunReconciler{Client: k8sClient}
@@ -708,12 +698,6 @@ func TestEnsureInitializedAppliesRuntimeAndMCPDefaults(t *testing.T) {
 	}
 	if updated.Status.Policy.ResolvedGitRemoteWrites != string(platformv1alpha1.GitRemoteWritesDisabled) {
 		t.Fatalf("ResolvedGitRemoteWrites = %q, want disabled", updated.Status.Policy.ResolvedGitRemoteWrites)
-	}
-	if len(updated.Status.Policy.ResolvedMCPServers) != 2 {
-		t.Fatalf("ResolvedMCPServers len = %d, want 2", len(updated.Status.Policy.ResolvedMCPServers))
-	}
-	if updated.Status.Policy.ResolvedMCPServers[0] != "github" || updated.Status.Policy.ResolvedMCPServers[1] != "filesystem" {
-		t.Fatalf("ResolvedMCPServers = %#v, want [github filesystem]", updated.Status.Policy.ResolvedMCPServers)
 	}
 	if updated.Status.Phase != platformv1alpha1.AgentRunPhasePending {
 		t.Fatalf("Phase = %q, want %q", updated.Status.Phase, platformv1alpha1.AgentRunPhasePending)

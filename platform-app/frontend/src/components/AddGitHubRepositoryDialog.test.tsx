@@ -23,7 +23,6 @@ vi.mock("@/lib/client", () => ({
     listGitHubAppInstallations: vi.fn().mockResolvedValue({ installations: [] }),
     listGitHubAppInstallationRepositories: vi.fn().mockResolvedValue({ repositories: [] }),
     listAvailableModels: vi.fn().mockResolvedValue({ models: [] }),
-    listSSHTunnels: vi.fn().mockResolvedValue({ namespace: "user-alice", tunnels: [] }),
     createGitHubRepositoryFromInstallation: vi.fn().mockResolvedValue({}),
     createGitHubRepositoryFromToken: vi.fn().mockResolvedValue({}),
   },

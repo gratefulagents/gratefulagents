@@ -53,7 +53,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'settings/resources',
         'settings/skill-packages',
-        'settings/ssh-tunnels',
       ],
     },
     {
@@ -64,7 +63,6 @@ const sidebars: SidebarsConfig = {
         'settings/connection',
         'settings/desktop-updates',
         'settings/credentials',
-        'settings/soul',
         'settings/role-models',
         'settings/git-identity',
       ],

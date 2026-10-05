@@ -14,7 +14,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
-	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	"github.com/gratefulagents/gratefulagents/internal/mode"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
@@ -482,27 +481,6 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 		if err := checkRequestedPendingID(req.GetPendingRequestId(), sess); err != nil {
 			return nil, err
 		}
-		pendingMCPRequest, err := mcppolicy.PendingRequest(run)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("decoding pending MCP break-glass request: %w", err))
-		}
-		if pendingMCPRequest != nil {
-			switch actionID {
-			case "approve":
-				if err := s.handleApproveMCPBreakGlass(ctx, run, sess, pendingMCPRequest, freeform); err != nil {
-					return nil, err
-				}
-			case "reject":
-				if err := s.handleRejectMCPBreakGlass(ctx, run, sess, pendingMCPRequest, freeform); err != nil {
-					return nil, err
-				}
-			default:
-				return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("MCP break-glass requests must be approved or rejected with the action buttons"))
-			}
-			// The MCP handler conditionally consumes the exact Postgres request;
-			// never clear here because a replacement may have raced the decision.
-			return &platform.SendAgentRunMessageResponse{}, nil
-		}
 
 		// Reject forged or stale action IDs before they can enter the
 		// conversation as a user turn or consume the pending prompt.
@@ -701,11 +679,6 @@ func (s *Server) SendAgentRunMessage(ctx context.Context, req *platform.SendAgen
 	}
 	if ready, reason := agentRunMessageReadiness(run, sess); !ready {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New(strings.TrimSpace(reason)))
-	}
-	if pendingMCPRequest, err := mcppolicy.PendingRequest(run); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("decoding pending MCP break-glass request: %w", err))
-	} else if pendingMCPRequest != nil {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("MCP break-glass approval is pending. Use the approve or reject action to continue."))
 	}
 	// A message explicitly bound to a request the session no longer has is a
 	// stale tab answering a replaced question. Reject before persisting assets.

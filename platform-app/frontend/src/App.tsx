@@ -92,7 +92,6 @@ const SettingsLayout = React.lazy(() => import("@/components/settings/SettingsLa
 const SettingsConnectionPage = React.lazy(() => import("@/components/settings/ConnectionPage"));
 const SettingsCredentialsPage = React.lazy(() => import("@/components/settings/CredentialsPage"));
 const SettingsUsagePage = React.lazy(() => import("@/components/settings/UsagePage"));
-const SettingsSoulPage = React.lazy(() => import("@/components/settings/SoulPage"));
 const SettingsRoleModelsPage = React.lazy(() => import("@/components/settings/RoleModelsPage"));
 const SettingsGitIdentityPage = React.lazy(() => import("@/components/settings/GitIdentityPage"));
 const SettingsUpdatesPage = React.lazy(() => import("@/components/settings/UpdatesPage"));
@@ -525,7 +524,6 @@ function AuthenticatedShell() {
                 <Route path="connection" element={<SettingsConnectionPage />} />
                 <Route path="credentials" element={<SettingsCredentialsPage />} />
                 <Route path="usage" element={<SettingsUsagePage />} />
-                <Route path="soul" element={<SettingsSoulPage />} />
                 <Route path="role-models" element={<SettingsRoleModelsPage />} />
                 <Route path="git" element={<SettingsGitIdentityPage />} />
                 <Route path="updates" element={<SettingsUpdatesPage />} />

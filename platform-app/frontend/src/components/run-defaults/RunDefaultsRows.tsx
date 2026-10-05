@@ -34,7 +34,6 @@ import {
   ProviderKeyRefSchema,
   type AgentRunDefaults,
   type MyCredentials,
-  type SSHTunnel,
 } from "@/rpc/platform/service_pb";
 
 const selectClassName =
@@ -107,26 +106,11 @@ export function RunDefaultsRows({
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [savedCreds, setSavedCreds] = useState<MyCredentials | null>(null);
-  // null = list unavailable (older backend / request failed): keep the
-  // free-text input so existing tunnel refs stay editable.
-  const [sshTunnels, setSshTunnels] = useState<SSHTunnel[] | null>(null);
   const secretInventory = useMySecretInventory(resourceNamespace);
 
   const meta = providerMeta(value.provider);
   const isCopilot = value.provider === "copilot";
   const useSaved = useSavedCredentials && Boolean(meta.savedSupported);
-
-  const sshTunnelRef = value.sshTunnelRef.trim();
-  const selectedSshTunnel = sshTunnels?.find((t) => t.name === sshTunnelRef);
-  const sshTunnelHint = selectedSshTunnel
-    ? `${selectedSshTunnel.phase || "Pending"} — ${selectedSshTunnel.user}@${selectedSshTunnel.host}${
-        selectedSshTunnel.port ? `:${selectedSshTunnel.port}` : ""
-      } → ${selectedSshTunnel.remoteHost || "127.0.0.1"}:${selectedSshTunnel.remotePort}${
-        selectedSshTunnel.message ? ` · ${selectedSshTunnel.message}` : ""
-      }`
-    : sshTunnels && sshTunnels.length === 0 && !sshTunnelRef
-      ? "No SSHTunnel resources in your namespace. Admins create them with kubectl; see the self-hosted endpoints guide."
-      : "SSHTunnel resource for a self-hosted endpoint reachable only over SSH. Overrides the OpenAI base URL.";
 
   function set<K extends keyof AgentRunDefaults>(field: K, fieldValue: AgentRunDefaults[K]) {
     onChange({ ...value, [field]: fieldValue });
@@ -145,19 +129,6 @@ export function RunDefaultsRows({
       });
     return () => controller.abort();
   }, [useSaved]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    client
-      .listSSHTunnels({}, { signal: controller.signal })
-      .then((resp) => {
-        if (!controller.signal.aborted) setSshTunnels(resp.tunnels ?? []);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setSshTunnels(null);
-      });
-    return () => controller.abort();
-  }, []);
 
   // When only one credential kind is saved for the provider, align the auth
   // mode to it so the run doesn't target a credential that doesn't exist.
@@ -546,38 +517,6 @@ export function RunDefaultsRows({
               onChange={(event) => set("openaiBaseUrl", event.target.value)}
               placeholder="https://api.openai.com/v1"
             />
-          </FlowField>
-          <FlowField
-            id={`${idPrefix}-ssh-tunnel-ref`}
-            label="SSH tunnel"
-            hint={sshTunnelHint}
-          >
-            {sshTunnels === null ? (
-              <Input
-                id={`${idPrefix}-ssh-tunnel-ref`}
-                value={value.sshTunnelRef}
-                onChange={(event) => set("sshTunnelRef", event.target.value)}
-                placeholder="my-tunnel"
-              />
-            ) : (
-              <select
-                id={`${idPrefix}-ssh-tunnel-ref`}
-                value={value.sshTunnelRef}
-                onChange={(event) => set("sshTunnelRef", event.target.value)}
-                className={selectClassName}
-              >
-                <option value="">none</option>
-                {sshTunnels.map((tunnel) => (
-                  <option key={tunnel.name} value={tunnel.name}>
-                    {tunnel.name}
-                    {tunnel.phase ? ` — ${tunnel.phase}` : ""}
-                  </option>
-                ))}
-                {sshTunnelRef && !selectedSshTunnel ? (
-                  <option value={value.sshTunnelRef}>{sshTunnelRef} — not found</option>
-                ) : null}
-              </select>
-            )}
           </FlowField>
           <FlowField id={`${idPrefix}-openai-api`} label="OpenAI API">
             <select

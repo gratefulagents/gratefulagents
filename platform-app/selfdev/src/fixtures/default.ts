@@ -10,7 +10,6 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   ActivityEntrySchema,
   AgentRunSchema,
-  SSHTunnelSchema,
   AgentRunUsageResponseSchema,
   ChatMessageSchema,
   CopilotUsageQuotaSchema,
@@ -42,7 +41,6 @@ import {
   SlackAgentSchema,
   SlackDraftSchema,
   SlackWorkspaceSchema,
-  SoulSchema,
   SubagentGraphSchema,
   TraceSpanSchema,
   UsageTotalsSchema,
@@ -82,7 +80,6 @@ const runUiPolish = create(AgentRunSchema, {
   executionMode: "linear",
   model: "anthropic/claude-sonnet-4-6",
   resolvedModel: "claude-sonnet-4-6",
-  sshTunnelRef: "gpu-vllm",
   modeName: "chat",
   modeCategory: "direct",
   phase: "Running",
@@ -1292,17 +1289,6 @@ const anthropicUsage = create(MyAnthropicUsageSchema, {
   fetchedAtUnix: unix(SCENARIO_NOW),
 });
 
-const soul = create(SoulSchema, {
-  content: [
-    "# SOUL",
-    "",
-    "- Bias to small, verifiable steps; show your work.",
-    "- Never leave a PR without green frontend tests.",
-    "- Prefer boring, obvious code over clever code.",
-  ].join("\n"),
-  updatedAt: timestampFromDate(daysAgo(3)),
-});
-
 const gitIdentity = create(GitIdentitySchema, {
   name: "Dana Demo",
   email: "dana@example.com",
@@ -1458,36 +1444,12 @@ export const defaultScenario: Scenario = {
 
   skillPackages: skills,
   runtimeImages: runtimeImageCatalog(),
-  sshTunnels: [
-    create(SSHTunnelSchema, {
-      namespace: NS,
-      name: "gpu-vllm",
-      host: "gpu.internal.example.com",
-      port: 22,
-      user: "tunnel",
-      remoteHost: "127.0.0.1",
-      remotePort: 8000,
-      description: "Self-hosted vLLM behind the lab bastion",
-      phase: "Ready",
-      message: "Validated SSH tunnel to tunnel@gpu.internal.example.com",
-    }),
-    create(SSHTunnelSchema, {
-      namespace: NS,
-      name: "legacy-llama",
-      host: "llama.internal.example.com",
-      user: "tunnel",
-      remotePort: 8080,
-      phase: "Invalid",
-      message: 'secret "llama-ssh" not found',
-    }),
-  ],
   modes: modeCatalog(),
   models: MODEL_LIST,
   credentials,
   openAIUsage,
   copilotUsage,
   anthropicUsage,
-  soul,
   gitIdentity,
   modelDefaults,
 
@@ -1532,7 +1494,6 @@ export const defaultScenario: Scenario = {
     { name: "settings-credentials", path: "/settings/credentials" },
     { name: "settings-usage", path: "/settings/usage" },
     { name: "settings-skills", path: "/settings/skills" },
-    { name: "settings-soul", path: "/settings/soul" },
     { name: "settings-git", path: "/settings/git" },
   ],
 };

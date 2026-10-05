@@ -9,7 +9,6 @@ import (
 	"time"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
-	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/sdk/pkg/agentsdk"
@@ -300,13 +299,6 @@ func (t *getFleetRunActivityTool) Execute(ctx context.Context, input json.RawMes
 		return Result{Content: "fleet session not found", IsError: true}, nil
 	}
 	inputRequest := orchestration.PendingUserInputForSession(session)
-	pendingMCP, err := mcppolicy.PendingRequest(run)
-	if err != nil {
-		return Result{Content: fmt.Sprintf("failed to decode fleet MCP request: %v", err), IsError: true}, nil
-	}
-	if pendingMCP != nil {
-		inputRequest = orchestration.BindPendingUserInputContext(inputRequest, pendingMCP.ID)
-	}
 	messages, err := t.stateStore.GetMessagesSince(ctx, session.ID, in.MessageCursor)
 	if err != nil {
 		return Result{Content: fmt.Sprintf("failed to read fleet messages: %v", err), IsError: true}, nil

@@ -18,7 +18,6 @@ vi.mock("@/lib/client", () => ({
       githubTokenPresent: false,
     }),
     listAvailableModels: vi.fn().mockResolvedValue({ models: [] }),
-    listSSHTunnels: vi.fn().mockResolvedValue({ namespace: "user-alice", tunnels: [] }),
     listMCPServers: vi.fn().mockResolvedValue({ servers: [] }),
     listSkills: vi.fn().mockResolvedValue({ skills: [] }),
     listRuntimeImages: vi.fn().mockResolvedValue({ images: [] }),

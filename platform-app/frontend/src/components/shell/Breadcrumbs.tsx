@@ -20,7 +20,6 @@ const SETTINGS_SECTIONS: Record<string, string> = {
   "/settings/connection": "Connection",
   "/settings/credentials": "Credentials",
   "/settings/skills": "Skill packages",
-  "/settings/soul": "SOUL",
 };
 
 const DETAIL_PREFIX: Array<{
@@ -56,7 +55,7 @@ export function Breadcrumbs() {
   }
 
   if (path.startsWith("/resources/")) {
-    const labels: Record<string, string> = { skills: "Skills", "mcp-servers": "MCP servers", "runtime-profiles": "Runtime profiles", "mcp-policies": "MCP policies", guardrails: "Guardrails", modes: "Modes", roles: "Roles" };
+    const labels: Record<string, string> = { skills: "Skills", "mcp-servers": "MCP servers", "runtime-profiles": "Runtime profiles", guardrails: "Guardrails", modes: "Modes", roles: "Roles" };
     return <span className="inline-flex items-center gap-1.5 text-muted-foreground"><Crumb label="Resources" to="/resources/skills" /><Sep /><Crumb label={labels[path.split("/").pop() ?? ""] ?? "Resources"} active /></span>;
   }
 

@@ -94,6 +94,78 @@ func TestEnsureRunSandboxTemplateRejectsForeignController(t *testing.T) {
 	}
 }
 
+func TestEnsureRunSandboxTemplateDirectProvider(t *testing.T) {
+	for _, baseURL := range []string{"", "https://api.openai.com/v1", " https://inference.example.com/v1 "} {
+		t.Run(baseURL, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			if err := extensionsv1alpha1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			run := &platformv1alpha1.AgentRun{
+				ObjectMeta: metav1.ObjectMeta{Name: "direct-run", Namespace: "default", UID: types.UID("direct-run-uid")},
+				Spec: platformv1alpha1.AgentRunSpec{
+					Model:         "openai/gpt-5.4",
+					AuthMode:      platformv1alpha1.AgentRunAuthModeAPIKey,
+					OpenAIBaseURL: baseURL,
+					Repository:    platformv1alpha1.RepositoryContext{URL: "git@github.com:example/repo.git", BaseBranch: "main"},
+					Secrets: &platformv1alpha1.AgentRunSecrets{
+						ProviderKeys: []platformv1alpha1.ProviderKeyRef{{Provider: "openai", SecretName: "provider-key", SecretKey: "token"}},
+					},
+				},
+			}
+			c := fake.NewClientBuilder().WithScheme(scheme).Build()
+			name, err := ensureRunSandboxTemplate(context.Background(), c, run, nil, "run-sa", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			template := &extensionsv1alpha1.SandboxTemplate{}
+			if err := c.Get(context.Background(), client.ObjectKey{Namespace: run.Namespace, Name: name}, template); err != nil {
+				t.Fatal(err)
+			}
+			pod := template.Spec.PodTemplate.Spec
+			if len(pod.Containers) != 1 || pod.Containers[0].Name != "worker" {
+				t.Fatalf("containers = %+v, want only worker", pod.Containers)
+			}
+			if len(pod.InitContainers) != 1 || pod.InitContainers[0].Name != "inject-toolkit" {
+				t.Fatalf("init containers = %+v, want only toolkit injection", pod.InitContainers)
+			}
+			if len(pod.Volumes) != 3 || len(pod.Containers[0].VolumeMounts) != 3 {
+				t.Fatalf("expected only toolkit, workspace and scratch volumes: %+v", pod.Volumes)
+			}
+			if pod.ServiceAccountName != "run-sa" || pod.AutomountServiceAccountToken == nil || !*pod.AutomountServiceAccountToken {
+				t.Fatal("run service account wiring changed")
+			}
+			if template.Spec.NetworkPolicyManagement != extensionsv1alpha1.NetworkPolicyManagementManaged || template.Spec.NetworkPolicy != nil {
+				t.Fatal("expected managed network policy with secure default egress")
+			}
+			envs := pod.Containers[0].Env
+			values := envSliceValueMap(envs)
+			assertEnvValue(t, values, "OPENAI_BASE_URL", strings.TrimSpace(baseURL))
+			assertEnvValue(t, values, "AI_PROVIDER", "openai")
+			assertEnvValue(t, values, "REPO_URL", run.Spec.Repository.URL)
+			assertEnvValue(t, values, "BASE_BRANCH", "main")
+			baseURLCount, keyCount := 0, 0
+			for _, env := range envs {
+				switch env.Name {
+				case "OPENAI_BASE_URL":
+					baseURLCount++
+				case "OPENAI_API_KEY":
+					keyCount++
+					if env.ValueFrom == nil || env.ValueFrom.SecretKeyRef == nil || env.ValueFrom.SecretKeyRef.Name != "provider-key" || env.ValueFrom.SecretKeyRef.Key != "token" {
+						t.Fatalf("provider API key wiring = %+v", env)
+					}
+				}
+			}
+			if baseURLCount != 1 || keyCount != 1 {
+				t.Fatalf("base URL entries = %d, API key entries = %d; want one each", baseURLCount, keyCount)
+			}
+		})
+	}
+}
+
 func TestEnsureWorkspacePVCWaitsForStaleIncarnation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := corev1.AddToScheme(scheme); err != nil {

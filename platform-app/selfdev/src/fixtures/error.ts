@@ -18,7 +18,6 @@ import {
   ProjectTriggerConditionSchema,
   ProjectTriggerSchema,
   SlackAgentSchema,
-  SoulSchema,
 } from "../../../frontend/src/rpc/platform/service_pb";
 import type { Scenario } from "../scenario";
 import { SCENARIO_NOW, minutesAgo, hoursAgo, daysAgo, unix } from "../time";
@@ -250,14 +249,12 @@ export const errorScenario: Scenario = {
 
   skillPackages: [],
   runtimeImages: runtimeImageCatalog(),
-  sshTunnels: [],
   modes: modeCatalog(),
   models: MODEL_LIST,
   credentials: create(MyCredentialsSchema, { namespace: NS }),
   openAIUsage: create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }),
   copilotUsage: create(MyCopilotUsageSchema, { copilotOauthPresent: false }),
   anthropicUsage: create(MyAnthropicUsageSchema, { anthropicOauthPresent: false }),
-  soul: create(SoulSchema, {}),
   gitIdentity: create(GitIdentitySchema, {}),
   modelDefaults: create(ModelDefaultsSchema, {}),
 

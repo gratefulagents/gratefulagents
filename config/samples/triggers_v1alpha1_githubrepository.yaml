@@ -65,15 +65,6 @@ spec:
     perNamespaceMaxConcurrentRuns: 10
     staleRunTimeout: 90m
 ---
-# Allow-all MCPPolicy: every MCP server/tool is permitted.
-apiVersion: platform.gratefulagents.dev/v1alpha1
-kind: MCPPolicy
-metadata:
-  name: gh-open-mcp
-  namespace: gratefulagents-system
-spec:
-  defaultAction: Allow
----
 apiVersion: triggers.gratefulagents.dev/v1alpha1
 kind: GitHubRepository
 metadata:
@@ -140,8 +131,6 @@ spec:
     # and runs with default-restrictive permissions.
     runtimeProfileRef:
       name: gh-open-runtime
-    mcpPolicyRef:
-      name: gh-open-mcp
 
     # Admin-only escape hatch: completely disable the bubblewrap (bwrap)
     # subprocess sandbox for runs created from this trigger. Commands and MCP

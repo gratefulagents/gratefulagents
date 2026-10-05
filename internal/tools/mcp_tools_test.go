@@ -6,21 +6,19 @@ import (
 	"strings"
 	"testing"
 
-	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
-	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	sdkmcp "github.com/gratefulagents/sdk/pkg/agentsdk/mcp"
+	"github.com/gratefulagents/sdk/pkg/agentsdk/policy"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 type fakeMCPManager struct {
 	descriptors []sdkmcp.ToolDescriptor
 	servers     []string
+	resources   []sdkmcp.ResourceDescriptor
 	callResult  *mcpsdk.CallToolResult
 	callCount   int
+	readServer  string
+	readURI     string
 }
 
 func (f *fakeMCPManager) ToolDescriptors() []sdkmcp.ToolDescriptor {
@@ -31,7 +29,7 @@ func (f *fakeMCPManager) ConnectedServerNames() []string {
 	return append([]string(nil), f.servers...)
 }
 
-func (f *fakeMCPManager) HasResources() bool { return false }
+func (f *fakeMCPManager) HasResources() bool { return len(f.resources) > 0 }
 
 func (f *fakeMCPManager) CallTool(ctx context.Context, qualifiedName string, args map[string]any) (*mcpsdk.CallToolResult, error) {
 	f.callCount++
@@ -39,247 +37,89 @@ func (f *fakeMCPManager) CallTool(ctx context.Context, qualifiedName string, arg
 }
 
 func (f *fakeMCPManager) ListResources(ctx context.Context, serverName string) ([]sdkmcp.ResourceDescriptor, error) {
-	return nil, nil
+	return f.resources, nil
 }
 
 func (f *fakeMCPManager) ReadResource(ctx context.Context, serverName, uri string) (*mcpsdk.ReadResourceResult, error) {
-	return nil, nil
+	f.readServer, f.readURI = serverName, uri
+	return &mcpsdk.ReadResourceResult{Contents: []*mcpsdk.ResourceContents{{URI: uri, Text: "resource content"}}}, nil
 }
 
-type recordingMCPSessionClient struct {
-	inputType platformv1alpha1.UserInputRequestType
-	message   string
-	actions   json.RawMessage
-	activity  []string
-}
-
-func (r *recordingMCPSessionClient) SetUserInputRequest(ctx context.Context, inputType platformv1alpha1.UserInputRequestType, message string, actions json.RawMessage) error {
-	r.inputType = inputType
-	r.message = message
-	r.actions = append(json.RawMessage(nil), actions...)
-	return nil
-}
-
-func (r *recordingMCPSessionClient) WriteActivity(ctx context.Context, eventType, summary string, detail json.RawMessage) error {
-	r.activity = append(r.activity, eventType)
-	return nil
-}
-
-func TestRequestMCPBreakGlassCreatesPendingApproval(t *testing.T) {
+func TestRegisterMCPToolsAllowsConfiguredToolsAndResources(t *testing.T) {
 	t.Parallel()
+	for _, mode := range []policy.PermissionMode{policy.PermissionModeWorkspaceWrite, policy.PermissionModeReadOnly} {
+		t.Run(string(mode), func(t *testing.T) {
+			manager := &fakeMCPManager{
+				descriptors: []sdkmcp.ToolDescriptor{
+					{QualifiedName: "mcp__github__get_issue", ServerName: "github", ToolName: "get_issue", ReadOnly: true},
+					{QualifiedName: "mcp__github__create_issue", ServerName: "github", ToolName: "create_issue"},
+				},
+				servers: []string{"github", "files"},
+				resources: []sdkmcp.ResourceDescriptor{
+					{Server: "github", URI: "issue://1"},
+					{Server: "files", URI: "file://notes"},
+				},
+				callResult: &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "issue result"}}},
+			}
+			registry := NewRegistry(t.TempDir())
+			RegisterMCPTools(registry, manager, mode)
+			if registry.Get("RequestMCPBreakGlass") != nil {
+				t.Fatal("obsolete break-glass tool registered")
+			}
+			for _, name := range []string{"mcp__github__get_issue", "mcp__github__create_issue"} {
+				tool := registry.Get(name)
+				if mode == policy.PermissionModeReadOnly && name == "mcp__github__create_issue" {
+					if tool != nil {
+						t.Fatal("mutating MCP tool registered in read-only mode")
+					}
+					continue
+				}
+				if tool == nil {
+					t.Fatalf("configured tool %q not registered", name)
+				}
+				result, err := tool.Execute(context.Background(), json.RawMessage(`{}`), t.TempDir())
+				if err != nil || result.IsError || result.Content != "issue result" || result.ShouldPause {
+					t.Fatalf("Execute(%s) = %+v, %v", name, result, err)
+				}
+			}
+			wantCalls := 2
+			if mode == policy.PermissionModeReadOnly {
+				wantCalls = 1
+			}
+			if manager.callCount != wantCalls {
+				t.Fatalf("CallTool count = %d, want %d", manager.callCount, wantCalls)
+			}
+			list := registry.Get("ListMcpResourcesTool")
+			read := registry.Get("ReadMcpResourceTool")
+			if list == nil || read == nil {
+				t.Fatal("resource tools not registered")
+			}
+			result, err := list.Execute(context.Background(), nil, t.TempDir())
+			if err != nil || result.IsError || !strings.Contains(result.Content, "issue://1") || !strings.Contains(result.Content, "file://notes") {
+				t.Fatalf("ListResources = %+v, %v", result, err)
+			}
+			result, err = read.Execute(context.Background(), json.RawMessage(`{"server":"files","uri":"file://notes"}`), t.TempDir())
+			if err != nil || result.IsError || !strings.Contains(result.Content, "resource content") {
+				t.Fatalf("ReadResource = %+v, %v", result, err)
+			}
+			if manager.readServer != "files" || manager.readURI != "file://notes" {
+				t.Fatalf("ReadResource target = %q, %q", manager.readServer, manager.readURI)
+			}
+		})
+	}
+}
 
-	scheme := runtime.NewScheme()
-	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("AddToScheme() error = %v", err)
-	}
-
-	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "run-mcp-request", Namespace: "default"},
-		Spec: platformv1alpha1.AgentRunSpec{
-			MCPPolicyRef: &platformv1alpha1.NamedRef{Name: "policy"},
-		},
-	}
-	policy := &platformv1alpha1.MCPPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "policy", Namespace: "default"},
-		Spec: platformv1alpha1.MCPPolicySpec{
-			DefaultAction: platformv1alpha1.MCPDefaultActionDeny,
-			BreakGlass: &platformv1alpha1.MCPBreakGlass{
-				Enabled:            true,
-				RequireAuditReason: true,
-			},
-		},
-	}
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(run, policy).
-		Build()
-
-	session := &recordingMCPSessionClient{}
-	manager := &fakeMCPManager{
-		descriptors: []sdkmcp.ToolDescriptor{{
-			QualifiedName: "mcp__github__create_issue",
-			ServerName:    "github",
-			ToolName:      "create_issue",
-		}},
-		servers: []string{"github"},
-	}
-	tool := &sdkmcp.RequestBreakGlassTool{Sink: &requestMCPBreakGlassSink{
-		manager: manager,
-		policyRuntime: &mcpPolicyRuntime{
-			crdClient: k8sClient,
-			namespace: "default",
-			agentRun:  "run-mcp-request",
-		},
-		sessionClient: session,
+func TestRegisterMCPToolsPreservesRegistryFilters(t *testing.T) {
+	t.Parallel()
+	manager := &fakeMCPManager{descriptors: []sdkmcp.ToolDescriptor{
+		{QualifiedName: "mcp__github__get_issue", ReadOnly: true},
+		{QualifiedName: "mcp__github__create_issue"},
 	}}
-
-	res, err := tool.Execute(context.Background(), json.RawMessage(`{
-		"server":"github",
-		"tool":"create_issue",
-		"reason":"Need to file the tracked issue"
-	}`), t.TempDir())
-	if err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if !res.ShouldPause {
-		t.Fatal("ShouldPause = false, want true")
-	}
-	if session.inputType != platformv1alpha1.UserInputApproval {
-		t.Fatalf("inputType = %q, want approval", session.inputType)
-	}
-	if !strings.Contains(session.message, `server "github" tool "create_issue"`) {
-		t.Fatalf("message = %q, want target detail", session.message)
-	}
-	updated := &platformv1alpha1.AgentRun{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: "run-mcp-request", Namespace: "default"}, updated); err != nil {
-		t.Fatalf("Get(AgentRun) error = %v", err)
-	}
-	request, err := mcppolicy.PendingRequest(updated)
-	if err != nil {
-		t.Fatalf("PendingRequest() error = %v", err)
-	}
-	if request == nil {
-		t.Fatal("PendingRequest() = nil, want request")
-	}
-	if request.ID == "" || request.Server != "github" || request.Tool != "create_issue" {
-		t.Fatalf("PendingRequest() = %#v, want identified github/create_issue request", request)
-	}
-}
-
-func TestDynamicMCPToolBlockedByPolicySuggestsBreakGlass(t *testing.T) {
-	t.Parallel()
-
-	scheme := runtime.NewScheme()
-	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("AddToScheme() error = %v", err)
-	}
-
-	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{Name: "run-mcp-blocked", Namespace: "default"},
-		Spec: platformv1alpha1.AgentRunSpec{
-			MCPPolicyRef: &platformv1alpha1.NamedRef{Name: "policy"},
-		},
-	}
-	policy := &platformv1alpha1.MCPPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "policy", Namespace: "default"},
-		Spec: platformv1alpha1.MCPPolicySpec{
-			DefaultAction: platformv1alpha1.MCPDefaultActionDeny,
-			BreakGlass:    &platformv1alpha1.MCPBreakGlass{Enabled: true},
-		},
-	}
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(run, policy).
-		Build()
-
-	desc := sdkmcp.ToolDescriptor{
-		QualifiedName: "mcp__github__create_issue",
-		ServerName:    "github",
-		ToolName:      "create_issue",
-	}
-	manager := &fakeMCPManager{descriptors: []sdkmcp.ToolDescriptor{desc}}
-	policyManager := &policyMCPManager{
-		inner: manager,
-		policyRuntime: &mcpPolicyRuntime{
-			crdClient: k8sClient,
-			namespace: "default",
-			agentRun:  "run-mcp-blocked",
-		},
-		mode:          "workspace-write",
-		evaluator:     mcppolicy.NewEvaluator(run, policy),
-		exposeBlocked: true,
-	}
-	tool := &sdkmcp.DynamicTool{Manager: policyManager, Descriptor: desc}
-
-	res, err := tool.Execute(context.Background(), nil, t.TempDir())
-	if err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if !res.IsError {
-		t.Fatal("IsError = false, want true")
-	}
-	if !strings.Contains(res.Content, "RequestMCPBreakGlass") {
-		t.Fatalf("Content = %q, want break-glass hint", res.Content)
-	}
-	if manager.callCount != 0 {
-		t.Fatalf("CallTool count = %d, want 0", manager.callCount)
-	}
-}
-
-func TestDynamicMCPToolAllowsGrantedBreakGlass(t *testing.T) {
-	t.Parallel()
-
-	scheme := runtime.NewScheme()
-	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatalf("AddToScheme() error = %v", err)
-	}
-
-	run := &platformv1alpha1.AgentRun{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        "run-mcp-granted",
-			Namespace:   "default",
-			Annotations: map[string]string{},
-		},
-		Spec: platformv1alpha1.AgentRunSpec{
-			MCPPolicyRef: &platformv1alpha1.NamedRef{Name: "policy"},
-		},
-	}
-	if err := mcppolicy.SetGrantedGrants(run.Annotations, []mcppolicy.BreakGlassGrant{{
-		Server: "github",
-		Tool:   "create_issue",
-		Reason: "Need to file the issue",
-	}}); err != nil {
-		t.Fatalf("SetGrantedGrants() error = %v", err)
-	}
-	policy := &platformv1alpha1.MCPPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "policy", Namespace: "default"},
-		Spec: platformv1alpha1.MCPPolicySpec{
-			DefaultAction: platformv1alpha1.MCPDefaultActionDeny,
-			BreakGlass:    &platformv1alpha1.MCPBreakGlass{Enabled: true},
-		},
-	}
-	k8sClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(run, policy).
-		Build()
-
-	desc := sdkmcp.ToolDescriptor{
-		QualifiedName: "mcp__github__create_issue",
-		ServerName:    "github",
-		ToolName:      "create_issue",
-	}
-	manager := &fakeMCPManager{
-		descriptors: []sdkmcp.ToolDescriptor{desc},
-		callResult: &mcpsdk.CallToolResult{
-			Content: []mcpsdk.Content{
-				&mcpsdk.TextContent{Text: "issue created"},
-			},
-		},
-	}
-	policyManager := &policyMCPManager{
-		inner: manager,
-		policyRuntime: &mcpPolicyRuntime{
-			crdClient: k8sClient,
-			namespace: "default",
-			agentRun:  "run-mcp-granted",
-		},
-		mode:          "workspace-write",
-		evaluator:     mcppolicy.NewEvaluator(run, policy),
-		exposeBlocked: true,
-	}
-	tool := &sdkmcp.DynamicTool{Manager: policyManager, Descriptor: desc}
-
-	res, err := tool.Execute(context.Background(), json.RawMessage(`{"title":"issue"}`), t.TempDir())
-	if err != nil {
-		t.Fatalf("Execute() error = %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("IsError = true, want false (content=%q)", res.Content)
-	}
-	if res.Content != "issue created" {
-		t.Fatalf("Content = %q, want issue created", res.Content)
-	}
-	if manager.callCount != 1 {
-		t.Fatalf("CallTool count = %d, want 1", manager.callCount)
+	registry := NewRegistry(t.TempDir(), WithReadOnlyTools(), WithToolNameFilter(nil, []string{"mcp__github__get_issue"}))
+	RegisterMCPTools(registry, manager, policy.PermissionModeWorkspaceWrite)
+	for _, desc := range manager.descriptors {
+		if registry.Get(desc.QualifiedName) != nil {
+			t.Errorf("MCP tool %q bypassed registry filter", desc.QualifiedName)
+		}
 	}
 }

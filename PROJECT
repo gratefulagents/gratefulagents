@@ -34,14 +34,6 @@ resources:
 - api:
     crdVersion: v1
     namespaced: true
-  domain: gratefulagents.dev
-  group: platform
-  kind: MCPPolicy
-  path: github.com/gratefulagents/gratefulagents/api/platform/v1alpha1
-  version: v1alpha1
-- api:
-    crdVersion: v1
-    namespaced: true
   controller: true
   domain: gratefulagents.dev
   group: platform

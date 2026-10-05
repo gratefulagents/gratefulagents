@@ -72,7 +72,7 @@ const SECTIONS: SectionMeta[] = [
   {
     id: "tools",
     title: "Tools",
-    description: "MCP servers available to runs and the policy that governs them.",
+    description: "MCP servers available to runs.",
     icon: Blocks,
   },
   {

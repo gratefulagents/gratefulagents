@@ -21,14 +21,14 @@ func TestRetiredFeatureSurfacesAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	for kind := range scheme.AllKnownTypes() {
-		if strings.HasPrefix(kind.Kind, "Security") {
+		if strings.HasPrefix(kind.Kind, "Security") || strings.HasPrefix(kind.Kind, "SSHTunnel") {
 			t.Errorf("retired kind still registered: %s", kind)
 		}
 	}
 	methods := platform.File_rpc_platform_service_proto.Services().ByName("PlatformService").Methods()
 	for i := 0; i < methods.Len(); i++ {
 		name := string(methods.Get(i).Name())
-		if strings.Contains(name, "Security") || strings.Contains(name, "BugReport") {
+		if strings.Contains(name, "Security") || strings.Contains(name, "BugReport") || strings.Contains(name, "SSHTunnel") {
 			t.Errorf("retired RPC still advertised: %s", name)
 		}
 	}
@@ -54,6 +54,38 @@ func TestRetiredFeatureSurfacesAbsent(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+func TestSSHTunnelDeploymentAssetsRemoved(t *testing.T) {
+	root := filepath.Join("..", "..")
+	for _, name := range []string{
+		"Dockerfile.tunnel",
+		"config/crd/bases/platform.gratefulagents.dev_sshtunnels.yaml",
+		"dist/chart/templates/crd/sshtunnels.platform.gratefulagents.dev.yaml",
+	} {
+		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
+			t.Errorf("retired deployment asset %s still exists or cannot be checked: %v", name, err)
+		}
+	}
+	for _, name := range []string{
+		".github/workflows/app-release.yml",
+		".github/workflows/pull-request.yml",
+		"config/crd/kustomization.yaml",
+		"config/rbac/role.yaml",
+		"dist/chart/values.yaml",
+		"dist/chart/templates/manager/manager.yaml",
+		"dist/chart/templates/rbac/manager-role.yaml",
+	} {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, retired := range []string{"Dockerfile.tunnel", "sshtunnels", "SSH_TUNNEL_IMAGE", "sshTunnel:"} {
+			if strings.Contains(string(data), retired) {
+				t.Errorf("%s still references retired SSH tunnel asset %s", name, retired)
+			}
 		}
 	}
 }

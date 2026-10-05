@@ -41,7 +41,7 @@ When saved credentials are off, the Project settings form uses existing Secret r
 
 The form rejects a saved-credential choice when no usable saved credential exists, and rejects a required explicit reference when it is missing. For GitHub, Slack, and Linear **connections**, see the source-specific connection tables in [GitHub](../integrations/github.md), [Slack](../integrations/slack.md), and [Linear](../integrations/linear.md).
 
-## Runtime and policy defaults
+## Runtime and tool defaults
 
 | Default | Effect |
 | --- | --- |
@@ -53,9 +53,6 @@ The form rejects a saved-credential choice when no usable saved credential exist
 | **Network egress** | `unrestricted`, `restricted`, or `disabled`. |
 | **MCP servers** | Attaches server configurations to Project runs. |
 | **Skills** | Attaches reusable agent skills to Project runs. |
-| **MCPPolicy ref** | References a reusable MCP policy. With **Create/update an MCPPolicy** enabled, the Project settings set **Default action** (`Deny` or `Allow`) and **Allowed MCP servers**. |
-
-If an MCP policy denies by default, add the names of selected MCP servers to **Allowed MCP servers** or their tools will not load.
 
 ## Docker-in-Docker (admin-only)
 

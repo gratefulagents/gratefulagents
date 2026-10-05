@@ -9,7 +9,6 @@ import {
   MyCredentialsSchema,
   MyCopilotUsageSchema,
   MyOpenAIUsageSchema,
-  SoulSchema,
 } from "../../../frontend/src/rpc/platform/service_pb";
 import type { Scenario } from "../scenario";
 import { SCENARIO_NOW } from "../time";
@@ -47,14 +46,12 @@ export const emptyScenario: Scenario = {
 
   skillPackages: [],
   runtimeImages: runtimeImageCatalog(),
-  sshTunnels: [],
   modes: modeCatalog(),
   models: MODEL_LIST,
   credentials: create(MyCredentialsSchema, { namespace: NS }),
   openAIUsage: create(MyOpenAIUsageSchema, { openaiOauthPresent: false, lookbackDays: 30 }),
   copilotUsage: create(MyCopilotUsageSchema, { copilotOauthPresent: false }),
   anthropicUsage: create(MyAnthropicUsageSchema, { anthropicOauthPresent: false }),
-  soul: create(SoulSchema, {}),
   gitIdentity: create(GitIdentitySchema, {}),
   modelDefaults: create(ModelDefaultsSchema, {}),
 
@@ -83,7 +80,6 @@ export const emptyScenario: Scenario = {
     { name: "settings-credentials", path: "/settings/credentials" },
     { name: "settings-usage", path: "/settings/usage" },
     { name: "settings-skills", path: "/settings/skills" },
-    { name: "settings-soul", path: "/settings/soul" },
     { name: "settings-git", path: "/settings/git" },
   ],
 };

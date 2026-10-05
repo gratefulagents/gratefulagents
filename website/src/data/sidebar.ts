@@ -57,7 +57,7 @@ export const sections: SidebarSection[] = [
   {
     label: 'Resources',
     kind: 'Resource',
-    items: ['settings/resources', 'settings/skill-packages', 'settings/ssh-tunnels'],
+    items: ['settings/resources', 'settings/skill-packages'],
   },
   {
     label: 'Settings',
@@ -67,7 +67,6 @@ export const sections: SidebarSection[] = [
       'settings/connection',
       'settings/desktop-updates',
       'settings/credentials',
-      'settings/soul',
       'settings/role-models',
       'settings/git-identity',
     ],

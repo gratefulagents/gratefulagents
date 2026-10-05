@@ -485,10 +485,6 @@ export function AddGitHubRepositoryDialog({ onCreated }: { onCreated?: () => voi
                 onRuntimeProfileRefChange={(ref) =>
                   setDefaults((prev) => ({ ...prev, runtimeProfileRef: ref }))
                 }
-                mcpPolicyRef={defaults.mcpPolicyRef}
-                onMcpPolicyRefChange={(ref) =>
-                  setDefaults((prev) => ({ ...prev, mcpPolicyRef: ref }))
-                }
               />
 
               <OptionRow

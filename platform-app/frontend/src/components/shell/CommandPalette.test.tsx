@@ -73,4 +73,13 @@ describe("CommandPalette", () => {
     });
     expect(screen.queryByText("Security")).toBeNull();
   });
+
+  it("does not offer the retired SOUL settings command", () => {
+    renderPalette();
+    expect(screen.queryByText("Settings: SOUL")).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("Search or run a command…"), {
+      target: { value: "persona" },
+    });
+    expect(screen.queryByText("Settings: SOUL")).toBeNull();
+  });
 });

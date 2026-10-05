@@ -194,12 +194,6 @@ func (s *collaborationAuthStore) GetUserNamespace(context.Context, string) (stri
 func (s *collaborationAuthStore) SetUserNamespace(context.Context, string, string) error {
 	return nil
 }
-func (s *collaborationAuthStore) GetUserSoul(context.Context, string) (*auth.UserSoul, error) {
-	return nil, nil
-}
-func (s *collaborationAuthStore) UpsertUserSoul(_ context.Context, soul *auth.UserSoul) (*auth.UserSoul, error) {
-	return soul, nil
-}
 func (s *collaborationAuthStore) GetUserGitIdentity(context.Context, string) (*auth.UserGitIdentity, error) {
 	return nil, nil
 }

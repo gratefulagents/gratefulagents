@@ -9,6 +9,31 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestApplyPolicyRefsCopiesRuntimeAndToolRefs(t *testing.T) {
+	defaults := triggersv1alpha1.AgentRunDefaults{
+		RuntimeProfileRef: &platformv1alpha1.NamedRef{Name: "runtime"},
+		MCPServerRefs:     []platformv1alpha1.NamedRef{{Name: "github"}},
+		SkillRefs:         []platformv1alpha1.NamedRef{{Name: "review"}},
+	}
+	var spec platformv1alpha1.AgentRunSpec
+	applyPolicyRefs(&spec, defaults)
+	if spec.RuntimeProfileRef == nil || spec.RuntimeProfileRef.Name != "runtime" {
+		t.Fatalf("RuntimeProfileRef = %#v, want runtime", spec.RuntimeProfileRef)
+	}
+	if len(spec.MCPServerRefs) != 1 || spec.MCPServerRefs[0].Name != "github" {
+		t.Fatalf("MCPServerRefs = %#v, want github", spec.MCPServerRefs)
+	}
+	if len(spec.SkillRefs) != 1 || spec.SkillRefs[0].Name != "review" {
+		t.Fatalf("SkillRefs = %#v, want review", spec.SkillRefs)
+	}
+	spec.RuntimeProfileRef.Name = "changed"
+	spec.MCPServerRefs[0].Name = "changed"
+	spec.SkillRefs[0].Name = "changed"
+	if defaults.RuntimeProfileRef.Name != "runtime" || defaults.MCPServerRefs[0].Name != "github" || defaults.SkillRefs[0].Name != "review" {
+		t.Fatalf("copied refs alias trigger defaults: %#v", defaults)
+	}
+}
+
 // TestBuildTriggerRunDisableCommandSandbox covers the admin-set trigger
 // option that completely disables the bubblewrap command sandbox for runs
 // created from that trigger.
@@ -193,25 +218,5 @@ func TestApplyPolicyRefsKeepsExistingMaxRuntime(t *testing.T) {
 	applyPolicyRefs(&spec, triggersv1alpha1.AgentRunDefaults{Timeout: metav1.Duration{Duration: 30 * time.Minute}})
 	if spec.Limits.MaxRuntime.Duration != 2*time.Hour {
 		t.Fatalf("MaxRuntime = %s, want existing 2h preserved", spec.Limits.MaxRuntime.Duration)
-	}
-}
-
-// TestBuildTriggerRunSSHTunnelRef pins that trigger defaults referencing an
-// SSHTunnel propagate to created runs, so their inference traffic goes
-// through the per-run SSH tunnel sidecar.
-func TestBuildTriggerRunSSHTunnelRef(t *testing.T) {
-	run := BuildTriggerRun(TriggerRunSpec{
-		RunName:     "run-1",
-		Namespace:   "default",
-		TriggerKind: "GitHubRepository",
-		TriggerName: "payments",
-		Defaults: triggersv1alpha1.AgentRunDefaults{
-			RepoURL:      "https://github.com/example/repo.git",
-			Model:        "gpt-5.4",
-			SSHTunnelRef: &platformv1alpha1.NamedRef{Name: "llm"},
-		},
-	})
-	if run.Spec.SSHTunnelRef == nil || run.Spec.SSHTunnelRef.Name != "llm" {
-		t.Fatalf("Spec.SSHTunnelRef = %+v, want llm (copied from trigger defaults)", run.Spec.SSHTunnelRef)
 	}
 }
