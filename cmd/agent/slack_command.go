@@ -509,7 +509,13 @@ func (o *slackOrchestrator) createRun(
 ) error {
 	// Resolve defaults first: the agent may carry its own GitHub token secret
 	// (Defaults.Secrets.GithubToken), which beats the owner's saved token.
-	defaults := o.currentDefaults(ctx)
+	return o.createRunWithDefaults(ctx, runName, d, seedText, o.currentDefaults(ctx))
+}
+
+func (o *slackOrchestrator) createRunWithDefaults(
+	ctx context.Context, runName string, d internalslack.Decision, seedText string,
+	defaults triggersv1alpha1.AgentRunDefaults,
+) error {
 	gitHubSecret := strings.TrimSpace(defaults.Secrets.GithubToken)
 	if gitHubSecret == "" {
 		gitHubSecret = slackSavedGitHubSecretName
@@ -520,6 +526,7 @@ func (o *slackOrchestrator) createRun(
 	annotations := map[string]string{
 		"triggers.gratefulagents.dev/slack-channel": d.ChannelID,
 		"triggers.gratefulagents.dev/slack-thread":  d.ThreadTS,
+		slackRequesterAnnotation:                    d.UserID,
 	}
 	_, _, err := triggerctrl.CreateTriggerRun(ctx, o.crdClient, o.store, triggerctrl.TriggerRunSpec{
 		RunName:            runName,

@@ -3,6 +3,7 @@ package triggers
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
@@ -216,4 +217,23 @@ func TestSlackAgentConnectorEnvCarriesProjectRoutingAndAuthorization(t *testing.
 	if got := env["SLACK_TEAM_ID"]; got != "T123" {
 		t.Errorf("SLACK_TEAM_ID = %q, want T123", got)
 	}
+}
+
+func TestSlackConnectorCanReadPRMonitors(t *testing.T) {
+	for _, rule := range slackConnectorRBACRules() {
+		if slices.Contains(rule.Resources, "pullrequestmonitors") {
+			for _, verb := range []string{"get", "list", "watch"} {
+				if !slices.Contains(rule.Verbs, verb) {
+					t.Fatalf("missing monitor permission %s", verb)
+				}
+			}
+			for _, verb := range []string{"create", "update", "patch", "delete", "*"} {
+				if slices.Contains(rule.Verbs, verb) {
+					t.Fatalf("unexpected monitor write permission %s", verb)
+				}
+			}
+			return
+		}
+	}
+	t.Fatal("connector cannot read PR monitor state")
 }

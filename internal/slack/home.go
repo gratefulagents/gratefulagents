@@ -41,11 +41,10 @@ const defaultHomeText = "DM me to get things done. This agent is managed from it
 
 // BuildHomePlaceholderView renders the static App Home tab: a header (custom,
 // or the agent name) plus one short info line (custom, or a generic pointer at
-// the owner's dashboard). It deliberately carries no agent state: connection
-// status, configuration, and held replies are dashboard-only,
-// because the App Home is visible to any workspace member who opens the app.
-// Publishing this placeholder also replaces (clears) any richer view published
-// by older builds.
+// the owner's dashboard). It deliberately carries no agent state because any
+// workspace member can open the app. Authorized users receive additional
+// operational blocks; publishing only this placeholder clears a previously
+// authorized user's richer view.
 func BuildHomePlaceholderView(agentName, header, text string) []slackgo.Block {
 	header = strings.TrimSpace(header)
 	if header == "" {

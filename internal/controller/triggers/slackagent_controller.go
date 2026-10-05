@@ -228,7 +228,7 @@ func slackConnectorRBACRules() []rbacv1.PolicyRule {
 	return []rbacv1.PolicyRule{
 		{
 			APIGroups: []string{"triggers.gratefulagents.dev"},
-			Resources: []string{"slackagents"},
+			Resources: []string{"slackagents", "pullrequestmonitors"},
 			Verbs:     []string{"get", "list", "watch"},
 		},
 		{

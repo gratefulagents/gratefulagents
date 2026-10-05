@@ -45,7 +45,9 @@ func testWorkspaceBackend(t *testing.T, agents ...*triggersv1alpha1.SlackAgent) 
 		members:     map[string]*workspaceMember{},
 		onboardedAt: map[string]time.Time{},
 	}
-	b.syncMembers(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	b.syncMembers(ctx)
 	return b
 }
 

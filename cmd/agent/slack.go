@@ -241,6 +241,7 @@ func runSlack() error {
 		orch.setBotDMChannelID(backend.botDMChannelID)
 		backend.orch = orch
 		startSlackEventPruner(ctx, orch.queries)
+		go orch.watchOperationalNotifications(ctx)
 		defer func() { _ = orch.store.Close() }()
 	}
 
@@ -425,8 +426,6 @@ func (c *slackConnector) handleSocketEvent(ctx context.Context, sm *socketmode.C
 				log.Printf("WARN: ack %s envelope=%s: %v", evt.Type, evt.Request.EnvelopeID, err)
 			}
 		}
-		// TODO(phase1-refine): slash-command entrypoint.
-		log.Printf("slack connector %s received %s event (handler pending)", c.name, evt.Type)
 	default:
 		// Ignore other internal event types.
 	}

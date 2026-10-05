@@ -186,6 +186,9 @@ func (f *fakeSlackAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for k, v := range raw {
 			if s, ok := v.(string); ok {
 				values.Set(k, s)
+			} else {
+				encoded, _ := json.Marshal(v)
+				values.Set(k, string(encoded))
 			}
 		}
 	} else {
@@ -202,6 +205,10 @@ func (f *fakeSlackAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if failure != "" {
 		_, _ = w.Write([]byte(`{"ok":false,"error":"` + failure + `"}`))
+		return
+	}
+	if method == "conversations.open" {
+		_, _ = w.Write([]byte(`{"ok":true,"channel":{"id":"D1"}}`))
 		return
 	}
 	_, _ = w.Write([]byte(`{"ok":true,"channel":"C1","ts":"1700000000.000100"}`))

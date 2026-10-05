@@ -726,7 +726,7 @@ export function SlackAgentSettings({
 
       <FormSection
         title="App Home tab"
-        description="The static copy shown on the app's Home tab in Slack. Anyone in the workspace who opens the app can see it, so it never includes live status or drafts."
+        description="Introductory copy visible to everyone who opens the app. Owners and commanders also see their agent’s runs, PR/check status, and stop/resume controls. Pending approval counts are owner-only."
       >
         <Field
           id="slack-app-home-header"

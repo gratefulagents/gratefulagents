@@ -269,6 +269,7 @@ func (b *workspaceSlackBackend) buildMember(parentCtx context.Context, agent *tr
 		Commanders:   agent.Spec.Commanders,
 		TeamID:       b.teamID,
 	})
+	go orch.watchOperationalNotifications(memberCtx)
 	member := &workspaceMember{
 		namespace:  agent.Namespace,
 		name:       agent.Name,
@@ -409,6 +410,13 @@ func (b *workspaceSlackBackend) hintOnboarding(ctx context.Context, msg internal
 
 func (b *workspaceSlackBackend) handleInteraction(ctx context.Context, callback slackgo.InteractionCallback) {
 	member := b.memberByUser(callback.User.ID)
+	isOperational := strings.HasPrefix(callback.View.CallbackID, "slack_ops_")
+	if actions := callback.ActionCallback.BlockActions; len(actions) > 0 {
+		isOperational = isOperational || strings.HasPrefix(actions[0].ActionID, "slack_ops_")
+	}
+	if member == nil && isOperational {
+		member = b.memberForCommander(callback.User.ID)
+	}
 	if member == nil || member.orch == nil {
 		return
 	}
@@ -459,7 +467,11 @@ func (b *workspaceSlackBackend) handleSessionStopped(ctx context.Context, e *sla
 
 func (b *workspaceSlackBackend) handleAppHome(ctx context.Context, userID string) {
 	member := b.memberByUser(userID)
+	if member == nil {
+		member = b.memberForCommander(userID)
+	}
 	if member == nil || member.orch == nil {
+		_ = b.web.PublishHomeView(ctx, userID, internalslack.BuildHomePlaceholderView("", "", "")...)
 		return
 	}
 	member.orch.handleAppHome(member.ctx, userID)
