@@ -269,6 +269,7 @@ func (b *workspaceSlackBackend) buildMember(parentCtx context.Context, agent *tr
 		Commanders:   agent.Spec.Commanders,
 		TeamID:       b.teamID,
 	})
+	go orch.watchOperationalNotifications(memberCtx)
 	member := &workspaceMember{
 		namespace:  agent.Namespace,
 		name:       agent.Name,
@@ -407,12 +408,41 @@ func (b *workspaceSlackBackend) hintOnboarding(ctx context.Context, msg internal
 	}
 }
 
-func (b *workspaceSlackBackend) handleInteraction(ctx context.Context, callback slackgo.InteractionCallback) {
+// memberForInteraction resolves the member an interaction belongs to: the
+// acting user's own agent, or — for the App Home run controls only — the
+// single member agent they are a commander of. Ambiguous commanders resolve to
+// nil, so with one shared bot nothing is operated on a guess.
+func (b *workspaceSlackBackend) memberForInteraction(callback slackgo.InteractionCallback) *workspaceMember {
 	member := b.memberByUser(callback.User.ID)
+	if member != nil {
+		return member
+	}
+	isOperational := internalslack.IsOperationalAction(callback.View.CallbackID)
+	if actions := callback.ActionCallback.BlockActions; len(actions) > 0 {
+		isOperational = isOperational || internalslack.IsOperationalAction(actions[0].ActionID)
+	}
+	if !isOperational {
+		return nil
+	}
+	return b.memberForCommander(callback.User.ID)
+}
+
+func (b *workspaceSlackBackend) handleInteraction(ctx context.Context, callback slackgo.InteractionCallback) {
+	member := b.memberForInteraction(callback)
 	if member == nil || member.orch == nil {
 		return
 	}
 	member.orch.handleInteraction(member.ctx, callback)
+}
+
+func (b *workspaceSlackBackend) validateViewSubmission(
+	ctx context.Context, callback slackgo.InteractionCallback,
+) map[string]string {
+	member := b.memberForInteraction(callback)
+	if member == nil || member.orch == nil {
+		return nil
+	}
+	return member.orch.validateOperationalSubmission(ctx, callback)
 }
 
 func (b *workspaceSlackBackend) handleAssistantStarted(
@@ -459,7 +489,11 @@ func (b *workspaceSlackBackend) handleSessionStopped(ctx context.Context, e *sla
 
 func (b *workspaceSlackBackend) handleAppHome(ctx context.Context, userID string) {
 	member := b.memberByUser(userID)
+	if member == nil {
+		member = b.memberForCommander(userID)
+	}
 	if member == nil || member.orch == nil {
+		_ = b.web.PublishHomeView(ctx, userID, internalslack.BuildHomePlaceholderView("", "", "")...)
 		return
 	}
 	member.orch.handleAppHome(member.ctx, userID)

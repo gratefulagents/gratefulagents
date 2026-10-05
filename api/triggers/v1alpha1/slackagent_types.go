@@ -57,9 +57,8 @@ type SlackWorkspaceRef struct {
 }
 
 // SlackAppHomeSpec customizes the static copy the connector publishes to the
-// app's App Home tab. The Home tab is visible to any workspace member who
-// opens the app, so it only ever renders this static copy — never live agent
-// state (connection status, configuration, or held replies).
+// app's App Home tab. Anyone in the workspace can see this introductory copy;
+// operational controls and live state are added only for authorized users.
 type SlackAppHomeSpec struct {
 	// header overrides the App Home header line. Defaults to the agent name.
 	// Rendered as Slack plain text; Slack caps header blocks at 150 characters.

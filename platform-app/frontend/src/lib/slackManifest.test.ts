@@ -35,6 +35,14 @@ describe("buildSlackManifest", () => {
     expect(manifest).toContain("      - title: Summarize a channel");
   });
 
+  it("keeps operational controls in Home and modals, without slash commands", () => {
+    const manifest = buildSlackManifest("Release Agent");
+    expect(manifest).toContain("    home_tab_enabled: true");
+    expect(manifest).toContain("  interactivity:\n    is_enabled: true");
+    expect(manifest).not.toContain("slash_commands:");
+    expect(manifest).not.toContain("      - commands");
+  });
+
   it("quotes and limits the Slack app name", () => {
     const rawName = '  Agent: "production" with a very long name  ';
     const quoted = JSON.stringify(rawName.trim().slice(0, 35));

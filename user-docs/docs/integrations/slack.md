@@ -57,6 +57,28 @@ Replies stream into the thread as a single message rendered from the agent's mar
 
 Long replies are split into Unicode-safe payloads within Slack's 12,000-character markdown limit, rather than truncated. If streaming is unavailable, the connector posts the reply as one or more messages in the same thread and then posts the feedback controls separately. Approved drafts also use multiple messages when necessary. Across separate fallback messages, Markdown constructs spanning a boundary may render separately; the text is preserved. Delivery is best-effort: network/API failures can still leave partial output, and a live-workspace smoke test is recommended after installation.
 
+## Run controls in the Home tab
+
+Everything operational lives in the app's **Home** tab; there are no slash commands to register. Anyone in the workspace who opens the app sees the header and info line configured on the dashboard. The connection owner and the configured commanders also see an **Operations** panel underneath:
+
+- **New Run** and **Refresh** buttons, followed by the repositories the agent can work in and its default base branch.
+- The owner's count of channel replies waiting for approval (the approval cards themselves stay in the owner's DM).
+- One card per Slack run, active runs first, showing its status, repository, base branch, start time, and any pull requests it opened with their lifecycle and check results. Up to ten cards are shown.
+
+Each card carries the controls that apply to its state:
+
+- **Stop** (running turns only) asks for confirmation, then interrupts the current turn the same way the dashboard and Slack's native stop button do. The conversation stays resumable.
+- **Resume** opens a form that summarizes the run and takes optional instructions. Leave it empty to continue the previous task from where it stopped (no synthetic message is added to the transcript); type instructions to make them the run's next turn. Resuming never changes the run's repository or checkout.
+- **New Run** opens a form with a repository menu (the primary and additional repositories configured on the agent's Project), the base branch prefilled with the configured default, and the task. Invalid branch names and stale repository choices are reported inline in the form; a branch that does not exist fails during checkout. New Run always starts a fresh run and never retargets an existing conversation.
+
+Confirmations, results, and notifications arrive privately in your DM with the app, and Home refreshes after every action. Every click and submission is re-authorized against the live owner and commander list; a user whose access was removed sees only the introductory copy the next time Home opens. In a shared-workspace app, a commander must map to exactly one agent; an ambiguous mapping cannot operate any of them. The form lists at most 100 repositories, Slack's menu limit. Existing Socket Mode and interactivity settings are sufficient; no new scope is needed.
+
+### PR and check notifications
+
+The connector polls the platform's PR monitors once per minute and sends private DMs when a run's pull request is opened, becomes ready, is merged, or is closed, and when every check on the PR's current head has finished, passed or failed. Check results are only reported once both the check-run and commit-status rollups for the current head are complete; missing or errored observations are never reported as passing. A run reaching a terminal phase is also announced. The original requester receives the notification while still authorized; otherwise the owner does. Notifications never go to shared channels and do not bypass channel-reply approvals.
+
+Delivery markers are stored on the run, so routine polls and connector restarts do not repeat an update. A two-minute delivery lease keeps overlapping connectors from sending the same update, and a failed attempt retries once the lease expires. Delivery is at-least-once: a crash after Slack accepts a message but before its marker is saved can repeat it. On first deployment, existing monitored runs may report their current state. Notifications rely on the platform's PR artifact and monitor controllers and working GitHub credentials; no separate GitHub webhook is created.
+
 ## Status and lifecycle
 
 The Entry-points rail displays the last Slack event and one of these states: **applying** before readiness is reported, **ready** when the generated connector is ready, **degraded** when it reports an error or non-ready state, or **disabled** when its switch is off.

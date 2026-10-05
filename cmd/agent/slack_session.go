@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -241,7 +242,9 @@ func (o *slackOrchestrator) handleSessionStopped(ctx context.Context, e *slackSe
 		o.setSession(ctx, e.Channel, e.ThreadTS, internalslack.SessionActive)
 		return
 	}
-	o.interruptRun(ctx, runName, e.User)
+	if err := o.interruptRun(ctx, runName, e.User); err != nil {
+		log.Printf("slack connector %s: interrupt request for %s: %v", o.agentName, runName, err)
+	}
 	if !o.signalStop(runName) {
 		// No watcher is waiting (the turn already finished): report directly.
 		_, _ = o.web.PostMessageAsBot(ctx, e.Channel, slackStoppedMessage, e.ThreadTS)
@@ -268,24 +271,26 @@ func (o *slackOrchestrator) mayStop(userID string) bool {
 }
 
 // interruptRun records a stop request for the run's current turn on its
-// session, which the runner's per-turn watcher consumes.
-func (o *slackOrchestrator) interruptRun(ctx context.Context, runName, requestedBy string) {
+// session, which the runner's per-turn watcher consumes, and notes the request
+// on the run's activity timeline. The returned error reports only a failure to
+// record the stop itself; the timeline note is best-effort.
+func (o *slackOrchestrator) interruptRun(ctx context.Context, runName, requestedBy string) error {
 	if o.store == nil {
-		return
+		return errors.New("no session store configured")
 	}
 	sess, err := o.store.GetSessionByRun(ctx, runName, o.namespace)
 	if err != nil {
-		return
+		return fmt.Errorf("finding session for %s: %w", runName, err)
 	}
 	actor := "slack:" + requestedBy
 	if err := sessionclient.RequestInterrupt(ctx, o.store, sess.ID, actor); err != nil {
-		log.Printf("slack connector %s: interrupt request for %s: %v", o.agentName, runName, err)
-		return
+		return fmt.Errorf("recording interrupt: %w", err)
 	}
 	if _, err := o.store.WriteActivityEvent(ctx, sess.ID, "interrupt_requested",
 		fmt.Sprintf("Stop requested by %s from Slack — interrupting the current turn", actor), nil); err != nil {
 		log.Printf("slack connector %s: recording interrupt activity for %s: %v", o.agentName, runName, err)
 	}
+	return nil
 }
 
 // handleReplyFeedback records a thumbs up/down on a streamed reply as an

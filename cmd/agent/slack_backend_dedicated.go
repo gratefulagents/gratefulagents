@@ -52,6 +52,15 @@ func (b *dedicatedSlackBackend) handleInteraction(ctx context.Context, callback 
 	b.orch.handleInteraction(ctx, callback)
 }
 
+func (b *dedicatedSlackBackend) validateViewSubmission(
+	ctx context.Context, callback slackgo.InteractionCallback,
+) map[string]string {
+	if b.orch == nil {
+		return nil
+	}
+	return b.orch.validateOperationalSubmission(ctx, callback)
+}
+
 // handleAssistantContextChanged remembers which channel the user is viewing
 // alongside an assistant-pane thread so the orchestrator can inject it into run
 // context.
