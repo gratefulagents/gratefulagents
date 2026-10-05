@@ -55,6 +55,8 @@ Each Slack thread (or DM conversation) is an **agent session**. While the agent 
 
 Replies stream into the thread as a single message rendered from the agent's markdown (headings, tables, code blocks, and links keep their formatting) and finish with Slack's thumbs up / thumbs down feedback buttons. Feedback is recorded on the run's activity timeline in the dashboard. When a channel reply is held for owner approval, the session shows as waiting until the owner approves, edits, or dismisses it. Long runs post a "still working" note after 20 minutes and keep the session in the working state until they finish.
 
+Long replies are split into Unicode-safe payloads within Slack's 12,000-character markdown limit, rather than truncated. If streaming is unavailable, the connector posts the reply as one or more messages in the same thread and then posts the feedback controls separately. Approved drafts also use multiple messages when necessary. Across separate fallback messages, Markdown constructs spanning a boundary may render separately; the text is preserved. Delivery is best-effort: network/API failures can still leave partial output, and a live-workspace smoke test is recommended after installation.
+
 ## Status and lifecycle
 
 The Entry-points rail displays the last Slack event and one of these states: **applying** before readiness is reported, **ready** when the generated connector is ready, **degraded** when it reports an error or non-ready state, or **disabled** when its switch is off.

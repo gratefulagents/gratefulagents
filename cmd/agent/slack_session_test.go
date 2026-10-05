@@ -195,6 +195,9 @@ func (f *fakeSlackAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.calls = append(f.calls, method)
 	f.form = append(f.form, values)
 	failure := f.fail[method]
+	if values.Get("blocks") != "" && f.fail[method+":blocks"] != "" {
+		failure = f.fail[method+":blocks"]
+	}
 	f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	if failure != "" {
@@ -217,20 +220,17 @@ func TestDeliverReplyStreamsMessagesAsOne(t *testing.T) {
 	if !o.deliverReply(context.Background(), w, []string{"# First", "Second"}) {
 		t.Fatal("deliverReply should succeed")
 	}
-	want := []string{"chat.startStream", "chat.appendStream", "chat.stopStream"}
+	want := []string{"chat.startStream", "chat.stopStream"}
 	if got := f.methods(); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("calls = %v, want %v", got, want)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.form[0].Get("markdown_text") != "# First" || f.form[0].Get("recipient_user_id") != "U1" || f.form[0].Get("recipient_team_id") != "T1" {
+	if f.form[0].Get("markdown_text") != "# First\n\nSecond" || f.form[0].Get("recipient_user_id") != "U1" || f.form[0].Get("recipient_team_id") != "T1" {
 		t.Fatalf("unexpected startStream form: %v", f.form[0])
 	}
-	if !strings.Contains(f.form[1].Get("markdown_text"), "Second") {
-		t.Fatalf("unexpected appendStream form: %v", f.form[1])
-	}
-	if f.form[2].Get("session_status") != "active" || !strings.Contains(f.form[2].Get("blocks"), "feedback_buttons") {
-		t.Fatalf("unexpected stopStream form: %v", f.form[2])
+	if f.form[1].Get("session_status") != "active" || !strings.Contains(f.form[1].Get("blocks"), "feedback_buttons") {
+		t.Fatalf("unexpected stopStream form: %v", f.form[1])
 	}
 }
 
@@ -242,7 +242,7 @@ func TestDeliverReplyFallsBackToMarkdownPosts(t *testing.T) {
 	if !o.deliverReply(context.Background(), w, []string{"one", "two"}) {
 		t.Fatal("deliverReply should succeed via fallback")
 	}
-	want := []string{"chat.startStream", "chat.postMessage", "chat.postMessage", "agents.sessions.setStatus"}
+	want := []string{"chat.startStream", "chat.postMessage", "chat.postMessage", "chat.postMessage", "agents.sessions.setStatus"}
 	if got := f.methods(); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("calls = %v, want %v", got, want)
 	}
@@ -251,8 +251,67 @@ func TestDeliverReplyFallsBackToMarkdownPosts(t *testing.T) {
 	if f.form[1].Get("markdown_text") != "one" || f.form[1].Get("thread_ts") != "1.1" {
 		t.Fatalf("fallback post should use markdown_text in thread: %v", f.form[1])
 	}
-	if f.form[3].Get("status") != "active" {
-		t.Fatalf("fallback must return the session to active: %v", f.form[3])
+	if !strings.Contains(f.form[3].Get("blocks"), "feedback_buttons") || !strings.Contains(f.form[3].Get("blocks"), "run-1") || f.form[3].Get("thread_ts") != "1.1" {
+		t.Fatalf("fallback must include thread feedback for this run: %v", f.form[3])
+	}
+	if f.form[4].Get("status") != "active" {
+		t.Fatalf("fallback must return the session to active: %v", f.form[4])
+	}
+}
+
+func TestDeliverReplyPreservesLongMarkdown(t *testing.T) {
+	for _, fallback := range []bool{false, true} {
+		t.Run(map[bool]string{false: "stream", true: "fallback"}[fallback], func(t *testing.T) {
+			f, web := newFakeSlackAPI(t)
+			if fallback {
+				f.fail["chat.startStream"] = "missing_scope"
+			}
+			o := &slackOrchestrator{web: web}
+			text := strings.Repeat("🙂", internalslack.MaxMarkdownChars-1) + " \n" + strings.Repeat("ü", internalslack.MaxMarkdownChars) + " tail"
+			if !o.deliverReply(context.Background(), replyWatch{runName: "run-1", channelID: "D1", threadTS: "1.1", channelType: "im"}, []string{text}) {
+				t.Fatal("delivery failed")
+			}
+			var got strings.Builder
+			for i, method := range f.calls {
+				if fallback && method != "chat.postMessage" {
+					continue
+				}
+				chunk := f.form[i].Get("markdown_text")
+				if len([]rune(chunk)) > internalslack.MaxMarkdownChars {
+					t.Fatal("chunk exceeds Slack limit")
+				}
+				got.WriteString(chunk)
+			}
+			if got.String() != text {
+				t.Fatal("reply content was lost or changed")
+			}
+		})
+	}
+}
+
+func TestDeliverReplyFailedFallbackDoesNotPostFeedback(t *testing.T) {
+	f, web := newFakeSlackAPI(t)
+	f.fail["chat.startStream"] = "missing_scope"
+	f.fail["chat.postMessage"] = "channel_not_found"
+	o := &slackOrchestrator{web: web}
+	if o.deliverReply(context.Background(), replyWatch{channelID: "D1", threadTS: "1.1"}, []string{"reply"}) {
+		t.Fatal("failed delivery must not report success")
+	}
+	if got := strings.Join(f.methods(), ","); got != "chat.startStream,chat.postMessage,agents.sessions.setStatus" {
+		t.Fatalf("unexpected calls: %s", got)
+	}
+}
+
+func TestDeliverReplyFeedbackFailureKeepsFallbackReply(t *testing.T) {
+	f, web := newFakeSlackAPI(t)
+	f.fail["chat.startStream"] = "missing_scope"
+	f.fail["chat.postMessage:blocks"] = "invalid_blocks"
+	o := &slackOrchestrator{web: web}
+	if !o.deliverReply(context.Background(), replyWatch{runName: "run-1", channelID: "D1", threadTS: "1.1"}, []string{"reply"}) {
+		t.Fatal("feedback failure must not discard a delivered reply")
+	}
+	if got := strings.Join(f.methods(), ","); got != "chat.startStream,chat.postMessage,chat.postMessage,agents.sessions.setStatus" {
+		t.Fatalf("unexpected calls: %s", got)
 	}
 }
 

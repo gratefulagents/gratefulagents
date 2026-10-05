@@ -160,20 +160,23 @@ func (c *Client) PostMessageAsBot(ctx context.Context, channelID, text, threadTS
 
 // PostMarkdownAsBot posts standard markdown (the agent's native output) as the
 // bot via chat.postMessage's markdown_text field, so Slack renders it without
-// a lossy client-side mrkdwn conversion. Text beyond Slack's 12,000-character
-// limit is truncated.
+// a lossy client-side mrkdwn conversion. Long replies use multiple messages;
+// the returned timestamp identifies the last successfully posted message.
 func (c *Client) PostMarkdownAsBot(ctx context.Context, channelID, markdown, threadTS string) (ts string, err error) {
 	api, err := c.requireBot()
 	if err != nil {
 		return "", err
 	}
-	opts := []slackgo.MsgOption{slackgo.MsgOptionMarkdownText(TruncateMarkdown(markdown))}
-	if strings.TrimSpace(threadTS) != "" {
-		opts = append(opts, slackgo.MsgOptionTS(threadTS))
-	}
-	_, ts, err = api.PostMessageContext(ctx, channelID, opts...)
-	if err != nil {
-		return "", fmt.Errorf("slack chat.postMessage (markdown): %w", err)
+	for _, chunk := range SplitMarkdown(markdown) {
+		opts := []slackgo.MsgOption{slackgo.MsgOptionMarkdownText(chunk)}
+		if strings.TrimSpace(threadTS) != "" {
+			opts = append(opts, slackgo.MsgOptionTS(threadTS))
+		}
+		_, nextTS, err := api.PostMessageContext(ctx, channelID, opts...)
+		if err != nil {
+			return ts, fmt.Errorf("slack chat.postMessage (markdown): %w", err)
+		}
+		ts = nextTS
 	}
 	return ts, nil
 }

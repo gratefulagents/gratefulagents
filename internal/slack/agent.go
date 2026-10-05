@@ -132,7 +132,10 @@ func (c *Client) StartStream(ctx context.Context, t StreamTarget, markdown strin
 		return "", errors.New("slack: channel and thread are required to start a stream")
 	}
 	opts := []slackgo.MsgOption{slackgo.MsgOptionTS(t.ThreadTS)}
-	if md := TruncateMarkdown(markdown); md != "" {
+	if utf8.RuneCountInString(markdown) > MaxMarkdownChars {
+		return "", errors.New("slack: stream chunk exceeds markdown_text limit")
+	}
+	if md := markdown; md != "" {
 		opts = append(opts, slackgo.MsgOptionMarkdownText(md))
 	}
 	if u := strings.TrimSpace(t.RecipientUserID); u != "" {
@@ -154,7 +157,10 @@ func (c *Client) AppendStream(ctx context.Context, channelID, ts, markdown strin
 	if err != nil {
 		return err
 	}
-	md := TruncateMarkdown(markdown)
+	if utf8.RuneCountInString(markdown) > MaxMarkdownChars {
+		return errors.New("slack: stream chunk exceeds markdown_text limit")
+	}
+	md := markdown
 	if md == "" {
 		return nil
 	}
@@ -182,7 +188,10 @@ func (c *Client) StopStream(ctx context.Context, channelID, ts, markdown string,
 			}
 		}),
 	}
-	if md := TruncateMarkdown(markdown); md != "" {
+	if utf8.RuneCountInString(markdown) > MaxMarkdownChars {
+		return errors.New("slack: stream chunk exceeds markdown_text limit")
+	}
+	if md := markdown; md != "" {
 		opts = append(opts, slackgo.MsgOptionMarkdownText(md))
 	}
 	if len(blocks) > 0 {
@@ -194,14 +203,19 @@ func (c *Client) StopStream(ctx context.Context, channelID, ts, markdown string,
 	return nil
 }
 
-// TruncateMarkdown bounds markdown to Slack's markdown_text limit on a rune
-// boundary, marking the cut with an ellipsis.
-func TruncateMarkdown(s string) string {
-	s = strings.TrimSpace(s)
-	if utf8.RuneCountInString(s) <= MaxMarkdownChars {
-		return s
+// SplitMarkdown preserves whitespace at chunk boundaries because streamed
+// chunks are concatenated by Slack, including inside Markdown constructs.
+func SplitMarkdown(s string) []string {
+	var chunks []string
+	runes := []rune(s)
+	for len(runes) > MaxMarkdownChars {
+		chunks = append(chunks, string(runes[:MaxMarkdownChars]))
+		runes = runes[MaxMarkdownChars:]
 	}
-	return truncateRunes(s, MaxMarkdownChars-1) + "…"
+	if len(runes) > 0 {
+		chunks = append(chunks, string(runes))
+	}
+	return chunks
 }
 
 // apiResponse is the envelope every Web API method returns.
