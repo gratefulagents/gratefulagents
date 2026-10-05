@@ -32,7 +32,6 @@ import type {
   SlackAgent,
   SlackDraft,
   SlackWorkspace,
-  SSHTunnel,
 } from "../../frontend/src/rpc/platform/service_pb";
 
 /** Matches the AuthUser shape AuthContext stores (auth.v1.User). */
@@ -93,8 +92,6 @@ export interface Scenario {
 
   skillPackages: SkillInfo[];
   runtimeImages: RuntimeImageOption[];
-  /** kubectl-authored SSH tunnels surfaced by listSSHTunnels. */
-  sshTunnels: SSHTunnel[];
   modes: ModeTemplate[];
   models: { provider: string; baseUrl: string; models: string[] };
   credentials: MyCredentials;

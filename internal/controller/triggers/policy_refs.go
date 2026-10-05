@@ -29,9 +29,6 @@ func applyPolicyRefs(spec *platformv1alpha1.AgentRunSpec, defaults triggersv1alp
 		}
 		spec.Limits.MaxRuntime = defaults.Timeout
 	}
-	if defaults.SSHTunnelRef != nil {
-		spec.SSHTunnelRef = defaults.SSHTunnelRef.DeepCopy()
-	}
 	if len(defaults.MCPServerRefs) > 0 {
 		refs := make([]platformv1alpha1.NamedRef, len(defaults.MCPServerRefs))
 		copy(refs, defaults.MCPServerRefs)

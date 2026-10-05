@@ -95,7 +95,6 @@ export function normalizeTriggerDefaults(
     authMode: d.authMode,
     reasoningLevel: d.reasoningLevel,
     openaiBaseUrl: d.openaiBaseUrl.trim(),
-    sshTunnelRef: d.sshTunnelRef.trim(),
     openaiApi: d.openaiApi,
     timeout: d.timeout.trim(),
     customInstructions: d.customInstructions.trim(),

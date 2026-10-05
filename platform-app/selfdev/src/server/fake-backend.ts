@@ -47,7 +47,6 @@ import {
   ListProjectsResponseSchema,
   ListRepositoriesResponseSchema,
   ListRuntimeImagesResponseSchema,
-  ListSSHTunnelsResponseSchema,
   ListSharesResponseSchema,
   ListSharedWithMeResponseSchema,
   ListSkillsResponseSchema,
@@ -415,8 +414,6 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
       return {};
     },
     listRuntimeImages: async () => create(ListRuntimeImagesResponseSchema, { images: s.runtimeImages }),
-    listSSHTunnels: async () =>
-      create(ListSSHTunnelsResponseSchema, { namespace: s.user.username, tunnels: s.sshTunnels }),
     listAvailableModes: async () => create(ListAvailableModesResponseSchema, { modes: s.modes }),
     getModeTemplate: async (req: { name: string }) => {
       const mode = s.modes.find((m) => m.name === req.name);

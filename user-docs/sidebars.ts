@@ -53,7 +53,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'settings/resources',
         'settings/skill-packages',
-        'settings/ssh-tunnels',
       ],
     },
     {

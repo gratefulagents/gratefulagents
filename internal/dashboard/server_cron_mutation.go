@@ -349,9 +349,6 @@ func protoDefaultsToCRD(pb *platform.AgentRunDefaults) (triggersv1alpha1.AgentRu
 	if name := strings.TrimSpace(pb.GetRuntimeProfileRef()); name != "" {
 		d.RuntimeProfileRef = &platformv1alpha1.NamedRef{Name: name}
 	}
-	if name := strings.TrimSpace(pb.GetSshTunnelRef()); name != "" {
-		d.SSHTunnelRef = &platformv1alpha1.NamedRef{Name: name}
-	}
 	if name := strings.TrimSpace(pb.GetModeRef()); name != "" {
 		d.ModeRef = &platformv1alpha1.ModeRef{Name: name}
 	}

@@ -532,7 +532,7 @@ func TestSandboxTemplateUsesUnifiedRunCommand(t *testing.T) {
 		},
 	}
 
-	pod := corev1.Pod{Spec: buildManagedSandboxTemplateSpec(run, nil, "run-chat", nil, "", nil, nil).PodTemplate.Spec}
+	pod := corev1.Pod{Spec: buildManagedSandboxTemplateSpec(run, nil, "run-chat", nil, "", nil).PodTemplate.Spec}
 	if len(pod.Spec.Containers) == 0 || len(pod.Spec.Containers[0].Command) < 2 || pod.Spec.Containers[0].Command[1] != "run" {
 		t.Fatalf("pod command = %#v, want unified agent run", pod.Spec.Containers[0].Command)
 	}
@@ -568,7 +568,7 @@ func TestSandboxTemplateForcesNonRootWorker(t *testing.T) {
 		},
 	}
 
-	pod := corev1.Pod{Spec: buildManagedSandboxTemplateSpec(run, nil, "run-elixir", nil, "", nil, nil).PodTemplate.Spec}
+	pod := corev1.Pod{Spec: buildManagedSandboxTemplateSpec(run, nil, "run-elixir", nil, "", nil).PodTemplate.Spec}
 
 	if len(pod.Spec.Containers) != 1 {
 		t.Fatalf("len(Containers) = %d, want 1 worker container", len(pod.Spec.Containers))

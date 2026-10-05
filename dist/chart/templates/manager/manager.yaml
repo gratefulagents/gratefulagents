@@ -65,8 +65,6 @@ spec:
                       value: {{ .Values.agentImages.worker | quote }}
                     - name: INJECTOR_IMAGE
                       value: {{ .Values.agentImages.injector | quote }}
-                    - name: SSH_TUNNEL_IMAGE
-                      value: {{ .Values.agentImages.sshTunnel | quote }}
                     - name: VIDEO_TMP_DIR
                       value: /var/run/video-tmp
                     {{- if include "gratefulagents.otlpEndpoint" . }}

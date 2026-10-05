@@ -69,9 +69,6 @@ func k8sAgentRunToProto(run *platformv1alpha1.AgentRun) *platform.AgentRun {
 	pb.DockerInDocker = run.Spec.DockerInDocker
 	pb.AuthMode = string(run.Spec.AuthMode)
 	pb.OpenaiBaseUrl = run.Spec.OpenAIBaseURL
-	if run.Spec.SSHTunnelRef != nil {
-		pb.SshTunnelRef = run.Spec.SSHTunnelRef.Name
-	}
 	pb.Image = run.Spec.Image
 	if run.Spec.Team != nil {
 		pb.Team = &platform.AgentRunTeamSpec{}

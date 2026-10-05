@@ -145,9 +145,6 @@ const (
 	// PlatformServiceListRuntimeProfilesProcedure is the fully-qualified name of the PlatformService's
 	// ListRuntimeProfiles RPC.
 	PlatformServiceListRuntimeProfilesProcedure = "/platform.v1.PlatformService/ListRuntimeProfiles"
-	// PlatformServiceListSSHTunnelsProcedure is the fully-qualified name of the PlatformService's
-	// ListSSHTunnels RPC.
-	PlatformServiceListSSHTunnelsProcedure = "/platform.v1.PlatformService/ListSSHTunnels"
 	// PlatformServiceCreateRuntimeProfileProcedure is the fully-qualified name of the PlatformService's
 	// CreateRuntimeProfile RPC.
 	PlatformServiceCreateRuntimeProfileProcedure = "/platform.v1.PlatformService/CreateRuntimeProfile"
@@ -582,9 +579,6 @@ type PlatformServiceClient interface {
 	// Namespaced dashboard resources always resolve to the verified caller's
 	// personal namespace. These requests intentionally carry no namespace.
 	ListRuntimeProfiles(context.Context, *connect.Request[platform.ListRuntimeProfilesRequest]) (*connect.Response[platform.ListRuntimeProfilesResponse], error)
-	// SSHTunnel resources are kubectl/GitOps-authored; the dashboard lists them
-	// (name + health) so run defaults can reference a tunnel by picking it.
-	ListSSHTunnels(context.Context, *connect.Request[platform.ListSSHTunnelsRequest]) (*connect.Response[platform.ListSSHTunnelsResponse], error)
 	CreateRuntimeProfile(context.Context, *connect.Request[platform.CreateRuntimeProfileRequest]) (*connect.Response[platform.RuntimeProfile], error)
 	UpdateRuntimeProfile(context.Context, *connect.Request[platform.UpdateRuntimeProfileRequest]) (*connect.Response[platform.RuntimeProfile], error)
 	DeleteRuntimeProfile(context.Context, *connect.Request[platform.DeleteRuntimeProfileRequest]) (*connect.Response[emptypb.Empty], error)
@@ -980,12 +974,6 @@ func NewPlatformServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			httpClient,
 			baseURL+PlatformServiceListRuntimeProfilesProcedure,
 			connect.WithSchema(platformServiceMethods.ByName("ListRuntimeProfiles")),
-			connect.WithClientOptions(opts...),
-		),
-		listSSHTunnels: connect.NewClient[platform.ListSSHTunnelsRequest, platform.ListSSHTunnelsResponse](
-			httpClient,
-			baseURL+PlatformServiceListSSHTunnelsProcedure,
-			connect.WithSchema(platformServiceMethods.ByName("ListSSHTunnels")),
 			connect.WithClientOptions(opts...),
 		),
 		createRuntimeProfile: connect.NewClient[platform.CreateRuntimeProfileRequest, platform.RuntimeProfile](
@@ -1756,7 +1744,6 @@ type platformServiceClient struct {
 	upsertSkill                            *connect.Client[platform.UpsertSkillRequest, platform.SkillInfo]
 	deleteSkill                            *connect.Client[platform.DeleteSkillRequest, emptypb.Empty]
 	listRuntimeProfiles                    *connect.Client[platform.ListRuntimeProfilesRequest, platform.ListRuntimeProfilesResponse]
-	listSSHTunnels                         *connect.Client[platform.ListSSHTunnelsRequest, platform.ListSSHTunnelsResponse]
 	createRuntimeProfile                   *connect.Client[platform.CreateRuntimeProfileRequest, platform.RuntimeProfile]
 	updateRuntimeProfile                   *connect.Client[platform.UpdateRuntimeProfileRequest, platform.RuntimeProfile]
 	deleteRuntimeProfile                   *connect.Client[platform.DeleteRuntimeProfileRequest, emptypb.Empty]
@@ -2063,11 +2050,6 @@ func (c *platformServiceClient) DeleteSkill(ctx context.Context, req *connect.Re
 // ListRuntimeProfiles calls platform.v1.PlatformService.ListRuntimeProfiles.
 func (c *platformServiceClient) ListRuntimeProfiles(ctx context.Context, req *connect.Request[platform.ListRuntimeProfilesRequest]) (*connect.Response[platform.ListRuntimeProfilesResponse], error) {
 	return c.listRuntimeProfiles.CallUnary(ctx, req)
-}
-
-// ListSSHTunnels calls platform.v1.PlatformService.ListSSHTunnels.
-func (c *platformServiceClient) ListSSHTunnels(ctx context.Context, req *connect.Request[platform.ListSSHTunnelsRequest]) (*connect.Response[platform.ListSSHTunnelsResponse], error) {
-	return c.listSSHTunnels.CallUnary(ctx, req)
 }
 
 // CreateRuntimeProfile calls platform.v1.PlatformService.CreateRuntimeProfile.
@@ -2751,9 +2733,6 @@ type PlatformServiceHandler interface {
 	// Namespaced dashboard resources always resolve to the verified caller's
 	// personal namespace. These requests intentionally carry no namespace.
 	ListRuntimeProfiles(context.Context, *connect.Request[platform.ListRuntimeProfilesRequest]) (*connect.Response[platform.ListRuntimeProfilesResponse], error)
-	// SSHTunnel resources are kubectl/GitOps-authored; the dashboard lists them
-	// (name + health) so run defaults can reference a tunnel by picking it.
-	ListSSHTunnels(context.Context, *connect.Request[platform.ListSSHTunnelsRequest]) (*connect.Response[platform.ListSSHTunnelsResponse], error)
 	CreateRuntimeProfile(context.Context, *connect.Request[platform.CreateRuntimeProfileRequest]) (*connect.Response[platform.RuntimeProfile], error)
 	UpdateRuntimeProfile(context.Context, *connect.Request[platform.UpdateRuntimeProfileRequest]) (*connect.Response[platform.RuntimeProfile], error)
 	DeleteRuntimeProfile(context.Context, *connect.Request[platform.DeleteRuntimeProfileRequest]) (*connect.Response[emptypb.Empty], error)
@@ -3145,12 +3124,6 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 		PlatformServiceListRuntimeProfilesProcedure,
 		svc.ListRuntimeProfiles,
 		connect.WithSchema(platformServiceMethods.ByName("ListRuntimeProfiles")),
-		connect.WithHandlerOptions(opts...),
-	)
-	platformServiceListSSHTunnelsHandler := connect.NewUnaryHandler(
-		PlatformServiceListSSHTunnelsProcedure,
-		svc.ListSSHTunnels,
-		connect.WithSchema(platformServiceMethods.ByName("ListSSHTunnels")),
 		connect.WithHandlerOptions(opts...),
 	)
 	platformServiceCreateRuntimeProfileHandler := connect.NewUnaryHandler(
@@ -3955,8 +3928,6 @@ func NewPlatformServiceHandler(svc PlatformServiceHandler, opts ...connect.Handl
 			platformServiceDeleteSkillHandler.ServeHTTP(w, r)
 		case PlatformServiceListRuntimeProfilesProcedure:
 			platformServiceListRuntimeProfilesHandler.ServeHTTP(w, r)
-		case PlatformServiceListSSHTunnelsProcedure:
-			platformServiceListSSHTunnelsHandler.ServeHTTP(w, r)
 		case PlatformServiceCreateRuntimeProfileProcedure:
 			platformServiceCreateRuntimeProfileHandler.ServeHTTP(w, r)
 		case PlatformServiceUpdateRuntimeProfileProcedure:
@@ -4354,10 +4325,6 @@ func (UnimplementedPlatformServiceHandler) DeleteSkill(context.Context, *connect
 
 func (UnimplementedPlatformServiceHandler) ListRuntimeProfiles(context.Context, *connect.Request[platform.ListRuntimeProfilesRequest]) (*connect.Response[platform.ListRuntimeProfilesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListRuntimeProfiles is not implemented"))
-}
-
-func (UnimplementedPlatformServiceHandler) ListSSHTunnels(context.Context, *connect.Request[platform.ListSSHTunnelsRequest]) (*connect.Response[platform.ListSSHTunnelsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("platform.v1.PlatformService.ListSSHTunnels is not implemented"))
 }
 
 func (UnimplementedPlatformServiceHandler) CreateRuntimeProfile(context.Context, *connect.Request[platform.CreateRuntimeProfileRequest]) (*connect.Response[platform.RuntimeProfile], error) {
