@@ -1,0 +1,35 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: grafana
+spec:
+  version: "0.1.0"
+  description: >-
+    Grafana observability tools: query Prometheus (PromQL) and Loki (LogQL),
+    inspect dashboards and datasources, triage alerts, incidents, and Sift
+    investigations. Requires a saved "grafana" integration credential with
+    keys "url" and "token" (Settings → Credentials → Integration credentials).
+  mcpServerConfig:
+    type: stdio
+    # Exact-version uvx packages are installed from wheels at run start in a
+    # credential-free installer sandbox, then mounted read-only into the MCP
+    # sandbox. Installation needs egress to pypi.org/files.pythonhosted.org.
+    command: uvx
+    args: ["mcp-grafana==0.17.2", "--disable-oncall"]
+    # The MCP process must reach the configured Grafana endpoint. The run's
+    # RuntimeProfile egress policy remains the outer network boundary.
+    allowNetwork: true
+    # The server's per-tool read-only hints are honest; trusting them keeps the
+    # query tools available even in read-only permission mode.
+    trustReadOnlyHint: true
+    # Pass the injected credentials through the SDK's env filter into the
+    # server subprocess (TOKEN-suffixed names are filtered without this).
+    allowEnv: ["GRAFANA_URL", "GRAFANA_SERVICE_ACCOUNT_TOKEN"]
+    # Injected into the run pod from the user's saved integration credential.
+    secretEnv:
+      - name: GRAFANA_URL
+        secretName: usercred-grafana
+        secretKey: url
+      - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+        secretName: usercred-grafana
+        secretKey: token

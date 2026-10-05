@@ -18,6 +18,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { RuntimeImagePicker } from "@/components/RuntimeImagePicker";
 import { RepoUrlListInput } from "@/components/RepoUrlListInput";
+import { SkillPicker } from "@/components/SkillPicker";
 import { toast } from "@/components/ui/toaster";
 import type { SlackAgent, SlackWorkspace } from "@/rpc/platform/service_pb";
 
@@ -189,9 +190,6 @@ export function SlackAgentSettings({
   const [availableServers, setAvailableServers] = useState<
     { name: string; version: string; description: string }[]
   >([]);
-  const [availableSkills, setAvailableSkills] = useState<
-    { name: string; version: string; description: string; mcpServerRefs: string[] }[]
-  >([]);
 
   const effectiveAuthMode = provider === "copilot" ? "oauth" : authMode;
 
@@ -274,21 +272,6 @@ export function SlackAgentSettings({
         if (active) setAvailableServers([]);
       }
       try {
-        const resp = await client.listSkills({});
-        if (active) {
-          setAvailableSkills(
-            (resp.skills ?? []) as {
-              name: string;
-              version: string;
-              description: string;
-              mcpServerRefs: string[];
-            }[],
-          );
-        }
-      } catch {
-        if (active) setAvailableSkills([]);
-      }
-      try {
         const resp = await client.listSlackWorkspaces({});
         if (active) setWorkspaces((resp.workspaces ?? []) as SlackWorkspace[]);
       } catch {
@@ -302,13 +285,6 @@ export function SlackAgentSettings({
 
   function toggleMcpServer(name: string, on: boolean) {
     setMcpServerRefs((prev) => {
-      const without = prev.filter((n) => n !== name);
-      return on ? [...without, name] : without;
-    });
-  }
-
-  function toggleSkill(name: string, on: boolean) {
-    setSkillRefs((prev) => {
       const without = prev.filter((n) => n !== name);
       return on ? [...without, name] : without;
     });
@@ -808,59 +784,9 @@ export function SlackAgentSettings({
               ))}
           </div>
         )}
-        {availableSkills.length === 0 && skillRefs.length === 0 ? (
-          <p className="text-[12px] text-muted-foreground">
-            No skills in your namespace. Create one under Resources → Skills to attach reusable
-            instructions here.
-          </p>
-        ) : (
-          <div className="space-y-2.5 border-t pt-3">
-            {availableSkills.map((skill) => (
-              <div key={skill.name} className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-[12.5px] font-medium">
-                    {skill.name}
-                    {skill.version && (
-                      <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
-                        v{skill.version}
-                      </span>
-                    )}
-                    {(skill.mcpServerRefs ?? []).length > 0 && (
-                      <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
-                        brings: {skill.mcpServerRefs.join(", ")}
-                      </span>
-                    )}
-                  </div>
-                  {skill.description && (
-                    <p className="text-[12px] text-muted-foreground">{skill.description}</p>
-                  )}
-                </div>
-                <Switch
-                  aria-label={`Attach ${skill.name}`}
-                  checked={skillRefs.includes(skill.name)}
-                  onCheckedChange={(on) => toggleSkill(skill.name, on)}
-                />
-              </div>
-            ))}
-            {skillRefs
-              .filter((name) => !availableSkills.some((s) => s.name === name))
-              .map((name) => (
-                <div key={name} className="flex items-center justify-between gap-3">
-                  <div className="text-[12.5px] font-medium">
-                    {name}
-                    <span className="ml-1.5 text-[11px] font-normal text-amber-600">
-                      not found in your namespace
-                    </span>
-                  </div>
-                  <Switch
-                    aria-label={`Detach ${name}`}
-                    checked
-                    onCheckedChange={(on) => toggleSkill(name, on)}
-                  />
-                </div>
-              ))}
-          </div>
-        )}
+        <div className="border-t pt-3">
+          <SkillPicker selected={skillRefs} onChange={setSkillRefs} />
+        </div>
       </FormSection>
 
       <FormSection

@@ -8,6 +8,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -22,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/yaml"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
@@ -67,9 +69,13 @@ func (r *SkillReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	refresh := skill.Annotations[platformv1alpha1.SkillRefreshAnnotation]
+	// Only a Ready skill is current: an Error skill keeps its last good
+	// Resolved content for runs, so Resolved alone no longer proves the
+	// current spec was synced, and the requeued retry must reach the fetch.
 	upToDate := skill.Status.ObservedGeneration == skill.Generation &&
 		skill.Status.LastRefresh == refresh &&
-		skill.Status.Resolved != nil
+		skill.Status.Resolved != nil &&
+		skill.Status.Phase == "Ready"
 	if upToDate {
 		return ctrl.Result{}, nil
 	}
@@ -126,13 +132,22 @@ func (r *SkillReconciler) resolveSkill(ctx context.Context, skill *platformv1alp
 		return status, 0
 	}
 
+	// A URL that can never resolve is a spec problem, not a transient fetch
+	// failure: mark it Invalid instead of retrying every interval forever.
+	if _, _, err := parseGitHubRepoURL(git.URL); err != nil {
+		return fail("Invalid", "InvalidSource", err.Error(), 0)
+	}
+
 	fetcher := r.Fetcher
 	if fetcher == nil {
 		fetcher = githubSkillFetcher{}
 	}
 	content, sha, err := fetcher.FetchSkillMD(ctx, *git)
 	if err != nil {
-		return fail("Error", "FetchFailed", fmt.Sprintf("fetching SKILL.md: %v", err), skillFetchRetryInterval)
+		// Keep the last good content so runs using this skill are not cut off
+		// by a transient GitHub failure; phase Error still reports the problem.
+		status.Resolved = skill.Status.Resolved
+		return fail("Error", "FetchFailed", fetchFailureMessage(err), skillFetchRetryInterval)
 	}
 	if len(content) > skillMaxContentBytes {
 		return fail("Invalid", "ContentTooLarge",
@@ -163,8 +178,25 @@ func (r *SkillReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1alpha1.Skill{}).
 		Named("skill").
+		// Status patches written by this reconciler must not re-trigger it:
+		// without the filter a failed fetch would reconcile again immediately,
+		// bypassing skillFetchRetryInterval and hammering the GitHub API.
+		WithEventFilter(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{})).
 		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
 		Complete(r)
+}
+
+// fetchFailureMessage renders a fetch error for the Resolved condition. GitHub
+// rate-limit errors embed a live countdown ("rate reset in 42s"), which would
+// make every retry a distinct status write; they collapse to a fixed message
+// so an unchanged failure patches nothing.
+func fetchFailureMessage(err error) string {
+	var rateLimit *github.RateLimitError
+	var abuse *github.AbuseRateLimitError
+	if errors.As(err, &rateLimit) || errors.As(err, &abuse) {
+		return "fetching SKILL.md: GitHub API rate limit exceeded; retrying"
+	}
+	return fmt.Sprintf("fetching SKILL.md: %v", err)
 }
 
 // skillFrontmatter carries the recognized SKILL.md frontmatter fields

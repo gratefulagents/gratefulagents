@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/go-github/v68/github"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -193,7 +195,121 @@ func TestSkillReconcilerGitFetchError(t *testing.T) {
 		t.Fatalf("phase = %q", got.Status.Phase)
 	}
 	if got.Status.Resolved != nil {
-		t.Fatalf("resolved should be nil on fetch error, got %+v", got.Status.Resolved)
+		t.Fatalf("a skill that never resolved has nothing to keep, got %+v", got.Status.Resolved)
+	}
+}
+
+func TestSkillReconcilerGitFetchErrorKeepsLastGoodContent(t *testing.T) {
+	skillMD := "---\nname: pdf\ndescription: Process PDFs\n---\nUse pdfplumber."
+	skill := &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: "pdf", Namespace: "ns", Generation: 1},
+		Spec: platformv1alpha1.SkillSpec{
+			Source: platformv1alpha1.SkillSource{
+				Git: &platformv1alpha1.SkillGitSource{URL: "https://github.com/anthropics/skills", Path: "document-skills/pdf"},
+			},
+		},
+	}
+	c := newSkillTestClient(t, skill)
+	ready := reconcileSkill(t, c, fakeFetcher{content: skillMD, sha: "abc123"}, "pdf")
+	if ready.Status.Phase != "Ready" || ready.Status.Resolved == nil {
+		t.Fatalf("precondition: phase = %q, resolved = %+v", ready.Status.Phase, ready.Status.Resolved)
+	}
+
+	// A spec edit forces a re-fetch, which now fails.
+	ready.Spec.Source.Git.Ref = "v2"
+	ready.Generation = 2
+	if err := c.Update(context.Background(), ready); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	r := &SkillReconciler{Client: c, Fetcher: fakeFetcher{err: fmt.Errorf("boom")}}
+	key := client.ObjectKey{Namespace: "ns", Name: "pdf"}
+	res, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if res.RequeueAfter != skillFetchRetryInterval {
+		t.Fatalf("RequeueAfter = %s, want %s", res.RequeueAfter, skillFetchRetryInterval)
+	}
+	got := &platformv1alpha1.Skill{}
+	if err := c.Get(context.Background(), key, got); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.Status.Phase != "Error" {
+		t.Fatalf("phase = %q, conditions = %+v", got.Status.Phase, got.Status.Conditions)
+	}
+	if got.Status.Resolved == nil || !strings.Contains(got.Status.Resolved.Instructions, "pdfplumber") || got.Status.Resolved.SHA != "abc123" {
+		t.Fatalf("previously resolved content was dropped: %+v", got.Status.Resolved)
+	}
+	if got.Status.ObservedGeneration != 2 {
+		t.Fatalf("observedGeneration = %d, want 2", got.Status.ObservedGeneration)
+	}
+
+	// The retry must reach the fetcher again: preserved content must not make
+	// the Error skill look up to date.
+	r.Fetcher = fakeFetcher{content: skillMD, sha: "def456"}
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("retry Reconcile() error = %v", err)
+	}
+	if err := c.Get(context.Background(), key, got); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.Status.Phase != "Ready" || got.Status.Resolved == nil || got.Status.Resolved.SHA != "def456" {
+		t.Fatalf("retry did not re-fetch: phase = %q, resolved = %+v", got.Status.Phase, got.Status.Resolved)
+	}
+}
+
+func TestSkillReconcilerInvalidGitURLIsNotRetried(t *testing.T) {
+	skill := &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: "elsewhere", Namespace: "ns", Generation: 1},
+		Spec: platformv1alpha1.SkillSpec{
+			Source: platformv1alpha1.SkillSource{
+				Git: &platformv1alpha1.SkillGitSource{URL: "https://gitlab.com/a/b"},
+			},
+		},
+	}
+	fetcher := &countingFetcher{}
+	c := newSkillTestClient(t, skill)
+	r := &SkillReconciler{Client: c, Fetcher: fetcher}
+	key := client.ObjectKey{Namespace: "ns", Name: "elsewhere"}
+	res, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if res.RequeueAfter != 0 {
+		t.Fatalf("RequeueAfter = %s, want no retry for an invalid URL", res.RequeueAfter)
+	}
+	got := &platformv1alpha1.Skill{}
+	if err := c.Get(context.Background(), key, got); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if got.Status.Phase != "Invalid" {
+		t.Fatalf("phase = %q, conditions = %+v", got.Status.Phase, got.Status.Conditions)
+	}
+	if fetcher.calls != 0 {
+		t.Fatalf("fetcher called %d times for an invalid URL", fetcher.calls)
+	}
+}
+
+type countingFetcher struct{ calls int }
+
+func (f *countingFetcher) FetchSkillMD(context.Context, platformv1alpha1.SkillGitSource) (string, string, error) {
+	f.calls++
+	return "", "", fmt.Errorf("unexpected fetch")
+}
+
+func TestFetchFailureMessageIsStableUnderRateLimits(t *testing.T) {
+	limited := &github.RateLimitError{Rate: github.Rate{Reset: github.Timestamp{Time: time.Now().Add(42 * time.Second)}}, Message: "API rate limit exceeded"}
+	first := fetchFailureMessage(fmt.Errorf("fetching x/y SKILL.md: %w", limited))
+	limited.Rate.Reset = github.Timestamp{Time: time.Now().Add(7 * time.Second)}
+	second := fetchFailureMessage(fmt.Errorf("fetching x/y SKILL.md: %w", limited))
+	if first != second {
+		t.Fatalf("rate-limit message changed between retries: %q vs %q", first, second)
+	}
+	if !strings.Contains(first, "rate limit") {
+		t.Fatalf("message = %q", first)
+	}
+	if got := fetchFailureMessage(fmt.Errorf("boom")); got != "fetching SKILL.md: boom" {
+		t.Fatalf("plain error message = %q", got)
 	}
 }
 

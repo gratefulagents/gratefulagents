@@ -46,6 +46,9 @@ func (s *Server) ListMCPServers(ctx context.Context, _ *platform.ListMCPServersR
 // namespace from structured form fields. The whole spec is assigned on every
 // save (the form owns it).
 func (s *Server) UpsertMCPServer(ctx context.Context, req *platform.UpsertMCPServerRequest) (*platform.MCPServerInfo, error) {
+	if err := requireMemberActor(ctx, "create or update MCP servers"); err != nil {
+		return nil, err
+	}
 	actor := requestActorFromContext(ctx)
 	namespace, err := s.ensureUserNamespace(ctx, actor)
 	if err != nil {
@@ -110,6 +113,9 @@ func (s *Server) UpsertMCPServer(ctx context.Context, req *platform.UpsertMCPSer
 // a server other agents or skills still reference is safe: refs to missing
 // servers are skipped at run time.
 func (s *Server) DeleteMCPServer(ctx context.Context, req *platform.DeleteMCPServerRequest) error {
+	if err := requireMemberActor(ctx, "delete MCP servers"); err != nil {
+		return err
+	}
 	actor := requestActorFromContext(ctx)
 	namespace, err := s.ensureUserNamespace(ctx, actor)
 	if err != nil {

@@ -58,3 +58,23 @@ func TestAttachLoadedSkillInstructionsPreservesDynamicBase(t *testing.T) {
 		t.Fatalf("wrapped dynamic instructions = %q", got)
 	}
 }
+
+func TestAttachLoadedSkillInstructionsToSpecialistsReachesEveryClone(t *testing.T) {
+	source := &stubLoadedSkills{}
+	specialists := map[string]*agent.Agent{
+		"analyst": {Name: "analyst", Instructions: "analyst base"},
+		"explore": {
+			Name:           "explore",
+			InstructionsFn: func(_ *agent.RunContext, _ *agent.Agent) string { return "explore base" },
+		},
+	}
+	attachLoadedSkillInstructionsToSpecialists(specialists, source)
+
+	source.instructions = "# Loaded skill guidance\n\n## Skill: pdf\nUse pdfplumber."
+	for name, specialist := range specialists {
+		got := specialist.GetInstructions(&agent.RunContext{})
+		if !strings.Contains(got, name+" base") || !strings.Contains(got, "Use pdfplumber.") {
+			t.Fatalf("%s instructions = %q", name, got)
+		}
+	}
+}

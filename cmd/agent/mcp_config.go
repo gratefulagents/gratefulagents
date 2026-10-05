@@ -47,7 +47,21 @@ func buildMCPConfig(ctx context.Context, c client.Client, namespace, workDir str
 	if run == nil {
 		return cfg, clusterManaged, networkAllowed
 	}
-	refs := mcpattach.EffectiveMCPServerRefs(ctx, c, run)
+	// A transient API failure while reading skills must not silently drop
+	// their required servers for the pod's whole lifetime: retry briefly, then
+	// fall back to the run's explicit refs with a visible warning.
+	var refs []platformv1alpha1.NamedRef
+	if err := retryTransient(ctx, "resolving MCP servers required by skills", 5, func(ctx context.Context) error {
+		resolved, err := mcpattach.EffectiveMCPServerRefs(ctx, c, run)
+		if err != nil {
+			return err
+		}
+		refs = resolved
+		return nil
+	}); err != nil {
+		log.Printf("WARN: resolving MCP servers required by skills: %v — attaching explicit refs only", err)
+		refs, _ = mcpattach.EffectiveMCPServerRefs(ctx, nil, run)
+	}
 	if len(refs) == 0 {
 		return cfg, clusterManaged, networkAllowed
 	}

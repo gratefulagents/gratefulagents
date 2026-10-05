@@ -619,6 +619,8 @@ type AgentRunResolvedPolicy struct {
 	// +listType=atomic
 	// +optional
 	ResolvedAgentKinds []string `json:"resolvedAgentKinds,omitempty"`
+	// ResolvedSkills lists the skills whose instructions have been loaded into
+	// the run's context through load_skill. A replacement pod restores them.
 	// +listType=atomic
 	// +optional
 	ResolvedSkills []string `json:"resolvedSkills,omitempty"`

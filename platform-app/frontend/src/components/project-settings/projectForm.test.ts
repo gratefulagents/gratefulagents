@@ -106,6 +106,7 @@ describe("tool and runtime defaults", () => {
     const project = create(ProjectSchema, {
       name: "payments",
       mcpServerRefs: ["github", "fetch"],
+      skillRefs: ["pdf"],
       runtimeProfileRef: "payments-runtime",
       permissionMode: "read-only",
       egressMode: "restricted",
@@ -117,11 +118,23 @@ describe("tool and runtime defaults", () => {
     ];
     for (const request of requests) {
       expect(request.mcpServerRefs).toEqual(["github", "fetch"]);
+      expect(request.skillRefs).toEqual(["pdf"]);
       expect(request.runtimeProfileRef).toBe("payments-runtime");
       expect(request.permissionMode).toBe("read-only");
       expect(request.egressMode).toBe("restricted");
     }
-    expect(toolsSummary(form)).toBe("2 MCP servers");
-    expect(toolsSummary(emptyProjectForm())).toBe("no MCP servers");
+    expect(toolsSummary(form)).toBe("2 MCP servers, 1 skill");
+    expect(toolsSummary(emptyProjectForm())).toBe("no MCP servers, no skills");
+  });
+
+  it("tracks skill edits under the tools section and sends them in both payloads", () => {
+    const project = create(ProjectSchema, { name: "payments", skillRefs: ["pdf"] });
+    const initial = projectFormFromProject(project);
+    const form = { ...initial, skillRefs: ["pdf", "astro"] };
+    expect(sectionChanged("tools", form, initial)).toBe(true);
+    expect(sectionChanged("tools", initial, initial)).toBe(false);
+    expect(createRequestFromForm(form).skillRefs).toEqual(["pdf", "astro"]);
+    expect(updateRequestFromForm(form, project, { isAdmin: false }).skillRefs).toEqual(["pdf", "astro"]);
+    expect(updateRequestFromForm(initial, project, { isAdmin: false }).skillRefs).toEqual(["pdf"]);
   });
 });

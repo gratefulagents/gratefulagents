@@ -63,6 +63,7 @@ export type ProjectFormState = {
   egressMode: string;
 
   mcpServerRefs: string[];
+  skillRefs: string[];
 
   kubernetesAdmin: boolean;
   dockerInDocker: boolean;
@@ -104,6 +105,7 @@ export function emptyProjectForm(): ProjectFormState {
     permissionMode: DEFAULT_PERMISSION_MODE,
     egressMode: DEFAULT_EGRESS_MODE,
     mcpServerRefs: [],
+    skillRefs: [],
     kubernetesAdmin: false,
     dockerInDocker: false,
   };
@@ -142,6 +144,7 @@ export function projectFormFromProject(project: Project): ProjectFormState {
     permissionMode: project.permissionMode || DEFAULT_PERMISSION_MODE,
     egressMode: project.egressMode || DEFAULT_EGRESS_MODE,
     mcpServerRefs: [...(project.mcpServerRefs ?? [])],
+    skillRefs: [...(project.skillRefs ?? [])],
     kubernetesAdmin: project.kubernetesAdmin,
     dockerInDocker: project.dockerInDocker,
   };
@@ -291,6 +294,7 @@ export function createRequestFromForm(form: ProjectFormState): CreateProjectRequ
     permissionMode: form.permissionMode,
     egressMode: form.egressMode,
     mcpServerRefs: form.mcpServerRefs,
+    skillRefs: form.skillRefs,
     image: form.image.trim(),
   });
 }
@@ -349,7 +353,7 @@ export function updateRequestFromForm(
     permissionMode: form.permissionMode,
     egressMode: form.egressMode,
     mcpServerRefs: form.mcpServerRefs,
-    skillRefs: [],
+    skillRefs: form.skillRefs,
     ...(options.isAdmin
       ? { kubernetesAdmin: form.kubernetesAdmin, dockerInDocker: form.dockerInDocker }
       : {}),
@@ -402,9 +406,7 @@ const SECTION_FIELDS: Record<ProjectFormSection, (keyof ProjectFormState)[]> = {
     "permissionMode",
     "egressMode",
   ],
-  tools: [
-    "mcpServerRefs",
-  ],
+  tools: ["mcpServerRefs", "skillRefs"],
   privileged: ["kubernetesAdmin", "dockerInDocker"],
 };
 
@@ -475,8 +477,12 @@ export function agentSummary(form: ProjectFormState): string {
 }
 
 export function toolsSummary(form: ProjectFormState): string {
-  const count = form.mcpServerRefs.length;
-  return count ? `${count} MCP server${count === 1 ? "" : "s"}` : "no MCP servers";
+  const servers = form.mcpServerRefs.length;
+  const skills = form.skillRefs.length;
+  return [
+    servers ? `${servers} MCP server${servers === 1 ? "" : "s"}` : "no MCP servers",
+    skills ? `${skills} skill${skills === 1 ? "" : "s"}` : "no skills",
+  ].join(", ");
 }
 
 export function privilegedSummary(form: ProjectFormState): string {

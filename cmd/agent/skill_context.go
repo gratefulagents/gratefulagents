@@ -43,3 +43,14 @@ func attachLoadedSkillInstructions(target *agent.Agent, source loadedSkillInstru
 		return instructions
 	}
 }
+
+// attachLoadedSkillInstructionsToSpecialists wires the same loaded-skill
+// source into each per-turn specialist clone. Without it a specialist that
+// calls load_skill would update only the lead agent's prompt.
+func attachLoadedSkillInstructionsToSpecialists(
+	specialists map[string]*agent.Agent, source loadedSkillInstructionSource,
+) {
+	for _, specialist := range specialists {
+		attachLoadedSkillInstructions(specialist, source)
+	}
+}
