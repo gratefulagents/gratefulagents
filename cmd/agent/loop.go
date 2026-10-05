@@ -489,7 +489,15 @@ func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset
 	if desktopTool != nil {
 		companionSkills = append(companionSkills, tools.ComputerUseSkillName)
 	}
-	loadSkillTool := tools.RegisterLoadSkillTool(ctx, toolRegistry, crdClient, run, companionSkills...)
+	loadSkillTool, skippedSkills := tools.RegisterLoadSkillTool(ctx, toolRegistry, crdClient, run, companionSkills...)
+	for _, skipped := range skippedSkills {
+		log.Printf("WARN: skill %q skipped: %s", skipped.Name, skipped.Reason)
+	}
+	if loadSkillTool != nil {
+		if restored := loadSkillTool.LoadedNames(); len(restored) > 0 {
+			log.Printf("Restored %d previously loaded skill(s): %s", len(restored), strings.Join(restored, ", "))
+		}
+	}
 	// Gate on the startup-resolved flag as well as the freshly read run: a
 	// transient CRD read failure (run == nil) must not produce a system
 	// prompt that advertises Kubernetes-admin tools without registering them.
@@ -1408,6 +1416,9 @@ func (r *chatRuntime) prepareTurn(
 	cfg, sc := r.cfg, r.sc
 	parentModelSettings := parentModelSettingsForTurn(r.baseAgent.ModelSettings, p.mo.ModelSettings)
 	turnSpecialistAgents := specialistAgentsForRoleCatalog(r.specialistAgents, p.roleCatalog, p.model, parentModelSettings)
+	// Specialists share the load_skill tool with the lead, so guidance loaded
+	// by any agent must reach every agent's prompt, not only the lead's.
+	attachLoadedSkillInstructionsToSpecialists(turnSpecialistAgents, r.loadSkillTool)
 	turnHandoffs := handoffsForSpecialists(r.baseAgent.Handoffs, turnSpecialistAgents)
 	maxTurns := int32(agent.DefaultMaxTurns)
 	subAgentMaxTurns := int32(agent.DefaultSubAgentMaxTurns)

@@ -181,6 +181,9 @@ func (s *Server) InstallSkillFromCatalog(ctx context.Context, req *platform.Inst
 	if !validCatalogCoordinates(source, skillID) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid skills.sh source or skill id"))
 	}
+	if err := requireMemberActor(ctx, "install skills"); err != nil {
+		return nil, err
+	}
 	actor := requestActorFromContext(ctx)
 	namespace, err := s.ensureUserNamespace(ctx, actor)
 	if err != nil {

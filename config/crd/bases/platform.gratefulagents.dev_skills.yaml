@@ -226,7 +226,8 @@ spec:
                       name (inline).
                     type: string
                   sha:
-                    description: sha is the resolved commit SHA for git-sourced skills.
+                    description: sha is the Git blob SHA of the fetched SKILL.md for
+                      git-sourced skills.
                     type: string
                   syncedAt:
                     format: date-time

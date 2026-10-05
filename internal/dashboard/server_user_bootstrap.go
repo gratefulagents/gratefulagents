@@ -27,7 +27,7 @@ const (
 	bootstrapSyncedVersionAnnotation  = "platform.gratefulagents.dev/bootstrap-synced-version"
 	bootstrapSpecHashAnnotation       = "platform.gratefulagents.dev/bootstrap-spec-hash"
 	bootstrapReplacesHashesAnnotation = "platform.gratefulagents.dev/bootstrap-replaces-spec-hashes"
-	bootstrapSyncProtocolVersion      = "v5"
+	bootstrapSyncProtocolVersion      = "v6"
 )
 
 // syncBootstrapResources makes the chart's namespaced defaults
@@ -63,6 +63,7 @@ func (s *Server) syncBootstrapResources(ctx context.Context, targetNamespace str
 	if err := reader.List(ctx, &skills, client.InNamespace(sourceNamespace)); err != nil {
 		return mapK8sError("list bootstrap Skills", err)
 	}
+	requiredServers := map[string]struct{}{}
 	for i := range skills.Items {
 		source := &skills.Items[i]
 		if !isBootstrapDefault(source) {
@@ -72,6 +73,34 @@ func (s *Server) syncBootstrapResources(ctx context.Context, targetNamespace str
 			ObjectMeta: bootstrapObjectMeta(source, targetNamespace), Spec: source.DeepCopy().Spec,
 		}); err != nil {
 			return err
+		}
+		if source.Spec.Requires != nil {
+			for _, ref := range source.Spec.Requires.MCPServers {
+				if name := strings.TrimSpace(ref.Name); name != "" {
+					requiredServers[name] = struct{}{}
+				}
+			}
+		}
+	}
+
+	// Seed only the MCP servers the seeded skills require: a skill that
+	// advertises "needs: grafana" must be able to attach it, but users should
+	// not inherit every shipped server config they never asked for.
+	if len(requiredServers) > 0 {
+		var servers platformv1alpha1.MCPServerList
+		if err := reader.List(ctx, &servers, client.InNamespace(sourceNamespace)); err != nil {
+			return mapK8sError("list bootstrap MCPServers", err)
+		}
+		for i := range servers.Items {
+			source := &servers.Items[i]
+			if _, required := requiredServers[source.Name]; !required || !isBootstrapDefault(source) {
+				continue
+			}
+			if err := s.createBootstrapResource(ctx, source, &platformv1alpha1.MCPServer{
+				ObjectMeta: bootstrapObjectMeta(source, targetNamespace), Spec: source.DeepCopy().Spec,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -232,6 +261,8 @@ func bootstrapSpecHash(object client.Object) (string, error) {
 	switch typed := object.(type) {
 	case *platformv1alpha1.Skill:
 		spec = typed.Spec
+	case *platformv1alpha1.MCPServer:
+		spec = typed.Spec
 	default:
 		return "", fmt.Errorf("unsupported bootstrap resource %T", object)
 	}
@@ -247,6 +278,8 @@ func emptyBootstrapResource(object client.Object) client.Object {
 	switch object.(type) {
 	case *platformv1alpha1.Skill:
 		return &platformv1alpha1.Skill{}
+	case *platformv1alpha1.MCPServer:
+		return &platformv1alpha1.MCPServer{}
 	default:
 		panic(fmt.Sprintf("unsupported bootstrap resource %T", object))
 	}
@@ -256,6 +289,8 @@ func copyBootstrapSpec(destination, source client.Object) {
 	switch dst := destination.(type) {
 	case *platformv1alpha1.Skill:
 		dst.Spec = source.(*platformv1alpha1.Skill).DeepCopy().Spec
+	case *platformv1alpha1.MCPServer:
+		dst.Spec = source.(*platformv1alpha1.MCPServer).DeepCopy().Spec
 	default:
 		panic(fmt.Sprintf("unsupported bootstrap resource %T", destination))
 	}

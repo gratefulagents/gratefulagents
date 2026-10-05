@@ -566,6 +566,47 @@ func TestEffectiveSkillRefsUsesOnlySelectionsAndModeDefaults(t *testing.T) {
 	}
 }
 
+func TestEffectiveMCPServerRefsMergesSelectionsAndModeDefaults(t *testing.T) {
+	cases := []struct {
+		name string
+		run  []platformv1alpha1.NamedRef
+		mode []platformv1alpha1.NamedRef
+		want []platformv1alpha1.NamedRef
+	}{
+		{name: "no selection attaches no servers"},
+		{name: "project selection", run: []platformv1alpha1.NamedRef{{Name: "github"}}, want: []platformv1alpha1.NamedRef{{Name: "github"}}},
+		{name: "mode defaults", mode: []platformv1alpha1.NamedRef{{Name: "grafana"}}, want: []platformv1alpha1.NamedRef{{Name: "grafana"}}},
+		{
+			name: "project server plus mode default server are both kept",
+			run:  []platformv1alpha1.NamedRef{{Name: "github"}},
+			mode: []platformv1alpha1.NamedRef{{Name: "grafana"}},
+			want: []platformv1alpha1.NamedRef{{Name: "github"}, {Name: "grafana"}},
+		},
+		{
+			name: "trim and deduplicate",
+			run:  []platformv1alpha1.NamedRef{{Name: " grafana "}, {Name: ""}},
+			mode: []platformv1alpha1.NamedRef{{Name: "grafana"}, {Name: "fetch"}},
+			want: []platformv1alpha1.NamedRef{{Name: "grafana"}, {Name: "fetch"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			run := &platformv1alpha1.AgentRun{Spec: platformv1alpha1.AgentRunSpec{MCPServerRefs: tc.run}}
+			mode := &platformv1alpha1.ModeTemplateSpec{DefaultMCPServerRefs: tc.mode}
+			if len(tc.run)+len(tc.mode) > 0 && !needsSpecDefaults(run, mode, nil) && !namedRefsEqual(run.Spec.MCPServerRefs, tc.want) {
+				t.Fatal("needsSpecDefaults should request a merge")
+			}
+			applySpecDefaults(run, mode, nil)
+			if !namedRefsEqual(run.Spec.MCPServerRefs, tc.want) {
+				t.Fatalf("servers = %v, want %v", run.Spec.MCPServerRefs, tc.want)
+			}
+			if needsSpecDefaults(run, mode, nil) {
+				t.Fatal("server defaults should be idempotent")
+			}
+		})
+	}
+}
+
 func TestEffectiveSkillRefsExcludesStandingOverseer(t *testing.T) {
 	run := &platformv1alpha1.AgentRun{
 		ObjectMeta: metav1.ObjectMeta{

@@ -23,14 +23,52 @@ var skillNameRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 const (
 	skillResourceType        = "skill"
 	skillsShSourceAnnotation = "platform.gratefulagents.dev/skills-sh-source"
-	skillsShIDAnnotation     = "platform.gratefulagents.dev/skills-sh-id"
-	skillsShURLAnnotation    = "platform.gratefulagents.dev/skills-sh-url"
-	skillsShHashAnnotation   = "platform.gratefulagents.dev/skills-sh-hash"
+	// skillMaxInlineInstructionBytes matches the controller's SKILL.md cap so an
+	// inline skill can never be larger than a fetched one.
+	skillMaxInlineInstructionBytes = 256 * 1024
+	skillsShIDAnnotation           = "platform.gratefulagents.dev/skills-sh-id"
+	skillsShURLAnnotation          = "platform.gratefulagents.dev/skills-sh-url"
+	skillsShHashAnnotation         = "platform.gratefulagents.dev/skills-sh-hash"
 )
 
 // githubTreeRe matches browser-style GitHub links to a folder at a ref:
 // https://github.com/{owner}/{repo}/tree/{ref}/{path...}
 var githubTreeRe = regexp.MustCompile(`^https?://github\.com/([^/]+)/([^/]+)/(?:tree|blob)/([^/]+)(?:/(.*))?$`)
+
+// githubRepoRe matches a bare github.com repository URL, the only git source
+// the Skill controller can fetch. Rejecting other hosts here turns a
+// permanent controller Error into an immediate InvalidArgument.
+var githubRepoRe = regexp.MustCompile(`^https?://(?:www\.)?github\.com/([^/\s]+)/([^/\s]+?)(?:\.git)?/?$`)
+
+// validateSkillGitURL reports whether url names a github.com repository.
+func validateSkillGitURL(url string) error {
+	if !githubRepoRe.MatchString(strings.TrimSpace(url)) {
+		return connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("git_url must be a github.com repository or folder link (https://github.com/owner/repo[/tree/ref/path])"))
+	}
+	return nil
+}
+
+// validateSkillMCPServerRefs checks that every required MCP server has a
+// valid name and exists in the caller's namespace, so a skill never advertises
+// tools that can't be attached.
+func (s *Server) validateSkillMCPServerRefs(ctx context.Context, namespace string, refs []platformv1alpha1.NamedRef) error {
+	for _, ref := range refs {
+		if !mcpServerNameRe.MatchString(ref.Name) {
+			return connect.NewError(connect.CodeInvalidArgument,
+				fmt.Errorf("mcp server name %q must be lowercase letters, digits, and hyphens", ref.Name))
+		}
+		server := &platformv1alpha1.MCPServer{}
+		if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: ref.Name}, server); err != nil {
+			if k8serrors.IsNotFound(err) {
+				return connect.NewError(connect.CodeInvalidArgument,
+					fmt.Errorf("mcp server %q not found in your namespace; create it under Resources → MCP servers first", ref.Name))
+			}
+			return mapK8sError("read MCP server", err)
+		}
+	}
+	return nil
+}
 
 // ListSkills lists the skills (Skill CRDs) available in the caller's
 // namespace, including resolved state for git-sourced skills.
@@ -58,6 +96,9 @@ func (s *Server) ListSkills(ctx context.Context, _ *platform.ListSkillsRequest) 
 // of the form github.com/{owner}/{repo}/tree/{ref}/{path} are normalized into
 // url+ref+path automatically.
 func (s *Server) UpsertSkill(ctx context.Context, req *platform.UpsertSkillRequest) (*platform.SkillInfo, error) {
+	if err := requireMemberActor(ctx, "create or update skills"); err != nil {
+		return nil, err
+	}
 	actor := requestActorFromContext(ctx)
 	namespace, err := s.ensureUserNamespace(ctx, actor)
 	if err != nil {
@@ -78,6 +119,10 @@ func (s *Server) UpsertSkill(ctx context.Context, req *platform.UpsertSkillReque
 	if desc := strings.TrimSpace(req.GetDescription()); len(desc) > 1024 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("description exceeds 1024 characters"))
 	}
+	if len(instructions) > skillMaxInlineInstructionBytes {
+		return nil, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("instructions are %d bytes (max %d)", len(instructions), skillMaxInlineInstructionBytes))
+	}
 
 	spec := platformv1alpha1.SkillSpec{
 		Version:     strings.TrimSpace(req.GetVersion()),
@@ -87,9 +132,15 @@ func (s *Server) UpsertSkill(ctx context.Context, req *platform.UpsertSkillReque
 		spec.Source.Inline = &platformv1alpha1.SkillInlineSource{Instructions: instructions}
 	} else {
 		url, ref, path := normalizeGitHubSkillLink(gitURL, strings.TrimSpace(req.GetGitRef()), strings.TrimSpace(req.GetGitPath()))
+		if err := validateSkillGitURL(url); err != nil {
+			return nil, err
+		}
 		spec.Source.Git = &platformv1alpha1.SkillGitSource{URL: url, Ref: ref, Path: path}
 	}
 	if servers := namedRefsFromNames(req.GetMcpServerRefs()); len(servers) > 0 {
+		if err := s.validateSkillMCPServerRefs(ctx, namespace, servers); err != nil {
+			return nil, err
+		}
 		spec.Requires = &platformv1alpha1.SkillRequires{MCPServers: servers}
 	}
 
@@ -108,10 +159,10 @@ func (s *Server) UpsertSkill(ctx context.Context, req *platform.UpsertSkillReque
 		}
 		return skillInfo(skill), nil
 	}
-	if skill.Annotations[skillsShSourceAnnotation] != "" && spec.Source.Inline != nil &&
-		(skill.Spec.Source.Inline == nil || skill.Spec.Source.Inline.Instructions != spec.Source.Inline.Instructions) {
-		// Manual instruction edits detach the resource from its immutable catalog
-		// snapshot; retaining the old source/hash would misrepresent provenance.
+	if skill.Annotations[skillsShSourceAnnotation] != "" && skillSourceChanged(skill.Spec.Source, spec.Source) {
+		// Manual instruction edits or a switch to a git source detach the
+		// resource from its immutable catalog snapshot; retaining the old
+		// source/hash would misrepresent provenance.
 		delete(skill.Annotations, skillsShSourceAnnotation)
 		delete(skill.Annotations, skillsShIDAnnotation)
 		delete(skill.Annotations, skillsShURLAnnotation)
@@ -127,14 +178,18 @@ func (s *Server) UpsertSkill(ctx context.Context, req *platform.UpsertSkillReque
 // DeleteSkill removes a Skill from the caller's namespace. Refs to missing
 // skills are skipped at run time.
 func (s *Server) DeleteSkill(ctx context.Context, req *platform.DeleteSkillRequest) error {
+	if err := requireMemberActor(ctx, "delete skills"); err != nil {
+		return err
+	}
 	actor := requestActorFromContext(ctx)
 	namespace, err := s.ensureUserNamespace(ctx, actor)
 	if err != nil {
 		return err
 	}
 	name := strings.ToLower(strings.TrimSpace(req.GetName()))
-	if name == "" {
-		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("skill name is required"))
+	if name == "" || len(name) > 64 || !skillNameRe.MatchString(name) {
+		return connect.NewError(connect.CodeInvalidArgument,
+			fmt.Errorf("skill name %q must be lowercase alphanumeric with single hyphen separators (max 64 chars)", req.GetName()))
 	}
 	skill := &platformv1alpha1.Skill{}
 	skill.Name = name
@@ -143,6 +198,18 @@ func (s *Server) DeleteSkill(ctx context.Context, req *platform.DeleteSkillReque
 		return mapK8sError("delete skill", err)
 	}
 	return nil
+}
+
+// skillSourceChanged reports whether an update replaces the content a catalog
+// install pinned: different inline instructions, or any switch to a git source.
+func skillSourceChanged(current, next platformv1alpha1.SkillSource) bool {
+	if next.Git != nil {
+		return true
+	}
+	if next.Inline == nil {
+		return false
+	}
+	return current.Inline == nil || current.Inline.Instructions != next.Inline.Instructions
 }
 
 // skillInfo converts a Skill CR into its wire form, including resolved state

@@ -29,6 +29,12 @@ vi.mock("@/lib/client", () => ({
     listRuntimeImages: vi.fn().mockResolvedValue({ images: [] }),
     listGitHubBranches: vi.fn().mockResolvedValue({ branches: ["main", "develop"], nextPage: 0 }),
     listMCPServers: vi.fn().mockResolvedValue({ servers: [] }),
+    listSkills: vi.fn().mockResolvedValue({
+      skills: [
+        { name: "pdf", version: "1.0.0", description: "Work with PDFs", mcpServerRefs: [], phase: "Ready" },
+        { name: "astro", version: "", description: "Astro framework", mcpServerRefs: [], phase: "Ready" },
+      ],
+    }),
     listModeTemplates: vi.fn().mockResolvedValue({ templates: [] }),
     updateProject: vi.fn(),
   },
@@ -50,6 +56,7 @@ const project = create(ProjectSchema, {
   model: "z-ai/glm-4.7",
   providerKeys: [{ provider: "openrouter", secretName: "usercred-openrouter", secretKey: "api-key" }],
   mcpServerRefs: ["github"],
+  skillRefs: ["pdf"],
   reviewLoopDisabled: true,
 });
 
@@ -92,7 +99,7 @@ describe("ProjectSettingsPanel", () => {
     renderPanel();
     await waitFor(() => expect(client.listMyCredentials).toHaveBeenCalledTimes(1));
 
-    for (const title of ["General", "Model & credentials", "Agent behavior", "Runtime", "Tools"]) {
+    for (const title of ["General", "Model & credentials", "Agent behavior", "Runtime", "Tools & skills"]) {
       expect(screen.getByRole("heading", { name: title })).toBeTruthy();
     }
     expect(screen.queryByRole("heading", { name: "Privileged access" })).toBeNull();
@@ -149,9 +156,27 @@ describe("ProjectSettingsPanel", () => {
     expect(request.displayName).toBe("Payments API");
     expect(request.useSavedCredentials).toBe(true);
     expect(request.mcpServerRefs).toEqual(["github"]);
+    // An unrelated edit must not wipe the project's skills.
+    expect(request.skillRefs).toEqual(["pdf"]);
     expect(onUpdated).toHaveBeenCalledWith(updated);
     expect(await screen.findByText("Saved.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
+  });
+
+  it("attaches a skill from the Tools & skills section", async () => {
+    renderPanel();
+    await waitFor(() => expect(client.listSkills).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("heading", { name: "Tools & skills" })).toBeTruthy();
+    const astro = await screen.findByRole("switch", { name: "Attach astro" });
+    expect(astro.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("switch", { name: "Attach pdf" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(astro);
+    expect(screen.getByText("Unsaved changes in Tools & skills.")).toBeTruthy();
+
+    vi.mocked(client.updateProject).mockResolvedValueOnce(create(ProjectSchema, { ...project, skillRefs: ["pdf", "astro"] }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(client.updateProject).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(client.updateProject).mock.calls[0][0].skillRefs).toEqual(["pdf", "astro"]);
   });
 
   it("discards all pending edits at once", async () => {

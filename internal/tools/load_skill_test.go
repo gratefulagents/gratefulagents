@@ -9,6 +9,7 @@ import (
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -57,7 +58,7 @@ func TestLoadSkillToolProgressivelyLoadsInstructions(t *testing.T) {
 	}
 	registry := NewRegistry(t.TempDir())
 
-	tool := RegisterLoadSkillTool(context.Background(), registry, k8sClient, run)
+	tool, _ := RegisterLoadSkillTool(context.Background(), registry, k8sClient, run)
 	if tool == nil || registry.Get("load_skill") == nil {
 		t.Fatal("load_skill was not registered")
 	}
@@ -96,7 +97,7 @@ func TestLoadSkillToolProgressivelyLoadsInstructions(t *testing.T) {
 		t.Fatalf("loaded skill was not installed into subsequent model context: %q", loadedInstructions)
 	}
 	if !strings.Contains(loadedInstructions, "https://github.com/anthropics/skills @ abc123") ||
-		!strings.Contains(loadedInstructions, "Example Security (MIT)") {
+		!strings.Contains(loadedInstructions, "Skill description: PDF guidance from Example Security (MIT)") {
 		t.Fatalf("loaded external skill omitted provenance or license attribution: %q", loadedInstructions)
 	}
 	if strings.Contains(loadedInstructions, "histogram_quantile") {
@@ -123,7 +124,7 @@ func TestLoadSkillToolRejectsUnavailableSkills(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns"},
 		Spec:       platformv1alpha1.AgentRunSpec{SkillRefs: []platformv1alpha1.NamedRef{{Name: pendingSkillName}}},
 	}
-	tool := RegisterLoadSkillTool(context.Background(), NewRegistry(t.TempDir()), k8sClient, run)
+	tool, _ := RegisterLoadSkillTool(context.Background(), NewRegistry(t.TempDir()), k8sClient, run)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"other"}`), "call-1")
 	if err != nil || !result.IsError || !strings.Contains(result.Content, "not enabled") {
@@ -137,7 +138,7 @@ func TestLoadSkillToolRejectsUnavailableSkills(t *testing.T) {
 
 func TestRegisterLoadSkillToolSkipsRunsWithoutSkills(t *testing.T) {
 	registry := NewRegistry(t.TempDir())
-	if tool := RegisterLoadSkillTool(context.Background(), registry, nil, &platformv1alpha1.AgentRun{}); tool != nil {
+	if tool, _ := RegisterLoadSkillTool(context.Background(), registry, nil, &platformv1alpha1.AgentRun{}); tool != nil {
 		t.Fatalf("RegisterLoadSkillTool() = %v, want nil", tool)
 	}
 	if registry.Get("load_skill") != nil {
@@ -162,7 +163,7 @@ func TestRegisterLoadSkillToolOffersInstalledCompanionSkills(t *testing.T) {
 	// No skillRefs on the run: the companion alone makes load_skill available.
 	registry := NewRegistry(t.TempDir())
 	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Namespace: "ns"}}
-	tool := RegisterLoadSkillTool(context.Background(), registry, k8sClient, run, ComputerUseSkillName, "not-installed", " ")
+	tool, _ := RegisterLoadSkillTool(context.Background(), registry, k8sClient, run, ComputerUseSkillName, "not-installed", " ")
 	if tool == nil || registry.Get("load_skill") == nil {
 		t.Fatal("companion skill did not register load_skill")
 	}
@@ -183,14 +184,138 @@ func TestRegisterLoadSkillToolOffersInstalledCompanionSkills(t *testing.T) {
 
 	// A companion whose Skill is absent must not create the tool on its own.
 	registry = NewRegistry(t.TempDir())
-	if tool := RegisterLoadSkillTool(context.Background(), registry, k8sClient, run, "not-installed"); tool != nil || registry.Get("load_skill") != nil {
+	if tool, _ := RegisterLoadSkillTool(context.Background(), registry, k8sClient, run, "not-installed"); tool != nil || registry.Get("load_skill") != nil {
 		t.Fatal("load_skill registered for an uninstalled companion")
 	}
 
 	// Explicit refs and companions merge without duplicates.
 	run.Spec.SkillRefs = []platformv1alpha1.NamedRef{{Name: ComputerUseSkillName}}
-	tool = RegisterLoadSkillTool(context.Background(), NewRegistry(t.TempDir()), k8sClient, run, ComputerUseSkillName)
+	tool, _ = RegisterLoadSkillTool(context.Background(), NewRegistry(t.TempDir()), k8sClient, run, ComputerUseSkillName)
 	if got := strings.Count(tool.Description(), "\n- "+ComputerUseSkillName); got != 1 {
 		t.Fatalf("companion listed %d times, want 1: %s", got, tool.Description())
+	}
+}
+
+func TestRegisterLoadSkillToolSkipsUnusableSkills(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+	invalid := &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: "invalid", Namespace: "ns"},
+		Spec:       platformv1alpha1.SkillSpec{Source: platformv1alpha1.SkillSource{Git: &platformv1alpha1.SkillGitSource{URL: "https://gitlab.com/a/b"}}},
+		Status: platformv1alpha1.SkillStatus{
+			Phase:      "Invalid",
+			Conditions: []metav1.Condition{{Type: "Resolved", Status: metav1.ConditionFalse, Reason: "InvalidSource", Message: "not a github.com repository"}},
+		},
+	}
+	neverFetched := &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: "never-fetched", Namespace: "ns"},
+		Spec:       platformv1alpha1.SkillSpec{Source: platformv1alpha1.SkillSource{Git: &platformv1alpha1.SkillGitSource{URL: "https://github.com/a/b"}}},
+		Status: platformv1alpha1.SkillStatus{
+			Phase:      "Error",
+			Conditions: []metav1.Condition{{Type: "Resolved", Status: metav1.ConditionFalse, Reason: "FetchFailed", Message: "rate limited"}},
+		},
+	}
+	staleButUsable := &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: "stale", Namespace: "ns"},
+		Spec:       platformv1alpha1.SkillSpec{Description: "Still useful", Source: platformv1alpha1.SkillSource{Git: &platformv1alpha1.SkillGitSource{URL: "https://github.com/a/b"}}},
+		Status: platformv1alpha1.SkillStatus{
+			Phase:    "Error",
+			Resolved: &platformv1alpha1.SkillResolved{Instructions: "Last good content."},
+		},
+	}
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(invalid, neverFetched, staleButUsable).Build()
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "ns"},
+		Spec: platformv1alpha1.AgentRunSpec{SkillRefs: []platformv1alpha1.NamedRef{
+			{Name: "invalid"}, {Name: "never-fetched"}, {Name: "stale"}, {Name: "missing"},
+		}},
+	}
+	tool, skipped := RegisterLoadSkillTool(context.Background(), NewRegistry(t.TempDir()), k8sClient, run)
+	if tool == nil {
+		t.Fatal("usable skill should still register load_skill")
+		return
+	}
+	if got := strings.Join(tool.names, ","); got != "stale" {
+		t.Fatalf("offered skills = %q, want only the usable one", got)
+	}
+	reasons := make(map[string]string, len(skipped))
+	for _, item := range skipped {
+		reasons[item.Name] = item.Reason
+	}
+	if len(reasons) != 3 {
+		t.Fatalf("skipped = %+v, want invalid, never-fetched, missing", skipped)
+	}
+	if !strings.Contains(reasons["invalid"], "Invalid") || !strings.Contains(reasons["invalid"], "not a github.com repository") {
+		t.Fatalf("invalid reason = %q", reasons["invalid"])
+	}
+	if !strings.Contains(reasons["never-fetched"], "no resolved instructions") || !strings.Contains(reasons["never-fetched"], "rate limited") {
+		t.Fatalf("never-fetched reason = %q", reasons["never-fetched"])
+	}
+	if !strings.Contains(reasons["missing"], "not found") {
+		t.Fatalf("missing reason = %q", reasons["missing"])
+	}
+
+	// Every ref unusable: no tool, but the reasons still surface.
+	run.Spec.SkillRefs = []platformv1alpha1.NamedRef{{Name: "missing"}}
+	registry := NewRegistry(t.TempDir())
+	tool, skipped = RegisterLoadSkillTool(context.Background(), registry, k8sClient, run)
+	if tool != nil || registry.Get("load_skill") != nil || len(skipped) != 1 {
+		t.Fatalf("tool = %v, skipped = %+v", tool, skipped)
+	}
+}
+
+func TestLoadSkillToolPersistsAndRestoresLoadedSkills(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+	skill := &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: pdfSkillName, Namespace: "ns"},
+		Spec:       platformv1alpha1.SkillSpec{Source: platformv1alpha1.SkillSource{Inline: &platformv1alpha1.SkillInlineSource{Instructions: "Use pdfplumber."}}},
+	}
+	other := &platformv1alpha1.Skill{
+		ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: "ns"},
+		Spec:       platformv1alpha1.SkillSpec{Source: platformv1alpha1.SkillSource{Inline: &platformv1alpha1.SkillInlineSource{Instructions: "Other guidance."}}},
+	}
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "ns"},
+		Spec:       platformv1alpha1.AgentRunSpec{SkillRefs: []platformv1alpha1.NamedRef{{Name: pdfSkillName}, {Name: "other"}}},
+		Status:     platformv1alpha1.AgentRunStatus{Policy: &platformv1alpha1.AgentRunResolvedPolicy{ResolvedPermissionMode: "read-only"}},
+	}
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(skill, other, run).WithStatusSubresource(run).Build()
+
+	tool, _ := RegisterLoadSkillTool(context.Background(), NewRegistry(t.TempDir()), k8sClient, run)
+	if tool.LoadedInstructions() != "" {
+		t.Fatalf("nothing should be loaded on a fresh run, got %q", tool.LoadedInstructions())
+	}
+	if result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"pdf"}`), "call-1"); err != nil || result.IsError {
+		t.Fatalf("Execute() = %+v, %v", result, err)
+	}
+
+	stored := &platformv1alpha1.AgentRun{}
+	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(run), stored); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if stored.Status.Policy == nil || strings.Join(stored.Status.Policy.ResolvedSkills, ",") != "pdf" {
+		t.Fatalf("resolvedSkills = %+v, want [pdf]", stored.Status.Policy)
+	}
+	if stored.Status.Policy.ResolvedPermissionMode != "read-only" {
+		t.Fatalf("other policy fields were clobbered: %+v", stored.Status.Policy)
+	}
+
+	// A replacement pod registers the tool from the stored run and gets the
+	// guidance back without another load_skill call.
+	replacement, _ := RegisterLoadSkillTool(context.Background(), NewRegistry(t.TempDir()), k8sClient, stored)
+	restored := replacement.LoadedInstructions()
+	if !strings.Contains(restored, "## Skill: pdf") || !strings.Contains(restored, "Use pdfplumber.") {
+		t.Fatalf("loaded skill was not restored: %q", restored)
+	}
+	if strings.Contains(restored, "Other guidance.") {
+		t.Fatalf("unloaded skill was restored: %q", restored)
+	}
+	if got := strings.Join(replacement.LoadedNames(), ","); got != "pdf" {
+		t.Fatalf("LoadedNames() = %q", got)
 	}
 }

@@ -14,7 +14,7 @@ agentPrompt: >-
 
 | Resource | Use it for |
 | --- | --- |
-| [**Skills**](./skill-packages.md) | Reusable inline instructions or skills installed from the skills.sh catalog. Skills can require MCP servers. |
+| [**Skills**](./skill-packages.md) | Reusable instructions written inline, fetched from a GitHub folder with a `SKILL.md`, or installed from the skills.sh catalog. Skills can require MCP servers. |
 | **MCP servers** | Tool-server configurations: a command, arguments, environment, and references to saved integration credentials. |
 | **Runtime profiles** | Runtime permissions, network access, workspace defaults, timeout, persistence, and allowed writable paths. |
 | **Guardrails** | Enforceable rules that inspect tool input or output and block, warn, or log matches. |

@@ -5,6 +5,7 @@ import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { Chip, FlowField, FlowSwitchRow, Segmented } from "@/components/create-flow/create-flow";
 import { PROVIDERS, providerMeta } from "@/components/create-flow/providers";
 import { MCPServerPicker } from "@/components/MCPServerPicker";
+import { SkillPicker } from "@/components/SkillPicker";
 import { ModeTemplateSelect } from "@/components/ModeTemplateSelect";
 import { RepoUrlListInput } from "@/components/RepoUrlListInput";
 import { BranchPicker } from "@/components/BranchPicker";
@@ -487,6 +488,15 @@ export function ToolsFields({ c }: Props) {
         <MCPServerPicker
           selected={form.mcpServerRefs}
           onChange={(names) => c.update("mcpServerRefs", names)}
+        />
+      </FlowField>
+      <FlowField
+        label="Skills"
+        hint="Enabled on every run of this project. Installed skills are not enabled automatically; mode defaults may add more."
+      >
+        <SkillPicker
+          selected={form.skillRefs}
+          onChange={(names) => c.update("skillRefs", names)}
         />
       </FlowField>
     </>

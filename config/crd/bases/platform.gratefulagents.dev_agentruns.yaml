@@ -987,6 +987,9 @@ spec:
                   resolvedPermissionMode:
                     type: string
                   resolvedSkills:
+                    description: |-
+                      ResolvedSkills lists the skills whose instructions have been loaded into
+                      the run's context through load_skill. A replacement pod restores them.
                     items:
                       type: string
                     type: array

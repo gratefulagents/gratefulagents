@@ -89,7 +89,7 @@ type SkillResolved struct {
 	// instructions is the full skill body injected into runs.
 	// +optional
 	Instructions string `json:"instructions,omitempty"`
-	// sha is the resolved commit SHA for git-sourced skills.
+	// sha is the Git blob SHA of the fetched SKILL.md for git-sourced skills.
 	// +optional
 	SHA string `json:"sha,omitempty"`
 	// +optional

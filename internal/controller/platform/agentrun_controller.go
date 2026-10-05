@@ -852,6 +852,36 @@ func effectiveSkillRefs(run *platformv1alpha1.AgentRun, snapshot *platformv1alph
 	return refs
 }
 
+// effectiveMCPServerRefs merges the run's explicit MCP servers with the mode's
+// defaults: explicit refs first, then mode defaults, trimmed and deduplicated.
+// A project server must never displace a mode default, so the two lists are
+// merged rather than the defaults applying only to runs with no servers.
+func effectiveMCPServerRefs(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha1.ModeTemplateSpec) []platformv1alpha1.NamedRef {
+	if run == nil {
+		return nil
+	}
+	refs := make([]platformv1alpha1.NamedRef, 0, len(run.Spec.MCPServerRefs))
+	seen := make(map[string]struct{}, cap(refs))
+	appendUnique := func(candidates []platformv1alpha1.NamedRef) {
+		for _, ref := range candidates {
+			name := strings.TrimSpace(ref.Name)
+			if name == "" {
+				continue
+			}
+			if _, exists := seen[name]; exists {
+				continue
+			}
+			seen[name] = struct{}{}
+			refs = append(refs, platformv1alpha1.NamedRef{Name: name})
+		}
+	}
+	appendUnique(run.Spec.MCPServerRefs)
+	if snapshot != nil {
+		appendUnique(snapshot.DefaultMCPServerRefs)
+	}
+	return refs
+}
+
 func namedRefsEqual(a, b []platformv1alpha1.NamedRef) bool {
 	if len(a) != len(b) {
 		return false
@@ -868,7 +898,7 @@ func needsSpecDefaults(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha
 	if run == nil {
 		return false
 	}
-	if snapshot != nil && len(snapshot.DefaultMCPServerRefs) > 0 && len(run.Spec.MCPServerRefs) == 0 {
+	if !namedRefsEqual(run.Spec.MCPServerRefs, effectiveMCPServerRefs(run, snapshot)) {
 		return true
 	}
 	if !namedRefsEqual(run.Spec.SkillRefs, effectiveSkillRefs(run, snapshot)) {
@@ -886,11 +916,7 @@ func applySpecDefaults(run *platformv1alpha1.AgentRun, snapshot *platformv1alpha
 	if run == nil {
 		return
 	}
-	if snapshot != nil && len(snapshot.DefaultMCPServerRefs) > 0 && len(run.Spec.MCPServerRefs) == 0 {
-		refs := make([]platformv1alpha1.NamedRef, len(snapshot.DefaultMCPServerRefs))
-		copy(refs, snapshot.DefaultMCPServerRefs)
-		run.Spec.MCPServerRefs = refs
-	}
+	run.Spec.MCPServerRefs = effectiveMCPServerRefs(run, snapshot)
 	run.Spec.SkillRefs = effectiveSkillRefs(run, snapshot)
 	if runtimeProfile != nil && runtimeProfile.Spec.Security != nil && runtimeProfile.Spec.Security.DefaultTimeout.Duration > 0 {
 		if run.Spec.Limits == nil {

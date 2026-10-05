@@ -7,8 +7,10 @@ package mcpattach
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
@@ -16,12 +18,14 @@ import (
 
 // EffectiveMCPServerRefs returns the MCPServer names attached to a run:
 // spec.mcpServerRefs plus the requires.mcpServers of every skill in
-// spec.skillRefs, deduped by name in first-seen order. Skills that cannot be
-// fetched contribute nothing (refs to missing resources are skipped at
+// spec.skillRefs, deduped by name in first-seen order. Skills that do not
+// exist contribute nothing (refs to missing resources are skipped at
 // consumption time, matching the platform's degrade-don't-block convention).
-func EffectiveMCPServerRefs(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) []platformv1alpha1.NamedRef {
+// Any other failure to read a skill is returned, because silently dropping
+// its servers would hide tools from the run for the whole pod lifetime.
+func EffectiveMCPServerRefs(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) ([]platformv1alpha1.NamedRef, error) {
 	if run == nil {
-		return nil
+		return nil, nil
 	}
 	seen := make(map[string]bool)
 	var out []platformv1alpha1.NamedRef
@@ -37,7 +41,7 @@ func EffectiveMCPServerRefs(ctx context.Context, c client.Client, run *platformv
 	}
 	add(run.Spec.MCPServerRefs)
 	if c == nil {
-		return out
+		return out, nil
 	}
 	for _, ref := range run.Spec.SkillRefs {
 		name := strings.TrimSpace(ref.Name)
@@ -46,11 +50,14 @@ func EffectiveMCPServerRefs(ctx context.Context, c client.Client, run *platformv
 		}
 		skill := &platformv1alpha1.Skill{}
 		if err := c.Get(ctx, client.ObjectKey{Namespace: run.Namespace, Name: name}, skill); err != nil {
-			continue
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, fmt.Errorf("reading Skill %s/%s for required MCP servers: %w", run.Namespace, name, err)
 		}
 		if skill.Spec.Requires != nil {
 			add(skill.Spec.Requires.MCPServers)
 		}
 	}
-	return out
+	return out, nil
 }

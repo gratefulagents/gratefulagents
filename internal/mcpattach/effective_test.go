@@ -2,10 +2,12 @@ package mcpattach
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
@@ -38,7 +40,10 @@ func TestEffectiveMCPServerRefs(t *testing.T) {
 			SkillRefs:     []platformv1alpha1.NamedRef{{Name: "skill-a"}, {Name: "skill-b"}, {Name: "missing"}},
 		},
 	}
-	got := EffectiveMCPServerRefs(context.Background(), c, run)
+	got, err := EffectiveMCPServerRefs(context.Background(), c, run)
+	if err != nil {
+		t.Fatalf("EffectiveMCPServerRefs() error = %v", err)
+	}
 	want := []string{"grafana", "fetch"} // deduped, explicit first, missing skill skipped
 	if len(got) != len(want) {
 		t.Fatalf("refs = %+v, want %v", got, want)
@@ -49,7 +54,31 @@ func TestEffectiveMCPServerRefs(t *testing.T) {
 		}
 	}
 
-	if got := EffectiveMCPServerRefs(context.Background(), c, nil); got != nil {
-		t.Fatalf("nil run should produce nil, got %+v", got)
+	if got, err := EffectiveMCPServerRefs(context.Background(), c, nil); got != nil || err != nil {
+		t.Fatalf("nil run should produce nil, got %+v, %v", got, err)
 	}
+}
+
+func TestEffectiveMCPServerRefsReturnsReadErrors(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme: %v", err)
+	}
+	c := &failingReader{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "r", Namespace: "ns"},
+		Spec: platformv1alpha1.AgentRunSpec{
+			MCPServerRefs: []platformv1alpha1.NamedRef{{Name: "grafana"}},
+			SkillRefs:     []platformv1alpha1.NamedRef{{Name: "skill-a"}},
+		},
+	}
+	if _, err := EffectiveMCPServerRefs(context.Background(), c, run); err == nil {
+		t.Fatal("a non-NotFound read failure must be reported, not swallowed")
+	}
+}
+
+type failingReader struct{ client.Client }
+
+func (failingReader) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+	return errors.New("apiserver unavailable")
 }

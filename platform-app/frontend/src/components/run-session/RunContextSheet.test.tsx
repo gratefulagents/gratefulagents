@@ -48,6 +48,35 @@ describe("RunContextContent", () => {
 
     expect(screen.queryByText("Run context")).toBeNull();
     expect(screen.getByText(run.modeInstructions)).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Skills" })).toBeNull();
     expect(listRepositories).not.toHaveBeenCalled();
+  });
+
+  it("lists the run's skills and marks the ones loaded into context", () => {
+    listRepositories.mockResolvedValue({ repositories: [] });
+    const withSkills = create(AgentRunSchema, {
+      ...run,
+      modeInstructions: "",
+      skillRefs: ["pdf", "astro"],
+      resolvedSkills: ["astro"],
+    });
+    render(
+      <RunContextContent
+        namespace="demo"
+        name="run-ui-polish"
+        run={withSkills}
+        showRepositories={false}
+        canClone={false}
+        sandboxReady
+        startupMessage=""
+      />,
+    );
+
+    const skills = screen.getByRole("region", { name: "Skills" });
+    expect(skills.textContent).toContain("1 of 2 loaded");
+    expect(screen.getByText("pdf")).toBeTruthy();
+    expect(screen.getByText("astro").parentElement?.textContent).toContain("loaded");
+    expect(screen.getByText("pdf").parentElement?.textContent).not.toContain("loaded");
+    expect(screen.queryByText("No additional run context is available.")).toBeNull();
   });
 });
