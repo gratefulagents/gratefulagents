@@ -161,11 +161,6 @@ export function ProjectDetail() {
                     Docker-in-Docker
                   </Badge>
                 )}
-                {project.bugSquasher && (
-                  <Badge variant="secondary" className="text-[11px]">
-                    Bug squasher
-                  </Badge>
-                )}
               </>
             }
             subtitle={<ProjectIdentity project={project} />}

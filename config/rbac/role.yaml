@@ -35,15 +35,6 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - serviceaccounts
-  verbs:
-  - create
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - persistentvolumeclaims
   - pods
   verbs:
@@ -77,6 +68,15 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
   - agents.x-k8s.io
   resources:
   - sandboxes
@@ -95,16 +95,6 @@ rules:
   - list
   - patch
   - update
-  - watch
-- apiGroups:
-  - batch
-  resources:
-  - jobs
-  verbs:
-  - create
-  - delete
-  - get
-  - list
   - watch
 - apiGroups:
   - extensions.agents.x-k8s.io
@@ -130,7 +120,6 @@ rules:
   - modetemplates
   - roleinstructions
   - runtimeprofiles
-  - securitytoolruns
   - skills
   - sshtunnels
   verbs:
@@ -154,7 +143,6 @@ rules:
   - agentrunteamruntimes/status
   - mcpservers/status
   - runtimeprofiles/status
-  - securitytoolruns/status
   - skills/status
   - sshtunnels/status
   verbs:
@@ -202,12 +190,6 @@ rules:
   - githubrepositories
   - linearprojects
   - projects
-  - securitypolicypacks
-  - securitypostscripts
-  - securityprograms
-  - securityrankers
-  - securityscans
-  - securityworkflows
   - slackagents
   - slackworkspaces
   verbs:
@@ -228,12 +210,6 @@ rules:
   - maintainerworkitems/status
   - projects/status
   - pullrequestmonitors/status
-  - securitypolicypacks/status
-  - securitypostscripts/status
-  - securityprograms/status
-  - securityrankers/status
-  - securityscans/status
-  - securityworkflows/status
   - slackagents/status
   - slackworkspaces/status
   verbs:
@@ -253,9 +229,3 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - triggers.gratefulagents.dev
-  resources:
-  - securityscans/finalizers
-  verbs:
-  - update

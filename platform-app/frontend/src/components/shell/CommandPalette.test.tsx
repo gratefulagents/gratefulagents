@@ -53,30 +53,24 @@ describe("CommandPalette", () => {
   });
   afterEach(cleanup);
 
-  it("offers a Security entry that navigates to /security", async () => {
+  it("keeps project navigation available", async () => {
     renderPalette();
-
     fireEvent.change(screen.getByPlaceholderText("Search or run a command…"), {
-      target: { value: "security" },
+      target: { value: "projects" },
     });
-
-    const item = await screen.findByText("Security");
-    expect(screen.getByText("Overview, scan runs, and finding triage")).toBeTruthy();
-
-    fireEvent.click(item);
-
+    fireEvent.click(await screen.findByText("Projects"));
     await waitFor(() => {
-      expect(screen.getByTestId("location").textContent).toBe("/security");
+      expect(screen.getByTestId("location").textContent).toBe("/projects");
     });
   });
 
-  it("matches the entry by finding-related keywords", async () => {
+  it("does not offer retired scan or bug-report pages", () => {
     renderPalette();
-
+    expect(screen.queryByText("Security")).toBeNull();
+    expect(screen.queryByText("Bug Reports")).toBeNull();
     fireEvent.change(screen.getByPlaceholderText("Search or run a command…"), {
       target: { value: "vulnerabilities" },
     });
-
-    expect(await screen.findByText("Security")).toBeTruthy();
+    expect(screen.queryByText("Security")).toBeNull();
   });
 });

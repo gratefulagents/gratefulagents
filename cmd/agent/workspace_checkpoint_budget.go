@@ -120,7 +120,7 @@ func logCheckpointStage(ctx context.Context, stage, id string, started time.Time
 }
 
 // nextCheckpointDelay jitters the periodic checkpoint schedule and backs off
-// exponentially after consecutive failures. Security-scan fan-out starts many
+// exponentially after consecutive failures. Parallel orchestration starts many
 // workers on the same repository at nearly the same moment; without jitter they
 // repack and re-upload in lockstep and keep retrying on the same cadence.
 func nextCheckpointDelay(consecutiveFailures int) time.Duration {

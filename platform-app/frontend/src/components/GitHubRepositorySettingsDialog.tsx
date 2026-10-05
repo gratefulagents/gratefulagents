@@ -125,7 +125,6 @@ function normalizeTriggerSettings(settings: GitHubRepositoryTriggerSettings): Gi
     maintainerModel: settings.maintainerModel.trim(),
     maintainerAllowPrMerge: settings.maintainerAllowPrMerge,
     maintainerFullControl: settings.maintainerFullControl,
-    maintainerAllowPlatformBugReports: settings.maintainerAllowPlatformBugReports ?? false,
     maintainerWorkItemCutover: settings.maintainerWorkItemCutover || "Controller",
   });
 }
@@ -194,7 +193,6 @@ function maintainerModified(settings: GitHubRepositoryTriggerSettings): boolean 
       settings.maintainerModel.trim() ||
       settings.maintainerAllowPrMerge ||
       settings.maintainerFullControl ||
-      settings.maintainerAllowPlatformBugReports ||
       (settings.maintainerWorkItemCutover && settings.maintainerWorkItemCutover !== "Controller"),
   );
 }
@@ -723,20 +721,6 @@ export function GitHubRepositorySettingsDialog({
                               checked={triggerSettings.maintainerFullControl}
                               onCheckedChange={(checked) =>
                                 updateTriggerSettings({ maintainerFullControl: checked })
-                              }
-                            />
-                          }
-                        />
-                        <FlowSwitchRow
-                          id="github-settings-maintainer-platform-bug-reports"
-                          label="Allow publishing Grateful Agents platform bug reports"
-                          hint="Danger: permits model-authored report content to cross the repository boundary and be published to gratefulagents/gratefulagents. Disabled by default."
-                          control={
-                            <Switch
-                              id="github-settings-maintainer-platform-bug-reports"
-                              checked={triggerSettings.maintainerAllowPlatformBugReports ?? false}
-                              onCheckedChange={(checked) =>
-                                updateTriggerSettings({ maintainerAllowPlatformBugReports: checked })
                               }
                             />
                           }

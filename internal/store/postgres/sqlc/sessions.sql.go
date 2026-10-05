@@ -47,7 +47,7 @@ func (q *Queries) ClearPendingQuestion(ctx context.Context, arg ClearPendingQues
 const createSession = `-- name: CreateSession :one
 INSERT INTO agent_sessions (agentrun_name, agentrun_ns, phase, current_step)
 VALUES ($1, $2, $3, $4)
-RETURNING id, agentrun_name, agentrun_ns, phase, current_step, pending_question, metadata, created_at, updated_at, pending_actions, pending_input_type, pending_request_id, change_seq
+RETURNING id, agentrun_name, agentrun_ns, phase, current_step, pending_question, metadata, created_at, updated_at, pending_actions, pending_input_type, pending_request_id, change_seq, conversation_seq
 `
 
 type CreateSessionParams struct {
@@ -79,12 +79,13 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (A
 		&i.PendingInputType,
 		&i.PendingRequestID,
 		&i.ChangeSeq,
+		&i.ConversationSeq,
 	)
 	return i, err
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, agentrun_name, agentrun_ns, phase, current_step, pending_question, metadata, created_at, updated_at, pending_actions, pending_input_type, pending_request_id, change_seq FROM agent_sessions WHERE id = $1
+SELECT id, agentrun_name, agentrun_ns, phase, current_step, pending_question, metadata, created_at, updated_at, pending_actions, pending_input_type, pending_request_id, change_seq, conversation_seq FROM agent_sessions WHERE id = $1
 `
 
 func (q *Queries) GetSession(ctx context.Context, id uuid.UUID) (AgentSession, error) {
@@ -104,12 +105,13 @@ func (q *Queries) GetSession(ctx context.Context, id uuid.UUID) (AgentSession, e
 		&i.PendingInputType,
 		&i.PendingRequestID,
 		&i.ChangeSeq,
+		&i.ConversationSeq,
 	)
 	return i, err
 }
 
 const getSessionByRun = `-- name: GetSessionByRun :one
-SELECT id, agentrun_name, agentrun_ns, phase, current_step, pending_question, metadata, created_at, updated_at, pending_actions, pending_input_type, pending_request_id, change_seq FROM agent_sessions WHERE agentrun_name = $1 AND agentrun_ns = $2
+SELECT id, agentrun_name, agentrun_ns, phase, current_step, pending_question, metadata, created_at, updated_at, pending_actions, pending_input_type, pending_request_id, change_seq, conversation_seq FROM agent_sessions WHERE agentrun_name = $1 AND agentrun_ns = $2
 `
 
 type GetSessionByRunParams struct {
@@ -134,6 +136,7 @@ func (q *Queries) GetSessionByRun(ctx context.Context, arg GetSessionByRunParams
 		&i.PendingInputType,
 		&i.PendingRequestID,
 		&i.ChangeSeq,
+		&i.ConversationSeq,
 	)
 	return i, err
 }

@@ -593,13 +593,13 @@ func TestEffectiveSkillRefsExcludesStandingOverseer(t *testing.T) {
 	}
 }
 
-func TestSecurityScanRunDoesNotInheritNamespaceSkillCatalog(t *testing.T) {
+func TestRunDoesNotInheritNamespaceSkillCatalog(t *testing.T) {
 	run := &platformv1alpha1.AgentRun{Spec: platformv1alpha1.AgentRunSpec{
-		Trigger:   platformv1alpha1.TriggerRef{Kind: " securityscan ", Name: "nightly"},
+		Trigger:   platformv1alpha1.TriggerRef{Kind: " Cron ", Name: "nightly"},
 		SkillRefs: []platformv1alpha1.NamedRef{{Name: "task-skill"}},
 	}}
 	snapshot := &platformv1alpha1.ModeTemplateSpec{
-		DefaultSkillRefs: []platformv1alpha1.NamedRef{{Name: "security-scan"}},
+		DefaultSkillRefs: []platformv1alpha1.NamedRef{{Name: "mode-skill"}},
 	}
 
 	got := effectiveSkillRefs(run, snapshot)
@@ -607,7 +607,7 @@ func TestSecurityScanRunDoesNotInheritNamespaceSkillCatalog(t *testing.T) {
 	for _, ref := range got {
 		gotNames = append(gotNames, ref.Name)
 	}
-	if !slices.Equal(gotNames, []string{"task-skill", "security-scan"}) {
+	if !slices.Equal(gotNames, []string{"task-skill", "mode-skill"}) {
 		t.Fatalf("effectiveSkillRefs() = %v, want only task and mode skills", gotNames)
 	}
 }

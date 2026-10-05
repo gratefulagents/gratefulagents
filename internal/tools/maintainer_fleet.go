@@ -63,7 +63,6 @@ func RegisterMaintainerTools(registry *Registry, stateStore store.StateStore, k8
 	registry.Register(&mergePullRequestTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
 	registry.Register(&wakeAgentRunTool{maintainerToolBase: base})
 	registry.Register(&stopAgentRunTurnTool{maintainerToolBase: base})
-	registry.Register(&reportPlatformBugTool{maintainerToolBase: base, runner: prReviewExecRunner{}})
 	registry.Register(&getRunMessagesTool{maintainerToolBase: base})
 	registry.Register(&cancelRunMessageTool{maintainerToolBase: base})
 	registry.Register(&editRunMessageTool{maintainerToolBase: base})
@@ -86,7 +85,7 @@ func (t *maintainerCutoverGuardedTool) Execute(ctx context.Context, input json.R
 }
 
 // maintainerRepositoryScopedTool prevents generic issue mutators from becoming
-// an alternate cross-repository publication path around report_platform_bug.
+// an unauthorized cross-repository publication path.
 // The maintained checkout is always the workspace root; additional repositories
 // are mounted under a non-root repo_path.
 type maintainerRepositoryScopedTool struct {
@@ -109,7 +108,7 @@ func (t *maintainerRepositoryScopedTool) Execute(ctx context.Context, input json
 		return Result{Content: fmt.Sprintf("invalid input: %v", err), IsError: true}, nil
 	}
 	if repoPath := strings.TrimSpace(target.RepoPath); repoPath != "" && filepath.Clean(repoPath) != "." {
-		return Result{Content: "cross-repository issue mutation is denied for maintainer sessions; use report_platform_bug, which requires explicit administrator approval", IsError: true}, nil
+		return Result{Content: "cross-repository issue mutation is denied for maintainer sessions; use repository-scoped GitHub tools", IsError: true}, nil
 	}
 	return t.Tool.Execute(ctx, input, workDir)
 }
@@ -146,10 +145,9 @@ type fleetCapsOutput struct {
 }
 
 type getFleetRunsOutput struct {
-	Runs                      []fleetRunOutput `json:"runs"`
-	Caps                      fleetCapsOutput  `json:"caps"`
-	DispatchMode              string           `json:"dispatch_mode"`
-	PlatformBugReportsAllowed bool             `json:"platform_bug_reports_allowed"`
+	Runs         []fleetRunOutput `json:"runs"`
+	Caps         fleetCapsOutput  `json:"caps"`
+	DispatchMode string           `json:"dispatch_mode"`
 	// MergeAllowed reports whether the repository grants the maintainer
 	// permission to merge attached pull requests via request_merge. When true,
 	// merging ready pull requests is the maintainer's responsibility.
@@ -192,10 +190,9 @@ func (t *getFleetRunsTool) Execute(ctx context.Context, _ json.RawMessage, _ str
 	if err != nil {
 		return Result{Content: err.Error(), IsError: true}, nil
 	}
-	allowPlatformReports := repository.Spec.Maintainer != nil && repository.Spec.Maintainer.AllowPlatformBugReports
 	fullControl := repository.Spec.Maintainer != nil && repository.Spec.Maintainer.FullControl
 	mergeAllowed := fullControl || (repository.Spec.Maintainer != nil && repository.Spec.Maintainer.AllowPullRequestMerge)
-	out := getFleetRunsOutput{Runs: make([]fleetRunOutput, 0, len(fleet)), DispatchMode: dispatchMode, PlatformBugReportsAllowed: allowPlatformReports, MergeAllowed: mergeAllowed, FullControl: fullControl}
+	out := getFleetRunsOutput{Runs: make([]fleetRunOutput, 0, len(fleet)), DispatchMode: dispatchMode, MergeAllowed: mergeAllowed, FullControl: fullControl}
 	for i := range fleet {
 		run := &fleet[i]
 		entry, err := t.describeFleetRun(ctx, run)

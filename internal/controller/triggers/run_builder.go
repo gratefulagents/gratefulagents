@@ -316,9 +316,8 @@ func snapshotTriggerOwnerRoleModels(ctx context.Context, stateStore store.StateS
 	}
 	ownerID := strings.TrimSpace(spec.OwnerID)
 	if ownerID == "" {
-		// Resource types must match the dashboard's ownership records (e.g.
-		// SecurityScan owners are recorded under "securityscan").
-		resourceTypes := map[string]string{"LinearProject": "linear_project", "GitHubRepository": "github_repository", "Cron": "cron", securityScanKind: "securityscan"}
+		// Resource types must match the dashboard's ownership records.
+		resourceTypes := map[string]string{"LinearProject": "linear_project", "GitHubRepository": "github_repository", "Cron": "cron"}
 		resourceType := resourceTypes[spec.TriggerKind]
 		if resourceType == "" {
 			return nil

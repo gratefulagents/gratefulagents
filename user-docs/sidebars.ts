@@ -39,15 +39,6 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Security',
-      items: [
-        'projects/security-scanning',
-        'projects/security-tool-packs',
-        'projects/security-skill-sources',
-      ],
-    },
-    {
-      type: 'category',
       label: 'Integrations',
       items: [
         'integrations/connection-secrets',

@@ -70,13 +70,6 @@ spec:
                       type: string
                     type: array
                 type: object
-              bugSquasher:
-                description: |-
-                  bugSquasher marks this project as the namespace's default bug-squasher:
-                  moving an agent-filed bug report to in_progress launches an autonomous
-                  fix AgentRun from this project. The dashboard keeps the flag exclusive
-                  per namespace: enabling it on one project clears it on the others.
-                type: boolean
               defaults:
                 description: defaults holds the fields used when creating AgentRuns
                   from this project.
@@ -582,12 +575,6 @@ spec:
                             maintainer configures a standing supervisor for this repository trigger.
                             The configuration is copied to the generated GitHubRepository child.
                           properties:
-                            allowPlatformBugReports:
-                              description: |-
-                                allowPlatformBugReports permits the maintainer to publish a deduplicated
-                                Grateful Agents platform/tooling bug to gratefulagents/gratefulagents.
-                                Disabled by default because report content crosses repository trust boundaries.
-                              type: boolean
                             allowPullRequestMerge:
                               description: |-
                                 allowPullRequestMerge permits the controller-executed RequestMerge command

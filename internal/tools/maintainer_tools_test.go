@@ -825,45 +825,6 @@ func TestMaintainerGenericIssueMutatorsDenyAdditionalRepositories(t *testing.T) 
 	}
 }
 
-func TestReportPlatformBugPinsUpstreamAndDeduplicates(t *testing.T) {
-	t.Parallel()
-
-	base, k8sClient, _ := newMaintainerToolBase(t, maintainerRun())
-	repository := &triggersv1alpha1.GitHubRepository{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKey{Name: maintainerTestRepositoryName, Namespace: maintainerTestNamespace}, repository); err != nil {
-		t.Fatal(err)
-	}
-	disabledRunner := &fakePRReviewRunner{}
-	disabled, err := (&reportPlatformBugTool{maintainerToolBase: base, runner: disabledRunner}).Execute(context.Background(), json.RawMessage(`{"title":"Maintainer command receipt is lost","body":"Expected a durable terminal receipt, but the command disappeared after submission."}`), "")
-	if err != nil || !disabled.IsError || !strings.Contains(disabled.Content, "explicitly enable") || len(disabledRunner.ghCalls) != 0 {
-		t.Fatalf("disabled platform report = (%#v, %v), calls=%v", disabled, err, disabledRunner.ghCalls)
-	}
-	repository.Spec.Maintainer.AllowPlatformBugReports = true
-	if err := k8sClient.Update(context.Background(), repository); err != nil {
-		t.Fatal(err)
-	}
-	title := "Maintainer command receipt is lost"
-	searchKey := "issue list --repo " + platformBugRepository + " --state all --search " + title + " in:title --json number,title,url --limit 20"
-	createKey := "issue create --repo " + platformBugRepository + " --title " + title + " --body-file -"
-	runner := &fakePRReviewRunner{
-		ghOut:      map[string]string{searchKey: `[]`},
-		ghInputOut: map[string]string{createKey: "https://github.com/gratefulagents/gratefulagents/issues/123\n"},
-	}
-	result, err := (&reportPlatformBugTool{maintainerToolBase: base, runner: runner}).Execute(context.Background(), json.RawMessage(`{"title":"`+title+`","body":"Expected a durable terminal receipt, but the command disappeared after submission."}`), "")
-	if err != nil || result.IsError || !strings.Contains(result.Content, `"created":true`) {
-		t.Fatalf("report platform bug = (%#v, %v)", result, err)
-	}
-	if len(runner.ghInputCalls) != 1 || runner.ghInputCalls[0] != createKey || !strings.Contains(runner.ghInputs[0], githubAppAuthorizationFooter) {
-		t.Fatalf("create calls=%v inputs=%v", runner.ghInputCalls, runner.ghInputs)
-	}
-
-	runner = &fakePRReviewRunner{ghOut: map[string]string{searchKey: `[{"number":123,"title":"Maintainer command receipt is lost","url":"https://github.com/gratefulagents/gratefulagents/issues/123"}]`}}
-	result, err = (&reportPlatformBugTool{maintainerToolBase: base, runner: runner}).Execute(context.Background(), json.RawMessage(`{"title":"`+title+`","body":"Expected a durable terminal receipt, but the command disappeared after submission."}`), "")
-	if err != nil || result.IsError || !strings.Contains(result.Content, `"duplicate":true`) || len(runner.ghInputCalls) != 0 {
-		t.Fatalf("deduplicated platform bug = (%#v, %v), create=%v", result, err, runner.ghInputCalls)
-	}
-}
-
 func TestMaintainerReportValidation(t *testing.T) {
 	t.Parallel()
 	base, k8sClient, stateStore := newMaintainerToolBase(t, maintainerRun())

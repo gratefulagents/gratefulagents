@@ -23,15 +23,6 @@ const LinearProjectDetail = React.lazy(() => import("@/components/LinearProjectD
 const GitHubRepositoryDetail = React.lazy(() => import("@/components/GitHubRepositoryDetail").then((m) => ({ default: m.GitHubRepositoryDetail })));
 const CronDetail = React.lazy(() => import("@/components/CronDetail").then((m) => ({ default: m.CronDetail })));
 const SlackAgentDetail = React.lazy(() => import("@/components/SlackAgentDetail").then((m) => ({ default: m.SlackAgentDetail })));
-const SecurityOverview = React.lazy(() => import("@/components/SecurityOverview").then((m) => ({ default: m.SecurityOverview })));
-const SecurityScanList = React.lazy(() => import("@/components/SecurityScanList").then((m) => ({ default: m.SecurityScanList })));
-const SecurityScanConfigList = React.lazy(() => import("@/components/SecurityScanConfigList").then((m) => ({ default: m.SecurityScanConfigList })));
-const SecurityLibraryPage = React.lazy(() => import("@/components/SecurityLibraryPage").then((m) => ({ default: m.SecurityLibraryPage })));
-const SecuritySubmissionQueue = React.lazy(() => import("@/components/SecuritySubmissionQueue").then((m) => ({ default: m.SecuritySubmissionQueue })));
-const SecurityScanDetail = React.lazy(() => import("@/components/SecurityScanDetail").then((m) => ({ default: m.SecurityScanDetail })));
-const SecurityConfigDetail = React.lazy(() => import("@/components/SecurityConfigDetail").then((m) => ({ default: m.SecurityConfigDetail })));
-const SecurityFindingDetail = React.lazy(() => import("@/components/SecurityFindingDetail").then((m) => ({ default: m.SecurityFindingDetail })));
-const BugReportList = React.lazy(() => import("@/components/BugReportList").then((m) => ({ default: m.BugReportList })));
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { OnboardingRedirect } from "@/components/onboarding/OnboardingRedirect";
@@ -56,7 +47,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { TitleBar, TitleBarDivider } from "@/components/shell/TitleBar";
 import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
-import { RedirectPreservingQuery, SectionNotFound } from "@/components/shell/routing";
 import { CommandPalette, type PaletteItem } from "@/components/shell/CommandPalette";
 import { useGlobalShortcuts, useViewport } from "@/components/shell/shortcuts";
 import { ShortcutsOverlay } from "@/components/shell/ShortcutsOverlay";
@@ -87,12 +77,10 @@ import {
   Radio,
   Activity,
   Blocks,
-  Bug,
   Users,
   PanelLeft,
   Plus,
   Settings as SettingsIcon,
-  Shield,
   ShieldCheck,
 } from "lucide-react";
 import { isTauri, platform } from "@/lib/platform";
@@ -188,17 +176,6 @@ function AppSidebar({
                   <span className="tracking-tight">Observability</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  render={<Link to="/bug-reports" />}
-                  isActive={location.pathname === "/bug-reports"}
-                  tooltip="Bug Reports"
-                  className="h-[30px] text-[12.5px] rounded-[6px] px-2 gap-2 data-[active=true]:bg-sidebar-accent hover:bg-sidebar-accent"
-                >
-                  <Bug className="size-[15px] text-muted-foreground" />
-                  <span className="tracking-tight">Bug Reports</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -240,12 +217,6 @@ function AppSidebar({
                 <SidebarMenuButton render={<Link to="/shared" />} isActive={location.pathname === "/shared"} tooltip="Shared" className="h-[30px] rounded-[6px] px-2 text-[12.5px] gap-2 hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent">
                   <Users className="size-[15px] text-muted-foreground" />
                   <span className="tracking-tight">Shared</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton render={<Link to="/security" />} isActive={location.pathname.startsWith("/security")} tooltip="Security" className="h-[30px] rounded-[6px] px-2 text-[12.5px] gap-2 hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent">
-                  <Shield className="size-[15px] text-muted-foreground" />
-                  <span className="tracking-tight">Security</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
@@ -540,7 +511,6 @@ function AuthenticatedShell() {
               <Route path="/shared" element={<Scroll><SharedWithMeList /></Scroll>} />
               <Route path="/runs" element={<Scroll><AgentOpsConsole /></Scroll>} />
               <Route path="/observability" element={<Scroll><ObservabilityPage /></Scroll>} />
-              <Route path="/bug-reports" element={<Scroll><BugReportList /></Scroll>} />
               <Route path="/runs/:namespace/:name" element={<AgentRunDetail />} />
               <Route path="/linear" element={<Navigate to="/projects" replace />} />
               <Route path="/linear/:namespace/:name" element={<Scroll><LinearProjectDetail /></Scroll>} />
@@ -550,41 +520,6 @@ function AuthenticatedShell() {
               <Route path="/cron/:namespace/:name" element={<Scroll><CronDetail /></Scroll>} />
               <Route path="/slack" element={<Navigate to="/projects" replace />} />
               <Route path="/slack/:namespace/:name" element={<Scroll><SlackAgentDetail /></Scroll>} />
-              <Route path="/security" element={<Scroll><SecurityOverview /></Scroll>} />
-              <Route path="/security/runs" element={<Scroll><SecurityScanList /></Scroll>} />
-              <Route path="/security/configs" element={<Scroll><SecurityScanConfigList /></Scroll>} />
-              <Route path="/security/configs/:namespace/:name" element={<Scroll><SecurityConfigDetail /></Scroll>} />
-              <Route path="/security/library" element={<Scroll><SecurityLibraryPage /></Scroll>} />
-              <Route path="/security/queue" element={<Scroll><SecuritySubmissionQueue /></Scroll>} />
-              {/* Legacy/alias security paths. Redirects keep the query string so
-                  filtered bookmarks and notification deep links survive renames. */}
-              <Route path="/security/overview" element={<RedirectPreservingQuery to="/security" />} />
-              <Route path="/security/scans" element={<RedirectPreservingQuery to="/security/runs" />} />
-              <Route path="/security/scan-runs" element={<RedirectPreservingQuery to="/security/runs" />} />
-              <Route path="/security/findings" element={<RedirectPreservingQuery to="/security/runs" />} />
-              <Route path="/security/configurations" element={<RedirectPreservingQuery to="/security/configs" />} />
-              {/* A config link without a namespace can't be resolved client-side;
-                  land on the list pre-filtered by that name instead of 404ing. */}
-              <Route path="/security/configs/:name" element={<RedirectPreservingQuery to="/security/configs" params={{ q: ":name" }} />} />
-              <Route path="/security/library/:tab" element={<RedirectPreservingQuery to="/security/library" params={{ tab: ":tab" }} />} />
-              <Route path="/security/:namespace/:runName" element={<Scroll><SecurityScanDetail /></Scroll>} />
-              <Route path="/security/:namespace/:runName/findings/:findingId" element={<Scroll><SecurityFindingDetail /></Scroll>} />
-              <Route
-                path="/security/*"
-                element={(
-                  <Scroll>
-                    <SectionNotFound
-                      section="security"
-                      links={[
-                        { to: "/security", label: "Security overview" },
-                        { to: "/security/runs", label: "Scan runs" },
-                        { to: "/security/configs", label: "Configurations" },
-                        { to: "/security/library", label: "Library" },
-                      ]}
-                    />
-                  </Scroll>
-                )}
-              />
               <Route path="/settings" element={<Scroll><SettingsLayout /></Scroll>}>
                 <Route index element={<SettingsScreen />} />
                 <Route path="connection" element={<SettingsConnectionPage />} />

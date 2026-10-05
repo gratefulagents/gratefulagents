@@ -78,17 +78,15 @@ describe("section change tracking", () => {
     expect(sectionChanged("general", { ...initial, displayName: "Payments  " }, initial)).toBe(false);
   });
 
-  it("only sends bug squasher when it changed and omits an unchanged mode", () => {
+  it("only sends mode when it changed", () => {
     const initial = projectFormFromProject(project);
     const unchanged = updateRequestFromForm(initial, project, { isAdmin: false });
-    expect(unchanged.bugSquasher).toBeUndefined();
     expect(unchanged.modeRef).toBeUndefined();
     expect(unchanged.kubernetesAdmin).toBeUndefined();
 
-    const flipped = updateRequestFromForm({ ...initial, bugSquasher: true, modeRef: "plan" }, project, {
+    const flipped = updateRequestFromForm({ ...initial, modeRef: "plan" }, project, {
       isAdmin: true,
     });
-    expect(flipped.bugSquasher).toBe(true);
     expect(flipped.modeRef).toBe("plan");
     expect(flipped.kubernetesAdmin).toBe(false);
   });

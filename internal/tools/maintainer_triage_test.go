@@ -25,7 +25,7 @@ func TestRegisterMaintainerToolsRegistersTypedWorkItemCommands(t *testing.T) {
 	base, _, stateStore := newMaintainerToolBase(t, maintainerRun())
 	registry := NewRegistry(t.TempDir())
 	RegisterMaintainerTools(registry, stateStore, base.k8sClient, base.currentRunName, base.currentRunNamespace, string(base.currentRunUID), base.repositoryName, base.repositoryNamespace)
-	for _, name := range []string{"triage_issue", "breakdown_issue", "set_work_item_graph", "request_decision", maintainerTestDispatchWorkTool, requestMergeToolName, finalizeWorkItemToolName, "wake_agent_run", "stop_agent_run_turn", reportPlatformBugToolName} {
+	for _, name := range []string{"triage_issue", "breakdown_issue", "set_work_item_graph", "request_decision", maintainerTestDispatchWorkTool, requestMergeToolName, finalizeWorkItemToolName, "wake_agent_run", "stop_agent_run_turn"} {
 		tool := registry.Get(name)
 		if tool == nil || tool.IsReadOnly() {
 			t.Fatalf("%s = %#v", name, tool)

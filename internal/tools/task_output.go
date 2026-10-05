@@ -70,7 +70,7 @@ func (t *submitTaskOutputTool) InputSchema() json.RawMessage {
 	}`)
 }
 
-// IsReadOnly is true for the same reason as submit_security_scan_report: the
+// IsReadOnly is true because the
 // tool only writes platform run state, never the workspace, repository, or
 // network, so it must remain available on read-only task runs.
 func (t *submitTaskOutputTool) IsReadOnly() bool                      { return true }

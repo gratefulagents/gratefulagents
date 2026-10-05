@@ -19,11 +19,11 @@ import (
 
 func TestManagedSandboxTemplateNameSeparatesLongRunRetries(t *testing.T) {
 	first := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
-		Name: "secscan-securityscan-sxz2ew-generation-1-ps-pipeline-9-53a5085d",
+		Name: "longname-trigger-run-sxz2ew-generation-1-ps-pipeline-9-53a5085d",
 		UID:  types.UID("709192fd-f7b6-4215-818b-b0fa23945c13"),
 	}}
 	second := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{
-		Name: "secscan-securityscan-sxz2ew-generation-1-ps-pipeline-9-634b314a",
+		Name: "longname-trigger-run-sxz2ew-generation-1-ps-pipeline-9-634b314a",
 		UID:  types.UID("d7cc4293-486b-4a87-bf98-3b4ce36210f9"),
 	}}
 	firstName := managedSandboxTemplateName(first)

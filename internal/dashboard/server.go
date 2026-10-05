@@ -62,10 +62,6 @@ type Server struct {
 
 	slackConversationLookup slackConversationLookup
 
-	// securityTicketCreator, when non-nil, replaces the default GitHub
-	// issue creator used by CreateSecurityFindingTicket (tests).
-	securityTicketCreator securityIssueCreator
-
 	// activityMemo caches the last built activity-log response per run so the
 	// 500ms watch tick can skip rebuilding when no new events arrived.
 	activityMemoMu sync.Mutex

@@ -17,12 +17,7 @@
 #   etc/ca-certificates.crt
 #                  — CA bundle for images without ca-certificates installed
 #
-# Deterministic security scanners are deliberately NOT here. They ship in the
-# separate digest-pinned security-tools image (Dockerfile.security-tools) and
-# run in dedicated Kubernetes Jobs, so ordinary runs do not carry several GB of
-# scanner root filesystems they never use.
-#
-# Build multi-arch with: docker buildx build --platform linux/amd64,linux/arm64
+
 
 ARG GH_VERSION=2.96.0
 ARG RG_VERSION=15.1.0

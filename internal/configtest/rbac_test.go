@@ -20,46 +20,6 @@ var dashboardManagedResources = []string{
 	"crons",
 	"githubrepositories",
 	"projects",
-	"securitypolicypacks",
-	"securityprograms",
-	"securitypostscripts",
-	"securityrankers",
-	"securityscans",
-	"securityworkflows",
-}
-
-// reconcilerRequiredRules are the API access the controllers themselves need
-// at runtime, kind by kind. Unlike the dashboard table above these are not
-// about write RPCs: a missing verb here means a reconcile loop fails against a
-// live API server with a forbidden error that no unit test using a fake client
-// can catch. The SecurityToolRun reconciler runs one Kubernetes Job per
-// request and mounts its typed configuration from a ConfigMap, so it needs the
-// batch and core verbs as well as its own kind.
-var reconcilerRequiredRules = []struct {
-	apiGroup string
-	resource string
-	verbs    []string
-}{
-	{
-		apiGroup: "platform.gratefulagents.dev",
-		resource: "securitytoolruns",
-		verbs:    []string{"get", "list", "watch", "create", "update", "patch", "delete"},
-	},
-	{
-		apiGroup: "platform.gratefulagents.dev",
-		resource: "securitytoolruns/status",
-		verbs:    []string{"get", "update", "patch"},
-	},
-	{
-		apiGroup: "batch",
-		resource: "jobs",
-		verbs:    []string{"create", "get", "list", "watch", "delete"},
-	},
-	{
-		apiGroup: "",
-		resource: "configmaps",
-		verbs:    []string{"create", "get", "list", "watch"},
-	},
 }
 
 type clusterRoleDocument struct {
@@ -92,24 +52,6 @@ func TestManagerRoleGrantsDashboardWriteVerbs(t *testing.T) {
 		for _, verb := range []string{"create", "delete", "get", "list", "watch", "update", "patch"} {
 			if !granted[resource][verb] {
 				t.Errorf("manager role is missing verb %q on %q; the dashboard cannot manage it", verb, resource)
-			}
-		}
-	}
-}
-
-// TestManagerRoleGrantsReconcilerVerbs fails when a controller is missing API
-// access its reconcile loop performs. Add the verb to the marker in the
-// controller package, regenerate config/rbac, and sync the chart copy.
-func TestManagerRoleGrantsReconcilerVerbs(t *testing.T) {
-	t.Parallel()
-
-	role := readManagerRole(t)
-	for _, required := range reconcilerRequiredRules {
-		granted := grantedVerbs(role, required.apiGroup)
-		for _, verb := range required.verbs {
-			if !granted[required.resource][verb] {
-				t.Errorf("manager role is missing verb %q on %q (apiGroup %q); the reconciler cannot run",
-					verb, required.resource, required.apiGroup)
 			}
 		}
 	}
