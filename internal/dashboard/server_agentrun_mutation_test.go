@@ -2901,39 +2901,60 @@ func TestSendAgentRunMessageRejectsStaleExplicitRequestID(t *testing.T) {
 }
 
 func TestSendAgentRunMessageAnswerConsumesExactRequestAtomically(t *testing.T) {
-	srv, ms, sess := newMessageTestServer(t, `[{"id":"approve","label":"Approve"}]`)
+	for _, tt := range []struct {
+		name, message string
+		images        []string
+	}{
+		{name: "text", message: "the answer"},
+		{name: "image only", images: []string{"data:image/png;base64,AQID"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, ms, sess := newMessageTestServer(t, `[{"id":"approve","label":"Approve"}]`)
 
-	if _, err := srv.SendAgentRunMessage(actorContext("member-1", "member", "", ""), &platform.SendAgentRunMessageRequest{
-		Namespace:        "default",
-		Name:             "run-msg",
-		Message:          "the answer",
-		PendingRequestId: "request-1",
-	}); err != nil {
-		t.Fatalf("SendAgentRunMessage() error = %v", err)
-	}
-	msgs := ms.messagesFor(sess.ID)
-	if len(msgs) != 1 || msgs[0].Role != "user" || msgs[0].Content != "the answer" {
-		t.Fatalf("messages = %#v, want one user answer", msgs)
-	}
-	if !strings.Contains(string(msgs[0].Metadata), `"pending_request_id":"request-1"`) {
-		t.Fatalf("answer metadata missing request binding: %s", msgs[0].Metadata)
-	}
-	if sess.PendingRequestID != "" || sess.PendingQuestion != "" {
-		t.Fatalf("request not consumed: %#v", sess)
-	}
+			if _, err := srv.SendAgentRunMessage(actorContext("member-1", "member", "", ""), &platform.SendAgentRunMessageRequest{
+				Namespace:        "default",
+				Name:             "run-msg",
+				Message:          tt.message,
+				ImageDataUrls:    tt.images,
+				PendingRequestId: "request-1",
+			}); err != nil {
+				t.Fatalf("SendAgentRunMessage() error = %v", err)
+			}
+			msgs := ms.messagesFor(sess.ID)
+			if len(msgs) != 1 || msgs[0].Role != "user" || msgs[0].Content != tt.message {
+				t.Fatalf("messages = %#v, want one user answer", msgs)
+			}
+			images := sessionclient.ImagesFromMetadata(msgs[0].Metadata)
+			if len(images) != len(tt.images) {
+				t.Fatalf("images = %#v, want %d attachments", images, len(tt.images))
+			}
+			for i, image := range images {
+				if image.DataURL() != tt.images[i] {
+					t.Fatalf("image = %s, want %s", image.DataURL(), tt.images[i])
+				}
+			}
+			if !strings.Contains(string(msgs[0].Metadata), `"pending_request_id":"request-1"`) {
+				t.Fatalf("answer metadata missing request binding: %s", msgs[0].Metadata)
+			}
+			if sess.PendingRequestID != "" || sess.PendingQuestion != "" {
+				t.Fatalf("request not consumed: %#v", sess)
+			}
 
-	// Replaying the same answer (second tab) is rejected and inserts nothing.
-	_, err := srv.SendAgentRunMessage(actorContext("member-2", "member", "", ""), &platform.SendAgentRunMessageRequest{
-		Namespace:        "default",
-		Name:             "run-msg",
-		Message:          "the answer again",
-		PendingRequestId: "request-1",
-	})
-	if err == nil || connect.CodeOf(err) != connect.CodeFailedPrecondition {
-		t.Fatalf("second answer error = %v, want FailedPrecondition", err)
-	}
-	if msgs := ms.messagesFor(sess.ID); len(msgs) != 1 {
-		t.Fatalf("second answer inserted a message: %#v", msgs)
+			// Replaying the same answer (second tab) is rejected and inserts nothing.
+			_, err := srv.SendAgentRunMessage(actorContext("member-2", "member", "", ""), &platform.SendAgentRunMessageRequest{
+				Namespace:        "default",
+				Name:             "run-msg",
+				Message:          tt.message,
+				ImageDataUrls:    tt.images,
+				PendingRequestId: "request-1",
+			})
+			if err == nil || connect.CodeOf(err) != connect.CodeFailedPrecondition {
+				t.Fatalf("second answer error = %v, want FailedPrecondition", err)
+			}
+			if msgs := ms.messagesFor(sess.ID); len(msgs) != 1 {
+				t.Fatalf("second answer inserted a message: %#v", msgs)
+			}
+		})
 	}
 }
 
