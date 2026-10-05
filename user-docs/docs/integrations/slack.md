@@ -47,7 +47,7 @@ Pasted tokens are moved into a platform-managed Secret and are never returned by
 | **Channel replies** | No | **Require owner approval** (default) holds shared-channel replies for approval; **Post directly** sends them immediately. DM and Agent-view replies remain direct. |
 | **Conversation memory** | No | Positive idle time in minutes before a new conversation starts a fresh run. Empty uses the 12-hour default. |
 
-The Entry point inherits the Project's repository, model/provider credentials, runtime profile, Skills, MCP policy, and custom instructions. Lifecycle (`enabled`) is controlled by the Entry-point switch. Connector images and shared-workspace topology remain operator-owned rather than per-trigger fields.
+The Entry point inherits the Project's repository, model/provider credentials, runtime profile, Skills, and custom instructions. Lifecycle (`enabled`) is controlled by the Entry-point switch. Connector images and shared-workspace topology remain operator-owned rather than per-trigger fields.
 
 ## Talking to the agent
 

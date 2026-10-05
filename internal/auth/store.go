@@ -52,15 +52,6 @@ type UserNamespace struct {
 	CreatedAt time.Time
 }
 
-// UserSoul is a user's personal SOUL: a role/persona definition they edit for
-// their own agent. Other users' agents can consult it (via the ask_teammate
-// tool) to get that teammate's likely perspective.
-type UserSoul struct {
-	UserID    string
-	Content   string
-	UpdatedAt time.Time
-}
-
 // UserGitIdentity contains a user's git commit settings. When name and email
 // are set, AgentRuns the user creates author commits with that identity.
 type UserGitIdentity struct {
@@ -132,11 +123,6 @@ type Store interface {
 	// SetUserNamespace persists the user's personal namespace. It is a no-op if a
 	// namespace is already assigned (the first assignment wins).
 	SetUserNamespace(ctx context.Context, userID, namespace string) error
-
-	// GetUserSoul returns the user's personal SOUL, or nil if none is saved.
-	GetUserSoul(ctx context.Context, userID string) (*UserSoul, error)
-	// UpsertUserSoul creates or updates the user's personal SOUL.
-	UpsertUserSoul(ctx context.Context, soul *UserSoul) (*UserSoul, error)
 
 	// GetUserGitIdentity returns the user's git commit identity, or nil if none
 	// is saved.
@@ -320,40 +306,6 @@ func (s *PGStore) SetUserNamespace(ctx context.Context, userID, namespace string
 		return fmt.Errorf("setting user namespace: %w", err)
 	}
 	return nil
-}
-
-// --- SOUL (personal persona) ---
-
-func (s *PGStore) GetUserSoul(ctx context.Context, userID string) (*UserSoul, error) {
-	var soul UserSoul
-	err := s.pool.QueryRow(ctx, `
-		SELECT user_id, content, updated_at
-		FROM auth_user_souls WHERE user_id = $1`, userID).
-		Scan(&soul.UserID, &soul.Content, &soul.UpdatedAt)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("getting user soul: %w", err)
-	}
-	return &soul, nil
-}
-
-func (s *PGStore) UpsertUserSoul(ctx context.Context, soul *UserSoul) (*UserSoul, error) {
-	var out UserSoul
-	err := s.pool.QueryRow(ctx, `
-		INSERT INTO auth_user_souls (user_id, content)
-		VALUES ($1, $2)
-		ON CONFLICT (user_id) DO UPDATE SET
-			content = EXCLUDED.content,
-			updated_at = now()
-		RETURNING user_id, content, updated_at`,
-		soul.UserID, soul.Content).
-		Scan(&out.UserID, &out.Content, &out.UpdatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("upserting user soul: %w", err)
-	}
-	return &out, nil
 }
 
 // --- Git identity (commit author) ---

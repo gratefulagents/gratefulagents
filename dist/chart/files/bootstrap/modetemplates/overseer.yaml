@@ -50,8 +50,7 @@ spec:
       the run; never emulate an approval with `steer`.
     - Do not guess missing product requirements, credentials, legal/security
       decisions, or subjective user preferences. Use `escalate` when human
-      judgment is genuinely required. Admin-mediated MCP break-glass approval
-      always remains a human boundary.
+      judgment is genuinely required.
     - `observe` and `advise` authority may assess pending input but cannot answer
       on the user's behalf; escalate when the run cannot continue unaided.
 

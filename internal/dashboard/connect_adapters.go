@@ -320,37 +320,6 @@ func (h *PlatformServiceConnectHandler) DeleteRuntimeProfile(ctx context.Context
 	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
-func (h *PlatformServiceConnectHandler) ListMCPPolicies(ctx context.Context, req *connect.Request[platform.ListMCPPoliciesRequest]) (*connect.Response[platform.ListMCPPoliciesResponse], error) {
-	resp, err := h.srv.ListMCPPolicies(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-func (h *PlatformServiceConnectHandler) CreateMCPPolicy(ctx context.Context, req *connect.Request[platform.CreateMCPPolicyRequest]) (*connect.Response[platform.MCPPolicy], error) {
-	resp, err := h.srv.CreateMCPPolicy(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-func (h *PlatformServiceConnectHandler) UpdateMCPPolicy(ctx context.Context, req *connect.Request[platform.UpdateMCPPolicyRequest]) (*connect.Response[platform.MCPPolicy], error) {
-	resp, err := h.srv.UpdateMCPPolicy(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-func (h *PlatformServiceConnectHandler) DeleteMCPPolicy(ctx context.Context, req *connect.Request[platform.DeleteMCPPolicyRequest]) (*connect.Response[emptypb.Empty], error) {
-	if err := h.srv.DeleteMCPPolicy(ctx, req.Msg); err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&emptypb.Empty{}), nil
-}
-
 func (h *PlatformServiceConnectHandler) ListGuardrailPolicies(ctx context.Context, req *connect.Request[platform.ListGuardrailPoliciesRequest]) (*connect.Response[platform.ListGuardrailPoliciesResponse], error) {
 	resp, err := h.srv.ListGuardrailPolicies(ctx, req.Msg)
 	if err != nil {
@@ -494,22 +463,6 @@ func (h *PlatformServiceConnectHandler) DeleteSlackWorkspace(ctx context.Context
 
 func (h *PlatformServiceConnectHandler) ListSlackDrafts(ctx context.Context, req *connect.Request[platform.ListSlackDraftsRequest]) (*connect.Response[platform.ListSlackDraftsResponse], error) {
 	resp, err := h.srv.ListSlackDrafts(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-func (h *PlatformServiceConnectHandler) GetMySoul(ctx context.Context, req *connect.Request[platform.GetMySoulRequest]) (*connect.Response[platform.Soul], error) {
-	resp, err := h.srv.GetMySoul(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
-func (h *PlatformServiceConnectHandler) UpdateMySoul(ctx context.Context, req *connect.Request[platform.UpdateMySoulRequest]) (*connect.Response[platform.Soul], error) {
-	resp, err := h.srv.UpdateMySoul(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

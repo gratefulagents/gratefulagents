@@ -265,8 +265,12 @@ func TestRunRBACRulesGiveOverseerReadOnlyAccessToSupervisedRun(t *testing.T) {
 func TestRunRBACRulesGrantNamespacedPolicyReads(t *testing.T) {
 	rules := runRBACRules(&platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "run"}}, "", "", "")
 	assertHasRuleVerbs(t, rules, "platform.gratefulagents.dev", "runtimeprofiles", "get")
-	assertHasRuleVerbs(t, rules, "platform.gratefulagents.dev", "mcppolicies", "get")
 	assertHasRuleVerbs(t, rules, "platform.gratefulagents.dev", "guardrailpolicies", "get")
+	for _, rule := range rules {
+		if contains(rule.Resources, "runtimeprofiles") && !slices.Equal(rule.Resources, []string{"runtimeprofiles", "guardrailpolicies"}) {
+			t.Fatalf("namespaced policy resources = %v, want only runtimeprofiles and guardrailpolicies", rule.Resources)
+		}
+	}
 }
 
 func TestEnsureRunRBACUpdatesExistingRunRoleRules(t *testing.T) {
@@ -310,7 +314,6 @@ func TestEnsureRunRBACUpdatesExistingRunRoleRules(t *testing.T) {
 	assertHasRuleVerbs(t, updated.Rules, "platform.gratefulagents.dev", "mcpservers", "get")
 	assertHasRuleVerbs(t, updated.Rules, "platform.gratefulagents.dev", "skills", "get")
 	assertHasRuleVerbs(t, updated.Rules, "platform.gratefulagents.dev", "runtimeprofiles", "get")
-	assertHasRuleVerbs(t, updated.Rules, "platform.gratefulagents.dev", "mcppolicies", "get")
 	assertHasRuleVerbs(t, updated.Rules, "platform.gratefulagents.dev", "guardrailpolicies", "get")
 }
 

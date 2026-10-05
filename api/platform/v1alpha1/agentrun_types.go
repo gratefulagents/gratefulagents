@@ -490,8 +490,6 @@ type AgentRunSpec struct {
 	// +optional
 	RuntimeProfileRef *NamedRef `json:"runtimeProfileRef,omitempty"`
 	// +optional
-	MCPPolicyRef *NamedRef `json:"mcpPolicyRef,omitempty"`
-	// +optional
 	GuardrailPolicyRef *NamedRef `json:"guardrailPolicyRef,omitempty"`
 	// SSHTunnelRef names an SSHTunnel (same namespace) that fronts the run's
 	// OpenAI-compatible inference endpoint. When set, a hardened SSH
@@ -630,9 +628,6 @@ type AgentRunResolvedPolicy struct {
 	// +listType=atomic
 	// +optional
 	ResolvedSkills []string `json:"resolvedSkills,omitempty"`
-	// +listType=atomic
-	// +optional
-	ResolvedMCPServers []string `json:"resolvedMcpServers,omitempty"`
 }
 
 // AgentRunMetrics holds lightweight run counters.

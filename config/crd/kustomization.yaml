@@ -10,7 +10,6 @@ resources:
 - bases/platform.gratefulagents.dev_agentruns.yaml
 - bases/platform.gratefulagents.dev_agentrunteamruntimes.yaml
 - bases/platform.gratefulagents.dev_guardrailpolicies.yaml
-- bases/platform.gratefulagents.dev_mcppolicies.yaml
 - bases/platform.gratefulagents.dev_modetemplates.yaml
 - bases/platform.gratefulagents.dev_roleinstructions.yaml
 - bases/platform.gratefulagents.dev_runtimeprofiles.yaml

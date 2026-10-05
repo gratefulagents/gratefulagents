@@ -206,12 +206,6 @@ type AgentRunDefaults struct {
 	// +optional
 	DockerInDocker bool `json:"dockerInDocker,omitempty"`
 
-	// mcpPolicyRef references an MCPPolicy in the same namespace.
-	// The policy controls which MCP servers are allowed or denied.
-	// When omitted, the agent defaults to deny-all for MCP tools (zero trust).
-	// +optional
-	MCPPolicyRef *platformv1alpha1.NamedRef `json:"mcpPolicyRef,omitempty"`
-
 	// mcpServerRefs lists MCPServer resources in the same namespace to inject
 	// into created AgentRuns.
 	// +listType=atomic

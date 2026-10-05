@@ -19,7 +19,6 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/computeruse"
-	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	opprojectstate "github.com/gratefulagents/gratefulagents/internal/projectstate"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
@@ -512,19 +511,12 @@ func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset
 	// so users recognize it instead of the generated resource name.
 	tools.RegisterSetDisplayNameTool(toolRegistry, crdClient, cfg.TaskName, cfg.Namespace)
 
-	// ask_teammate: consult a teammate's personal SOUL persona for their likely
-	// perspective on a question, plan, or diff. The persona runner is wired in
-	// after the runtime (and its model provider) is built, below.
-	askTeammateTool, askTeammateClose := setupAskTeammateTool(ctx, toolRegistry)
-	r.onExit(func(*runResult) { askTeammateClose() })
-
 	// Build MCP config: merge repo .mcp.json (if any) with MCPServer CRDs.
 	// CRD-defined skills don't require any config in the user's repo.
-	mcpCfg, clusterManagedMCPServers, networkAllowedMCPServers, mcpDropped := buildMCPConfig(ctx, crdClient, cfg.Namespace, cfg.RepoDir, run, cfg.PermissionMode)
+	mcpCfg, clusterManagedMCPServers, networkAllowedMCPServers := buildMCPConfig(ctx, crdClient, cfg.Namespace, cfg.RepoDir, run)
 	// Install exact-version Python MCP packages in a credential-free installer
 	// sandbox. Repository-controlled uvx specs never trigger installation.
-	mcpToolRoot, materializationDropped := materializeUvxServers(ctx, &mcpCfg, clusterManagedMCPServers, sandboxedInstallRunner)
-	mcpDropped = append(mcpDropped, materializationDropped...)
+	mcpToolRoot, mcpDropped := materializeUvxServers(ctx, &mcpCfg, clusterManagedMCPServers, sandboxedInstallRunner)
 	var mcpManager *sdkmcp.Manager
 	if len(mcpCfg.MCPServers) > 0 {
 		managerOpts := []sdkmcp.ManagerOption{sdkmcp.WithPermissionMode(cfg.PermissionMode)}
@@ -553,7 +545,7 @@ func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset
 	}
 	if mcpManager != nil {
 		r.onExit(func(*runResult) { _ = mcpManager.Close() })
-		tools.RegisterMCPTools(ctx, toolRegistry, mcpManager, cfg.PermissionMode, crdClient, cfg.Namespace, cfg.TaskName, sc)
+		tools.RegisterMCPTools(toolRegistry, mcpManager, cfg.PermissionMode)
 		log.Printf("MCP tools registered: %d tool descriptors", len(mcpManager.ToolDescriptors()))
 	}
 	// Surface dropped servers to the session activity feed: silently missing
@@ -721,48 +713,6 @@ func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset
 	sort.Strings(specialistNames)
 	log.Printf("Agent initialized: %d base tools, %d specialist sub-agents %v",
 		len(agentTools), len(specialistAgents), specialistNames)
-
-	// Wire the ask_teammate persona runner now that the runner and base agent
-	// exist. A teammate consult runs a one-shot, tool-less, read-only persona
-	// (the colleague's SOUL as instructions) on the run's own model/provider, so
-	// it is billed to this run and never touches the workspace.
-	if askTeammateTool != nil {
-		askTeammateTool.SetPersonaRunner(func(personaCtx context.Context, soul, prompt string) (string, error) {
-			personaModel, personaProvider := liveRuntimeModelAndProvider(cfg, getAgentRun(personaCtx, crdClient, cfg.TaskName, cfg.Namespace))
-			personaAgent := baseAgent.Clone(
-				agent.WithName("teammate-persona"),
-				agent.WithInstructions(soul),
-				agent.WithModel(personaModel),
-				agent.WithTools(),
-				agent.WithHandoffs(),
-			)
-			personaRunCfg := sdkruntime.BuildRunConfig(sdkruntime.Config{
-				Provider:         personaProvider,
-				Model:            personaModel,
-				WorkDir:          cfg.RepoDir,
-				MaxTurns:         1,
-				ToolAccess:       agent.ToolAccessLevelReadOnly,
-				TracingProcessor: tp,
-				Trace:            runTrace,
-				ParentSpanID:     runTrace.ID,
-				Features: &sdkruntime.Features{
-					Runtime: sdkruntime.RuntimeFeatures{
-						Retry:   true,
-						Tracing: tp != nil,
-					},
-				},
-			}, nil)
-			personaItems := []agent.RunItem{{
-				Type:    agent.RunItemMessage,
-				Message: &agent.MessageOutput{Text: prompt},
-			}}
-			res, err := runner.Run(personaCtx, personaAgent, personaItems, personaRunCfg)
-			if err != nil {
-				return "", err
-			}
-			return res.FinalText(), nil
-		})
-	}
 
 	var subAgentRegistry *agent.SubAgentScheduler
 	if supervisedRunName == "" && runtimeBundle.SessionState != nil {
@@ -2104,8 +2054,8 @@ func (r *chatRuntime) commitTurnState(ctx context.Context, t *userTurn, pt *prep
 	return nil
 }
 
-// readRunAfterTurn reads the AgentRun once after a pass for the mode,
-// break-glass, and finish checks. nil when unreadable: those checks then
+// readRunAfterTurn reads the AgentRun once after a pass for the mode
+// and finish checks. nil when unreadable: those checks then
 // wait for the next pass.
 func (r *chatRuntime) readRunAfterTurn(ctx context.Context) *platformv1alpha1.AgentRun {
 	run, err := readAgentRun(ctx, r.crd, r.cfg.TaskName, r.cfg.Namespace, 3)
@@ -2117,8 +2067,8 @@ func (r *chatRuntime) readRunAfterTurn(ctx context.Context) *platformv1alpha1.Ag
 }
 
 // decideNext decides, after a committed pass, whether the agent keeps going
-// autonomously or yields: user stop, input request, MCP break-glass
-// approval, finish, or a tripped circuit breaker.
+// autonomously or yields: user stop, input request, finish, or a tripped
+// circuit breaker.
 func (r *chatRuntime) decideNext(ctx context.Context, t *userTurn, out turnOutcome, post *platformv1alpha1.AgentRun) (loopAction, *runResult) {
 	sc := r.sc
 	result := out.result
@@ -2156,19 +2106,6 @@ func (r *chatRuntime) decideNext(ctx context.Context, t *userTurn, out turnOutco
 			return awaitUser, &runResult{Status: "failed", Error: fmt.Sprintf("writing user input request: %v", err)}
 		}
 		return awaitUser, nil
-	}
-
-	// MCP break-glass approval pause.
-	if post != nil && post.Status.Phase == platformv1alpha1.AgentRunPhaseWaitingApproval {
-		if pendingRequest, err := mcppolicy.PendingRequest(post); err != nil {
-			log.Printf("WARN: failed to decode MCP break-glass request annotation: %v", err)
-		} else if pendingRequest != nil {
-			if r.cfg.DelegatedChild {
-				return awaitUser, &runResult{Status: "failed", Error: "delegated run requested MCP approval: " + pendingRequest.Server}
-			}
-			log.Printf("MCP break-glass request for %q paused the agent loop", pendingRequest.Server)
-			return awaitUser, nil
-		}
 	}
 
 	// The finish tool marks CompletionRequested=true when the agent signals

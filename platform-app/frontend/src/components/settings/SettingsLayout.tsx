@@ -11,7 +11,6 @@ import {
   Search,
   Server,
   SlidersHorizontal,
-  Sparkles,
   UserRound,
 } from "lucide-react";
 
@@ -92,12 +91,6 @@ export default function SettingsLayout() {
           label: "Usage",
           icon: <ChartNoAxesCombined />,
           keywords: "openai chatgpt oauth tokens quota limits cost spend monthly",
-        },
-        {
-          to: "/settings/soul",
-          label: "SOUL",
-          icon: <Sparkles />,
-          keywords: "persona agent personality perspective teammate",
         },
         {
           to: "/settings/role-models",

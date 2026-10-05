@@ -14,7 +14,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useScrollEdgeFade } from "@/hooks/useScrollEdgeFade";
 import { MCPServersSection } from "@/components/MCPServersSection";
 import { SkillsSection } from "@/components/SkillsSection";
-import { RuntimeProfileSchema, MCPPolicySchema, MCPAllowedServerSchema, MCPBreakGlassSchema, GuardrailPolicySchema, GuardrailRuleSchema, ModeConstraintsSchema, ModeTemplateSchema, RoleInstructionSchema } from "@/rpc/platform/service_pb";
+import { RuntimeProfileSchema, GuardrailPolicySchema, GuardrailRuleSchema, ModeConstraintsSchema, ModeTemplateSchema, RoleInstructionSchema } from "@/rpc/platform/service_pb";
 import { canCreateResource, canDeleteResource, canMutateResource, formatProviderModels, parseProviderModels, resourceTabs, type ResourceKind } from "@/components/resources/resource-helpers";
 import { parseStringList, parseStringMap, runtimeProfileFormFromRow } from "@/components/resources/runtime-profile-form";
 
@@ -24,7 +24,7 @@ type GuardrailRuleDraft = { name: string; type: string; toolPattern: string; reg
 const emptyGuardrailRule = (): GuardrailRuleDraft => ({ name: "", type: "tool-input", toolPattern: "*", regex: "", action: "block", message: "" });
 const descriptions: Record<ResourceKind, string> = {
   skills: "Reusable instructions and packages agents can load.", "mcp-servers": "Tool servers agents can connect to.",
-  "runtime-profiles": "Runtime permissions, network access, and workspace defaults.", "mcp-policies": "Control which MCP servers and tools runs may use.",
+  "runtime-profiles": "Runtime permissions, network access, and workspace defaults.",
   guardrails: "Inspect tool input and output with enforceable rules.", modes: "Behavior and execution templates available to agents.",
   roles: "Reusable role instructions and tool-access boundaries.",
 };
@@ -37,7 +37,6 @@ const initial: Record<string, Form> = {
     resourceRequests: "", resourceLimits: "", maxConcurrentRuns: "0",
     perNamespaceMaxConcurrentRuns: "0", staleRunTimeout: "",
   },
-  "mcp-policies": { name: "", defaultAction: "Deny", allowedServers: "", manageBreakGlass: false, breakGlassEnabled: false, requireAuditReason: false, adminMediated: false },
   guardrails: { name: "" },
   modes: { name: "", version: "v1", displayName: "", description: "", category: "direct", executionStrategy: "serial", instructions: "", autonomous: false, permissionMode: "workspace-write", allowedMutatingTools: "", defaultMcpServerRefs: "", defaultSkillRefs: "", manageConstraints: false, maxTurns: "", subagentMaxTurns: "", maxRuntimeMinutes: "", maxRetries: "", maxConcurrentSubagents: "" },
   roles: { name: "", description: "", instructions: "", toolAccess: "full", model: "", providerModels: "", reasoningLevel: "" },
@@ -46,18 +45,6 @@ const csv = (v: string) => v.split(",").map((x) => x.trim()).filter(Boolean);
 
 function formFromRow(kind: ResourceKind, row: Row): Form {
   if (kind === "runtime-profiles") return runtimeProfileFormFromRow(row);
-  if (kind === "mcp-policies") {
-    const breakGlass = row.breakGlass as { enabled?: boolean; requireAuditReason?: boolean; adminMediated?: boolean } | undefined;
-    return {
-      name: row.name,
-      defaultAction: String(row.defaultAction),
-      allowedServers: (row.allowedServers as Array<{name:string; tools:string[]}>).map((s) => `${s.name}${s.tools.length ? `:${s.tools.join("|")}` : ""}`).join(", "),
-      manageBreakGlass: Boolean(breakGlass),
-      breakGlassEnabled: Boolean(breakGlass?.enabled),
-      requireAuditReason: Boolean(breakGlass?.requireAuditReason),
-      adminMediated: Boolean(breakGlass?.adminMediated),
-    };
-  }
   if (kind === "guardrails") return { name: row.name };
   if (kind === "modes") {
     const constraints = row.constraints as { maxTurns?: number; subagentMaxTurns?: number; maxRuntimeMinutes?: number; maxRetries?: number; maxConcurrentSubagents?: number } | undefined;
@@ -69,8 +56,7 @@ function formFromRow(kind: ResourceKind, row: Row): Form {
 export function ResourcePage() {
   const rawKind = useParams().kind;
   const { user } = useAuth();
-  // Seven resource tabs need ~640px and a phone gives ~358px, so the trailing
-  // tabs scrolled out of view behind a hidden scrollbar.
+  // Resource tabs overflow on phones, so fade the edges to reveal more tabs.
   const [tabsRef, tabsFadeStyle] = useScrollEdgeFade<HTMLElement>();
   if (!resourceTabs.some(([id]) => id === rawKind)) {
     return <Navigate to="/resources/skills" replace />;
@@ -90,7 +76,6 @@ function ManagedResources({ kind, creatable, mutable, deletable }: { kind: Exclu
   const [editing,setEditing] = useState<Row|null|undefined>(), [deleting,setDeleting] = useState<Row|null>(null);
   const load = useCallback(async () => { setLoading(true); setError(null); try {
     if (kind === "runtime-profiles") setRows((await client.listRuntimeProfiles({})).profiles);
-    else if (kind === "mcp-policies") setRows((await client.listMCPPolicies({})).policies);
     else if (kind === "guardrails") setRows((await client.listGuardrailPolicies({})).policies);
     else if (kind === "modes") setRows((await client.listModeTemplates({})).templates);
     else setRows((await client.listRoleInstructions({})).instructions);
@@ -98,7 +83,6 @@ function ManagedResources({ kind, creatable, mutable, deletable }: { kind: Exclu
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
   async function remove(row: Row) {
     if (kind === "runtime-profiles") await client.deleteRuntimeProfile({name:row.name});
-    else if (kind === "mcp-policies") await client.deleteMCPPolicy({name:row.name});
     else if (kind === "guardrails") await client.deleteGuardrailPolicy({name:row.name});
     else if (kind === "modes") await client.deleteModeTemplate({name:row.name});
     else await client.deleteRoleInstruction({name:row.name});
@@ -117,7 +101,6 @@ function ManagedResources({ kind, creatable, mutable, deletable }: { kind: Exclu
 }
 function summary(kind: ResourceKind,row: Row) {
   if (kind === "runtime-profiles") return `${row.permissionMode} · Git remote writes ${row.gitRemoteWrites || "enabled"} · ${row.egressMode} egress${row.enablePrivateProcfs ? " · private procfs" : ""}${row.defaultTimeout ? ` · ${row.defaultTimeout}`:""}`;
-  if (kind === "mcp-policies") return `${row.defaultAction} by default · ${(row.allowedServers as unknown[])?.length || 0} allowed servers`;
   if (kind === "guardrails") return `${(row.rules as unknown[])?.length || 0} rules`;
   if (kind === "modes") return `${row.category} · ${row.executionStrategy} · ${row.description || "No description"}`;
   const mappedModelCount = Object.keys((row.modelsByProvider as Record<string, string> | undefined) ?? {}).length;
@@ -157,11 +140,6 @@ function ResourceDialog({kind,row,onClose,onSaved}:{kind:Exclude<ResourceKind,"s
           staleRunTimeout:String(form.staleRunTimeout), replaceSpec:true,
         });
         await (row ? client.updateRuntimeProfile({profile:value}) : client.createRuntimeProfile({profile:value}));
-      } else if (kind === "mcp-policies") {
-        const allowedServers = csv(String(form.allowedServers)).map((entry) => { const [name,tools=""] = entry.split(":"); return create(MCPAllowedServerSchema, { name, tools:tools.split("|").filter(Boolean) }); });
-        const breakGlass = form.manageBreakGlass ? create(MCPBreakGlassSchema, { enabled:Boolean(form.breakGlassEnabled), requireAuditReason:Boolean(form.requireAuditReason), adminMediated:Boolean(form.adminMediated) }) : undefined;
-        const value = create(MCPPolicySchema, { name:String(form.name), defaultAction:String(form.defaultAction), allowedServers, breakGlass, replaceSpec:true });
-        await (row ? client.updateMCPPolicy({policy:value}) : client.createMCPPolicy({policy:value}));
       } else if (kind === "guardrails") {
         const rules = guardrailRules
           .filter((rule) => rule.name.trim() || rule.regex.trim())
@@ -195,7 +173,7 @@ function ResourceDialog({kind,row,onClose,onSaved}:{kind:Exclude<ResourceKind,"s
           <DialogDescription>{descriptions[kind]}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
-          {fields.map((key) => <Field key={key} name={key} value={form[key]} set={set} disabled={Boolean(row && key === "name")} wide={["instructions","description","commandPath","commandPathPrepend","commandPathAppend","extraReadOnlyPaths","extraWritablePaths","commandEnv","resourceRequests","resourceLimits","allowedServers","allowedMutatingTools","defaultMcpServerRefs","defaultSkillRefs","providerModels"].includes(key)} />)}
+          {fields.map((key) => <Field key={key} name={key} value={form[key]} set={set} disabled={Boolean(row && key === "name")} wide={["instructions","description","commandPath","commandPathPrepend","commandPathAppend","extraReadOnlyPaths","extraWritablePaths","commandEnv","resourceRequests","resourceLimits","allowedMutatingTools","defaultMcpServerRefs","defaultSkillRefs","providerModels"].includes(key)} />)}
         </div>
         {kind === "guardrails" && <GuardrailRulesEditor rules={guardrailRules} onChange={setGuardrailRules} />}
         {error && <p className="text-sm text-destructive">{error}</p>}
@@ -233,14 +211,14 @@ function GuardrailRulesEditor({ rules, onChange }: { rules: GuardrailRuleDraft[]
 
 function Field({name,label,value,set,disabled,wide}:{name:string;label?:string;value:string|boolean;set:(k:string,v:string|boolean)=>void;disabled?:boolean;wide?:boolean}) {
   const displayLabel = label ?? name.replace(/([A-Z])/g," $1").replace(/^./, (character) => character.toUpperCase());
-  if (typeof value === "boolean") return <div className={`space-y-1.5 ${wide ? "sm:col-span-2" : ""}`}><div className="flex items-center justify-between gap-3"><Label htmlFor={name}>{displayLabel}</Label><Switch id={name} checked={value} onCheckedChange={(checked) => set(name,checked)} /></div>{name === "enablePrivateProcfs" && <p className="text-xs text-muted-foreground">Required by Chromium and toolchains that inspect /proc. Your cluster must support pod user namespaces and unmasked proc mounts.</p>}{name === "manageBreakGlass" && <p className="text-xs text-muted-foreground">Configure exceptional access requests for tools blocked by this policy.</p>}</div>;
+  if (typeof value === "boolean") return <div className={`space-y-1.5 ${wide ? "sm:col-span-2" : ""}`}><div className="flex items-center justify-between gap-3"><Label htmlFor={name}>{displayLabel}</Label><Switch id={name} checked={value} onCheckedChange={(checked) => set(name,checked)} /></div>{name === "enablePrivateProcfs" && <p className="text-xs text-muted-foreground">Required by Chromium and toolchains that inspect /proc. Your cluster must support pod user namespaces and unmasked proc mounts.</p>}</div>;
   const multiline = ["instructions","description","commandPath","commandPathPrepend","commandPathAppend","extraReadOnlyPaths","extraWritablePaths","commandEnv","resourceRequests","resourceLimits"].includes(name) || name.endsWith("-message");
   const numeric = ["maxTurns", "subagentMaxTurns", "maxRuntimeMinutes", "maxRetries", "maxConcurrentSubagents", "maxConcurrentRuns", "perNamespaceMaxConcurrentRuns"].includes(name);
-  const selectOptions: Record<string,string[]> = { permissionMode:["read-only","workspace-write","danger-full-access"], gitRemoteWrites:["enabled","disabled"], egressMode:["unrestricted","restricted","disabled"], defaultAction:["Allow","Deny"] };
+  const selectOptions: Record<string,string[]> = { permissionMode:["read-only","workspace-write","danger-full-access"], gitRemoteWrites:["enabled","disabled"], egressMode:["unrestricted","restricted","disabled"] };
   const control = selectOptions[name]
     ? <select id={name} className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={value} disabled={disabled} onChange={(event) => set(name,event.target.value)}>{selectOptions[name].map((option) => <option key={option} value={option}>{option}</option>)}</select>
     : multiline
       ? <Textarea id={name} value={value} onChange={(event) => set(name,event.target.value)} rows={name === "instructions" ? 5 : 3} />
       : <Input id={name} type={numeric ? "number" : "text"} min={numeric ? 0 : undefined} value={value} disabled={disabled} onChange={(event) => set(name,event.target.value)} />;
-  return <div className={`space-y-1.5 ${wide ? "sm:col-span-2" : ""}`}><Label htmlFor={name}>{displayLabel}</Label>{control}{["commandPath","commandPathPrepend","commandPathAppend","extraReadOnlyPaths"].includes(name) && <p className="text-xs text-muted-foreground">One absolute path per line.</p>}{name === "extraWritablePaths" && <p className="text-xs text-muted-foreground">One absolute scratch or cache path per line. Workspace, home, and system paths are rejected.</p>}{name === "gitRemoteWrites" && <p className="text-xs text-muted-foreground">Disabled removes push and pull-request creation while retaining workspace edits, local commits, fetches, and pulls.</p>}{["commandEnv","resourceRequests","resourceLimits"].includes(name) && <p className="text-xs text-muted-foreground">JSON object with string values.</p>}{name === "allowedServers" && <p className="text-xs text-muted-foreground">Comma-separated server or server:tool|tool entries.</p>}{name === "breakGlassEnabled" && <p className="text-xs text-muted-foreground">Allows blocked capabilities to request explicit approval; it does not grant them automatically.</p>}{name === "model" && <p className="text-xs text-muted-foreground">Legacy compatibility value. Runtime role routing uses provider models only.</p>}{name === "providerModels" && <p className="text-xs text-muted-foreground">Comma-separated provider=model entries. Providers without an entry inherit the parent model.</p>}{name === "reasoningLevel" && <p className="text-xs text-muted-foreground">Optional: none, low, medium, high, xhigh, or max. Blank inherits the main agent.</p>}</div>;
+  return <div className={`space-y-1.5 ${wide ? "sm:col-span-2" : ""}`}><Label htmlFor={name}>{displayLabel}</Label>{control}{["commandPath","commandPathPrepend","commandPathAppend","extraReadOnlyPaths"].includes(name) && <p className="text-xs text-muted-foreground">One absolute path per line.</p>}{name === "extraWritablePaths" && <p className="text-xs text-muted-foreground">One absolute scratch or cache path per line. Workspace, home, and system paths are rejected.</p>}{name === "gitRemoteWrites" && <p className="text-xs text-muted-foreground">Disabled removes push and pull-request creation while retaining workspace edits, local commits, fetches, and pulls.</p>}{["commandEnv","resourceRequests","resourceLimits"].includes(name) && <p className="text-xs text-muted-foreground">JSON object with string values.</p>}{name === "model" && <p className="text-xs text-muted-foreground">Legacy compatibility value. Runtime role routing uses provider models only.</p>}{name === "providerModels" && <p className="text-xs text-muted-foreground">Comma-separated provider=model entries. Providers without an entry inherit the parent model.</p>}{name === "reasoningLevel" && <p className="text-xs text-muted-foreground">Optional: none, low, medium, high, xhigh, or max. Blank inherits the main agent.</p>}</div>;
 }

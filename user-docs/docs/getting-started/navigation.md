@@ -17,9 +17,9 @@ The sidebar organizes current work, workspace configuration, and personal settin
 - **Observability:** Operational views available in the workspace.
 - **Projects:** A project tree and a link to all projects.
 - **Shared:** Projects and runs that other people shared with you.
-- **Resources:** Skills, MCP servers, runtime profiles, MCP policies, guardrails, modes, and roles.
+- **Resources:** Skills, MCP servers, runtime profiles, guardrails, modes, and roles.
 - **Users:** An **Admin** section visible only to administrators. It opens user management.
-- **Settings:** Personal appearance, credentials, SOUL (your personal agent persona), role-model preferences, Git identity, and desktop-only connection or update settings.
+- **Settings:** Personal appearance, credentials, role-model preferences, Git identity, and desktop-only connection or update settings.
 
 Integrations such as GitHub, Linear, and Slack are configured per project under **Entry points** rather than from the sidebar. See [Projects](../projects/projects.md).
 

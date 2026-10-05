@@ -12,7 +12,6 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
-	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	"github.com/gratefulagents/gratefulagents/internal/mode"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/projectstate"
@@ -261,11 +260,6 @@ func (r *AgentRunReconciler) ensureInitialized(ctx context.Context, run *platfor
 		return false, fmt.Errorf("resolving RuntimeProfile: %w", err)
 	}
 
-	mcpPolicy, err := resolveMCPPolicyForRun(ctx, r.Client, run)
-	if err != nil {
-		return false, fmt.Errorf("resolving MCPPolicy: %w", err)
-	}
-
 	if needsSpecDefaults(run, snapshot, runtimeProfile) {
 		if err := retryAgentRunPatch(ctx, r.Client, client.ObjectKeyFromObject(run), func(fresh *platformv1alpha1.AgentRun) {
 			applySpecDefaults(fresh, snapshot, runtimeProfile)
@@ -285,7 +279,7 @@ func (r *AgentRunReconciler) ensureInitialized(ctx context.Context, run *platfor
 			fresh.Status.ModeRevision = 1
 		}
 
-		applyStatusPolicyDefaults(fresh, runtimeProfile, mcpPolicy)
+		applyStatusPolicyDefaults(fresh, runtimeProfile)
 
 		if isDelegatedChildRun(fresh) {
 			fresh.Status.Phase = platformv1alpha1.AgentRunPhasePending
@@ -825,21 +819,6 @@ func resolveRuntimeProfileForRun(ctx context.Context, c client.Client, run *plat
 	return profile, nil
 }
 
-func resolveMCPPolicyForRun(ctx context.Context, c client.Client, run *platformv1alpha1.AgentRun) (*platformv1alpha1.MCPPolicy, error) {
-	if run == nil || run.Spec.MCPPolicyRef == nil || strings.TrimSpace(run.Spec.MCPPolicyRef.Name) == "" {
-		return nil, nil
-	}
-	policy := &platformv1alpha1.MCPPolicy{}
-	key := client.ObjectKey{Namespace: run.Namespace, Name: run.Spec.MCPPolicyRef.Name}
-	if err := c.Get(ctx, key, policy); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return policy, nil
-}
-
 func isStandingOverseerRun(run *platformv1alpha1.AgentRun) bool {
 	_, supervisedRunName, _ := supervisedIdentityForRun(run)
 	return supervisedRunName != ""
@@ -933,7 +912,7 @@ func resolvedGitRemoteWrites(runtimeProfile *platformv1alpha1.RuntimeProfile) st
 	return string(platformv1alpha1.NormalizeGitRemoteWrites(runtimeProfile.Spec.Security.GitRemoteWrites))
 }
 
-func applyStatusPolicyDefaults(run *platformv1alpha1.AgentRun, runtimeProfile *platformv1alpha1.RuntimeProfile, mcpPolicy *platformv1alpha1.MCPPolicy) {
+func applyStatusPolicyDefaults(run *platformv1alpha1.AgentRun, runtimeProfile *platformv1alpha1.RuntimeProfile) {
 	if run == nil {
 		return
 	}
@@ -958,12 +937,6 @@ func applyStatusPolicyDefaults(run *platformv1alpha1.AgentRun, runtimeProfile *p
 			run.Status.Policy = &platformv1alpha1.AgentRunResolvedPolicy{}
 		}
 		run.Status.Policy.ResolvedGitRemoteWrites = resolved
-	}
-	if mcpPolicy != nil {
-		if run.Status.Policy == nil {
-			run.Status.Policy = &platformv1alpha1.AgentRunResolvedPolicy{}
-		}
-		run.Status.Policy.ResolvedMCPServers = append(run.Status.Policy.ResolvedMCPServers[:0], mcppolicy.ExplicitAllowedServers(mcpPolicy)...)
 	}
 }
 

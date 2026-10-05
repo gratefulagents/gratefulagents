@@ -159,17 +159,6 @@ spec:
                       additionally expose the admin-gated spec.kubernetesAdmin field for
                       dashboard-created runs.
                     type: boolean
-                  mcpPolicyRef:
-                    description: |-
-                      mcpPolicyRef references an MCPPolicy in the same namespace.
-                      The policy controls which MCP servers are allowed or denied.
-                      When omitted, the agent defaults to deny-all for MCP tools (zero trust).
-                    properties:
-                      name:
-                        type: string
-                    required:
-                    - name
-                    type: object
                   mcpServerRefs:
                     description: |-
                       mcpServerRefs lists MCPServer resources in the same namespace to inject
@@ -262,7 +251,6 @@ spec:
                       - max
                     - enum:
                       - none
-                      - minimal
                       - low
                       - medium
                       - high

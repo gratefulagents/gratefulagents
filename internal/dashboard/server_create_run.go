@@ -334,11 +334,6 @@ func (s *Server) createAgentRunFromRequest(ctx context.Context, req *platform.Cr
 		return nil, err
 	}
 	applyRuntimeProfileDefaultsToAgentRun(run, profile, profileRef)
-	mcpPolicy, mcpPolicyRef, err := s.resolveMCPPolicy(ctx, namespace, defaults.MCPPolicyRef)
-	if err != nil {
-		return nil, err
-	}
-	applyMCPPolicyDefaultsToAgentRun(run, mcpPolicy, mcpPolicyRef)
 	// Attach the source's MCP servers and skills, mirroring the trigger run
 	// builder's applyPolicyRefs.
 	if len(defaults.MCPServerRefs) > 0 {

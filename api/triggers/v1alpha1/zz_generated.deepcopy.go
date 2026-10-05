@@ -52,11 +52,6 @@ func (in *AgentRunDefaults) DeepCopyInto(out *AgentRunDefaults) {
 		*out = new(platformv1alpha1.NamedRef)
 		**out = **in
 	}
-	if in.MCPPolicyRef != nil {
-		in, out := &in.MCPPolicyRef, &out.MCPPolicyRef
-		*out = new(platformv1alpha1.NamedRef)
-		**out = **in
-	}
 	if in.MCPServerRefs != nil {
 		in, out := &in.MCPServerRefs, &out.MCPServerRefs
 		*out = make([]platformv1alpha1.NamedRef, len(*in))

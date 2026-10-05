@@ -125,9 +125,6 @@ func k8sAgentRunToProto(run *platformv1alpha1.AgentRun) *platform.AgentRun {
 	if run.Spec.RuntimeProfileRef != nil {
 		pb.RuntimeProfileRef = run.Spec.RuntimeProfileRef.Name
 	}
-	if run.Spec.MCPPolicyRef != nil {
-		pb.McpPolicyRef = run.Spec.MCPPolicyRef.Name
-	}
 	for _, ref := range run.Spec.MCPServerRefs {
 		pb.McpServerRefs = append(pb.McpServerRefs, ref.Name)
 	}
@@ -200,7 +197,6 @@ func k8sAgentRunToProto(run *platformv1alpha1.AgentRun) *platform.AgentRun {
 		pb.ResolvedPermissionMode = run.Status.Policy.ResolvedPermissionMode
 		pb.ResolvedAgentKinds = append(pb.ResolvedAgentKinds, run.Status.Policy.ResolvedAgentKinds...)
 		pb.ResolvedSkills = append(pb.ResolvedSkills, run.Status.Policy.ResolvedSkills...)
-		pb.ResolvedMcpServers = append(pb.ResolvedMcpServers, run.Status.Policy.ResolvedMCPServers...)
 	}
 	if run.Status.Metrics != nil {
 		pb.CostUsd = run.Status.Metrics.CostUsd

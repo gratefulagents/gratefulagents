@@ -119,9 +119,8 @@ func WithAllowedMutatingTools(names ...string) RegistryOption {
 // dropped too (deny wins over allow). The filter is applied on top of the
 // existing permission/mode filtering and can only remove tools, never
 // re-enable a tool that mode or profile policy already excluded. Control-flow
-// tools (see isRegistryControlFlowTool: finish, save_plan, get_plan,
-// RequestMCPBreakGlass) are exempt because the run cannot complete without
-// them. Empty and unknown names are ignored.
+// tools (see isRegistryControlFlowTool: finish, save_plan, get_plan) are exempt
+// because the run cannot complete without them. Empty and unknown names are ignored.
 func WithToolNameFilter(allowed, denied []string) RegistryOption {
 	return func(r *Registry) {
 		for _, name := range allowed {
@@ -302,7 +301,7 @@ func (r *Registry) Remove(name string) {
 // (not data-mutating) that the agent needs to function at all.
 func isRegistryControlFlowTool(name string) bool {
 	switch name {
-	case "finish", "save_plan", "get_plan", "RequestMCPBreakGlass":
+	case "finish", "save_plan", "get_plan":
 		return true
 	}
 	return false

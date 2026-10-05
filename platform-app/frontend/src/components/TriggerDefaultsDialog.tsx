@@ -43,22 +43,20 @@ function hasExplicitProviderCredentials(defaults: AgentRunDefaults): boolean {
 /**
  * The slice of a trigger read model (Cron, GitHubRepository, LinearProject)
  * that prefills the run-defaults editor: the canonical defaults message plus
- * the runtime/MCP policy fields the server resolves from the referenced
- * RuntimeProfile/MCPPolicy.
+ * the runtime policy fields the server resolves from the referenced
+ * RuntimeProfile.
  */
 export interface TriggerDefaultsSource {
   namespace?: string;
   defaults?: AgentRunDefaults;
   permissionMode: string;
   egressMode: string;
-  mcpPolicyDefaultAction: string;
-  mcpPolicyAllowedServers: string[];
 }
 
 /**
  * resolvedTriggerPolicies builds the TriggerPolicies editor state for a
  * trigger read model: the configure_* toggles reflect whether the defaults
- * reference a RuntimeProfile/MCPPolicy, and the mode fields come from the
+ * reference a RuntimeProfile, and the mode fields come from the
  * server-resolved policy values (falling back to the platform defaults).
  * Fresh create flows default to provisioning a managed RuntimeProfile.
  */
@@ -69,9 +67,6 @@ export function resolvedTriggerPolicies(source?: TriggerDefaultsSource): Trigger
       : true,
     permissionMode: source?.permissionMode || "workspace-write",
     egressMode: source?.egressMode || "unrestricted",
-    configureMcpPolicy: Boolean(source?.defaults?.mcpPolicyRef),
-    mcpPolicyDefaultAction: source?.mcpPolicyDefaultAction || "Deny",
-    mcpPolicyAllowedServers: source?.mcpPolicyAllowedServers ?? [],
   });
 }
 
@@ -109,7 +104,6 @@ export function normalizeTriggerDefaults(
     githubTokenSecret: saved ? "" : d.githubTokenSecret.trim(),
     providerKeys,
     runtimeProfileRef: d.runtimeProfileRef.trim(),
-    mcpPolicyRef: d.mcpPolicyRef.trim(),
     mcpServerRefs: d.mcpServerRefs.map((ref) => ref.trim()).filter(Boolean),
     skillRefs: d.skillRefs.map((ref) => ref.trim()).filter(Boolean),
     workflowMode: d.workflowMode,
@@ -124,7 +118,7 @@ function cloneDefaults(source: TriggerDefaultsSource): AgentRunDefaults {
 
 /**
  * Shared edit dialog for an existing trigger's run defaults and managed
- * runtime/MCP policies. Prefills from the trigger read model and hands the
+ * runtime policies. Prefills from the trigger read model and hands the
  * normalized defaults + policies to `onSubmit`, which performs the update
  * RPC (updateGitHubRepository, updateLinearProject, …). The update RPCs
  * replace the trigger's defaults wholesale, so every field is prefilled from
@@ -228,10 +222,6 @@ export function TriggerDefaultsDialog({
                 runtimeProfileRef={defaults.runtimeProfileRef}
                 onRuntimeProfileRefChange={(ref) =>
                   setDefaults((prev) => ({ ...prev, runtimeProfileRef: ref }))
-                }
-                mcpPolicyRef={defaults.mcpPolicyRef}
-                onMcpPolicyRefChange={(ref) =>
-                  setDefaults((prev) => ({ ...prev, mcpPolicyRef: ref }))
                 }
               />
             </OptionRows>

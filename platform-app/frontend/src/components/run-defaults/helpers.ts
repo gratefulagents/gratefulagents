@@ -110,7 +110,6 @@ export function buildCronRequest(spec: CronSpec): CronRequestInit {
     githubTokenSecret: saved ? "" : d.githubTokenSecret.trim(),
     providerKeys,
     runtimeProfileRef: d.runtimeProfileRef.trim(),
-    mcpPolicyRef: d.mcpPolicyRef.trim(),
     mcpServerRefs: d.mcpServerRefs.map((ref) => ref.trim()).filter(Boolean),
     skillRefs: d.skillRefs.map((ref) => ref.trim()).filter(Boolean),
     workflowMode: "auto",

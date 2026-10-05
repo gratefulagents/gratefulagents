@@ -67,7 +67,6 @@ export const sections: SidebarSection[] = [
       'settings/connection',
       'settings/desktop-updates',
       'settings/credentials',
-      'settings/soul',
       'settings/role-models',
       'settings/git-identity',
     ],

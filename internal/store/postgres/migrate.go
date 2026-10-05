@@ -47,9 +47,6 @@ var migration014Up string
 //go:embed migrations/015_project_state.up.sql
 var migration015Up string
 
-//go:embed migrations/016_user_souls.up.sql
-var migration016Up string
-
 //go:embed migrations/017_drop_user_chat_settings.up.sql
 var migration017Up string
 
@@ -266,7 +263,6 @@ func orderedMigrations() []schemaMigration {
 		{13, migration013Up, false},
 		{14, migration014Up, false},
 		{15, migration015Up, true}, // pgvector may not be installed; project state is gated by ENABLE_MEMORY
-		{16, migration016Up, false},
 		{17, migration017Up, false},
 		{18, migration018Up, false},
 		{19, migration019Up, false},

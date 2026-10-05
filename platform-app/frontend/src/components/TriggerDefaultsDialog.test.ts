@@ -7,8 +7,6 @@ import { AgentRunDefaultsSchema } from "@/rpc/platform/service_pb";
 const source = {
   permissionMode: "workspace-write",
   egressMode: "unrestricted",
-  mcpPolicyDefaultAction: "Deny",
-  mcpPolicyAllowedServers: [],
 };
 
 describe("resolvedTriggerPolicies", () => {

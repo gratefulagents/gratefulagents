@@ -63,10 +63,6 @@ export type ProjectFormState = {
   egressMode: string;
 
   mcpServerRefs: string[];
-  configureMcpPolicy: boolean;
-  mcpPolicyRef: string;
-  mcpPolicyDefaultAction: string;
-  mcpPolicyAllowedServers: string;
 
   kubernetesAdmin: boolean;
   dockerInDocker: boolean;
@@ -108,10 +104,6 @@ export function emptyProjectForm(): ProjectFormState {
     permissionMode: DEFAULT_PERMISSION_MODE,
     egressMode: DEFAULT_EGRESS_MODE,
     mcpServerRefs: [],
-    configureMcpPolicy: false,
-    mcpPolicyRef: "",
-    mcpPolicyDefaultAction: "Deny",
-    mcpPolicyAllowedServers: "",
     kubernetesAdmin: false,
     dockerInDocker: false,
   };
@@ -150,10 +142,6 @@ export function projectFormFromProject(project: Project): ProjectFormState {
     permissionMode: project.permissionMode || DEFAULT_PERMISSION_MODE,
     egressMode: project.egressMode || DEFAULT_EGRESS_MODE,
     mcpServerRefs: [...(project.mcpServerRefs ?? [])],
-    configureMcpPolicy: false,
-    mcpPolicyRef: project.mcpPolicyRef || "",
-    mcpPolicyDefaultAction: project.mcpPolicyDefaultAction || "Deny",
-    mcpPolicyAllowedServers: (project.mcpPolicyAllowedServers ?? []).join(", "),
     kubernetesAdmin: project.kubernetesAdmin,
     dockerInDocker: project.dockerInDocker,
   };
@@ -302,10 +290,6 @@ export function createRequestFromForm(form: ProjectFormState): CreateProjectRequ
     runtimeProfileRef: form.runtimeProfileRef.trim(),
     permissionMode: form.permissionMode,
     egressMode: form.egressMode,
-    configureMcpPolicy: form.configureMcpPolicy,
-    mcpPolicyRef: form.mcpPolicyRef.trim(),
-    mcpPolicyDefaultAction: form.mcpPolicyDefaultAction,
-    mcpPolicyAllowedServers: splitCommaList(form.mcpPolicyAllowedServers),
     mcpServerRefs: form.mcpServerRefs,
     image: form.image.trim(),
   });
@@ -364,10 +348,6 @@ export function updateRequestFromForm(
     runtimeProfileRef: form.runtimeProfileRef.trim(),
     permissionMode: form.permissionMode,
     egressMode: form.egressMode,
-    configureMcpPolicy: form.configureMcpPolicy,
-    mcpPolicyRef: form.mcpPolicyRef.trim(),
-    mcpPolicyDefaultAction: form.mcpPolicyDefaultAction,
-    mcpPolicyAllowedServers: splitCommaList(form.mcpPolicyAllowedServers),
     mcpServerRefs: form.mcpServerRefs,
     skillRefs: [],
     ...(options.isAdmin
@@ -424,10 +404,6 @@ const SECTION_FIELDS: Record<ProjectFormSection, (keyof ProjectFormState)[]> = {
   ],
   tools: [
     "mcpServerRefs",
-    "configureMcpPolicy",
-    "mcpPolicyRef",
-    "mcpPolicyDefaultAction",
-    "mcpPolicyAllowedServers",
   ],
   privileged: ["kubernetesAdmin", "dockerInDocker"],
 };
@@ -500,13 +476,7 @@ export function agentSummary(form: ProjectFormState): string {
 
 export function toolsSummary(form: ProjectFormState): string {
   const count = form.mcpServerRefs.length;
-  const servers = count ? `${count} MCP server${count === 1 ? "" : "s"}` : "no MCP servers";
-  const policy = form.configureMcpPolicy
-    ? `${form.mcpPolicyDefaultAction.toLowerCase()}-by-default policy`
-    : form.mcpPolicyRef.trim()
-      ? `policy ${form.mcpPolicyRef.trim()}`
-      : null;
-  return [servers, policy].filter(Boolean).join(" · ");
+  return count ? `${count} MCP server${count === 1 ? "" : "s"}` : "no MCP servers";
 }
 
 export function privilegedSummary(form: ProjectFormState): string {

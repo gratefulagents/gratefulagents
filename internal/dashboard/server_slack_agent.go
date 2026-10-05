@@ -55,10 +55,6 @@ func slackRuntimeProfileName(agentName string) string {
 	return defaultManagedResourceName(agentName, "slack-runtime")
 }
 
-func slackMCPPolicyName(agentName string) string {
-	return defaultManagedResourceName(agentName, "slack-policy")
-}
-
 // slackGitHubSecretName is the per-agent GitHub token Secret. Its "token" key
 // matches both the controller's githubTokenEnv mount and the saved-credential
 // secret shape, so AgentRun.Spec.Secrets.GitHubTokenSecret can point at either.
@@ -164,10 +160,6 @@ func (s *Server) slackAgentStateFromCR(ctx context.Context, namespace string, ag
 		out.RuntimeProfileRef = ref.Name
 		out.PermissionMode, out.EgressMode = s.runtimeProfileModes(ctx, namespace, ref.Name)
 	}
-	if ref := agent.Spec.Defaults.MCPPolicyRef; ref != nil {
-		out.McpPolicyRef = ref.Name
-		out.McpPolicyDefaultAction, out.McpPolicyAllowedServers = s.mcpPolicyConfig(ctx, namespace, ref.Name)
-	}
 	for _, ref := range agent.Spec.Defaults.MCPServerRefs {
 		out.McpServerRefs = append(out.McpServerRefs, ref.Name)
 	}
@@ -190,24 +182,6 @@ func (s *Server) runtimeProfileModes(ctx context.Context, namespace, name string
 		return "", ""
 	}
 	return string(profile.Spec.Security.PermissionMode), string(profile.Spec.Security.EgressMode)
-}
-
-func (s *Server) mcpPolicyConfig(ctx context.Context, namespace, name string) (defaultAction string, allowedServers []string) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "", nil
-	}
-	policy := &platformv1alpha1.MCPPolicy{}
-	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, policy); err != nil {
-		return "", nil
-	}
-	defaultAction = string(policy.Spec.DefaultAction)
-	for _, server := range policy.Spec.AllowedServers {
-		if trimmed := strings.TrimSpace(server.Name); trimmed != "" {
-			allowedServers = append(allowedServers, trimmed)
-		}
-	}
-	return defaultAction, allowedServers
 }
 
 func slackConditionTrue(agent *triggersv1alpha1.SlackAgent, condType string) bool {
@@ -317,24 +291,12 @@ func (s *Server) UpdateSlackAgent(ctx context.Context, req *platform.UpdateSlack
 	if err != nil {
 		return nil, err
 	}
-	mcpPolicyRef, _, err := s.applyConfiguredMCPPolicy(
-		ctx,
-		namespace,
-		slackMCPPolicyName(name),
-		req.GetConfigureMcpPolicy(),
-		req.GetMcpPolicyRef(),
-		req.GetMcpPolicyDefaultAction(),
-		req.GetMcpPolicyAllowedServers(),
-	)
-	if err != nil {
-		return nil, err
-	}
 
 	if err := s.requireSlackGitHubCredentialSecret(ctx, namespace, name); err != nil {
 		return nil, err
 	}
 
-	if err := s.applySlackAgentCR(ctx, namespace, name, req, model, provider, authMode, secrets, runtimeProfileRef, mcpPolicyRef, workspaceRef); err != nil {
+	if err := s.applySlackAgentCR(ctx, namespace, name, req, model, provider, authMode, secrets, runtimeProfileRef, workspaceRef); err != nil {
 		return nil, err
 	}
 	if err := s.syncSlackAgentRuns(ctx, namespace, name, model, provider, authMode, secrets); err != nil {
@@ -563,7 +525,6 @@ func (s *Server) applySlackAgentCR(
 	authMode platformv1alpha1.AgentRunAuthMode,
 	secrets triggersv1alpha1.AgentRunSecrets,
 	runtimeProfileRef *platformv1alpha1.NamedRef,
-	mcpPolicyRef *platformv1alpha1.NamedRef,
 	workspaceRef *triggersv1alpha1.SlackWorkspaceRef,
 ) error {
 	agent := &triggersv1alpha1.SlackAgent{}
@@ -631,7 +592,6 @@ func (s *Server) applySlackAgentCR(
 		AdditionalRepos:   additionalRepos,
 		Secrets:           secrets,
 		RuntimeProfileRef: runtimeProfileRef,
-		MCPPolicyRef:      mcpPolicyRef,
 		MCPServerRefs:     namedRefsFromNames(req.GetMcpServerRefs()),
 		SkillRefs:         namedRefsFromNames(req.GetSkillRefs()),
 		Image:             image,

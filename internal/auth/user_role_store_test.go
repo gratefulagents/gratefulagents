@@ -8,7 +8,7 @@ import (
 )
 
 func TestUserProfileUpsertPreservesExplicitRole(t *testing.T) {
-	store, _ := setupSoulTestStore(t)
+	store, _ := setupAuthTestStore(t)
 	ctx := context.Background()
 
 	user, err := store.UpsertUser(ctx, &auth.User{Username: "promoted@example.com", Name: "Before", Role: auth.RoleMember})

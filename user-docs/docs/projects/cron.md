@@ -19,7 +19,7 @@ See [Projects](./projects.md) for the shared Entry-point lifecycle and [Run defa
 3. Write the **Prompt** (what each run should do), then pick **When**: a preset chip (**Every hour**, **Weekdays 9 am**, **Daily 9 am**, **Weekly Monday**) or **Custom** with a five-field cron expression. The preview line reads the schedule back in plain words with its time zone (`Weekdays at 09:00 · Europe/Berlin`).
 4. Adjust the suggested **Trigger name** if you like and select **Create trigger**.
 
-Cron does not use a connection. Its runs inherit the Project's repository, model, credentials, runtime, tools, policies, and custom instructions.
+Cron does not use a connection. Its runs inherit the Project's repository, model, credentials, runtime, tools, and custom instructions.
 
 | Field | Required | Behavior |
 | --- | --- | --- |

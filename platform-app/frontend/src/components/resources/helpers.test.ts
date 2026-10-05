@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildLinearCreateRequest, initialLinearCreateValues } from "@/components/linear-create";
-import { canCreateResource, canDeleteResource, canMutateResource, formatProviderModels, parseProviderModels } from "@/components/resources/resource-helpers";
+import { canCreateResource, canDeleteResource, canMutateResource, formatProviderModels, parseProviderModels, resourceTabs } from "@/components/resources/resource-helpers";
 
 describe("resource permissions", () => {
+  it("lists only supported reusable resources", () => {
+    expect(resourceTabs.map(([kind]) => kind)).toEqual([
+      "skills", "mcp-servers", "runtime-profiles", "guardrails", "modes", "roles",
+    ]);
+  });
+
   it("lets members create and edit modes while reserving deletion for admins", () => {
     expect(canCreateResource("modes", "member")).toBe(true);
     expect(canMutateResource("modes", "member")).toBe(true);
@@ -37,7 +43,11 @@ describe("Linear create payload", () => {
     expect(request.defaults?.provider).toBe("anthropic");
     expect(request.defaults?.authMode).toBe("api-key");
     expect(request.policies?.configureRuntimeProfile).toBe(true);
-    expect(request.policies?.configureMcpPolicy).toBe(false);
+    expect(request.policies?.permissionMode).toBe("workspace-write");
+    expect(request.policies?.egressMode).toBe("restricted");
+    expect(Object.keys(request.policies ?? {}).sort()).toEqual([
+      "$typeName", "configureRuntimeProfile", "egressMode", "permissionMode",
+    ]);
   });
 });
 

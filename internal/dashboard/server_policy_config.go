@@ -35,10 +35,6 @@ func projectRuntimeProfileName(projectName string) string {
 	return defaultManagedResourceName(projectName, "runtime")
 }
 
-func projectMCPPolicyName(projectName string) string {
-	return defaultManagedResourceName(projectName, "mcp-policy")
-}
-
 func namedRef(name string) *platformv1alpha1.NamedRef {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -67,33 +63,6 @@ func normalizeConfiguredEgressMode(mode string) platformv1alpha1.EgressMode {
 	default:
 		return platformv1alpha1.EgressMode("unrestricted")
 	}
-}
-
-func normalizeMCPDefaultAction(action string) platformv1alpha1.MCPDefaultAction {
-	if strings.EqualFold(strings.TrimSpace(action), string(platformv1alpha1.MCPDefaultActionAllow)) {
-		return platformv1alpha1.MCPDefaultActionAllow
-	}
-	return platformv1alpha1.MCPDefaultActionDeny
-}
-
-func normalizeMCPAllowedServers(servers []string) []platformv1alpha1.MCPAllowedServer {
-	out := make([]platformv1alpha1.MCPAllowedServer, 0, len(servers))
-	seen := map[string]struct{}{}
-	for _, raw := range servers {
-		for _, part := range strings.Split(raw, ",") {
-			name := strings.TrimSpace(part)
-			key := strings.ToLower(name)
-			if name == "" {
-				continue
-			}
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			out = append(out, platformv1alpha1.MCPAllowedServer{Name: name})
-		}
-	}
-	return out
 }
 
 func (s *Server) applyConfiguredRuntimeProfile(
@@ -164,59 +133,6 @@ func (s *Server) applyConfiguredRuntimeProfile(
 	profile.Spec.Security = security
 	if err := s.k8sClient.Update(ctx, profile); err != nil {
 		return nil, false, mapK8sError("update RuntimeProfile", err)
-	}
-	return &platformv1alpha1.NamedRef{Name: name}, false, nil
-}
-
-func (s *Server) applyConfiguredMCPPolicy(
-	ctx context.Context,
-	namespace string,
-	defaultName string,
-	configure bool,
-	refName string,
-	defaultAction string,
-	allowedServers []string,
-) (*platformv1alpha1.NamedRef, bool, error) {
-	name := strings.TrimSpace(refName)
-	if !configure {
-		return namedRef(name), false, nil
-	}
-	if name == "" {
-		name = defaultName
-	}
-	if name == "" {
-		return nil, false, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("mcp_policy_ref is required when configure_mcp_policy is true"))
-	}
-
-	spec := platformv1alpha1.MCPPolicySpec{
-		DefaultAction:  normalizeMCPDefaultAction(defaultAction),
-		AllowedServers: normalizeMCPAllowedServers(allowedServers),
-	}
-
-	policy := &platformv1alpha1.MCPPolicy{}
-	err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, policy)
-	if err != nil {
-		if !k8serrors.IsNotFound(err) {
-			return nil, false, mapK8sError("read MCPPolicy", err)
-		}
-		policy = &platformv1alpha1.MCPPolicy{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: platformv1alpha1.GroupVersion.String(),
-				Kind:       "MCPPolicy",
-			},
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-			Spec:       spec,
-		}
-		if err := s.k8sClient.Create(ctx, policy); err != nil {
-			return nil, false, mapK8sError("create MCPPolicy", err)
-		}
-		return &platformv1alpha1.NamedRef{Name: name}, true, nil
-	}
-
-	policy.Spec.DefaultAction = spec.DefaultAction
-	policy.Spec.AllowedServers = spec.AllowedServers
-	if err := s.k8sClient.Update(ctx, policy); err != nil {
-		return nil, false, mapK8sError("update MCPPolicy", err)
 	}
 	return &platformv1alpha1.NamedRef{Name: name}, false, nil
 }

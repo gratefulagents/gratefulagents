@@ -32,7 +32,6 @@ import type {
   SlackAgent,
   SlackDraft,
   SlackWorkspace,
-  Soul,
   SSHTunnel,
 } from "../../frontend/src/rpc/platform/service_pb";
 
@@ -102,7 +101,6 @@ export interface Scenario {
   openAIUsage: MyOpenAIUsage;
   copilotUsage: MyCopilotUsage;
   anthropicUsage: MyAnthropicUsage;
-  soul: Soul;
   gitIdentity: GitIdentity;
   /** Personal default provider/auth mode/model/reasoning (getMyModelDefaults). */
   modelDefaults: ModelDefaults;

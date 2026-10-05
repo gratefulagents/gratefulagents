@@ -4,12 +4,14 @@ import { describe, expect, it } from "vitest";
 import { ProjectSchema } from "@/rpc/platform/service_pb";
 
 import {
+  createRequestFromForm,
   deriveProjectName,
   emptyProjectForm,
   modelSummary,
   projectFormFromProject,
   resetSection,
   sectionChanged,
+  toolsSummary,
   updateRequestFromForm,
   validateProjectForm,
 } from "./projectForm";
@@ -96,5 +98,30 @@ describe("section change tracking", () => {
     expect(form.useSavedCredentials).toBe(true);
     expect(modelSummary(form, true)).toBe("OpenRouter · z-ai/glm-4.7 · saved credentials");
     expect(modelSummary(form, false)).toContain("no saved credential");
+  });
+});
+
+describe("tool and runtime defaults", () => {
+  it("preserves attached servers and sandbox settings in create and update payloads", () => {
+    const project = create(ProjectSchema, {
+      name: "payments",
+      mcpServerRefs: ["github", "fetch"],
+      runtimeProfileRef: "payments-runtime",
+      permissionMode: "read-only",
+      egressMode: "restricted",
+    });
+    const form = projectFormFromProject(project);
+    const requests = [
+      createRequestFromForm(form),
+      updateRequestFromForm(form, project, { isAdmin: false }),
+    ];
+    for (const request of requests) {
+      expect(request.mcpServerRefs).toEqual(["github", "fetch"]);
+      expect(request.runtimeProfileRef).toBe("payments-runtime");
+      expect(request.permissionMode).toBe("read-only");
+      expect(request.egressMode).toBe("restricted");
+    }
+    expect(toolsSummary(form)).toBe("2 MCP servers");
+    expect(toolsSummary(emptyProjectForm())).toBe("no MCP servers");
   });
 });

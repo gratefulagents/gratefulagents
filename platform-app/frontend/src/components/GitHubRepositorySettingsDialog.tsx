@@ -77,8 +77,6 @@ function reviewerPolicySource(repo: GitHubRepository) {
     defaults: repo.reviewerDefaults,
     permissionMode: repo.reviewerPermissionMode,
     egressMode: repo.reviewerEgressMode,
-    mcpPolicyDefaultAction: repo.reviewerMcpPolicyDefaultAction,
-    mcpPolicyAllowedServers: repo.reviewerMcpPolicyAllowedServers,
   };
 }
 
@@ -754,10 +752,6 @@ export function GitHubRepositorySettingsDialog({
                   onRuntimeProfileRefChange={(ref) =>
                     setReviewerDefaults((prev) => ({ ...prev, runtimeProfileRef: ref }))
                   }
-                  mcpPolicyRef={reviewerDefaults.mcpPolicyRef}
-                  onMcpPolicyRefChange={(ref) =>
-                    setReviewerDefaults((prev) => ({ ...prev, mcpPolicyRef: ref }))
-                  }
                 />
               </OptionRows>
             ) : null}
@@ -779,10 +773,6 @@ export function GitHubRepositorySettingsDialog({
                 runtimeProfileRef={defaults.runtimeProfileRef}
                 onRuntimeProfileRefChange={(ref) =>
                   setDefaults((prev) => ({ ...prev, runtimeProfileRef: ref }))
-                }
-                mcpPolicyRef={defaults.mcpPolicyRef}
-                onMcpPolicyRefChange={(ref) =>
-                  setDefaults((prev) => ({ ...prev, mcpPolicyRef: ref }))
                 }
               />
             </OptionRows>

@@ -59,15 +59,6 @@ spec:
     staleRunTimeout: 90m
 ---
 apiVersion: platform.gratefulagents.dev/v1alpha1
-kind: MCPPolicy
-metadata:
-  name: linear-open-mcp
-  namespace: gratefulagents-system
-spec:
-  # Empty allowlist + Allow default action means all MCP servers/tools are allowed.
-  defaultAction: Allow
----
-apiVersion: platform.gratefulagents.dev/v1alpha1
 kind: MCPServer
 metadata:
   name: project-fetch-web
@@ -90,7 +81,6 @@ metadata:
   annotations:
     # These defaults are consumed when chat-first runs are created from the dashboard.
     platform.gratefulagents.dev/runtime-profile-ref: "linear-open-runtime"
-    platform.gratefulagents.dev/mcp-policy-ref: "linear-open-mcp"
 spec:
   # Human-readable name shown in the dashboard
   displayName: "Grateful Agents"
@@ -162,12 +152,10 @@ spec:
       # version: v1    # optional: pin a specific version
       # channel: stable # optional: stable or canary
 
-    # Policy refs — zero trust: without these the agent defaults to read-only
-    # and denies all MCP tools.
+    # Runtime profile: without it the agent defaults to read-only
+    # with default-restrictive permissions.
     runtimeProfileRef:
       name: linear-open-runtime
-    mcpPolicyRef:
-      name: linear-open-mcp
     # Every run created from this project gets the fetch MCP server.
     mcpServerRefs:
       - name: project-fetch-web
@@ -259,7 +247,6 @@ metadata:
   annotations:
     # These defaults are consumed when chat-first runs are created from the dashboard.
     platform.gratefulagents.dev/runtime-profile-ref: "empty-runtime"
-    platform.gratefulagents.dev/mcp-policy-ref: "linear-open-mcp"
 spec:
   # Human-readable name shown in the dashboard
   displayName: "Empty"
@@ -291,13 +278,11 @@ spec:
       # version: v1    # optional: pin a specific version
       # channel: stable # optional: stable or canary
 
-    # Policy refs — zero trust: without these the agent defaults to read-only
-    # and denies all MCP tools. The dashboard reads this defaults.runtimeProfileRef
+    # Runtime profile: without it the agent defaults to read-only
+    # with default-restrictive permissions. The dashboard reads this defaults.runtimeProfileRef
     # when creating runs, so it must point at the dedicated empty-runtime profile.
     runtimeProfileRef:
       name: empty-runtime
-    mcpPolicyRef:
-      name: linear-open-mcp
     # Every run created from this project gets the fetch MCP server.
     mcpServerRefs:
       - name: project-fetch-web

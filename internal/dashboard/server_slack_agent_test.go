@@ -88,10 +88,6 @@ func TestUpdateSlackAgentCreatesSecretAndCR(t *testing.T) {
 		ConfigureRuntimeProfile: true,
 		PermissionMode:          "workspace-write",
 		EgressMode:              "unrestricted",
-		McpPolicyRef:            "slack-policy",
-		ConfigureMcpPolicy:      true,
-		McpPolicyDefaultAction:  "Deny",
-		McpPolicyAllowedServers: []string{"fetch", "github"},
 	})
 	if err != nil {
 		t.Fatalf("UpdateSlackAgent() error = %v", err)
@@ -130,9 +126,6 @@ func TestUpdateSlackAgentCreatesSecretAndCR(t *testing.T) {
 	if agent.Spec.Defaults.RuntimeProfileRef == nil || agent.Spec.Defaults.RuntimeProfileRef.Name != "slack-runtime-custom" {
 		t.Fatalf("RuntimeProfileRef = %v, want slack-runtime-custom", agent.Spec.Defaults.RuntimeProfileRef)
 	}
-	if agent.Spec.Defaults.MCPPolicyRef == nil || agent.Spec.Defaults.MCPPolicyRef.Name != "slack-policy" {
-		t.Fatalf("MCPPolicyRef = %v, want slack-policy", agent.Spec.Defaults.MCPPolicyRef)
-	}
 
 	// A RuntimeProfile is provisioned only because the request explicitly asked
 	// the dashboard to configure one.
@@ -154,26 +147,6 @@ func TestUpdateSlackAgentCreatesSecretAndCR(t *testing.T) {
 	}
 	if resp.RuntimeProfileRef != "slack-runtime-custom" {
 		t.Errorf("response RuntimeProfileRef = %q, want slack-runtime-custom", resp.RuntimeProfileRef)
-	}
-
-	policy := &platformv1alpha1.MCPPolicy{}
-	if err := srv.k8sClient.Get(ctx, client.ObjectKey{Namespace: ns, Name: "slack-policy"}, policy); err != nil {
-		t.Fatalf("Get(MCPPolicy) error = %v", err)
-	}
-	if policy.Spec.DefaultAction != platformv1alpha1.MCPDefaultActionDeny {
-		t.Errorf("MCPPolicy defaultAction = %q, want Deny", policy.Spec.DefaultAction)
-	}
-	if got := len(policy.Spec.AllowedServers); got != 2 {
-		t.Fatalf("AllowedServers len = %d, want 2", got)
-	}
-	if policy.Spec.AllowedServers[0].Name != "fetch" || policy.Spec.AllowedServers[1].Name != "github" {
-		t.Fatalf("AllowedServers = %#v, want fetch/github", policy.Spec.AllowedServers)
-	}
-	if resp.McpPolicyRef != "slack-policy" {
-		t.Errorf("response McpPolicyRef = %q, want slack-policy", resp.McpPolicyRef)
-	}
-	if resp.McpPolicyDefaultAction != "Deny" {
-		t.Errorf("response McpPolicyDefaultAction = %q, want Deny", resp.McpPolicyDefaultAction)
 	}
 
 	// Tokens secret holds the bot + app tokens.
@@ -445,9 +418,6 @@ func TestUpdateSlackAgentDoesNotCreatePolicyResourcesByDefault(t *testing.T) {
 	if resp.RuntimeProfileRef != "" {
 		t.Fatalf("RuntimeProfileRef = %q, want empty", resp.RuntimeProfileRef)
 	}
-	if resp.McpPolicyRef != "" {
-		t.Fatalf("McpPolicyRef = %q, want empty", resp.McpPolicyRef)
-	}
 
 	agent := &triggersv1alpha1.SlackAgent{}
 	if err := srv.k8sClient.Get(ctx, client.ObjectKey{Namespace: resp.Namespace, Name: "support"}, agent); err != nil {
@@ -456,14 +426,8 @@ func TestUpdateSlackAgentDoesNotCreatePolicyResourcesByDefault(t *testing.T) {
 	if agent.Spec.Defaults.RuntimeProfileRef != nil {
 		t.Fatalf("RuntimeProfileRef = %v, want nil", agent.Spec.Defaults.RuntimeProfileRef)
 	}
-	if agent.Spec.Defaults.MCPPolicyRef != nil {
-		t.Fatalf("MCPPolicyRef = %v, want nil", agent.Spec.Defaults.MCPPolicyRef)
-	}
 	if err := srv.k8sClient.Get(ctx, client.ObjectKey{Namespace: resp.Namespace, Name: slackRuntimeProfileName("support")}, &platformv1alpha1.RuntimeProfile{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("default RuntimeProfile lookup err = %v, want not found", err)
-	}
-	if err := srv.k8sClient.Get(ctx, client.ObjectKey{Namespace: resp.Namespace, Name: slackMCPPolicyName("support")}, &platformv1alpha1.MCPPolicy{}); !apierrors.IsNotFound(err) {
-		t.Fatalf("default MCPPolicy lookup err = %v, want not found", err)
 	}
 }
 
@@ -530,7 +494,6 @@ func TestDeleteSlackAgentRemovesResources(t *testing.T) {
 		BotToken: "xoxb-1", AppToken: "xapp-1", Model: "claude-sonnet-4-6",
 		Provider: "anthropic", AuthMode: "api-key", AnthropicApiKey: "sk-ant",
 		RuntimeProfileRef: "slack-runtime-custom", ConfigureRuntimeProfile: true,
-		McpPolicyRef: "slack-policy", ConfigureMcpPolicy: true,
 	}); err != nil {
 		t.Fatalf("seed UpdateSlackAgent error = %v", err)
 	}
@@ -553,9 +516,6 @@ func TestDeleteSlackAgentRemovesResources(t *testing.T) {
 	}
 	if err := srv.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "slack-runtime-custom"}, &platformv1alpha1.RuntimeProfile{}); err != nil {
 		t.Fatalf("RuntimeProfile should remain after deleting SlackAgent: %v", err)
-	}
-	if err := srv.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "slack-policy"}, &platformv1alpha1.MCPPolicy{}); err != nil {
-		t.Fatalf("MCPPolicy should remain after deleting SlackAgent: %v", err)
 	}
 }
 

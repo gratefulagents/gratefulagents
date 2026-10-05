@@ -34,9 +34,6 @@ func (s *Server) enrichProjectProto(ctx context.Context, pb *platform.Project) *
 	if pb.RuntimeProfileRef != "" {
 		pb.PermissionMode, pb.EgressMode = s.runtimeProfileModes(ctx, pb.Namespace, pb.RuntimeProfileRef)
 	}
-	if pb.McpPolicyRef != "" {
-		pb.McpPolicyDefaultAction, pb.McpPolicyAllowedServers = s.mcpPolicyConfig(ctx, pb.Namespace, pb.McpPolicyRef)
-	}
 
 	// Enrich owner from collaboration store.
 	if s.stateStore != nil {

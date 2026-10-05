@@ -7,12 +7,12 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/auth"
 )
 
-// setupGitIdentityTestStore reuses the soul-store harness (Postgres-backed,
+// setupGitIdentityTestStore reuses the auth-store harness (Postgres-backed,
 // skips without TEST_DATABASE_URL) and additionally cleans the git identity
 // table.
 func setupGitIdentityTestStore(t *testing.T) *auth.PGStore {
 	t.Helper()
-	store, pool := setupSoulTestStore(t)
+	store, pool := setupAuthTestStore(t)
 	if _, err := pool.Exec(context.Background(), "DELETE FROM auth_user_git_identities"); err != nil {
 		t.Fatalf("cleaning table auth_user_git_identities: %v", err)
 	}

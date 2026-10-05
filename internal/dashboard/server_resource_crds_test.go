@@ -83,13 +83,13 @@ func TestRuntimeProfileCRUDUsesPersonalNamespace(t *testing.T) {
 	if len(other.Profiles) != 0 {
 		t.Fatalf("other user saw %d profiles", len(other.Profiles))
 	}
-	_, err = srv.CreateMCPPolicy(ctx, &platform.CreateMCPPolicyRequest{Policy: &platform.MCPPolicy{Namespace: "another-tenant", Name: "deny-all", DefaultAction: "Deny"}})
+	_, err = srv.CreateRuntimeProfile(ctx, &platform.CreateRuntimeProfileRequest{Profile: &platform.RuntimeProfile{Namespace: "another-tenant", Name: "read-only", PermissionMode: "read-only"}})
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("caller-selected namespace: want InvalidArgument, got %v", err)
 	}
 }
 
-func TestUpdatesReplaceCompleteRuntimeAndMCPPolicySpecs(t *testing.T) {
+func TestUpdatesReplaceCompleteRuntimeProfileSpec(t *testing.T) {
 	scheme := testProjectScheme(t)
 	ctx := resourceActorContext("alice-id", "member", "Alice Smith")
 	ns := deriveUserNamespaceName("Alice Smith", "alice-id")
@@ -103,19 +103,11 @@ func TestUpdatesReplaceCompleteRuntimeAndMCPPolicySpecs(t *testing.T) {
 		Resources: &corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: "externally-managed"}}},
 		Admission: &platformv1alpha1.RuntimeProfileAdmission{MaxConcurrentRuns: 7},
 	}}
-	mcp := &platformv1alpha1.MCPPolicy{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: ns}, Spec: platformv1alpha1.MCPPolicySpec{BreakGlass: &platformv1alpha1.MCPBreakGlass{Enabled: true}}}
 	mode := &platformv1alpha1.ModeTemplate{ObjectMeta: metav1.ObjectMeta{Name: "direct"}, Spec: platformv1alpha1.ModeTemplateSpec{Name: "direct", Version: "v1", Category: platformv1alpha1.ModeCategoryDirect, ExecutionStrategy: platformv1alpha1.ExecutionStrategySerial, Constraints: &platformv1alpha1.ModeConstraints{MaxTurns: 42}}}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(userNamespaceObj(ns), runtime, mcp, mode).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(userNamespaceObj(ns), runtime, mode).Build()
 	srv := &Server{k8sClient: c, scheme: scheme}
 	if _, err := srv.UpdateRuntimeProfile(ctx, &platform.UpdateRuntimeProfileRequest{Profile: &platform.RuntimeProfile{Name: "default", PermissionMode: "read-only", EgressMode: "disabled", RuntimeClassName: "kata", CommandPath: []string{"/bin"}, ExtraWritablePaths: []string{"/cache/new"}, MaxConcurrentRuns: 3, ReplaceSpec: true}}); err != nil {
 		t.Fatalf("UpdateRuntimeProfile() error = %v", err)
-	}
-	updatedMCP, err := srv.UpdateMCPPolicy(ctx, &platform.UpdateMCPPolicyRequest{Policy: &platform.MCPPolicy{Name: "default", DefaultAction: "Deny", BreakGlass: &platform.MCPBreakGlass{RequireAuditReason: true, AdminMediated: true}, ReplaceSpec: true}})
-	if err != nil {
-		t.Fatalf("UpdateMCPPolicy() error = %v", err)
-	}
-	if updatedMCP.BreakGlass == nil || !updatedMCP.BreakGlass.RequireAuditReason || !updatedMCP.BreakGlass.AdminMediated {
-		t.Fatalf("UpdateMCPPolicy() response did not round-trip break glass: %#v", updatedMCP.BreakGlass)
 	}
 	admin := resourceActorContext("admin-id", "admin", "Admin")
 	if _, err := srv.UpdateModeTemplate(admin, &platform.UpdateModeTemplateRequest{Template: &platform.ModeTemplate{Name: "direct", Version: "v2", Category: "direct", ExecutionStrategy: "serial"}}); err != nil {
@@ -135,11 +127,6 @@ func TestUpdatesReplaceCompleteRuntimeAndMCPPolicySpecs(t *testing.T) {
 	if gotRuntime.Spec.Resources == nil || len(gotRuntime.Spec.Resources.Claims) != 1 || gotRuntime.Spec.Resources.Claims[0].Name != "externally-managed" {
 		t.Fatalf("RuntimeProfile externally managed resource claims were not preserved: %#v", gotRuntime.Spec.Resources)
 	}
-	var gotMCP platformv1alpha1.MCPPolicy
-	_ = c.Get(context.Background(), types.NamespacedName{Name: "default", Namespace: ns}, &gotMCP)
-	if gotMCP.Spec.BreakGlass == nil || gotMCP.Spec.BreakGlass.Enabled || !gotMCP.Spec.BreakGlass.RequireAuditReason || !gotMCP.Spec.BreakGlass.AdminMediated {
-		t.Fatalf("MCPPolicy break glass was not updated: %#v", gotMCP.Spec.BreakGlass)
-	}
 	var gotMode platformv1alpha1.ModeTemplate
 	_ = c.Get(context.Background(), types.NamespacedName{Name: "direct"}, &gotMode)
 	if gotMode.Spec.Constraints == nil || gotMode.Spec.Constraints.MaxTurns != 42 {
@@ -158,26 +145,17 @@ func TestLegacyPolicyUpdatesPreserveNewFields(t *testing.T) {
 		},
 		Admission: &platformv1alpha1.RuntimeProfileAdmission{MaxConcurrentRuns: 7},
 	}}
-	mcp := &platformv1alpha1.MCPPolicy{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: ns}, Spec: platformv1alpha1.MCPPolicySpec{BreakGlass: &platformv1alpha1.MCPBreakGlass{Enabled: true}}}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(userNamespaceObj(ns), runtime, mcp).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(userNamespaceObj(ns), runtime).Build()
 	srv := &Server{k8sClient: c, scheme: scheme}
 
 	if _, err := srv.UpdateRuntimeProfile(ctx, &platform.UpdateRuntimeProfileRequest{Profile: &platform.RuntimeProfile{Name: "default", PermissionMode: "read-only", EgressMode: "disabled", ExtraWritablePaths: []string{"/cache/new"}}}); err != nil {
 		t.Fatalf("legacy UpdateRuntimeProfile() error = %v", err)
-	}
-	if _, err := srv.UpdateMCPPolicy(ctx, &platform.UpdateMCPPolicyRequest{Policy: &platform.MCPPolicy{Name: "default", DefaultAction: "Deny"}}); err != nil {
-		t.Fatalf("legacy UpdateMCPPolicy() error = %v", err)
 	}
 
 	var gotRuntime platformv1alpha1.RuntimeProfile
 	_ = c.Get(context.Background(), types.NamespacedName{Name: "default", Namespace: ns}, &gotRuntime)
 	if gotRuntime.Spec.Sandbox.RuntimeClassName != "gvisor" || !gotRuntime.Spec.Sandbox.EnablePrivateProcfs || gotRuntime.Spec.Admission == nil || gotRuntime.Spec.Admission.MaxConcurrentRuns != 7 || len(gotRuntime.Spec.Sandbox.CommandSandbox.Path) != 1 || len(gotRuntime.Spec.Sandbox.CommandSandbox.ExtraWritablePaths) != 1 || gotRuntime.Spec.Sandbox.CommandSandbox.ExtraWritablePaths[0] != "/cache/new" {
 		t.Fatalf("legacy RuntimeProfile update did not preserve new fields: %#v", gotRuntime.Spec)
-	}
-	var gotMCP platformv1alpha1.MCPPolicy
-	_ = c.Get(context.Background(), types.NamespacedName{Name: "default", Namespace: ns}, &gotMCP)
-	if gotMCP.Spec.BreakGlass == nil || !gotMCP.Spec.BreakGlass.Enabled {
-		t.Fatalf("legacy MCPPolicy update did not preserve break glass: %#v", gotMCP.Spec)
 	}
 }
 

@@ -7,4 +7,4 @@ spec:
   mcpServerConfig:
     type: stdio
     command: uvx
-    args: ["duckduckgo-mcp-server"]
+    args: ["duckduckgo-mcp-server==0.7.0"]

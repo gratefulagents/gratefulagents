@@ -78,10 +78,6 @@ func TestCreateProjectCreatesCRDAndCredentialsSecret(t *testing.T) {
 		RuntimeProfileRef:       "payments-runtime",
 		PermissionMode:          "workspace-write",
 		EgressMode:              "unrestricted",
-		ConfigureMcpPolicy:      true,
-		McpPolicyRef:            "payments-policy",
-		McpPolicyDefaultAction:  "Deny",
-		McpPolicyAllowedServers: []string{"fetch", "github"},
 	})
 	if err != nil {
 		t.Fatalf("CreateProject() error = %v", err)
@@ -97,9 +93,6 @@ func TestCreateProjectCreatesCRDAndCredentialsSecret(t *testing.T) {
 	}
 	if resp.RuntimeProfileRef != "payments-runtime" {
 		t.Fatalf("RuntimeProfileRef = %q, want payments-runtime", resp.RuntimeProfileRef)
-	}
-	if resp.McpPolicyRef != "payments-policy" {
-		t.Fatalf("McpPolicyRef = %q, want payments-policy", resp.McpPolicyRef)
 	}
 	if resp.ReasoningLevel != "high" {
 		t.Fatalf("ReasoningLevel = %q, want high", resp.ReasoningLevel)
@@ -140,9 +133,6 @@ func TestCreateProjectCreatesCRDAndCredentialsSecret(t *testing.T) {
 	if project.Spec.Defaults.RuntimeProfileRef == nil || project.Spec.Defaults.RuntimeProfileRef.Name != "payments-runtime" {
 		t.Fatalf("RuntimeProfileRef = %#v, want payments-runtime", project.Spec.Defaults.RuntimeProfileRef)
 	}
-	if project.Spec.Defaults.MCPPolicyRef == nil || project.Spec.Defaults.MCPPolicyRef.Name != "payments-policy" {
-		t.Fatalf("MCPPolicyRef = %#v, want payments-policy", project.Spec.Defaults.MCPPolicyRef)
-	}
 	if project.Spec.Defaults.ReasoningLevel != platformv1alpha1.ReasoningHigh {
 		t.Fatalf("ReasoningLevel = %q, want high", project.Spec.Defaults.ReasoningLevel)
 	}
@@ -165,20 +155,6 @@ func TestCreateProjectCreatesCRDAndCredentialsSecret(t *testing.T) {
 	}
 	if profile.Spec.Security.EgressMode != platformv1alpha1.EgressMode("unrestricted") {
 		t.Fatalf("EgressMode = %q, want unrestricted", profile.Spec.Security.EgressMode)
-	}
-
-	policy := &platformv1alpha1.MCPPolicy{}
-	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "payments-policy"}, policy); err != nil {
-		t.Fatalf("Get(MCPPolicy) error = %v", err)
-	}
-	if policy.Spec.DefaultAction != platformv1alpha1.MCPDefaultActionDeny {
-		t.Fatalf("DefaultAction = %q, want Deny", policy.Spec.DefaultAction)
-	}
-	if got := len(policy.Spec.AllowedServers); got != 2 {
-		t.Fatalf("AllowedServers len = %d, want 2", got)
-	}
-	if policy.Spec.AllowedServers[0].Name != "fetch" || policy.Spec.AllowedServers[1].Name != "github" {
-		t.Fatalf("AllowedServers = %#v, want fetch/github", policy.Spec.AllowedServers)
 	}
 
 	secret := &corev1.Secret{}
@@ -393,14 +369,8 @@ func TestCreateProjectAllowsNoRepository(t *testing.T) {
 	if project.Spec.Defaults.RuntimeProfileRef != nil {
 		t.Fatalf("RuntimeProfileRef = %#v, want nil by default", project.Spec.Defaults.RuntimeProfileRef)
 	}
-	if project.Spec.Defaults.MCPPolicyRef != nil {
-		t.Fatalf("MCPPolicyRef = %#v, want nil by default", project.Spec.Defaults.MCPPolicyRef)
-	}
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: projectRuntimeProfileName("repoless")}, &platformv1alpha1.RuntimeProfile{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("default RuntimeProfile lookup err = %v, want not found", err)
-	}
-	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: projectMCPPolicyName("repoless")}, &platformv1alpha1.MCPPolicy{}); !apierrors.IsNotFound(err) {
-		t.Fatalf("default MCPPolicy lookup err = %v, want not found", err)
 	}
 }
 

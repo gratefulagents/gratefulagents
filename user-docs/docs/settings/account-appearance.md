@@ -1,7 +1,7 @@
 ---
 title: Account and appearance
 seoTitle: Account, Appearance, and Settings Overview | GratefulAgents
-description: Manage your GratefulAgents account identity, appearance theme, and sign-out. Navigate to credentials, SOUL, role models, Git identity, and diagnostics.
+description: Manage your GratefulAgents account identity, appearance theme, and sign-out. Navigate to credentials, role models, Git identity, and diagnostics.
 agentPrompt: >-
   Read https://gratefulagents.dev/docs/settings/account-appearance/ and show me how to manage my gratefulagents account, appearance, and notification settings.
 ---
@@ -31,7 +31,6 @@ The account section shows the identity used for runs, credentials, and sharing. 
 | [Connection](./connection.md) | Desktop-only backend endpoint, Cloudflare Access, and locally saved workspaces. |
 | [Desktop updates](./desktop-updates.md) | Desktop-only update token, checks, and installation. |
 | [Credentials](./credentials.md) | Provider keys, OAuth sign-ins, GitHub token, and integration credentials. |
-| [SOUL](./soul.md) | Your personal agent persona. |
 | [Role models](./role-models.md) | Personal model overrides for available specialist roles. |
 | [Git identity](./git-identity.md) | The name and email used to author commits in new runs. |
 

@@ -14,11 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { REASONING_LEVELS } from "@/lib/reasoning";
-import { mcpPolicyBlocksServers } from "@/lib/resourceNames";
-import { toneText } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
-import { splitCommaList } from "./projectForm";
 import type { ProjectFormController } from "./useProjectForm";
 
 /**
@@ -480,12 +477,10 @@ export function RuntimeFields({ c }: Props) {
   );
 }
 
-/* ── Tools & MCP policy ───────────────────────────────────────── */
+/* ── Tools ────────────────────────────────────────────────────── */
 
 export function ToolsFields({ c }: Props) {
   const { form } = c;
-  const allowed = splitCommaList(form.mcpPolicyAllowedServers);
-  const namePlaceholder = form.name.trim() ? `${form.name.trim()}-mcp-policy` : "project-mcp-policy";
   return (
     <>
       <FlowField label="MCP servers" hint="Server configs attached to this project's runs.">
@@ -494,62 +489,6 @@ export function ToolsFields({ c }: Props) {
           onChange={(names) => c.update("mcpServerRefs", names)}
         />
       </FlowField>
-      {mcpPolicyBlocksServers(
-        form.configureMcpPolicy,
-        form.mcpPolicyDefaultAction,
-        allowed,
-        form.mcpServerRefs,
-      ) && (
-        <p className={cn("text-[12px]", toneText.warning)}>
-          Your MCP policy denies by default — add the selected server names to its allowed servers
-          or their tools won't load.
-        </p>
-      )}
-      <FlowSwitchRow
-        id={`${c.idPrefix}-configure-mcp-policy`}
-        label={c.mode === "create" ? "Create an MCPPolicy" : "Create/update an MCPPolicy"}
-        hint="Restricts which MCP servers this project's runs may reach."
-        control={
-          <Switch
-            id={`${c.idPrefix}-configure-mcp-policy`}
-            checked={form.configureMcpPolicy}
-            onCheckedChange={(checked) => c.update("configureMcpPolicy", checked)}
-          />
-        }
-      />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FlowField id={`${c.idPrefix}-mcp-policy-ref`} label="MCPPolicy ref">
-          <Input
-            id={`${c.idPrefix}-mcp-policy-ref`}
-            value={form.mcpPolicyRef}
-            onChange={(event) => c.update("mcpPolicyRef", event.target.value)}
-            placeholder={namePlaceholder}
-          />
-        </FlowField>
-        {form.configureMcpPolicy ? (
-          <>
-            <FlowField id={`${c.idPrefix}-mcp-policy-default-action`} label="Default action">
-              <select
-                id={`${c.idPrefix}-mcp-policy-default-action`}
-                value={form.mcpPolicyDefaultAction}
-                onChange={(event) => c.update("mcpPolicyDefaultAction", event.target.value)}
-                className={selectClassName}
-              >
-                <option value="Deny">Deny</option>
-                <option value="Allow">Allow</option>
-              </select>
-            </FlowField>
-            <FlowField id={`${c.idPrefix}-mcp-policy-allowed`} label="Allowed MCP servers" hint="Comma-separated.">
-              <Input
-                id={`${c.idPrefix}-mcp-policy-allowed`}
-                value={form.mcpPolicyAllowedServers}
-                onChange={(event) => c.update("mcpPolicyAllowedServers", event.target.value)}
-                placeholder="fetch, github"
-              />
-            </FlowField>
-          </>
-        ) : null}
-      </div>
     </>
   );
 }

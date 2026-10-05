@@ -42,7 +42,6 @@ import {
   SlackAgentSchema,
   SlackDraftSchema,
   SlackWorkspaceSchema,
-  SoulSchema,
   SubagentGraphSchema,
   TraceSpanSchema,
   UsageTotalsSchema,
@@ -1292,17 +1291,6 @@ const anthropicUsage = create(MyAnthropicUsageSchema, {
   fetchedAtUnix: unix(SCENARIO_NOW),
 });
 
-const soul = create(SoulSchema, {
-  content: [
-    "# SOUL",
-    "",
-    "- Bias to small, verifiable steps; show your work.",
-    "- Never leave a PR without green frontend tests.",
-    "- Prefer boring, obvious code over clever code.",
-  ].join("\n"),
-  updatedAt: timestampFromDate(daysAgo(3)),
-});
-
 const gitIdentity = create(GitIdentitySchema, {
   name: "Dana Demo",
   email: "dana@example.com",
@@ -1487,7 +1475,6 @@ export const defaultScenario: Scenario = {
   openAIUsage,
   copilotUsage,
   anthropicUsage,
-  soul,
   gitIdentity,
   modelDefaults,
 
@@ -1532,7 +1519,6 @@ export const defaultScenario: Scenario = {
     { name: "settings-credentials", path: "/settings/credentials" },
     { name: "settings-usage", path: "/settings/usage" },
     { name: "settings-skills", path: "/settings/skills" },
-    { name: "settings-soul", path: "/settings/soul" },
     { name: "settings-git", path: "/settings/git" },
   ],
 };

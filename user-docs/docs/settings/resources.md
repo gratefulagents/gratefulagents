@@ -1,9 +1,9 @@
 ---
 title: Resources
-seoTitle: Agent Skills, MCP Servers, Policies, and Roles | GratefulAgents
-description: Configure reusable agent skills, MCP servers, runtime profiles, policies, modes, guardrails, and specialist roles in GratefulAgents.
+seoTitle: Skills, MCP Servers, Runtime Profiles, and Roles | GratefulAgents
+description: Configure reusable agent skills, MCP servers, runtime profiles, modes, guardrails, and specialist roles in GratefulAgents.
 agentPrompt: >-
-  Read https://gratefulagents.dev/docs/settings/resources/ and explain gratefulagents resources — skills, MCP servers, runtime profiles, policies, modes, and roles — and how I attach them to runs.
+  Read https://gratefulagents.dev/docs/settings/resources/ and explain gratefulagents resources — skills, MCP servers, runtime profiles, guardrails, modes, and roles — and how I attach them to runs.
 ---
 
 # Resources
@@ -17,7 +17,6 @@ agentPrompt: >-
 | [**Skills**](./skill-packages.md) | Reusable inline instructions or skills installed from the skills.sh catalog. Skills can require MCP servers. |
 | **MCP servers** | Tool-server configurations: a command, arguments, environment, and references to saved integration credentials. |
 | **Runtime profiles** | Runtime permissions, network access, workspace defaults, timeout, persistence, and allowed writable paths. |
-| **MCP policies** | Rules that control which MCP servers and tools runs may use. |
 | **Guardrails** | Enforceable rules that inspect tool input or output and block, warn, or log matches. |
 | **Modes** | Behavior and execution templates, including instructions, permissions, defaults, and optional limits. |
 | **Roles** | Reusable specialist instructions, model mappings, reasoning level, and tool-access boundaries. |
@@ -26,7 +25,9 @@ agentPrompt: >-
 
 A **skill** gives an agent reusable guidance. An **MCP server** gives it tools. Create integration credentials first in [Credentials](./credentials.md) when an MCP server needs secrets, then reference those credentials from the server configuration.
 
-Attach skills or MCP servers only where a project or agent configuration provides the relevant selector. A resource's existence does not guarantee that every run can use it: the project, mode, policy, and deployment can restrict access.
+Attach skills or MCP servers only where a project or agent configuration provides the relevant selector. A resource's existence does not guarantee that every run can use it: the project, mode, and deployment can restrict access.
+
+Configured MCP servers and their tools are allowed by default. Permission modes and sandbox and network controls still apply.
 
 ## Manage resources
 

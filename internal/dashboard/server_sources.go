@@ -9,7 +9,6 @@ import (
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
-	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	"github.com/gratefulagents/gratefulagents/rpc/platform"
 )
 
@@ -110,18 +109,6 @@ func (s *Server) resolveRuntimeProfile(ctx context.Context, namespace string, re
 	return profile, ref.DeepCopy(), nil
 }
 
-func (s *Server) resolveMCPPolicy(ctx context.Context, namespace string, ref *platformv1alpha1.NamedRef) (*platformv1alpha1.MCPPolicy, *platformv1alpha1.NamedRef, error) {
-	if ref == nil || ref.Name == "" {
-		return nil, nil, nil
-	}
-
-	policy := &platformv1alpha1.MCPPolicy{}
-	if err := s.k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: ref.Name}, policy); err != nil {
-		return nil, nil, mapK8sError(fmt.Sprintf("get MCPPolicy %s/%s", namespace, ref.Name), err)
-	}
-	return policy, ref.DeepCopy(), nil
-}
-
 func applyRuntimeProfileDefaultsToAgentRun(run *platformv1alpha1.AgentRun, profile *platformv1alpha1.RuntimeProfile, ref *platformv1alpha1.NamedRef) {
 	if run == nil || ref == nil {
 		return
@@ -147,20 +134,6 @@ func applyRuntimeProfileDefaultsToAgentRun(run *platformv1alpha1.AgentRun, profi
 			run.Status.Policy.ResolvedPermissionMode = string(profile.Spec.Security.PermissionMode)
 		}
 	}
-}
-
-func applyMCPPolicyDefaultsToAgentRun(run *platformv1alpha1.AgentRun, policy *platformv1alpha1.MCPPolicy, ref *platformv1alpha1.NamedRef) {
-	if run == nil || ref == nil {
-		return
-	}
-	run.Spec.MCPPolicyRef = &platformv1alpha1.NamedRef{Name: ref.Name}
-	if policy == nil {
-		return
-	}
-	if run.Status.Policy == nil {
-		run.Status.Policy = &platformv1alpha1.AgentRunResolvedPolicy{}
-	}
-	run.Status.Policy.ResolvedMCPServers = append(run.Status.Policy.ResolvedMCPServers[:0], mcppolicy.ExplicitAllowedServers(policy)...)
 }
 
 // GetLinearProject returns a single LinearProject by namespace and name.

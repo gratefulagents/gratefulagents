@@ -151,7 +151,7 @@ export function CreateLinearProjectDialog({
         <DialogHeader>
           <DialogTitle>Create Linear project</DialogTitle>
           <DialogDescription>
-            Connect a Linear project and choose the defaults and managed policies used for new runs.
+            Connect a Linear project and choose the defaults and runtime profile used for new runs.
           </DialogDescription>
         </DialogHeader>
 
@@ -200,19 +200,12 @@ export function CreateLinearProjectDialog({
             </p>
           </FormSection>
 
-          <FormSection title="Optional managed policies">
+          <FormSection title="Optional runtime profile">
             <Toggle label="Create a managed runtime profile" checked={form.configureRuntimeProfile} onChange={(value) => set("configureRuntimeProfile", value)} />
             {form.configureRuntimeProfile && (
               <>
                 <Field label="Permission mode" value={form.permissionMode} onChange={(value) => set("permissionMode", value)} />
                 <Field label="Egress mode" value={form.egressMode} onChange={(value) => set("egressMode", value)} />
-              </>
-            )}
-            <Toggle label="Create a managed MCP policy" checked={form.configureMcpPolicy} onChange={(value) => set("configureMcpPolicy", value)} />
-            {form.configureMcpPolicy && (
-              <>
-                <Field label="Default MCP action" value={form.mcpPolicyDefaultAction} onChange={(value) => set("mcpPolicyDefaultAction", value)} />
-                <Field label="Allowed MCP servers" value={form.mcpPolicyAllowedServers} onChange={(value) => set("mcpPolicyAllowedServers", value)} placeholder="github, linear" />
               </>
             )}
           </FormSection>

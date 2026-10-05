@@ -163,8 +163,8 @@ func runRBACRules(run *platformv1alpha1.AgentRun, verifiedSupervisedName, verifi
 			APIGroups: []string{"platform.gratefulagents.dev"},
 			// Run pods resolve policy from namespaced CRDs in their own
 			// namespace: permission mode (runtimeprofiles — the zero-trust
-			// read-only fallback depends on this read succeeding), MCP config
-			// filtering (mcppolicies), and guardrails (guardrailpolicies).
+			// read-only fallback depends on this read succeeding) and
+			// guardrails (guardrailpolicies).
 			// Granted here, per run, and not only via the shared
 			// gratefulagents-agent-reader ClusterRole: that ClusterRole is
 			// rewritten to exactly match whichever operator binary last
@@ -172,7 +172,7 @@ func runRBACRules(run *platformv1alpha1.AgentRun, verifiedSupervisedName, verifi
 			// deleted on terminal transitions, so depending on it for these
 			// reads lets version skew or cleanup races silently degrade a
 			// running pod to a read-only workspace.
-			Resources: []string{"runtimeprofiles", "mcppolicies", "guardrailpolicies"},
+			Resources: []string{"runtimeprofiles", "guardrailpolicies"},
 			Verbs:     []string{"get"},
 		},
 		{
@@ -514,12 +514,12 @@ func ensureClusterScopedRBAC(ctx context.Context, c client.Client, run *platform
 			{
 				APIGroups: []string{"platform.gratefulagents.dev"},
 				// roleinstructions and modetemplates are cluster-scoped and
-				// genuinely need this ClusterRole. guardrailpolicies,
-				// runtimeprofiles, and mcppolicies are namespaced and also
+				// genuinely need this ClusterRole. guardrailpolicies and
+				// runtimeprofiles are namespaced and also
 				// granted by the per-run namespaced Role (runRBACRules);
 				// they stay listed here so pods provisioned by older
 				// operator builds keep working during rollouts.
-				Resources: []string{"roleinstructions", "modetemplates", "guardrailpolicies", "runtimeprofiles", "mcppolicies"},
+				Resources: []string{"roleinstructions", "modetemplates", "guardrailpolicies", "runtimeprofiles"},
 				Verbs:     []string{"get", "list", "watch"},
 			},
 		},

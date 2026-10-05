@@ -63,7 +63,7 @@ func sandboxedInstallRunner(ctx context.Context, root string, argv []string) (st
 	return result.Output, nil
 }
 
-// materializeUvxServers rewrites policy-approved, cluster-managed
+// materializeUvxServers rewrites cluster-managed
 // `uvx <package==version>` servers into direct commands installed at run
 // startup. It returns the private tool root when at least one server was
 // installed; the caller must expose that root read-only to MCP sandboxes.

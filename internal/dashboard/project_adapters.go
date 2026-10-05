@@ -41,9 +41,6 @@ func k8sProjectToProto(p *triggersv1alpha1.Project) *platform.Project {
 	if d.RuntimeProfileRef != nil {
 		pb.RuntimeProfileRef = d.RuntimeProfileRef.Name
 	}
-	if d.MCPPolicyRef != nil {
-		pb.McpPolicyRef = d.MCPPolicyRef.Name
-	}
 	for _, ref := range d.MCPServerRefs {
 		pb.McpServerRefs = append(pb.McpServerRefs, ref.Name)
 	}

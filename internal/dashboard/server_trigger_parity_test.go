@@ -52,7 +52,6 @@ func fullParityDefaults() *platform.AgentRunDefaults {
 			{Provider: "anthropic", SecretName: "anthropic-cred", SecretKey: "api-key"},
 		},
 		RuntimeProfileRef: "custom-runtime",
-		McpPolicyRef:      "custom-policy",
 		McpServerRefs:     []string{"mcp-a", "mcp-b"},
 		SkillRefs:         []string{"skill-a"},
 		WorkflowMode:      "auto",
@@ -84,15 +83,12 @@ func parityPolicies() *platform.TriggerPolicies {
 		ConfigureRuntimeProfile: true,
 		PermissionMode:          "read-only",
 		EgressMode:              "restricted",
-		ConfigureMcpPolicy:      true,
-		McpPolicyDefaultAction:  "Allow",
-		McpPolicyAllowedServers: []string{"github", "linear"},
 	}
 }
 
-// assertPolicyObjects verifies the provisioned RuntimeProfile and MCPPolicy
-// hold the request's policy options (the CRD mapping guarantee).
-func assertPolicyObjects(t *testing.T, c client.Client, ns, runtimeName, policyName string) {
+// assertRuntimeProfile verifies the provisioned RuntimeProfile
+// holds the request's policy options (the CRD mapping guarantee).
+func assertRuntimeProfile(t *testing.T, c client.Client, ns, runtimeName string) {
 	t.Helper()
 	profile := &platformv1alpha1.RuntimeProfile{}
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: runtimeName}, profile); err != nil {
@@ -102,16 +98,6 @@ func assertPolicyObjects(t *testing.T, c client.Client, ns, runtimeName, policyN
 		profile.Spec.Security.PermissionMode != platformv1alpha1.PermissionModeReadOnly ||
 		profile.Spec.Security.EgressMode != platformv1alpha1.EgressMode("restricted") {
 		t.Fatalf("RuntimeProfile security = %+v", profile.Spec.Security)
-	}
-	policy := &platformv1alpha1.MCPPolicy{}
-	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: policyName}, policy); err != nil {
-		t.Fatalf("Get(MCPPolicy %s) error = %v", policyName, err)
-	}
-	if policy.Spec.DefaultAction != platformv1alpha1.MCPDefaultActionAllow {
-		t.Fatalf("MCPPolicy default action = %q", policy.Spec.DefaultAction)
-	}
-	if len(policy.Spec.AllowedServers) != 2 || policy.Spec.AllowedServers[0].Name != "github" || policy.Spec.AllowedServers[1].Name != "linear" {
-		t.Fatalf("MCPPolicy allowed servers = %+v", policy.Spec.AllowedServers)
 	}
 }
 
@@ -130,7 +116,7 @@ func TestCreateCronPoliciesProvisionObjectsAndSetRefs(t *testing.T) {
 		t.Fatalf("CreateCron() error = %v", err)
 	}
 
-	assertPolicyObjects(t, c, ns, "nightly-runtime", "nightly-mcp-policy")
+	assertRuntimeProfile(t, c, ns, "nightly-runtime")
 
 	cr := &triggersv1alpha1.Cron{}
 	if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "nightly"}, cr); err != nil {
@@ -139,13 +125,9 @@ func TestCreateCronPoliciesProvisionObjectsAndSetRefs(t *testing.T) {
 	if cr.Spec.Defaults.RuntimeProfileRef == nil || cr.Spec.Defaults.RuntimeProfileRef.Name != "nightly-runtime" {
 		t.Fatalf("RuntimeProfileRef = %+v", cr.Spec.Defaults.RuntimeProfileRef)
 	}
-	if cr.Spec.Defaults.MCPPolicyRef == nil || cr.Spec.Defaults.MCPPolicyRef.Name != "nightly-mcp-policy" {
-		t.Fatalf("MCPPolicyRef = %+v", cr.Spec.Defaults.MCPPolicyRef)
-	}
 
-	if resp.PermissionMode != "read-only" || resp.EgressMode != "restricted" ||
-		resp.McpPolicyDefaultAction != "Allow" || !reflect.DeepEqual(resp.McpPolicyAllowedServers, []string{"github", "linear"}) {
-		t.Fatalf("resolved policy fields = %q/%q/%q/%v", resp.PermissionMode, resp.EgressMode, resp.McpPolicyDefaultAction, resp.McpPolicyAllowedServers)
+	if resp.PermissionMode != "read-only" || resp.EgressMode != "restricted" {
+		t.Fatalf("resolved runtime fields = %q/%q", resp.PermissionMode, resp.EgressMode)
 	}
 }
 
@@ -212,9 +194,9 @@ func TestUpdateCronPoliciesProvisionObjectsAndSetRefs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateCron() error = %v", err)
 	}
-	assertPolicyObjects(t, c, ns, "nightly-runtime", "nightly-mcp-policy")
-	if resp.Defaults.GetRuntimeProfileRef() != "nightly-runtime" || resp.Defaults.GetMcpPolicyRef() != "nightly-mcp-policy" {
-		t.Fatalf("defaults refs = %q/%q", resp.Defaults.GetRuntimeProfileRef(), resp.Defaults.GetMcpPolicyRef())
+	assertRuntimeProfile(t, c, ns, "nightly-runtime")
+	if resp.Defaults.GetRuntimeProfileRef() != "nightly-runtime" {
+		t.Fatalf("runtime ref = %q", resp.Defaults.GetRuntimeProfileRef())
 	}
 }
 
@@ -237,7 +219,6 @@ func TestCreateGitHubRepositoryFromTokenWithDefaultsMessage(t *testing.T) {
 	defaults.AdditionalRepoUrls = nil
 	defaults.BaseBranch = "release"
 	defaults.RuntimeProfileRef = ""
-	defaults.McpPolicyRef = ""
 
 	resp, err := srv.CreateGitHubRepositoryFromToken(ctx, &platform.CreateGitHubRepositoryFromTokenRequest{
 		Owner:       "acme",
@@ -277,10 +258,9 @@ func TestCreateGitHubRepositoryFromTokenWithDefaultsMessage(t *testing.T) {
 	if d.Secrets.GithubToken != "acme-payments-github-token" {
 		t.Fatalf("Secrets.GithubToken = %q, want per-trigger token secret", d.Secrets.GithubToken)
 	}
-	assertPolicyObjects(t, c, namespace, "acme-payments-runtime", "acme-payments-mcp-policy")
-	if d.RuntimeProfileRef == nil || d.RuntimeProfileRef.Name != "acme-payments-runtime" ||
-		d.MCPPolicyRef == nil || d.MCPPolicyRef.Name != "acme-payments-mcp-policy" {
-		t.Fatalf("policy refs = %+v / %+v", d.RuntimeProfileRef, d.MCPPolicyRef)
+	assertRuntimeProfile(t, c, namespace, "acme-payments-runtime")
+	if d.RuntimeProfileRef == nil || d.RuntimeProfileRef.Name != "acme-payments-runtime" {
+		t.Fatalf("runtime ref = %+v", d.RuntimeProfileRef)
 	}
 }
 
@@ -308,7 +288,6 @@ func TestUpdateGitHubRepositoryReplacesDefaultsPreservingRepoURLAndToken(t *test
 	defaults.AdditionalRepoUrls = nil
 	defaults.GithubTokenSecret = "" // empty keeps the trigger's token wiring
 	defaults.RuntimeProfileRef = ""
-	defaults.McpPolicyRef = ""
 
 	resp, err := srv.UpdateGitHubRepository(projectActorCtx(), &platform.UpdateGitHubRepositoryRequest{
 		Namespace: ns,
@@ -337,7 +316,7 @@ func TestUpdateGitHubRepositoryReplacesDefaultsPreservingRepoURLAndToken(t *test
 	if d.Model != "claude-sonnet-4-6" || d.Provider != triggersv1alpha1.ProviderAnthropic || d.BaseBranch != "main" {
 		t.Fatalf("defaults = %+v", d)
 	}
-	assertPolicyObjects(t, c, ns, "acme-payments-runtime", "acme-payments-mcp-policy")
+	assertRuntimeProfile(t, c, ns, "acme-payments-runtime")
 	if resp.Defaults.GetModel() != "claude-sonnet-4-6" || resp.PermissionMode != "read-only" {
 		t.Fatalf("resp = %+v", resp)
 	}
@@ -764,7 +743,6 @@ func TestUpdateLinearProjectPreservesSpecLevelFields(t *testing.T) {
 	defaults := fullParityDefaults()
 	defaults.GithubTokenSecret = ""
 	defaults.RuntimeProfileRef = ""
-	defaults.McpPolicyRef = ""
 
 	resp, err := srv.UpdateLinearProject(projectActorCtx(), &platform.UpdateLinearProjectRequest{
 		Namespace: ns,
@@ -793,7 +771,7 @@ func TestUpdateLinearProjectPreservesSpecLevelFields(t *testing.T) {
 	if d.Secrets.GithubToken != "old-gh" {
 		t.Fatalf("Secrets.GithubToken = %q, want preserved", d.Secrets.GithubToken)
 	}
-	assertPolicyObjects(t, c, ns, "web-runtime", "web-mcp-policy")
+	assertRuntimeProfile(t, c, ns, "web-runtime")
 	if resp.Defaults.GetRuntimeProfileRef() != "web-runtime" || resp.PermissionMode != "read-only" {
 		t.Fatalf("resp = %+v", resp)
 	}
@@ -955,7 +933,6 @@ func TestUpdateTriggerPreservesAdminOnlyDefaults(t *testing.T) {
 	ghDefaults := fullParityDefaults()
 	ghDefaults.GithubTokenSecret = ""
 	ghDefaults.RuntimeProfileRef = ""
-	ghDefaults.McpPolicyRef = ""
 	if _, err := srv.UpdateGitHubRepository(projectActorCtx(), &platform.UpdateGitHubRepositoryRequest{
 		Namespace: ns,
 		Name:      "acme-payments",
@@ -974,7 +951,6 @@ func TestUpdateTriggerPreservesAdminOnlyDefaults(t *testing.T) {
 	lpDefaults := fullParityDefaults()
 	lpDefaults.GithubTokenSecret = ""
 	lpDefaults.RuntimeProfileRef = ""
-	lpDefaults.McpPolicyRef = ""
 	if _, err := srv.UpdateLinearProject(projectActorCtx(), &platform.UpdateLinearProjectRequest{
 		Namespace: ns,
 		Name:      "web",

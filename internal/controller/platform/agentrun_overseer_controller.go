@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
-	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	"github.com/gratefulagents/gratefulagents/internal/mode"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/store"
@@ -266,10 +265,7 @@ func (r *AgentRunOverseerReconciler) reconcilePrimary(ctx context.Context, prima
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("getting primary session for overseer checkpoint: %w", err)
 	}
-	initialObservation, initialInput, err := observationForSession(primary, "attached", primarySession)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	initialObservation, initialInput := observationForSession(primary, "attached", primarySession)
 	desired := r.desiredOverseerRun(primary, initialObservation, now)
 	initialMessage := overseerCheckpointMessage(primary, 1, initialObservation, initialInput)
 	standing, created, err := orchestration.EnsureStandingRun(ctx, r.Client, r.Scheme, r.StateStore, primary, desired, initialMessage)
@@ -487,31 +483,13 @@ func observationFor(run *platformv1alpha1.AgentRun, trigger string) overseerObse
 	return observation
 }
 
-func observationForSession(run *platformv1alpha1.AgentRun, trigger string, session *store.Session) (overseerObservation, *orchestration.PendingUserInput, error) {
+func observationForSession(run *platformv1alpha1.AgentRun, trigger string, session *store.Session) (overseerObservation, *orchestration.PendingUserInput) {
 	observation := observationFor(run, trigger)
-	request, err := pendingUserInputForRun(run, session)
-	if err != nil {
-		return overseerObservation{}, nil, err
-	}
+	request := orchestration.PendingUserInputForSession(session)
 	if request != nil {
 		observation.InputRequestID = request.ID
 	}
-	return observation, request, nil
-}
-
-func pendingUserInputForRun(run *platformv1alpha1.AgentRun, session *store.Session) (*orchestration.PendingUserInput, error) {
-	request := orchestration.PendingUserInputForSession(session)
-	if request == nil || run == nil {
-		return request, nil
-	}
-	pendingMCP, err := mcppolicy.PendingRequest(run)
-	if err != nil {
-		return nil, fmt.Errorf("decoding pending MCP break-glass request: %w", err)
-	}
-	if pendingMCP != nil {
-		request = orchestration.BindPendingUserInputContext(request, pendingMCP.ID)
-	}
-	return request, nil
+	return observation, request
 }
 
 func encodeObservation(observation overseerObservation) string {
@@ -753,12 +731,11 @@ func attributedOverseerGuidance(sequence int64, guidance string) string {
 }
 
 type managedInputResolutionRecord struct {
-	RequestID    string                       `json:"request_id"`
-	InputType    string                       `json:"input_type,omitempty"`
-	ActionID     string                       `json:"action_id,omitempty"`
-	PlanApproval bool                         `json:"plan_approval,omitempty"`
-	TargetMode   string                       `json:"target_mode,omitempty"`
-	MCP          *mcppolicy.BreakGlassRequest `json:"mcp_request,omitempty"`
+	RequestID    string `json:"request_id"`
+	InputType    string `json:"input_type,omitempty"`
+	ActionID     string `json:"action_id,omitempty"`
+	PlanApproval bool   `json:"plan_approval,omitempty"`
+	TargetMode   string `json:"target_mode,omitempty"`
 }
 
 func (r *AgentRunOverseerReconciler) resolvePendingInput(ctx context.Context, primary, standing *platformv1alpha1.AgentRun, sequence int64) (bool, string, error) {
@@ -783,10 +760,7 @@ func (r *AgentRunOverseerReconciler) resolvePendingInput(ctx context.Context, pr
 	}
 
 	deliveryID := overseerDeliveryID(primary, sequence, "resolve-input")
-	request, err := pendingUserInputForRun(primary, session)
-	if err != nil {
-		return false, "", err
-	}
+	request := orchestration.PendingUserInputForSession(session)
 	reservationRequestID := response.RequestID
 	message := response.Response
 	record := managedInputResolutionRecord{RequestID: response.RequestID, ActionID: response.ActionID}
@@ -815,20 +789,6 @@ func (r *AgentRunOverseerReconciler) resolvePendingInput(ctx context.Context, pr
 			if reason, err := r.validateManagedInputMode(ctx, record.TargetMode); err != nil || reason != "" {
 				return false, reason, err
 			}
-		}
-		pendingMCP, err := mcppolicy.PendingRequest(primary)
-		if err != nil {
-			return false, "", fmt.Errorf("decoding pending MCP break-glass request: %w", err)
-		}
-		if pendingMCP != nil {
-			if strings.TrimSpace(pendingMCP.ID) == "" {
-				return false, "This legacy MCP request has no immutable identity and remains pending for a human decision.", nil
-			}
-			if reason, err := r.validateMCPInput(ctx, primary, pendingMCP, response.ActionID); err != nil || reason != "" {
-				return false, reason, err
-			}
-			record.MCP = pendingMCP
-			message = managedMCPInputMessage(pendingMCP, response.ActionID, response.Response)
 		}
 	}
 	if strings.TrimSpace(message) == "" {
@@ -881,11 +841,6 @@ func (r *AgentRunOverseerReconciler) resolvePendingInput(ctx context.Context, pr
 			return false, "", fmt.Errorf("refreshing plan mode after approval: %w", err)
 		}
 	}
-	if record.MCP != nil {
-		if err := r.applyMCPInput(ctx, primary, standing, record.MCP, record.ActionID); err != nil {
-			return false, "", err
-		}
-	}
 	if record.TargetMode != "" {
 		applied, reason, err := r.switchManagedInputMode(ctx, primary, record.TargetMode)
 		if err != nil {
@@ -901,11 +856,6 @@ func (r *AgentRunOverseerReconciler) resolvePendingInput(ctx context.Context, pr
 		return false, "", err
 	}
 	if freshPrimary.Status.Phase == platformv1alpha1.AgentRunPhaseCancelled {
-		if record.MCP != nil && record.ActionID == "approve" {
-			if err := r.removeCancelledMCPGrant(ctx, primary, record.MCP.ID); err != nil {
-				return false, "", err
-			}
-		}
 		if err := resolver.CancelPendingInputResponse(ctx, session.ID, reserved.ID, deliveryID); err != nil {
 			return false, "", err
 		}
@@ -1059,180 +1009,6 @@ func (r *AgentRunOverseerReconciler) switchManagedInputMode(ctx context.Context,
 	}
 }
 
-func (r *AgentRunOverseerReconciler) validateMCPInput(ctx context.Context, primary *platformv1alpha1.AgentRun, request *mcppolicy.BreakGlassRequest, actionID string) (string, error) {
-	if actionID != "approve" && actionID != "reject" {
-		return "MCP break-glass input must be explicitly approved or rejected; it remains pending for the user.", nil
-	}
-	if strings.TrimSpace(request.ID) == "" {
-		return "This legacy MCP request has no immutable identity and remains pending for a human decision.", nil
-	}
-	if actionID != "approve" {
-		return "", nil
-	}
-	var policy *platformv1alpha1.MCPPolicy
-	if primary.Spec.MCPPolicyRef != nil && strings.TrimSpace(primary.Spec.MCPPolicyRef.Name) != "" {
-		policy = &platformv1alpha1.MCPPolicy{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: primary.Namespace, Name: primary.Spec.MCPPolicyRef.Name}, policy); err != nil {
-			return "", err
-		}
-	}
-	cfg := mcppolicy.NewEvaluator(primary, policy).BreakGlass()
-	if !cfg.Enabled {
-		return "MCP break-glass is no longer enabled; the approval was not applied.", nil
-	}
-	if cfg.RequireAuditReason && strings.TrimSpace(request.Reason) == "" {
-		return "MCP break-glass approval requires an audit reason; the request remains pending.", nil
-	}
-	if cfg.AdminMediated {
-		return "MCP break-glass policy requires a human administrator; the overseer did not bypass that boundary.", nil
-	}
-	return "", nil
-}
-
-func (r *AgentRunOverseerReconciler) applyMCPInput(ctx context.Context, primary, standing *platformv1alpha1.AgentRun, request *mcppolicy.BreakGlassRequest, actionID string) error {
-	freshPrimary := &platformv1alpha1.AgentRun{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(primary), freshPrimary); err != nil {
-		return err
-	}
-	if reason, err := r.validateMCPInput(ctx, freshPrimary, request, actionID); err != nil {
-		return err
-	} else if reason != "" {
-		return fmt.Errorf("MCP break-glass policy changed before the reserved decision was applied: %s", reason)
-	}
-	applied := false
-	mismatched := false
-	conflictingDecision := false
-	expectedDecision := "denied"
-	if actionID == "approve" {
-		expectedDecision = "approved"
-	}
-	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		fresh := &platformv1alpha1.AgentRun{}
-		if err := r.Get(ctx, client.ObjectKeyFromObject(primary), fresh); err != nil {
-			return err
-		}
-		if fresh.Status.Phase == platformv1alpha1.AgentRunPhaseCancelled {
-			return fmt.Errorf("supervised run was cancelled before MCP decision")
-		}
-		if reason, err := r.validateMCPInput(ctx, fresh, request, actionID); err != nil {
-			return err
-		} else if reason != "" {
-			return fmt.Errorf("MCP break-glass policy changed before decision: %s", reason)
-		}
-		current, err := mcppolicy.PendingRequest(fresh)
-		if err != nil {
-			return err
-		}
-		grants, err := mcppolicy.GrantedGrants(fresh)
-		if err != nil {
-			return err
-		}
-		decisions, err := mcppolicy.BreakGlassDecisions(fresh)
-		if err != nil {
-			return err
-		}
-		if decision := mcppolicy.FindBreakGlassDecision(decisions, request.ID); decision != nil {
-			if decision.Decision == expectedDecision {
-				applied = true
-			} else {
-				conflictingDecision = true
-			}
-			return nil
-		}
-		if current == nil {
-			return nil
-		}
-		if !mcppolicy.SameBreakGlassRequest(current, request) {
-			mismatched = true
-			return nil
-		}
-		patch := client.MergeFrom(fresh.DeepCopy())
-		if fresh.Annotations == nil {
-			fresh.Annotations = map[string]string{}
-		}
-		decidedAt := r.now().UTC().Format(time.RFC3339)
-		decidedBy := overseerAttribution + ":" + standing.Name
-		if actionID == "approve" {
-			grant := mcppolicy.BreakGlassGrant{
-				RequestID: request.ID,
-				Server:    request.Server, Tool: request.Tool, Reason: request.Reason,
-				RequestedAt: request.RequestedAt, RequestedBy: request.RequestedBy,
-				ApprovedAt: decidedAt, ApprovedBy: decidedBy,
-			}
-			if err := mcppolicy.SetGrantedGrants(fresh.Annotations, mcppolicy.UpsertGrant(grants, grant)); err != nil {
-				return err
-			}
-		}
-		decision := mcppolicy.BreakGlassDecision{RequestID: request.ID, Decision: expectedDecision, DecidedAt: decidedAt, DecidedBy: decidedBy}
-		if err := mcppolicy.SetBreakGlassDecisions(fresh.Annotations, mcppolicy.UpsertBreakGlassDecision(decisions, decision)); err != nil {
-			return err
-		}
-		mcppolicy.ClearPendingRequest(fresh.Annotations)
-		if err := r.Patch(ctx, fresh, patch); err != nil {
-			return err
-		}
-		applied = true
-		return nil
-	}); err != nil {
-		return err
-	}
-	if conflictingDecision {
-		return fmt.Errorf("MCP break-glass request already has a conflicting durable decision")
-	}
-	if mismatched {
-		return fmt.Errorf("MCP break-glass request changed before the reserved overseer decision was applied")
-	}
-	if !applied {
-		return fmt.Errorf("reserved MCP break-glass decision could not be verified as applied")
-	}
-	return nil
-}
-
-func (r *AgentRunOverseerReconciler) removeCancelledMCPGrant(ctx context.Context, primary *platformv1alpha1.AgentRun, requestID string) error {
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		fresh := &platformv1alpha1.AgentRun{}
-		if err := r.Get(ctx, client.ObjectKeyFromObject(primary), fresh); err != nil {
-			return err
-		}
-		grants, err := mcppolicy.GrantedGrants(fresh)
-		if err != nil {
-			return err
-		}
-		filtered := mcppolicy.RemoveBreakGlassGrantByRequestID(grants, requestID)
-		if len(filtered) == len(grants) {
-			return nil
-		}
-		patch := client.MergeFrom(fresh.DeepCopy())
-		if fresh.Annotations == nil {
-			fresh.Annotations = map[string]string{}
-		}
-		if err := mcppolicy.SetGrantedGrants(fresh.Annotations, filtered); err != nil {
-			return err
-		}
-		return r.Patch(ctx, fresh, patch)
-	})
-}
-
-func managedMCPInputMessage(request *mcppolicy.BreakGlassRequest, actionID, note string) string {
-	target := fmt.Sprintf("server %q", request.Server)
-	if strings.TrimSpace(request.Tool) != "" {
-		target = fmt.Sprintf("server %q tool %q", request.Server, request.Tool)
-	}
-	note = strings.TrimSpace(note)
-	if actionID == "approve" {
-		message := fmt.Sprintf("MCP break-glass approved for %s. Continue.", target)
-		if note != "" {
-			message += " Approval note: " + note
-		}
-		return message
-	}
-	message := fmt.Sprintf("MCP break-glass denied for %s. Continue without that access.", target)
-	if note != "" {
-		message += " Feedback: " + note
-	}
-	return message
-}
-
 func (r *AgentRunOverseerReconciler) escalate(ctx context.Context, primary *platformv1alpha1.AgentRun, sequence int64, summary, guidance string) error {
 	session, err := r.StateStore.GetSessionByRun(ctx, primary.Name, primary.Namespace)
 	if err != nil {
@@ -1312,10 +1088,7 @@ func (r *AgentRunOverseerReconciler) maybeScheduleCheckpoint(ctx context.Context
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("getting primary session for overseer checkpoint: %w", err)
 	}
-	current, currentInput, err := observationForSession(primary, "", primarySession)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
+	current, currentInput := observationForSession(primary, "", primarySession)
 	switch {
 	case !ok:
 		trigger = "state_repair"

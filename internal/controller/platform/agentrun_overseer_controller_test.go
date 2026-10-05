@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
-	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	"github.com/gratefulagents/gratefulagents/internal/orchestration"
 	"github.com/gratefulagents/gratefulagents/internal/store"
 	corev1 "k8s.io/api/core/v1"
@@ -425,19 +424,12 @@ func newVerdictFixture(t *testing.T, verdict string, authority platformv1alpha1.
 	return reconciler, primary, standing, k8sClient, stateStore
 }
 
-func setOverseerInputResponse(t *testing.T, standing *platformv1alpha1.AgentRun, session *store.Session, actionID, response string, run ...*platformv1alpha1.AgentRun) string {
+func setOverseerInputResponse(t *testing.T, standing *platformv1alpha1.AgentRun, session *store.Session, actionID, response string) string {
 	t.Helper()
 	if strings.TrimSpace(session.PendingRequestID) == "" {
 		session.PendingRequestID = uuid.NewString()
 	}
 	request := orchestration.PendingUserInputForSession(session)
-	if len(run) > 0 {
-		var err error
-		request, err = pendingUserInputForRun(run[0], session)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
 	if request == nil {
 		t.Fatal("test session has no pending input request")
 	}
@@ -770,56 +762,6 @@ func TestAgentRunOverseerLegacyPlanApprovalStaysInCurrentMode(t *testing.T) {
 	}
 	if session.PendingInputType != "" || fresh.Status.OverseerSummary.InterventionsUsed != 1 {
 		t.Fatalf("plan approval did not complete: session=%#v summary=%#v", session, fresh.Status.OverseerSummary)
-	}
-}
-
-func TestAgentRunOverseerPreservesAdminMediatedMCPBoundary(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	reconciler, primary, standing, k8sClient, stateStore := newVerdictFixture(t, platformv1alpha1.OverseerVerdictResolveInput, platformv1alpha1.AgentRunOverseerAuthorityEnforce, platformv1alpha1.AgentRunPhaseWaitingApproval)
-	primary.Spec.MCPPolicyRef = &platformv1alpha1.NamedRef{Name: "locked-mcp"}
-	if primary.Annotations == nil {
-		primary.Annotations = map[string]string{}
-	}
-	request := mcppolicy.BreakGlassRequest{ID: "mcp-request-1", Server: "github", Tool: "delete_repository", Reason: "cleanup", RequestedAt: "2026-07-11T13:00:00Z"}
-	if err := mcppolicy.SetPendingRequest(primary.Annotations, request); err != nil {
-		t.Fatal(err)
-	}
-	if err := k8sClient.Update(ctx, primary); err != nil {
-		t.Fatal(err)
-	}
-	policy := &platformv1alpha1.MCPPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: "locked-mcp", Namespace: primary.Namespace},
-		Spec: platformv1alpha1.MCPPolicySpec{BreakGlass: &platformv1alpha1.MCPBreakGlass{
-			Enabled: true, RequireAuditReason: true, AdminMediated: true,
-		}},
-	}
-	if err := k8sClient.Create(ctx, policy); err != nil {
-		t.Fatal(err)
-	}
-	session := stateStore.sessions[overseerStoreKey(primary.Name, primary.Namespace)]
-	session.PendingInputType = string(platformv1alpha1.UserInputApproval)
-	session.PendingQuestion = "Approve privileged MCP access?"
-	session.PendingActions = json.RawMessage(`[{"id":"approve","label":"Approve"},{"id":"reject","label":"Reject"}]`)
-	setOverseerInputResponse(t, standing, session, "approve", "Needed for cleanup.", primary)
-
-	handled, wait, err := reconciler.routeCompletedCheckpoint(ctx, primary, standing)
-	if err != nil || !handled || wait {
-		t.Fatalf("routeCompletedCheckpoint() = (%v, %v, %v)", handled, wait, err)
-	}
-	fresh := &platformv1alpha1.AgentRun{}
-	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(primary), fresh); err != nil {
-		t.Fatal(err)
-	}
-	pending, err := mcppolicy.PendingRequest(fresh)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pending == nil || len(stateStore.messages[session.ID]) != 0 || session.PendingInputType == "" {
-		t.Fatalf("admin-mediated request was changed: pending=%#v session=%#v messages=%#v", pending, session, stateStore.messages[session.ID])
-	}
-	if fresh.Status.OverseerSummary.State != overseerStateEscalated || fresh.Status.OverseerSummary.InterventionsUsed != 0 {
-		t.Fatalf("admin-mediated status = %#v", fresh.Status.OverseerSummary)
 	}
 }
 

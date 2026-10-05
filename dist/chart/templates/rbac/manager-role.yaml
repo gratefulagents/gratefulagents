@@ -115,7 +115,6 @@ rules:
   - agentruns
   - agentrunteamruntimes
   - guardrailpolicies
-  - mcppolicies
   - mcpservers
   - modetemplates
   - roleinstructions

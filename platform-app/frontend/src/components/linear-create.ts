@@ -21,9 +21,6 @@ export type LinearCreateValues = {
   configureRuntimeProfile: boolean;
   permissionMode: string;
   egressMode: string;
-  configureMcpPolicy: boolean;
-  mcpPolicyDefaultAction: string;
-  mcpPolicyAllowedServers: string;
 };
 
 export const initialLinearCreateValues: LinearCreateValues = {
@@ -41,14 +38,7 @@ export const initialLinearCreateValues: LinearCreateValues = {
   configureRuntimeProfile: true,
   permissionMode: "workspace-write",
   egressMode: "restricted",
-  configureMcpPolicy: false,
-  mcpPolicyDefaultAction: "Deny",
-  mcpPolicyAllowedServers: "",
 };
-
-function csv(value: string): string[] {
-  return value.split(",").map((entry) => entry.trim()).filter(Boolean);
-}
 
 export function buildLinearCreateRequest(v: LinearCreateValues): CreateLinearProjectRequest {
   return create(CreateLinearProjectRequestSchema, {
@@ -70,9 +60,6 @@ export function buildLinearCreateRequest(v: LinearCreateValues): CreateLinearPro
       configureRuntimeProfile: v.configureRuntimeProfile,
       permissionMode: v.permissionMode,
       egressMode: v.egressMode,
-      configureMcpPolicy: v.configureMcpPolicy,
-      mcpPolicyDefaultAction: v.mcpPolicyDefaultAction,
-      mcpPolicyAllowedServers: csv(v.mcpPolicyAllowedServers),
     }),
   });
 }

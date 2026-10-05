@@ -663,7 +663,7 @@ function ProjectMaintainerSection({
 
 /**
  * Configuration facts: the daily-relevant ones inline, the plumbing
- * (runtime profile, MCP policy, custom instructions) behind a collapsible.
+ * (runtime profile, custom instructions) behind a collapsible.
  */
 function ProjectConfiguration({ project }: { project: Project }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -674,11 +674,6 @@ function ProjectConfiguration({ project }: { project: Project }) {
         project.runtimeProfileRef,
         project.permissionMode,
         project.egressMode,
-        project.mcpPolicyRef,
-        project.mcpPolicyDefaultAction,
-        project.mcpPolicyAllowedServers.length > 0
-          ? project.mcpPolicyAllowedServers.join(", ")
-          : "",
         project.allowedModels.length > 0 ? project.allowedModels.join(", ") : "",
         project.customInstructions,
       ].filter(Boolean).length,
@@ -745,9 +740,6 @@ function ProjectConfiguration({ project }: { project: Project }) {
             <Fact label="RuntimeProfile" value={project.runtimeProfileRef} mono />
             <Fact label="Permission mode" value={project.permissionMode} mono />
             <Fact label="Network egress" value={project.egressMode} mono />
-            <Fact label="MCPPolicy" value={project.mcpPolicyRef} mono />
-            <Fact label="MCP default" value={project.mcpPolicyDefaultAction} mono />
-            <Fact label="MCP servers" value={project.mcpPolicyAllowedServers.join(", ")} mono />
             <Fact label="Custom instructions" value={project.customInstructions} wrap />
           </FactList>
         </CollapsibleContent>

@@ -191,7 +191,7 @@ func (s *Server) projectProto(ctx context.Context, p *triggersv1alpha1.Project, 
 func (s *Server) linearProjectProto(ctx context.Context, lp *triggersv1alpha1.LinearProject, metrics map[resourceMetricsKey]*platform.ProjectMetrics) *platform.LinearProject {
 	pb := k8sLinearProjectToProto(lp)
 	pb.Metrics = resourceMetrics(metrics, lp.Namespace, "LinearProject", lp.Name)
-	pb.PermissionMode, pb.EgressMode, pb.McpPolicyDefaultAction, pb.McpPolicyAllowedServers =
+	pb.PermissionMode, pb.EgressMode =
 		s.resolveTriggerPolicyModes(ctx, lp.Namespace, lp.Spec.Defaults)
 	return pb
 }
@@ -199,10 +199,10 @@ func (s *Server) linearProjectProto(ctx context.Context, lp *triggersv1alpha1.Li
 func (s *Server) githubRepositoryProto(ctx context.Context, gh *triggersv1alpha1.GitHubRepository, metrics map[resourceMetricsKey]*platform.ProjectMetrics) *platform.GitHubRepository {
 	pb := k8sGitHubRepositoryToProto(gh)
 	pb.Metrics = resourceMetrics(metrics, gh.Namespace, "GitHubRepository", gh.Name)
-	pb.PermissionMode, pb.EgressMode, pb.McpPolicyDefaultAction, pb.McpPolicyAllowedServers =
+	pb.PermissionMode, pb.EgressMode =
 		s.resolveTriggerPolicyModes(ctx, gh.Namespace, gh.Spec.Defaults)
 	if gh.Spec.ReviewLoop != nil && gh.Spec.ReviewLoop.ReviewerDefaults != nil {
-		pb.ReviewerPermissionMode, pb.ReviewerEgressMode, pb.ReviewerMcpPolicyDefaultAction, pb.ReviewerMcpPolicyAllowedServers =
+		pb.ReviewerPermissionMode, pb.ReviewerEgressMode =
 			s.resolveTriggerPolicyModes(ctx, gh.Namespace, *gh.Spec.ReviewLoop.ReviewerDefaults)
 	}
 	return pb
@@ -211,7 +211,7 @@ func (s *Server) githubRepositoryProto(ctx context.Context, gh *triggersv1alpha1
 func (s *Server) cronProto(ctx context.Context, cr *triggersv1alpha1.Cron, metrics map[resourceMetricsKey]*platform.ProjectMetrics) *platform.Cron {
 	pb := k8sCronToProto(cr)
 	pb.Metrics = resourceMetrics(metrics, cr.Namespace, "Cron", cr.Name)
-	pb.PermissionMode, pb.EgressMode, pb.McpPolicyDefaultAction, pb.McpPolicyAllowedServers =
+	pb.PermissionMode, pb.EgressMode =
 		s.resolveTriggerPolicyModes(ctx, cr.Namespace, cr.Spec.Defaults)
 	return pb
 }

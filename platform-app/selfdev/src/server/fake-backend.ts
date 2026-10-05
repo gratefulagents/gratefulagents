@@ -487,11 +487,6 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
         credentials: s.credentials,
       });
     },
-    getMySoul: async () => s.soul,
-    updateMySoul: async (req: { content: string }) => {
-      s.soul.content = req.content;
-      return s.soul;
-    },
     getMyGitIdentity: async () => s.gitIdentity,
     updateMyGitIdentity: async (req: { name: string; email: string }) => {
       s.gitIdentity.name = req.name;

@@ -40,7 +40,7 @@ The connection must be a Linear connection in the same namespace as the Project.
 | **Team ID** | Yes | Linear team identifier. |
 | **Project ID** | Yes | Linear project identifier. |
 
-The Entry point inherits the Project's repository, provider and credentials, runtime, Skills, policies, and custom instructions. It does not have separate Linear instructions or run defaults. Configure shared guidance in **Project → Settings → Advanced → Custom instructions**.
+The Entry point inherits the Project's repository, provider and credentials, runtime, Skills, and custom instructions. It does not have separate Linear instructions or run defaults. Configure shared guidance in **Project → Settings → Advanced → Custom instructions**.
 
 ## Current intake behavior
 

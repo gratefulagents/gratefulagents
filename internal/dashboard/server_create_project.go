@@ -170,24 +170,6 @@ func (s *Server) CreateProject(ctx context.Context, req *platform.CreateProjectR
 		}
 		return nil, err
 	}
-	mcpPolicyRef, mcpPolicyCreated, err := s.applyConfiguredMCPPolicy(
-		ctx,
-		namespace,
-		projectMCPPolicyName(name),
-		req.GetConfigureMcpPolicy(),
-		req.GetMcpPolicyRef(),
-		req.GetMcpPolicyDefaultAction(),
-		req.GetMcpPolicyAllowedServers(),
-	)
-	if err != nil {
-		if runtimeProfileCreated {
-			s.cleanupRuntimeProfile(ctx, namespace, runtimeProfileRef.Name)
-		}
-		if secret != nil {
-			s.cleanupProjectCredentialSecret(ctx, namespace, secretName)
-		}
-		return nil, err
-	}
 
 	reviewLoopDisabled := true
 	if req.ReviewLoopDisabled != nil {
@@ -230,7 +212,6 @@ func (s *Server) CreateProject(ctx context.Context, req *platform.CreateProjectR
 				ReasoningLevel:     reasoningLevel,
 				ModeRef:            modeRef,
 				RuntimeProfileRef:  runtimeProfileRef,
-				MCPPolicyRef:       mcpPolicyRef,
 				MCPServerRefs:      namedRefsFromNames(req.GetMcpServerRefs()),
 				SkillRefs:          namedRefsFromNames(req.GetSkillRefs()),
 			},
@@ -243,9 +224,6 @@ func (s *Server) CreateProject(ctx context.Context, req *platform.CreateProjectR
 	if err := s.k8sClient.Create(ctx, project); err != nil {
 		if runtimeProfileCreated {
 			s.cleanupRuntimeProfile(ctx, namespace, runtimeProfileRef.Name)
-		}
-		if mcpPolicyCreated {
-			s.cleanupMCPPolicy(ctx, namespace, mcpPolicyRef.Name)
 		}
 		if secret != nil {
 			s.cleanupProjectCredentialSecret(ctx, namespace, secretName)
@@ -265,9 +243,6 @@ func (s *Server) CreateProject(ctx context.Context, req *platform.CreateProjectR
 			_ = s.k8sClient.Delete(ctx, project)
 			if runtimeProfileCreated {
 				s.cleanupRuntimeProfile(ctx, namespace, runtimeProfileRef.Name)
-			}
-			if mcpPolicyCreated {
-				s.cleanupMCPPolicy(ctx, namespace, mcpPolicyRef.Name)
 			}
 			if secret != nil {
 				s.cleanupProjectCredentialSecret(ctx, namespace, secretName)
@@ -297,14 +272,5 @@ func (s *Server) cleanupRuntimeProfile(ctx context.Context, namespace, name stri
 	}
 	if cleanupErr := s.k8sClient.Delete(ctx, &platformv1alpha1.RuntimeProfile{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}); cleanupErr != nil && !k8serrors.IsNotFound(cleanupErr) {
 		log.Printf("WARN: failed to clean up RuntimeProfile %s/%s: %v", namespace, name, cleanupErr)
-	}
-}
-
-func (s *Server) cleanupMCPPolicy(ctx context.Context, namespace, name string) {
-	if strings.TrimSpace(name) == "" {
-		return
-	}
-	if cleanupErr := s.k8sClient.Delete(ctx, &platformv1alpha1.MCPPolicy{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}); cleanupErr != nil && !k8serrors.IsNotFound(cleanupErr) {
-		log.Printf("WARN: failed to clean up MCPPolicy %s/%s: %v", namespace, name, cleanupErr)
 	}
 }
