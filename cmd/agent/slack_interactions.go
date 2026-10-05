@@ -35,7 +35,7 @@ func (o *slackOrchestrator) handleBlockAction(ctx context.Context, callback slac
 		return
 	}
 	action := actions[0]
-	if strings.HasPrefix(action.ActionID, "slack_ops_") {
+	if internalslack.IsOperationalAction(action.ActionID) {
 		o.handleOperationalAction(ctx, callback)
 		return
 	}
@@ -155,7 +155,7 @@ func (o *slackOrchestrator) postApprovedChannelReply(
 
 // handleViewSubmission routes a modal submit by its callback ID.
 func (o *slackOrchestrator) handleViewSubmission(ctx context.Context, callback slackgo.InteractionCallback) {
-	if strings.HasPrefix(callback.View.CallbackID, "slack_ops_") {
+	if internalslack.IsOperationalAction(callback.View.CallbackID) {
 		o.handleOperationalSubmission(ctx, callback)
 		return
 	}

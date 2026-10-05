@@ -57,7 +57,7 @@ func TestSlackMonitorChecks(t *testing.T) {
 				t.Fatalf("checks=%s want %s", got, tt.want)
 			}
 			for _, notice := range slackMonitorNotices(m) {
-				if strings.Contains(notice.text, "Checks completed") && tt.want != "success" &&
+				if strings.HasSuffix(notice.key, "-checks") && tt.want != "success" &&
 					tt.want != "failure" {
 					t.Fatal("notified incomplete checks")
 				}

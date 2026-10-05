@@ -408,19 +408,41 @@ func (b *workspaceSlackBackend) hintOnboarding(ctx context.Context, msg internal
 	}
 }
 
-func (b *workspaceSlackBackend) handleInteraction(ctx context.Context, callback slackgo.InteractionCallback) {
+// memberForInteraction resolves the member an interaction belongs to: the
+// acting user's own agent, or — for the App Home run controls only — the
+// single member agent they are a commander of. Ambiguous commanders resolve to
+// nil, so with one shared bot nothing is operated on a guess.
+func (b *workspaceSlackBackend) memberForInteraction(callback slackgo.InteractionCallback) *workspaceMember {
 	member := b.memberByUser(callback.User.ID)
-	isOperational := strings.HasPrefix(callback.View.CallbackID, "slack_ops_")
+	if member != nil {
+		return member
+	}
+	isOperational := internalslack.IsOperationalAction(callback.View.CallbackID)
 	if actions := callback.ActionCallback.BlockActions; len(actions) > 0 {
-		isOperational = isOperational || strings.HasPrefix(actions[0].ActionID, "slack_ops_")
+		isOperational = isOperational || internalslack.IsOperationalAction(actions[0].ActionID)
 	}
-	if member == nil && isOperational {
-		member = b.memberForCommander(callback.User.ID)
+	if !isOperational {
+		return nil
 	}
+	return b.memberForCommander(callback.User.ID)
+}
+
+func (b *workspaceSlackBackend) handleInteraction(ctx context.Context, callback slackgo.InteractionCallback) {
+	member := b.memberForInteraction(callback)
 	if member == nil || member.orch == nil {
 		return
 	}
 	member.orch.handleInteraction(member.ctx, callback)
+}
+
+func (b *workspaceSlackBackend) validateViewSubmission(
+	ctx context.Context, callback slackgo.InteractionCallback,
+) map[string]string {
+	member := b.memberForInteraction(callback)
+	if member == nil || member.orch == nil {
+		return nil
+	}
+	return member.orch.validateOperationalSubmission(ctx, callback)
 }
 
 func (b *workspaceSlackBackend) handleAssistantStarted(

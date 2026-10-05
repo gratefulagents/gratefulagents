@@ -272,6 +272,10 @@ type slackBackend interface {
 	handleMessage(ctx context.Context, msg internalslack.InboundMessage)
 	// handleInteraction dispatches a Block Kit interaction to its owner.
 	handleInteraction(ctx context.Context, callback slackgo.InteractionCallback)
+	// validateViewSubmission checks a modal submission synchronously, before
+	// the Socket Mode ack, and returns field errors keyed by input block ID
+	// for Slack to render inline. Empty means accept and dispatch it.
+	validateViewSubmission(ctx context.Context, callback slackgo.InteractionCallback) map[string]string
 	// handleAssistantStarted greets a user who opened the assistant pane.
 	handleAssistantStarted(ctx context.Context, e *slackevents.AssistantThreadStartedEvent)
 	// handleAssistantContextChanged tracks the channel a user is viewing.
@@ -415,6 +419,15 @@ func (c *slackConnector) handleSocketEvent(ctx context.Context, sm *socketmode.C
 		c.dispatchAsync(ctx, func() { c.handleEventsAPI(ctx, evt) })
 	case socketmode.EventTypeInteractive:
 		if evt.Request != nil {
+			// A modal submission is the one interaction whose ack carries a
+			// response: field errors keep the modal open with the problem shown
+			// under the input, which beats a DM that arrives after it closed.
+			if fieldErrors := c.rejectViewSubmission(ctx, evt); len(fieldErrors) > 0 {
+				if err := sm.Ack(*evt.Request, viewSubmissionErrors(fieldErrors)); err != nil {
+					log.Printf("WARN: ack %s envelope=%s: %v", evt.Type, evt.Request.EnvelopeID, err)
+				}
+				return
+			}
 			if err := sm.Ack(*evt.Request); err != nil {
 				log.Printf("WARN: ack %s envelope=%s: %v", evt.Type, evt.Request.EnvelopeID, err)
 			}
@@ -429,6 +442,29 @@ func (c *slackConnector) handleSocketEvent(ctx context.Context, sm *socketmode.C
 	default:
 		// Ignore other internal event types.
 	}
+}
+
+// viewSubmissionAckTimeout bounds synchronous modal validation so the ack
+// always lands inside Slack's three-second window.
+const viewSubmissionAckTimeout = 2 * time.Second
+
+// rejectViewSubmission runs the backend's synchronous validation for a modal
+// submission and returns the field errors to send with the ack. Any other
+// interaction, or a submission from a foreign team, returns nil.
+func (c *slackConnector) rejectViewSubmission(ctx context.Context, evt socketmode.Event) map[string]string {
+	callback, ok := evt.Data.(slackgo.InteractionCallback)
+	if !ok || callback.Type != slackgo.InteractionTypeViewSubmission || !c.backend.allowTeam(callback.Team.ID) {
+		return nil
+	}
+	validateCtx, cancel := context.WithTimeout(ctx, viewSubmissionAckTimeout)
+	defer cancel()
+	return c.backend.validateViewSubmission(validateCtx, callback)
+}
+
+// viewSubmissionErrors is the view_submission ack payload that keeps the modal
+// open and renders one error under each named input block.
+func viewSubmissionErrors(fieldErrors map[string]string) map[string]any {
+	return map[string]any{"response_action": "errors", "errors": fieldErrors}
 }
 
 // handleInteractive dispatches Block Kit interactions (draft approve/dismiss).

@@ -162,7 +162,10 @@ func TestSlackHomePrivacyAndControls(t *testing.T) {
 	}
 }
 
-type slackResumeStore struct{ workspaceSnapshotMetadataStore }
+type slackResumeStore struct {
+	workspaceSnapshotMetadataStore
+	appended []string
+}
 
 func (s *slackResumeStore) GetMessages(context.Context, uuid.UUID) ([]store.Message, error) {
 	return nil, nil
@@ -174,6 +177,7 @@ func (s *slackResumeStore) AppendMessage(
 	role, content string,
 	_ json.RawMessage,
 ) (*store.Message, error) {
+	s.appended = append(s.appended, content)
 	return &store.Message{Role: role, Content: content}, nil
 }
 
@@ -446,5 +450,104 @@ func TestSlackHomeApprovalsAreNamespaceScopedAndOwnerOnly(t *testing.T) {
 	o.operationalHomeBlocks(context.Background(), "UCMD")
 	if recorder.args != nil {
 		t.Fatal("commander could query owner approvals")
+	}
+}
+
+func TestSlackHomeRendersRunDetailsAndPullRequests(t *testing.T) {
+	run := operationalTestRun()
+	run.Status.Phase = platformv1alpha1.AgentRunPhaseRunning
+	m := operationalTestMonitor()
+	m.Status.Title = "Fix login"
+	o, f := operationalTestOrchestrator(t, run, m)
+	o.handleAppHome(context.Background(), "UCMD")
+	view := f.form[0].Get("view")
+	for _, want := range []string{
+		"`acme/one`", "`main`", "acme/one#1 — Fix login", "checks passed", "Stop this run?",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("Home missing %q: %s", want, view)
+		}
+	}
+	if strings.Contains(view, "waiting for your approval") {
+		t.Error("commander Home must not show the owner's approval backlog")
+	}
+}
+
+func TestSlackValidateOperationalSubmissionReportsFieldErrorsInline(t *testing.T) {
+	agent := &triggersv1alpha1.SlackAgent{ObjectMeta: metav1.ObjectMeta{Name: "me", Namespace: "ns"}}
+	agent.Spec.Defaults = triggersv1alpha1.AgentRunDefaults{RepoURL: "https://github.com/acme/one", BaseBranch: "main"}
+	o, f := operationalTestOrchestrator(t, agent)
+	ctx := context.Background()
+
+	bad := operationalSubmission("UOWNER", internalslack.CallbackRunStart, "ns/me",
+		"https://github.com/private/other", "../bad", "")
+	errs := o.validateOperationalSubmission(ctx, bad)
+	for _, block := range []string{
+		internalslack.BlockRunRepository, internalslack.BlockRunBranch, internalslack.BlockRunTask,
+	} {
+		if errs[block] == "" {
+			t.Errorf("missing inline error for %s: %v", block, errs)
+		}
+	}
+	if len(f.methods()) != 0 {
+		t.Fatal("validation must not call Slack")
+	}
+
+	good := operationalSubmission("UOWNER", internalslack.CallbackRunStart, "ns/me",
+		agent.Spec.Defaults.RepoURL, "release/v2", "do work")
+	if errs := o.validateOperationalSubmission(ctx, good); len(errs) != 0 {
+		t.Fatalf("valid submission rejected: %v", errs)
+	}
+	for _, skipped := range []slackgo.InteractionCallback{
+		operationalSubmission("stranger", internalslack.CallbackRunStart, "ns/me", "", "../bad", ""),
+		operationalSubmission("UOWNER", internalslack.CallbackRunStart, "ns/other", "", "../bad", ""),
+		operationalSubmission("UOWNER", internalslack.CallbackRunResume, "ns/me/run-one", "", "../bad", ""),
+	} {
+		if errs := o.validateOperationalSubmission(ctx, skipped); len(errs) != 0 {
+			t.Fatalf("validation leaked to an unbound submission: %v", errs)
+		}
+	}
+	payload := viewSubmissionErrors(map[string]string{internalslack.BlockRunBranch: "bad"})
+	raw, _ := json.Marshal(payload)
+	if string(raw) != `{"errors":{"ops_branch":"bad"},"response_action":"errors"}` {
+		t.Fatalf("ack payload = %s", raw)
+	}
+}
+
+func TestSlackUIResumeBlankInstructionsUsesMessageFreeWake(t *testing.T) {
+	run := operationalTestRun()
+	run.Status.Phase = platformv1alpha1.AgentRunPhaseFailed
+	o, f := operationalTestOrchestrator(t, run)
+	resumeStore := &slackResumeStore{
+		workspaceSnapshotMetadataStore: workspaceSnapshotMetadataStore{
+			session: &store.Session{ID: uuid.New()},
+		},
+	}
+	o.store = resumeStore
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	o.handleInteraction(ctx, operationalSubmission(
+		"UCMD", internalslack.CallbackRunResume, "ns/me/run-one", "", "", "   "))
+	got := &platformv1alpha1.AgentRun{}
+	if err := o.crdClient.Get(context.Background(), client.ObjectKeyFromObject(run), got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.WakeRequests != 1 {
+		t.Fatalf("wakeRequests = %d, want 1", got.Spec.WakeRequests)
+	}
+	if len(resumeStore.appended) != 0 {
+		t.Fatalf("blank resume queued a synthetic user message: %v", resumeStore.appended)
+	}
+	if !strings.Contains(string(resumeStore.session.Metadata), "resume_request") {
+		t.Fatalf("blank resume did not record a resume request: %s", resumeStore.session.Metadata)
+	}
+	var confirmed bool
+	for i, method := range f.calls {
+		if method == "chat.postMessage" && strings.Contains(f.form[i].Get("text"), "continuing the previous task") {
+			confirmed = true
+		}
+	}
+	if !confirmed {
+		t.Fatalf("missing resume confirmation: %v", f.methods())
 	}
 }

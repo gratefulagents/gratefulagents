@@ -726,7 +726,7 @@ export function SlackAgentSettings({
 
       <FormSection
         title="App Home tab"
-        description="Introductory copy visible to everyone who opens the app. Owners and commanders also see their agent’s runs, PR/check status, and stop/resume controls. Pending approval counts are owner-only."
+        description="The header and info line everyone in the workspace sees when they open the app. You and your commanders also get the run controls below it: New Run, Stop and Resume per run, PR and check status, and (for you only) the count of replies waiting for approval."
       >
         <Field
           id="slack-app-home-header"
