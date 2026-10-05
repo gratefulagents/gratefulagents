@@ -263,6 +263,8 @@ function InspectorBody({
   tabs,
   activeTab,
   onTabChange,
+  debug,
+  onDebugChange,
   onClose,
   persistent,
   children,
@@ -270,6 +272,8 @@ function InspectorBody({
   tabs: InspectorTabDef[];
   activeTab: InspectorTab;
   onTabChange: (tab: InspectorTab) => void;
+  debug: boolean;
+  onDebugChange: (debug: boolean) => void;
   onClose: () => void;
   persistent?: ReactNode;
   children: ReactNode;
@@ -292,6 +296,15 @@ function InspectorBody({
           tabId={tabId}
           panelId={panelId}
         />
+        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={debug}
+            onChange={(event) => onDebugChange(event.target.checked)}
+            className="size-3.5 shrink-0 accent-primary"
+          />
+          Debug
+        </label>
         <Button
           type="button"
           variant="ghost"
@@ -340,6 +353,8 @@ export function RunInspector({
   tabs,
   activeTab,
   onTabChange,
+  debug,
+  onDebugChange,
   persistent,
   children,
 }: {
@@ -349,6 +364,8 @@ export function RunInspector({
   tabs: InspectorTabDef[];
   activeTab: InspectorTab;
   onTabChange: (tab: InspectorTab) => void;
+  debug: boolean;
+  onDebugChange: (debug: boolean) => void;
   /**
    * Panes that must survive tab switches (zoom, selection, scroll). They stay
    * mounted and toggle their own `hidden`; `children` is the pane that only
@@ -362,6 +379,8 @@ export function RunInspector({
       tabs={tabs}
       activeTab={activeTab}
       onTabChange={onTabChange}
+      debug={debug}
+      onDebugChange={onDebugChange}
       onClose={() => onOpenChange(false)}
       persistent={persistent}
     >

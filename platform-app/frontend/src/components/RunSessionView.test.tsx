@@ -6,6 +6,9 @@ import { MemoryRouter } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 
 import { AgentRunSchema } from "@/rpc/platform/service_pb";
+import { useAgentRunErrors } from "@/hooks/useAgentRunErrors";
+import { useAgentRunLogs } from "@/hooks/useAgentRunLogs";
+import { useAgentTrace } from "@/hooks/useAgentTrace";
 import { RunSessionView } from "./RunSessionView";
 
 const run = create(AgentRunSchema, {
@@ -55,9 +58,9 @@ vi.mock("@/hooks/useRunActivityLog", () => ({
   }),
 }));
 vi.mock("@/hooks/useActivityEntryDetail", () => ({ useActivityEntryDetail: () => vi.fn() }));
-vi.mock("@/hooks/useAgentRunErrors", () => ({ useAgentRunErrors: () => runErrors }));
+vi.mock("@/hooks/useAgentRunErrors", () => ({ useAgentRunErrors: vi.fn(() => runErrors) }));
 vi.mock("@/hooks/useAgentRunLogs", () => ({
-  useAgentRunLogs: () => ({
+  useAgentRunLogs: vi.fn(() => ({
     content: "",
     podName: "",
     available: false,
@@ -66,9 +69,9 @@ vi.mock("@/hooks/useAgentRunLogs", () => ({
     error: null,
     lastUpdated: null,
     refresh: vi.fn(),
-  }),
+  })),
 }));
-vi.mock("@/hooks/useAgentTrace", () => ({ useAgentTrace: () => ({ trace: null, loading: false, error: null }) }));
+vi.mock("@/hooks/useAgentTrace", () => ({ useAgentTrace: vi.fn(() => ({ trace: null, loading: false, error: null })) }));
 vi.mock("@/hooks/useDiff", () => ({
   useDiff: () => ({
     diff: "",
@@ -103,6 +106,7 @@ function renderView() {
 beforeEach(() => {
   localStorage.clear();
   runErrors.errors = [];
+  run.traceId = "trace-1";
   // Wide viewport so the inspector docks instead of opening as a sheet.
   window.matchMedia = vi.fn((query: string) => ({
     matches: query.includes("min-width"),
@@ -119,6 +123,63 @@ afterEach(() => {
 });
 
 describe("RunSessionView inspector", () => {
+  it.each(["logs", "errors", "trace"])("gates %s and its stream behind Debug, including a stored selection", (tab) => {
+    localStorage.setItem("gratefulagents.inspectorOpen", "true");
+    localStorage.setItem("gratefulagents.inspectorTab", tab);
+    renderView();
+    const checkbox = screen.getByRole<HTMLInputElement>("checkbox", { name: "Debug" });
+    const expectStreams = (active?: string) => {
+      expect(useAgentRunLogs).toHaveBeenLastCalledWith("demo", "run-1", "Running", { enabled: active === "logs" });
+      expect(useAgentRunErrors).toHaveBeenLastCalledWith("demo", "run-1", "Running", { enabled: active === "errors" });
+      expect(useAgentTrace).toHaveBeenLastCalledWith("demo", "run-1", "trace-1", "Running", { enabled: active === "trace" });
+    };
+    expect(checkbox.checked).toBe(false);
+    for (const name of ["Logs", "Errors", "Trace"]) {
+      expect(screen.queryByRole("tab", { name })).toBeNull();
+    }
+    expect(screen.getByRole("tab", { name: "Changes" }).getAttribute("aria-selected")).toBe("true");
+    expectStreams();
+
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(true);
+    for (const name of ["Logs", "Errors", "Trace"]) {
+      expect(screen.getByRole("tab", { name })).toBeTruthy();
+    }
+    expectStreams(tab);
+
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(false);
+    for (const name of ["Logs", "Errors", "Trace"]) {
+      expect(screen.queryByRole("tab", { name })).toBeNull();
+    }
+    expect(screen.getByRole("tab", { name: "Changes" }).getAttribute("aria-selected")).toBe("true");
+    expectStreams();
+  });
+
+  it("keeps Trace unavailable without a trace ID even with Debug checked", () => {
+    run.traceId = "";
+    localStorage.setItem("gratefulagents.inspectorOpen", "true");
+    renderView();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Debug" }));
+    expect(screen.getByRole("tab", { name: "Logs" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Errors" })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Trace" })).toBeNull();
+  });
+
+  it("uses only available tabs for numbered shortcuts as Debug changes", () => {
+    localStorage.setItem("gratefulagents.inspectorOpen", "true");
+    renderView();
+    const selectThird = () => fireEvent.keyDown(window, { key: "#", code: "Digit3", metaKey: true, shiftKey: true });
+    selectThird();
+    expect(screen.getByRole("tab", { name: "Context" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Debug" }));
+    selectThird();
+    expect(screen.getByRole("tab", { name: "Logs" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Debug" }));
+    selectThird();
+    expect(screen.getByRole("tab", { name: "Context" }).getAttribute("aria-selected")).toBe("true");
+  });
+
   it("places Computer outside Chat and preserves its controller across tabs and inspector closure", async () => {
     renderView();
     expect(screen.queryByRole("button", { name: /Desktop state/ })).toBeNull();
@@ -155,6 +216,7 @@ describe("RunSessionView inspector", () => {
     localStorage.setItem("gratefulagents.inspectorOpen", "true");
     renderView();
     expect(screen.getByRole("tab", { name: /Context/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Debug" }));
     expect(screen.getByRole("tab", { name: /Errors/ }).textContent).toContain("2");
     expect(screen.getByRole("button", { name: "Hide inspector" })).toBeTruthy();
   });

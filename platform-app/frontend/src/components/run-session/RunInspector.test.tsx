@@ -19,6 +19,7 @@ const tabs: InspectorTabDef[] = [
 function renderInspector(overrides: Partial<Parameters<typeof RunInspector>[0]> = {}) {
   const onTabChange = vi.fn();
   const onOpenChange = vi.fn();
+  const onDebugChange = vi.fn();
   render(
     <RunInspector
       split
@@ -27,12 +28,14 @@ function renderInspector(overrides: Partial<Parameters<typeof RunInspector>[0]> 
       tabs={tabs}
       activeTab="diff"
       onTabChange={onTabChange}
+      debug={false}
+      onDebugChange={onDebugChange}
       {...overrides}
     >
       <div>pane content</div>
     </RunInspector>,
   );
-  return { onTabChange, onOpenChange };
+  return { onTabChange, onOpenChange, onDebugChange };
 }
 
 afterEach(cleanup);
@@ -85,6 +88,20 @@ describe("inspectorShortcut", () => {
 });
 
 describe("RunInspector", () => {
+  it.each([false, true])("renders a controlled Debug checkbox outside the tabs (checked=%s)", (debug) => {
+    const { onDebugChange } = renderInspector({ debug });
+    const checkbox = screen.getByRole<HTMLInputElement>("checkbox", { name: "Debug" });
+    const tablist = screen.getByRole("tablist");
+    const label = checkbox.closest("label");
+    expect(checkbox.checked).toBe(debug);
+    expect(tablist.contains(checkbox)).toBe(false);
+    expect(tablist.nextElementSibling).toBe(label);
+    expect(label?.nextElementSibling).toBe(screen.getByRole("button", { name: "Close inspector" }));
+    fireEvent.click(checkbox);
+    expect(onDebugChange).toHaveBeenCalledWith(!debug);
+    expect(checkbox.checked).toBe(debug);
+  });
+
   it("renders one tab per section and marks the active one", () => {
     renderInspector();
     expect(screen.getByRole("tab", { name: /Changes/ }).getAttribute("aria-selected")).toBe("true");
@@ -138,6 +155,8 @@ describe("RunInspector", () => {
         tabs={tabs}
         activeTab="logs"
         onTabChange={vi.fn()}
+        debug
+        onDebugChange={vi.fn()}
         persistent={<div hidden>graph pane</div>}
       >
         <div>logs pane</div>

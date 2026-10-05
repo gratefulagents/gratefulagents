@@ -235,6 +235,7 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
     }
     return "diff";
   });
+  const [debug, setDebug] = useState(false);
   const splitViewport = useSplitViewport();
   const [computerPanel, setComputerPanel] = useState<HTMLDivElement | null>(null);
   const [computerShortcut, setComputerShortcut] = useState<HTMLDivElement | null>(null);
@@ -296,13 +297,12 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
       "diff",
       ...(hasPullRequestTab ? (["pr"] as const) : []),
       "graph",
-      "logs",
-      "errors",
-      ...(run?.traceId ? (["trace"] as const) : []),
+      ...(debug ? (["logs", "errors"] as const) : []),
+      ...(debug && run?.traceId ? (["trace"] as const) : []),
       "context",
       ...(isTauri ? (["computer"] as const) : []),
     ],
-    [hasPullRequestTab, run?.traceId],
+    [debug, hasPullRequestTab, run?.traceId],
   );
   const activeInspectorTab: InspectorTab = availableInspectorTabs.includes(inspectorTab)
     ? inspectorTab
@@ -1534,6 +1534,8 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
                   tabs={inspectorTabs}
                   activeTab={activeInspectorTab}
                   onTabChange={setInspectorTab}
+                  debug={debug}
+                  onDebugChange={setDebug}
                   persistent={persistentPanes}
                 >
                   {inspectorPane}
@@ -1553,6 +1555,8 @@ export function RunSessionView({ namespace, name }: { namespace: string; name: s
               tabs={inspectorTabs}
               activeTab={activeInspectorTab}
               onTabChange={setInspectorTab}
+              debug={debug}
+              onDebugChange={setDebug}
               persistent={persistentPanes}
             >
               {inspectorPane}
