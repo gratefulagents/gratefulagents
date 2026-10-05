@@ -235,6 +235,7 @@ type userTurn struct {
 	// termination cut short (see transcriptState.resumePending).
 	resumingInterrupted bool
 	firstPass           bool
+	resume              *sessionclient.ResumeRequest
 	// claimPending is true while the driving message's claim is not yet
 	// completed, i.e. a replacement pod would receive it again.
 	claimPending  bool
@@ -812,9 +813,15 @@ func (r *chatRuntime) restore(ctx context.Context) *runResult {
 		// A graceful exit already enqueued its continuation; only a crash
 		// (OOM, SIGKILL) leaves an active autonomous turn with nothing queued.
 		if startupErr == nil && len(withoutStoppedMessage(startupMessages, r.stoppedMessageID)) == 0 {
-			log.Printf("Autonomous turn was interrupted by a crash — resuming it")
-			r.enqueueContinuation(ctx, &userTurn{})
-			startupMessages, startupErr = sc.PeekForUserMessages(ctx)
+			resume, err := sc.PendingResume(ctx)
+			if err != nil {
+				return &runResult{Status: "failed", Error: fmt.Sprintf("reading resume request: %v", err)}
+			}
+			if resume == nil {
+				log.Printf("Autonomous turn was interrupted by a crash — resuming it")
+				r.enqueueContinuation(ctx, &userTurn{})
+				startupMessages, startupErr = sc.PeekForUserMessages(ctx)
+			}
 		}
 	}
 	if shouldPublishStartupIdle(resumeSession, resumeErr, startupMessages, startupErr) {
@@ -898,6 +905,61 @@ func (r *chatRuntime) nextUserTurn(ctx context.Context) (*userTurn, *runResult) 
 			return nil, &runResult{Status: "failed", Error: fmt.Sprintf("waiting for user reply: %v", err)}
 		}
 	}
+	resumeClaimed := false
+	if next.Resume != nil {
+		state, err := sc.ReadWorkingState(ctx)
+		if err != nil {
+			return nil, &runResult{Status: "failed", Error: fmt.Sprintf("reading resumed working state: %v", err)}
+		}
+		messages, err := sc.StateStore().GetMessages(ctx, sc.SessionID())
+		if err != nil {
+			return nil, &runResult{Status: "failed", Error: fmt.Sprintf("loading resumed user request: %v", err)}
+		}
+		next.ID = state.DurableRunMessageID
+		if next.ID == 0 {
+			for _, message := range messages {
+				if message.Role == "user" && message.DeliveryState != "pending" && message.DeliveryState != "cancelled" && message.ID > next.ID {
+					next.ID = message.ID
+				}
+			}
+		}
+		if next.ID == 0 {
+			// No interrupted work: leave the original queued request untouched.
+			if err := sc.AcknowledgeResume(ctx, next.Resume); err != nil {
+				return nil, &runResult{Status: "failed", Error: fmt.Sprintf("acknowledging empty resume: %v", err)}
+			}
+			return nil, nil
+		}
+		for _, message := range messages {
+			if message.ID == next.ID && message.DeliveryState == "pending" {
+				_, won, err := claimUserMessageWithRetry(ctx, sc, sessionclient.UserMessage{Message: message})
+				if err != nil {
+					return nil, &runResult{Status: "failed", Error: fmt.Sprintf("claiming resumed request: %v", err)}
+				}
+				if !won {
+					return nil, nil
+				}
+				resumeClaimed = true
+			}
+		}
+		if err := sc.UpdateWorkingState(ctx, func(state *sessionclient.WorkingState) error {
+			// Reserve once per retry so a crash reopens the same SDK pass.
+			if state.PreparedResumeID != next.Resume.ID {
+				state.DurableRunNextPass++
+				state.DurableRunMessageID = next.ID
+				state.DurableRunPass = state.DurableRunNextPass
+				state.PreparedResumeID = next.Resume.ID
+			}
+			state.AutonomousTurnActive = true
+			return nil
+		}); err != nil {
+			return nil, &runResult{Status: "failed", Error: fmt.Sprintf("preparing resumed turn: %v", err)}
+		}
+		r.autonomousTurnMarked = true
+		next.Content = "Continue the previous work from where it stopped."
+		next.CreatedAt = next.Resume.RequestedAt
+		next.Metadata, _ = json.Marshal(map[string]string{"pending_request_id": next.Resume.PendingRequestID})
+	}
 	reply := strings.TrimSpace(next.Content)
 	if reply != standingBudgetRolloverPrompt {
 		r.standingRollovers = 0
@@ -937,19 +999,28 @@ func (r *chatRuntime) nextUserTurn(ctx context.Context) (*userTurn, *runResult) 
 		log.Printf("WARN: failed to drain pending stop requests: %v", interruptErr)
 	}
 	if interruptAppliesToMessage(interrupt, next.CreatedAt) {
-		return nil, r.parkAfterStop(ctx, next.ID,
+		exit := r.parkAfterStop(ctx, next.ID,
 			"Stopped by user before the replacement runtime started the turn.",
 			"Stopped by user before the replacement runtime started the turn — continuing with the next queued message.")
+		if err := sc.AcknowledgeResume(ctx, next.Resume); err != nil {
+			return nil, &runResult{Status: "failed", Error: fmt.Sprintf("acknowledging stopped resume: %v", err)}
+		}
+		return nil, exit
+	}
+	promptMessageID := next.ID
+	if next.Resume != nil {
+		promptMessageID = 0
 	}
 	return &userTurn{
 		reply:               reply,
 		prompt:              reply,
 		images:              next.Images,
 		messageID:           next.ID,
-		promptMessageID:     next.ID,
+		promptMessageID:     promptMessageID,
 		resumingInterrupted: resuming,
 		firstPass:           true,
-		claimPending:        true,
+		claimPending:        next.Resume == nil || resumeClaimed,
+		resume:              next.Resume,
 		tracker:             &agent.AutoTracker{},
 	}, nil
 }
@@ -969,6 +1040,9 @@ func (r *chatRuntime) agentLoop(ctx context.Context, t *userTurn) *runResult {
 			return exit
 		}
 		if action == awaitUser {
+			if err := r.sc.AcknowledgeResume(ctx, t.resume); err != nil {
+				return &runResult{Status: "failed", Error: fmt.Sprintf("acknowledging parked resume: %v", err)}
+			}
 			if r.autonomousTurnMarked {
 				r.setAutonomousTurnMarker(ctx, false)
 			}
@@ -2029,6 +2103,11 @@ func (r *chatRuntime) commitTurnState(ctx context.Context, t *userTurn, pt *prep
 		t.claimPending = false
 	}
 
+	if err := sc.AcknowledgeResume(ctx, t.resume); err != nil {
+		return fmt.Errorf("acknowledging committed resume: %w", err)
+	}
+	t.resume = nil
+
 	updatedModeName := pt.modeName
 	if post != nil && post.Status.ModeName != "" {
 		updatedModeName = post.Status.ModeName
@@ -2236,7 +2315,7 @@ func (r *chatRuntime) exitOnShutdown(ctx context.Context, t *userTurn, result *a
 // wake the replacement pod — it would find no pending message and park
 // idle. A durable continuation message resumes the work there instead.
 func (r *chatRuntime) enqueueContinuation(ctx context.Context, t *userTurn) {
-	if t == nil || t.claimPending {
+	if t == nil || t.claimPending || t.resume != nil {
 		return
 	}
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -2412,6 +2491,9 @@ func waitForNextUserReply(
 		messages, err := sc.PollForUserMessages(ctx, pollInterval)
 		if err != nil {
 			return sessionclient.UserMessage{}, err
+		}
+		if len(messages) == 1 && messages[0].Resume != nil {
+			return messages[0], nil
 		}
 		msg, ok, err := claimNextUserMessage(ctx, sc, messages, stoppedMessageID, handledImmediate)
 		if err != nil {

@@ -9,10 +9,12 @@ import (
 	"github.com/google/uuid"
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
 	"github.com/gratefulagents/gratefulagents/internal/store"
+	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 type wakeTestStore struct {
@@ -293,5 +295,89 @@ func TestWakeAgentRunAppendsMessageAndIncrementsCounter(t *testing.T) {
 	}
 	if updated.Spec.WakeRequests != 3 {
 		t.Fatalf("WakeRequests = %d, want 3", updated.Spec.WakeRequests)
+	}
+}
+
+type wakeIntentTestStore struct {
+	*wakeTestStore
+	targets      map[string]int64
+	applied      int
+	resumeWrites int
+}
+
+func (s *wakeIntentTestStore) GetSession(context.Context, uuid.UUID) (*store.Session, error) {
+	return s.session, nil
+}
+func (s *wakeIntentTestStore) MergeSessionMetadata(_ context.Context, _ uuid.UUID, key string, value json.RawMessage) error {
+	metadata := map[string]json.RawMessage{}
+	if len(s.session.Metadata) > 0 {
+		if err := json.Unmarshal(s.session.Metadata, &metadata); err != nil {
+			return err
+		}
+	}
+	metadata[key] = value
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	s.session.Metadata = encoded
+	s.resumeWrites++
+	return nil
+}
+func (s *wakeIntentTestStore) ReserveWakeIntent(ctx context.Context, id uuid.UUID, key, content string, target int64) (*store.Message, int64, bool, error) {
+	if previous, ok := s.targets[key]; ok {
+		return nil, previous, false, nil
+	}
+	s.targets[key] = target
+	if content == "" {
+		return nil, target, true, nil
+	}
+	message, err := s.AppendMessage(ctx, id, "user", content, nil)
+	return message, target, true, err
+}
+func (s *wakeIntentTestStore) MarkWakeIntentApplied(context.Context, uuid.UUID, string) error {
+	s.applied++
+	return nil
+}
+
+func TestWakeAgentRunIdempotentWithoutMessageRepairsPartialFailure(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	run := &platformv1alpha1.AgentRun{ObjectMeta: metav1.ObjectMeta{Name: "retry", Namespace: "default"}, Spec: platformv1alpha1.AgentRunSpec{WakeRequests: 2}, Status: platformv1alpha1.AgentRunStatus{Phase: platformv1alpha1.AgentRunPhaseFailed}}
+	failPatch := true
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(run).WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if failPatch {
+				failPatch = false
+				return errors.New("API unavailable")
+			}
+			return cl.Patch(ctx, obj, patch, opts...)
+		},
+	}).Build()
+	ss := &wakeIntentTestStore{wakeTestStore: &wakeTestStore{session: &store.Session{ID: uuid.New()}}, targets: map[string]int64{}}
+	ctx := context.Background()
+	wake := func() error {
+		return WakeAgentRunIdempotent(ctx, c, ss, "default", "retry", " ", "retry-1", platformv1alpha1.AgentRunPhaseFailed)
+	}
+	if err := wake(); err == nil {
+		t.Fatal("expected first patch to fail")
+	}
+	for range 2 {
+		if err := wake(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	updated := &platformv1alpha1.AgentRun{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(run), updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.Spec.WakeRequests != 3 || ss.appendCount != 0 || ss.resumeWrites != 1 || ss.applied != 2 {
+		t.Fatalf("wake=%d messages=%d resume writes=%d applied=%d", updated.Spec.WakeRequests, ss.appendCount, ss.resumeWrites, ss.applied)
+	}
+	var metadata map[string]sessionclient.ResumeRequest
+	if err := json.Unmarshal(ss.session.Metadata, &metadata); err != nil || metadata["resume_request"].ID != "retry-1" {
+		t.Fatalf("metadata=%s err=%v", ss.session.Metadata, err)
 	}
 }

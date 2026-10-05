@@ -328,7 +328,8 @@ type InterruptStore interface {
 	ConsumeInterrupt(ctx context.Context, sessionID uuid.UUID) (id int64, requestedAt time.Time, requestedBy string, ok bool, err error)
 }
 
-// WakeIntentStore atomically deduplicates a resume message. The Kubernetes
+// WakeIntentStore atomically deduplicates a wake with optional message content.
+// Empty content reserves the wake without creating a message. The Kubernetes
 // wake counter is reconciled to TargetWakeRequests, making retries safe after
 // either side of the PostgreSQL/Kubernetes boundary fails.
 type WakeIntentStore interface {

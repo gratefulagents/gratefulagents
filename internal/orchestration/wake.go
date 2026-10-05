@@ -278,7 +278,7 @@ func wakeAgentRun(ctx context.Context, k8sClient client.Client, stateStore store
 	return wakeAgentRunIdempotent(ctx, k8sClient, stateStore, runNamespace, runName, contextMessage, "", allowedPhases)
 }
 
-// WakeAgentRunIdempotent appends one wake message and reconciles one wake
+// WakeAgentRunIdempotent records optional wake context and reconciles one wake
 // counter increment for a stable caller-supplied key.
 func WakeAgentRunIdempotent(ctx context.Context, k8sClient client.Client, stateStore store.StateStore, runNamespace, runName, contextMessage, idempotencyKey string, allowedPhases ...platformv1alpha1.AgentRunPhase) error {
 	allowed := make(map[platformv1alpha1.AgentRunPhase]struct{}, len(allowedPhases))
@@ -300,9 +300,6 @@ func wakeAgentRunIdempotent(ctx context.Context, k8sClient client.Client, stateS
 	}
 	if runNamespace == "" || runName == "" {
 		return fmt.Errorf("run namespace and name are required")
-	}
-	if contextMessage == "" {
-		return fmt.Errorf("context message is required")
 	}
 
 	key := client.ObjectKey{Namespace: runNamespace, Name: runName}
@@ -333,8 +330,18 @@ func wakeAgentRunIdempotent(ctx context.Context, k8sClient client.Client, stateS
 		} else {
 			targetWakeRequests = target
 		}
-	} else if _, err := stateStore.AppendMessage(ctx, sess.ID, "user", contextMessage, nil); err != nil {
-		return fmt.Errorf("appending wake message for AgentRun %s/%s: %w", runNamespace, runName, err)
+		if contextMessage == "" && current.Spec.WakeRequests >= targetWakeRequests {
+			return wakeIntents.MarkWakeIntentApplied(ctx, sess.ID, idempotencyKey)
+		}
+	} else if contextMessage != "" {
+		if _, err := stateStore.AppendMessage(ctx, sess.ID, "user", contextMessage, nil); err != nil {
+			return fmt.Errorf("appending wake message for AgentRun %s/%s: %w", runNamespace, runName, err)
+		}
+	}
+	if contextMessage == "" {
+		if err := sessionclient.RequestResume(ctx, stateStore, sess.ID, idempotencyKey, sess.PendingRequestID); err != nil {
+			return fmt.Errorf("recording resume request: %w", err)
+		}
 	}
 
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {

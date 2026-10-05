@@ -795,8 +795,8 @@ func (s *Store) ConsumeInterrupt(ctx context.Context, sessionID uuid.UUID) (int6
 func (s *Store) ReserveWakeIntent(ctx context.Context, sessionID uuid.UUID, idempotencyKey, content string, targetWakeRequests int64) (*store.Message, int64, bool, error) {
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	content = strings.TrimSpace(content)
-	if idempotencyKey == "" || content == "" || targetWakeRequests <= 0 {
-		return nil, 0, false, fmt.Errorf("wake idempotency key, content, and positive target are required")
+	if idempotencyKey == "" || targetWakeRequests <= 0 {
+		return nil, 0, false, fmt.Errorf("wake idempotency key and positive target are required")
 	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -807,22 +807,26 @@ func (s *Store) ReserveWakeIntent(ctx context.Context, sessionID uuid.UUID, idem
 		return nil, 0, false, fmt.Errorf("locking wake intent: %w", err)
 	}
 
-	var existingID int64
+	var existingID *int64
 	var existingTarget int64
 	err = tx.QueryRow(ctx, `SELECT message_id, target_wake_requests FROM agent_run_wake_intents WHERE session_id = $1 AND idempotency_key = $2`, sessionID, idempotencyKey).Scan(&existingID, &existingTarget)
 	if err == nil {
-		row, rowErr := tx.Query(ctx, `SELECT * FROM conversation_messages WHERE id = $1`, existingID)
+		if existingID == nil {
+			return nil, existingTarget, false, tx.Commit(ctx)
+		}
+		row, rowErr := tx.Query(ctx, `SELECT * FROM conversation_messages WHERE id = $1`, *existingID)
 		if rowErr != nil {
 			return nil, 0, false, rowErr
 		}
 		defer row.Close()
 		if !row.Next() {
-			return nil, 0, false, fmt.Errorf("wake message %d not found", existingID)
+			return nil, 0, false, fmt.Errorf("wake message %d not found", *existingID)
 		}
 		var model sqlc.ConversationMessage
 		if scanErr := row.Scan(&model.ID, &model.SessionID, &model.Role, &model.Content, &model.Metadata, &model.CreatedAt, &model.DeliveryState, &model.ClaimedAt, &model.DeliverySequence, &model.ClaimToken); scanErr != nil {
 			return nil, 0, false, scanErr
 		}
+		row.Close()
 		if err := tx.Commit(ctx); err != nil {
 			return nil, 0, false, err
 		}
@@ -839,10 +843,12 @@ func (s *Store) ReserveWakeIntent(ctx context.Context, sessionID uuid.UUID, idem
 		targetWakeRequests = durableMax + 1
 	}
 	metadata, _ := json.Marshal(map[string]string{"wake_idempotency_key": idempotencyKey})
-	var messageID int64
-	err = tx.QueryRow(ctx, `INSERT INTO conversation_messages (session_id, role, content, metadata) VALUES ($1, 'user', $2, $3) RETURNING id`, sessionID, content, metadata).Scan(&messageID)
-	if err != nil {
-		return nil, 0, false, fmt.Errorf("appending wake message: %w", err)
+	var messageID *int64
+	if content != "" {
+		err = tx.QueryRow(ctx, `INSERT INTO conversation_messages (session_id, role, content, metadata) VALUES ($1, 'user', $2, $3) RETURNING id`, sessionID, content, metadata).Scan(&messageID)
+		if err != nil {
+			return nil, 0, false, fmt.Errorf("appending wake message: %w", err)
+		}
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO agent_run_wake_intents (session_id, idempotency_key, message_id, target_wake_requests) VALUES ($1, $2, $3, $4)`, sessionID, idempotencyKey, messageID, targetWakeRequests)
 	if err != nil {
@@ -851,16 +857,19 @@ func (s *Store) ReserveWakeIntent(ctx context.Context, sessionID uuid.UUID, idem
 	if err := tx.Commit(ctx); err != nil {
 		return nil, 0, false, fmt.Errorf("committing wake intent: %w", err)
 	}
+	if messageID == nil {
+		return nil, targetWakeRequests, true, nil
+	}
 	messages, err := s.GetMessages(ctx, sessionID)
 	if err != nil {
 		return nil, 0, false, err
 	}
 	for i := range messages {
-		if messages[i].ID == messageID {
+		if messages[i].ID == *messageID {
 			return &messages[i], targetWakeRequests, true, nil
 		}
 	}
-	return nil, 0, false, fmt.Errorf("created wake message %d not found", messageID)
+	return nil, 0, false, fmt.Errorf("created wake message %d not found", *messageID)
 }
 
 func (s *Store) MarkWakeIntentApplied(ctx context.Context, sessionID uuid.UUID, idempotencyKey string) error {

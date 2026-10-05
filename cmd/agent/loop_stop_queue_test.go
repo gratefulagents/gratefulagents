@@ -300,3 +300,11 @@ func TestClaimQueuedUserMessage(t *testing.T) {
 		}
 	})
 }
+
+func (s *stopQueueFakeStore) MergeSessionMetadata(_ context.Context, _ uuid.UUID, key string, value json.RawMessage) error {
+	if s.metadata == nil {
+		s.metadata = map[string]json.RawMessage{}
+	}
+	s.metadata[key] = value
+	return nil
+}

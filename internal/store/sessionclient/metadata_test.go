@@ -689,3 +689,39 @@ func TestReadMetricsRoundTripAndInvalidMetadata(t *testing.T) {
 		t.Fatal("malformed metrics must not silently become zero")
 	}
 }
+
+func TestClearUserInputRequestIfIDRepairsCircuitBreakAfterRetry(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	run := &platformv1alpha1.AgentRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "run", Namespace: "default"},
+		Status: platformv1alpha1.AgentRunStatus{
+			Phase:       platformv1alpha1.AgentRunPhaseBlocked,
+			CurrentStep: "blocked",
+			Queue:       &platformv1alpha1.AgentRunQueueStatus{State: "Blocked", BlockedReason: "circuit_breaker"},
+		},
+	}
+	crd := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(run).WithObjects(run).Build()
+	sessionID := uuid.New()
+	testStore := &metadataTestStore{session: &store.Session{ID: sessionID}}
+	client := &Client{store: testStore, crd: crd, sessionID: sessionID, runName: "run", runNS: "default"}
+
+	if err := client.ClearUserInputRequestIfID(context.Background(), "already-cleared-request"); err != nil {
+		t.Fatalf("ClearUserInputRequestIfID() error = %v", err)
+	}
+
+	var updated platformv1alpha1.AgentRun
+	if err := crd.Get(context.Background(), types.NamespacedName{Name: "run", Namespace: "default"}, &updated); err != nil {
+		t.Fatalf("Get(updated run) error = %v", err)
+	}
+	if updated.Status.CurrentStep != "chat-followup" {
+		t.Fatalf("CurrentStep = %q, want chat-followup", updated.Status.CurrentStep)
+	}
+	if updated.Status.Queue == nil || updated.Status.Queue.BlockedReason != "" {
+		t.Fatalf("Queue = %#v, want running queue without blocked reason", updated.Status.Queue)
+	}
+}
