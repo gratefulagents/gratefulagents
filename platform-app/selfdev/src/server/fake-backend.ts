@@ -469,24 +469,24 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
         page: req.page,
       });
     },
+    // Mirrors the dashboard: a catalog install stores the SKILL.md body inline
+    // with skills-sh provenance annotations, and a repeat install is rejected.
     installSkillFromCatalog: async (req: { source: string; skillId: string }) => {
       const entry = s.skillCatalog.find((item) => item.source === req.source && item.skillId === req.skillId);
       if (!entry) throw notFound(`catalog skill ${req.source}/${req.skillId}`);
+      if (s.skillPackages.some((item) => item.catalogSource === entry.source && item.catalogSkillId === entry.skillId)) {
+        throw new ConnectError(`skill ${entry.source}/${entry.skillId} is already installed`, Code.AlreadyExists);
+      }
       const skill = create(SkillInfoSchema, {
         name: entry.skillId,
         description: `Installed from skills.sh (${entry.source}).`,
-        gitUrl: `https://github.com/${entry.source}/tree/main/${entry.skillId}`,
-        gitRef: "main",
-        gitPath: entry.skillId,
-        phase: "Ready",
-        resolvedName: entry.skillId,
+        instructions: `# ${entry.name}\n\nUse this skill when the task involves ${entry.name}.`,
         catalogSource: entry.source,
         catalogSkillId: entry.skillId,
         catalogUrl: entry.catalogUrl,
+        catalogHash: "sha256:selfdev",
       });
-      const existing = s.skillPackages.findIndex((item) => item.name === skill.name);
-      if (existing >= 0) s.skillPackages.splice(existing, 1, skill);
-      else s.skillPackages.push(skill);
+      s.skillPackages.push(skill);
       s.skillPackages.sort((a, b) => a.name.localeCompare(b.name));
       return skill;
     },

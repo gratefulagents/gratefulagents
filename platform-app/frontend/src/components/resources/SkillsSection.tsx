@@ -333,7 +333,8 @@ function SkillDialog({ skill, onClose, onSaved }: { skill: Skill | null; onClose
             <a href={skill.catalogUrl} target="_blank" rel="noreferrer" className="font-mono text-foreground underline underline-offset-2">
               skills.sh/{skill.catalogSource}/{skill.catalogSkillId}
             </a>
-            . Reinstalling from the catalog refreshes it; edits here override the pinned source.
+            . The catalog is not re-checked after install; editing the instructions here detaches the skill from
+            its catalog entry.
           </InlineNote>
         )}
         {source === "git" ? (

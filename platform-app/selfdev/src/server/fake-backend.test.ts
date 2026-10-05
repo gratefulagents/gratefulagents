@@ -163,6 +163,9 @@ describe("fake backend", () => {
 
     const installed = await platform.installSkillFromCatalog({ source: "grafana/skills", skillId: "grafana-dashboards" });
     expect(installed.catalogSource).toBe("grafana/skills");
+    expect(installed.gitUrl).toBe("");
+    expect(installed.instructions).toContain("grafana-dashboards");
     expect((await platform.listSkills({})).skills.some((skill) => skill.name === "grafana-dashboards")).toBe(true);
+    await expect(platform.installSkillFromCatalog({ source: "grafana/skills", skillId: "grafana-dashboards" })).rejects.toThrow(/already installed/);
   });
 });

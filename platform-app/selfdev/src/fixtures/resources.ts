@@ -195,22 +195,22 @@ export function roleCatalog() {
   ];
 }
 
-/** A skill installed from skills.sh, with catalog provenance populated. */
+/**
+ * A skill installed from skills.sh. The dashboard stores the catalog's
+ * SKILL.md body inline and records provenance in annotations, so there is no
+ * git source and no controller phase.
+ */
 export function catalogInstalledSkill() {
   return create(SkillInfoSchema, {
     name: "astro",
     description:
       "Skill for building with the Astro web framework. Helps create components and pages, configure SSR adapters, and deploy static sites.",
-    gitUrl: "https://github.com/astrolicious/agent-skills/tree/main/astro",
-    gitRef: "main",
-    gitPath: "astro",
-    phase: "Ready",
-    resolvedName: "astro",
-    resolvedSha: "4f1c2a9",
+    instructions:
+      "# Astro\n\nUse when the user works with .astro files, islands architecture, content collections, or SSR adapters.\n\n## Workflow\n1. Inspect astro.config.* first.\n2. Prefer content collections over ad-hoc markdown loading.",
     catalogSource: "astrolicious/agent-skills",
     catalogSkillId: "astro",
     catalogUrl: "https://skills.sh/astrolicious/agent-skills/astro",
-    catalogHash: "sha256:8c1d",
+    catalogHash: "8c1d2f0e5a7b4c6d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d",
   });
 }
 
