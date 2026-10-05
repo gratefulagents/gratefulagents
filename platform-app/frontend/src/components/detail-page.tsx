@@ -47,8 +47,7 @@ export function DetailHeader({
           {meta && <div className="flex shrink-0 items-center gap-2">{meta}</div>}
         </div>
         {actions && (
-          // min-w-0 + wrap: wide action clusters (e.g. the scan-detail
-          // download group) fold onto extra rows on a phone instead of
+          // min-w-0 + wrap: wide action clusters fold onto extra rows on a phone instead of
           // running past the right edge of the viewport.
           <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div>
         )}

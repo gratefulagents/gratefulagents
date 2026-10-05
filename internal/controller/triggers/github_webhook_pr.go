@@ -166,14 +166,6 @@ func (h *GitHubWebhookHandler) handlePullRequestEvent(ctx context.Context, gh *t
 		return nil
 	}
 
-	if gh != nil {
-		if scanEvent := securityScanEventFromPR(&event); scanEvent != nil {
-			if err := h.dispatchSecurityScanEvent(ctx, gh, *scanEvent); err != nil {
-				logf.FromContext(ctx).WithName("github-webhook").Error(err, "security scan PR event dispatch failed", "pr", event.PullRequest.Number)
-			}
-		}
-	}
-
 	return h.dispatchPREvent(ctx, gh, PullRequestEvent{
 		Type:        eventType,
 		Repository:  event.Repository.FullName,

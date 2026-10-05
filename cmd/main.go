@@ -349,14 +349,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&platformcontroller.SecurityToolRunReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SecurityToolRun")
-		os.Exit(1)
-	}
-
 	if err := (&triggercontroller.ProjectReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -424,72 +416,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Bug-report auto-fix lifecycle: tracks fix runs launched for agent bug
-	// reports, records their PRs, and resolves reports when the PR merges.
-	if bugReportStore, ok := sharedStateStore.(store.AgentBugReportStore); ok {
-		if err := (&triggercontroller.BugReportFixReconciler{
-			Client:  mgr.GetClient(),
-			Scheme:  mgr.GetScheme(),
-			Reports: bugReportStore,
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "BugReportFix")
-			os.Exit(1)
-		}
-	}
-
 	if err := (&triggercontroller.CronReconciler{
 		Client:     mgr.GetClient(),
 		Scheme:     mgr.GetScheme(),
 		StateStore: sharedStateStore,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Cron")
-		os.Exit(1)
-	}
-
-	securityFindingStore, _ := sharedStateStore.(store.SecurityFindingStore)
-	securityFindingArtifactStore, _ := sharedStateStore.(store.SecurityFindingArtifactStore)
-	if err := (&triggercontroller.SecurityScanReconciler{
-		Client:           mgr.GetClient(),
-		Scheme:           mgr.GetScheme(),
-		StateStore:       sharedStateStore,
-		Findings:         securityFindingStore,
-		Artifacts:        securityFindingArtifactStore,
-		Recorder:         mgr.GetEventRecorder("securityscan-controller"),
-		DashboardBaseURL: strings.TrimSpace(os.Getenv("DASHBOARD_PUBLIC_BASE_URL")),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SecurityScan")
-		os.Exit(1)
-	}
-
-	securityLibrary := triggercontroller.SecurityLibraryReconciler{Client: mgr.GetClient()}
-	if err := (&triggercontroller.SecurityWorkflowReconciler{
-		SecurityLibraryReconciler: securityLibrary,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SecurityWorkflow")
-		os.Exit(1)
-	}
-	if err := (&triggercontroller.SecurityRankerReconciler{
-		SecurityLibraryReconciler: securityLibrary,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SecurityRanker")
-		os.Exit(1)
-	}
-	if err := (&triggercontroller.SecurityPostScriptReconciler{
-		SecurityLibraryReconciler: securityLibrary,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SecurityPostScript")
-		os.Exit(1)
-	}
-	if err := (&triggercontroller.SecurityPolicyPackReconciler{
-		SecurityLibraryReconciler: securityLibrary,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SecurityPolicyPack")
-		os.Exit(1)
-	}
-	if err := (&triggercontroller.SecurityProgramReconciler{
-		SecurityLibraryReconciler: securityLibrary,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "SecurityProgram")
 		os.Exit(1)
 	}
 

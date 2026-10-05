@@ -22,7 +22,6 @@ import (
 	"github.com/gratefulagents/gratefulagents/internal/mcppolicy"
 	opprojectstate "github.com/gratefulagents/gratefulagents/internal/projectstate"
 	"github.com/gratefulagents/gratefulagents/internal/store"
-	"github.com/gratefulagents/gratefulagents/internal/store/contentblob"
 	"github.com/gratefulagents/gratefulagents/internal/store/sessionclient"
 	"github.com/gratefulagents/gratefulagents/internal/tools"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
@@ -395,7 +394,7 @@ func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset
 
 	// Background shell jobs (BashStart/BashPoll/BashKill) for commands that
 	// outlive the Bash tool's per-call cap, such as principal builds of large
-	// Rust or Gradle workspaces during security-scan preflight. The SDK only
+	// Rust or Gradle workspaces. The SDK only
 	// registers them in write-capable permission modes. On by default; opt
 	// out with ENABLE_ASYNC_BASH=false.
 	if envFlagEnabled("ENABLE_ASYNC_BASH", true) {
@@ -465,44 +464,6 @@ func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset
 		)
 	}
 	tools.RegisterPlanTools(toolRegistry, sc.StateStore(), sc.SessionID())
-	// report_bug: durable, deduplicated platform bug reports / complaints /
-	// feature requests filed by the agent itself. Postgres-backed only; the
-	// tool stays unregistered when the state store cannot persist reports.
-	if bugReportStore, ok := sc.StateStore().(store.AgentBugReportStore); ok {
-		tools.RegisterReportBugTool(toolRegistry, bugReportStore, cfg.Namespace, cfg.TaskName, sc.SessionID())
-	}
-	if scanCtx, ok := tools.SecurityScanContextFromRun(run, cfg.Namespace, cfg.TaskName, cfg.RepoDir, sc.SessionID()); ok {
-		// nil when the state store has no Postgres-backed finding storage; the
-		// tools then fall back to an in-memory finding buffer for this run.
-		securityFindingStore, _ := sc.StateStore().(store.SecurityFindingStore)
-		scanState := tools.RegisterSecurityScanTools(toolRegistry, securityFindingStore, sc.StateStore(), scanCtx)
-		log.Printf("security scan tools enabled for scan %q (persistent findings: %t)",
-			scanCtx.ScanName, securityFindingStore != nil)
-		// run_security_tool is the only path from an agent to a real scanner:
-		// it records a SecurityToolRun the platform executes in a hardened
-		// Job. Without a cluster client there is nothing to record, so the
-		// tool stays unregistered rather than failing at call time.
-		securityBlobs, securityBlobsErr := contentblob.NewS3FromEnv()
-		deps := tools.SecurityToolRunDeps{
-			Client:    crdClient,
-			BlobsErr:  securityBlobsErr,
-			Namespace: cfg.Namespace,
-			RunName:   cfg.TaskName,
-			RunUID:    cfg.TaskUID,
-			// Relative paths in every agent tool are resolved from RepoDir. Using
-			// WorkspaceDir here made "." archive sibling repositories and caches,
-			// while ordinary paths such as "contracts" appeared not to exist.
-			WorkspaceDir: cfg.RepoDir,
-		}
-		if securityBlobsErr == nil {
-			deps.Blobs = securityBlobs
-		}
-		tools.RegisterSecurityBountyArtifactTools(toolRegistry, scanState, securityBlobs, securityBlobsErr)
-		tools.RegisterSecurityToolRunTool(toolRegistry, scanState, deps)
-		if securityBlobsErr != nil {
-			log.Printf("WARN: run_security_tool cannot stage targets or read results: %v", securityBlobsErr)
-		}
-	}
 	// submit_task_output: typed-result sink for deterministic workflow task
 	// runs, gated on the controller-forwarded output schema. The persister is
 	// a narrow callback into this package's status patcher so the tool never
@@ -2228,7 +2189,7 @@ func (r *chatRuntime) decideNext(ctx context.Context, t *userTurn, out turnOutco
 			log.Printf("WARN: failed to clear completion flag: %v", err)
 		}
 
-		if shouldTerminateAfterFinish(post, r.cfg.DelegatedChild) {
+		if r.cfg.DelegatedChild {
 			return awaitUser, &runResult{Status: "succeeded"}
 		}
 		_ = sc.SetUserInputRequest(ctx, platformv1alpha1.UserInputIdle, "", nil)

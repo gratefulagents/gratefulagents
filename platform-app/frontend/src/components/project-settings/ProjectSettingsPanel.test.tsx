@@ -147,7 +147,6 @@ describe("ProjectSettingsPanel", () => {
     expect(request.displayName).toBe("Payments API");
     expect(request.useSavedCredentials).toBe(true);
     expect(request.mcpServerRefs).toEqual(["github"]);
-    expect(request.bugSquasher).toBeUndefined();
     expect(onUpdated).toHaveBeenCalledWith(updated);
     expect(await screen.findByText("Saved.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();

@@ -45,15 +45,6 @@ export const sections: SidebarSection[] = [
     ],
   },
   {
-    label: 'Security',
-    kind: 'Security',
-    items: [
-      'projects/security-scanning',
-      'projects/security-tool-packs',
-      'projects/security-skill-sources',
-    ],
-  },
-  {
     label: 'Integrations',
     kind: 'Integration',
     items: [

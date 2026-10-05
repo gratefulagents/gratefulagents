@@ -100,7 +100,7 @@ Connections are reusable only within their namespace. Connection name and type c
 
 ## Edit a Project
 
-Open the Project's **Settings** tab (the **Settings** button in the header jumps there). Every setting is edited in place — no dialog — in sections you can jump to from the side navigation: **General** (display name, repositories, base branch), **Model & credentials**, **Agent behavior** (default mode, PR review loop, custom instructions, default bug squasher), **Runtime**, **Tools**, and, for workspace admins, **Privileged access**.
+Open the Project's **Settings** tab (the **Settings** button in the header jumps there). Every setting is edited in place — no dialog — in sections you can jump to from the side navigation: **General** (display name, repositories, base branch), **Model & credentials**, **Agent behavior** (default mode, PR review loop, custom instructions), **Runtime**, **Tools**, and, for workspace admins, **Privileged access**.
 
 Nothing is written until you save. As soon as a value differs from the saved Project, a bar appears naming the changed sections with **Discard** and **Save changes** (⌘S / Ctrl+S also saves); each changed section also gains a **Reset** control to revert just that section. People with view-only access see the same values read-only.
 

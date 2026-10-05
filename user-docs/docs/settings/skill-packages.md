@@ -35,7 +35,7 @@ Catalog availability depends on the deployment. Review a skill's source and inst
 
 Installing a skill adds it to your personal library; it does **not** enable it in every project. In project settings, open **Tools & skills** and select only the skills relevant to that project's work. Agent and trigger configurations also offer skill selectors. Mode-template defaults can add skills to runs alongside these selections. Only enabled skills are advertised to the agent and available for on-demand loading.
 
-For example, a frontend project can enable `frontend-design` and `astro` without exposing an installed security-skill bundle to its runs. Security workflows keep their task-specific skill selections.
+For example, a frontend project can enable `frontend-design` and `astro` without exposing unrelated installed skills to its runs.
 
 This selection behavior applies to newly initialized runs. Existing runs retain their recorded skills; start a new run to use a narrower selection after updating project settings.
 

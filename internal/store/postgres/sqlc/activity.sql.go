@@ -13,7 +13,7 @@ import (
 )
 
 const getActivityEvents = `-- name: GetActivityEvents :many
-SELECT id, session_id, event_type, summary, detail, created_at FROM activity_events
+SELECT id, session_id, event_type, summary, detail, created_at, client_event_id FROM activity_events
 WHERE session_id = $1
 ORDER BY id ASC
 `
@@ -34,6 +34,7 @@ func (q *Queries) GetActivityEvents(ctx context.Context, sessionID uuid.UUID) ([
 			&i.Summary,
 			&i.Detail,
 			&i.CreatedAt,
+			&i.ClientEventID,
 		); err != nil {
 			return nil, err
 		}
@@ -46,7 +47,7 @@ func (q *Queries) GetActivityEvents(ctx context.Context, sessionID uuid.UUID) ([
 }
 
 const getRecentActivityEvents = `-- name: GetRecentActivityEvents :many
-SELECT id, session_id, event_type, summary, detail, created_at FROM activity_events
+SELECT id, session_id, event_type, summary, detail, created_at, client_event_id FROM activity_events
 WHERE session_id = $1
 ORDER BY id DESC
 LIMIT $2
@@ -73,6 +74,7 @@ func (q *Queries) GetRecentActivityEvents(ctx context.Context, arg GetRecentActi
 			&i.Summary,
 			&i.Detail,
 			&i.CreatedAt,
+			&i.ClientEventID,
 		); err != nil {
 			return nil, err
 		}
@@ -87,7 +89,7 @@ func (q *Queries) GetRecentActivityEvents(ctx context.Context, arg GetRecentActi
 const writeActivityEvent = `-- name: WriteActivityEvent :one
 INSERT INTO activity_events (session_id, event_type, summary, detail)
 VALUES ($1, $2, $3, $4)
-RETURNING id, session_id, event_type, summary, detail, created_at
+RETURNING id, session_id, event_type, summary, detail, created_at, client_event_id
 `
 
 type WriteActivityEventParams struct {
@@ -112,6 +114,7 @@ func (q *Queries) WriteActivityEvent(ctx context.Context, arg WriteActivityEvent
 		&i.Summary,
 		&i.Detail,
 		&i.CreatedAt,
+		&i.ClientEventID,
 	)
 	return i, err
 }

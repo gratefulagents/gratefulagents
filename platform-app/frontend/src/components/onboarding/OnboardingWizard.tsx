@@ -1126,7 +1126,7 @@ function ModelDefaultsStep({
         done={saved}
         doneNote="Saved"
       >
-        Optional: choose the provider, model, and reasoning level new projects, triggers, and scan configs
+        Optional: choose the provider, model, and reasoning level new projects and triggers
         start from. You can override them on any form, change them later in Settings → Models, or
         skip this step entirely.
       </StepIntro>

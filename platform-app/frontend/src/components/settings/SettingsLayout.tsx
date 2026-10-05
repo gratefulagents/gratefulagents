@@ -58,7 +58,7 @@ export default function SettingsLayout() {
           end: true,
           label: "General",
           icon: <SlidersHorizontal />,
-          keywords: "appearance theme dark light account sign out logout diagnostics logs bug report",
+          keywords: "appearance theme dark light account sign out logout diagnostics logs",
         },
         ...(isTauri
           ? [

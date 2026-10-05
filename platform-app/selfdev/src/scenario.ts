@@ -7,7 +7,6 @@
 import type {
   AgentRun,
   AgentRunUsageResponse,
-  BugReport,
   Cron,
   GetActivityLogResponse,
   GetAgentTraceResponse,
@@ -28,16 +27,6 @@ import type {
   ResourceOwner,
   ResourceShareInfo,
   RuntimeImageOption,
-  SecurityCatalog,
-  SecurityFinding,
-  SecurityPolicyPackResource,
-  SecurityPostScriptResource,
-  SecurityProgramResource,
-  SecurityRankerResource,
-  SecuritySavedFilter,
-  SecurityScan,
-  SecurityScanConfig,
-  SecurityWorkflowResource,
   SharedResource,
   SkillInfo,
   SlackAgent,
@@ -102,32 +91,6 @@ export interface Scenario {
   slackAgents: SlackAgent[];
   slackWorkspaces: SlackWorkspace[];
   slackDrafts: SlackDraft[];
-
-  /** Persisted security scan RESULT rows (getSecurityScan / listSecurityScans). */
-  securityScans: SecurityScan[];
-  /** Deduplicated finding rows (listSecurityFindings / getSecurityFindingSummary). */
-  securityFindings: SecurityFinding[];
-  /** Configured SecurityScan triggers, including lastExecution state. */
-  securityScanConfigs: SecurityScanConfig[];
-  /** Reusable SecurityWorkflow library resources (workflowRef targets). */
-  securityWorkflows: SecurityWorkflowResource[];
-  /** Reusable SecurityRanker library resources (rankerRefs targets). */
-  securityRankers: SecurityRankerResource[];
-  /** Reusable SecurityPostScript library resources (postScriptRefs targets). */
-  securityPostScripts: SecurityPostScriptResource[];
-  /** Reusable SecurityPolicyPack library resources (policyPackRef targets). */
-  securityPolicyPacks: SecurityPolicyPackResource[];
-  /** Operator-verified SecurityProgram resources (securityProgramRef targets). */
-  securityPrograms: SecurityProgramResource[];
-  /** Saved findings-filter queries (listSecuritySavedFilters). */
-  securitySavedFilters: SecuritySavedFilter[];
-  /** Whether the current user has explicitly installed the curated security bundle. */
-  securitySkillsInstalled: boolean;
-  /** Shipped, opt-in security catalog exposed by the manager namespace. */
-  securityCatalog: SecurityCatalog;
-
-  /** Agent-filed platform bug reports (listBugReports / updateBugReportStatus). */
-  bugReports: BugReport[];
 
   skillPackages: SkillInfo[];
   runtimeImages: RuntimeImageOption[];

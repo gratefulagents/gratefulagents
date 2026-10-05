@@ -358,7 +358,7 @@ function EditCredentialRefs({ c }: Props) {
 /* ── Agent behavior ───────────────────────────────────────────── */
 
 export function AgentFields({ c, enabled = true }: Props & { enabled?: boolean }) {
-  const { form, mode } = c;
+  const { form } = c;
   return (
     <>
       <FlowField
@@ -398,20 +398,6 @@ export function AgentFields({ c, enabled = true }: Props & { enabled?: boolean }
           placeholder="Use pnpm, keep PRs small, follow CONTRIBUTING.md…"
         />
       </FlowField>
-      {mode === "edit" ? (
-        <FlowSwitchRow
-          id={`${c.idPrefix}-bug-squasher`}
-          label="Default bug squasher"
-          hint="Make this the namespace's default project for automated bug fixes: moving an agent-filed bug report to in progress launches an autonomous fix run from here, and the report resolves when the fix PR merges. Enabling this clears the flag on every other project in the namespace."
-          control={
-            <Switch
-              id={`${c.idPrefix}-bug-squasher`}
-              checked={form.bugSquasher}
-              onCheckedChange={(checked) => c.update("bugSquasher", checked)}
-            />
-          }
-        />
-      ) : null}
     </>
   );
 }

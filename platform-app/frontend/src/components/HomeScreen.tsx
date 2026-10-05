@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ChevronRight, FolderKanban, MessageSquarePlus, Plus, ShieldHalf } from "lucide-react";
+import { ChevronRight, FolderKanban, MessageSquarePlus, Plus } from "lucide-react";
 
 import { NewChatComposer } from "@/components/NewChatComposer";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
@@ -12,10 +12,9 @@ import { useProjects } from "@/hooks/useWatchedList";
 import { useAgentRuns } from "@/hooks/useAgentRuns";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatAge } from "@/lib/format";
-import { collapseSecurityScanRuns, scanGroupPhase } from "@/lib/agentOps";
 import { runSourceLabel } from "@/lib/runSource";
 import { isRunComputing, runStatusLabel, runStatusTone } from "@/lib/runStatus";
-import { phaseTone, toneColor, type StatusTone } from "@/lib/status";
+import { toneColor, type StatusTone } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { AgentRun } from "@/rpc/platform/service_pb";
 
@@ -141,11 +140,6 @@ function RunStatus({ run }: { run: AgentRun }) {
   return <StatusDot tone={runStatusTone(run)} live={isRunComputing(run)} label={runStatusLabel(run)} />;
 }
 
-function ScanGroupStatus({ runs }: { runs: AgentRun[] }) {
-  const phase = scanGroupPhase(runs);
-  return <StatusDot tone={phaseTone(phase)} live={phase === "Running"} label={phase} />;
-}
-
 function EmptyRow({ children }: { children: React.ReactNode }) {
   return (
     <p className="px-3 py-5 text-center text-[12.5px] text-muted-foreground/80">{children}</p>
@@ -159,9 +153,7 @@ export function HomeScreen() {
 
   const recent = useMemo(
     () =>
-      collapseSecurityScanRuns(
-        [...runs].sort((a, b) => Number(b.createdAtUnix - a.createdAtUnix)),
-      ).slice(0, 6),
+      [...runs].sort((a, b) => Number(b.createdAtUnix - a.createdAtUnix)).slice(0, 6),
     [runs],
   );
   const firstName = (user?.name || user?.username || "").split(" ")[0];
@@ -209,31 +201,20 @@ export function HomeScreen() {
             {recent.length === 0 ? (
               <EmptyRow>Describe a task above to start your first chat.</EmptyRow>
             ) : (
-              recent.map((entry) =>
-                entry.kind === "run" ? (
+              recent.map((run) => (
                   <Row
-                    key={`${entry.run.namespace}/${entry.run.name}`}
-                    to={`/runs/${entry.run.namespace}/${entry.run.name}`}
+                    key={`${run.namespace}/${run.name}`}
+                    to={`/runs/${run.namespace}/${run.name}`}
                     icon={<MessageSquarePlus />}
-                    title={entry.run.displayName || entry.run.intentTitle || entry.run.name}
+                    title={run.displayName || run.intentTitle || run.name}
                     subtitle={
-                      [runSourceLabel(entry.run), formatAge(entry.run.createdAtUnix)]
+                      [runSourceLabel(run), formatAge(run.createdAtUnix)]
                         .filter(Boolean)
                         .join(" · ") || undefined
                     }
-                    trailing={<RunStatus run={entry.run} />}
+                    trailing={<RunStatus run={run} />}
                   />
-                ) : (
-                  <Row
-                    key={entry.group.key}
-                    to="/security/runs"
-                    icon={<ShieldHalf />}
-                    title={`Security scan ${entry.group.scanName}`}
-                    subtitle={`${entry.group.runs.length} task runs · ${formatAge(entry.group.runs[0].createdAtUnix)}`}
-                    trailing={<ScanGroupStatus runs={entry.group.runs} />}
-                  />
-                ),
-              )
+              ))
             )}
           </Section>
         </motion.div>

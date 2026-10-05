@@ -16,7 +16,6 @@ func k8sProjectToProto(p *triggersv1alpha1.Project) *platform.Project {
 		CreatedAtUnix:   p.CreationTimestamp.Unix(),
 		KubernetesAdmin: p.Spec.KubernetesAdmin,
 		DockerInDocker:  p.Spec.DockerInDocker,
-		BugSquasher:     p.Spec.BugSquasher,
 	}
 	pb.ReviewLoopDisabled = p.Spec.ReviewLoop == nil || p.Spec.ReviewLoop.Disabled
 
@@ -112,7 +111,6 @@ func projectTriggerToProto(projectName string, trigger triggersv1alpha1.ProjectT
 			}
 			pb.Github.MaintainerAllowPrMerge = maintainer.AllowPullRequestMerge
 			pb.Github.MaintainerFullControl = maintainer.FullControl
-			pb.Github.MaintainerAllowPlatformBugReports = new(maintainer.AllowPlatformBugReports)
 			if maintainer.StandupInterval != nil {
 				pb.Github.MaintainerStandupInterval = maintainer.StandupInterval.Duration.String()
 			}

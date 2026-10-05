@@ -19,7 +19,6 @@ import {
   USER,
   modeCatalog,
   runtimeImageCatalog,
-  securityCatalogFixture,
 } from "./common";
 
 export const emptyScenario: Scenario = {
@@ -45,19 +44,6 @@ export const emptyScenario: Scenario = {
   slackAgents: [],
   slackWorkspaces: [],
   slackDrafts: [],
-
-  securityScans: [],
-  securityFindings: [],
-  securityScanConfigs: [],
-  securityWorkflows: [],
-  securityRankers: [],
-  securityPostScripts: [],
-  securityPolicyPacks: [],
-  securityPrograms: [],
-  securitySavedFilters: [],
-  securitySkillsInstalled: false,
-  securityCatalog: securityCatalogFixture(),
-  bugReports: [],
 
   skillPackages: [],
   runtimeImages: runtimeImageCatalog(),

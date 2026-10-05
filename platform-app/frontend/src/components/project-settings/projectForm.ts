@@ -54,7 +54,6 @@ export type ProjectFormState = {
   reviewLoopDisabled: boolean;
   customInstructions: string;
   allowedModels: string;
-  bugSquasher: boolean;
 
   image: string;
   timeout: string;
@@ -100,7 +99,6 @@ export function emptyProjectForm(): ProjectFormState {
     reviewLoopDisabled: true,
     customInstructions: "",
     allowedModels: "",
-    bugSquasher: false,
     image: "",
     timeout: "",
     // A fresh project gets its own RuntimeProfile so sandbox policy is
@@ -145,7 +143,6 @@ export function projectFormFromProject(project: Project): ProjectFormState {
     reviewLoopDisabled: project.reviewLoopDisabled,
     customInstructions: project.customInstructions || "",
     allowedModels: project.allowedModels.join(", "),
-    bugSquasher: project.bugSquasher,
     image: project.image || "",
     timeout: project.timeout || "",
     configureRuntimeProfile: false,
@@ -338,7 +335,6 @@ export function updateRequestFromForm(
   project: Project,
   options: { isAdmin: boolean },
 ): UpdateProjectRequest {
-  const initial = projectFormFromProject(project);
   const useSaved = usesSavedCredentials(form);
   return create(UpdateProjectRequestSchema, {
     namespace: project.namespace,
@@ -377,9 +373,6 @@ export function updateRequestFromForm(
     ...(options.isAdmin
       ? { kubernetesAdmin: form.kubernetesAdmin, dockerInDocker: form.dockerInDocker }
       : {}),
-    // Only send the flag when it changed: enabling it clears the flag on
-    // every other project in the namespace.
-    ...(form.bugSquasher !== initial.bugSquasher ? { bugSquasher: form.bugSquasher } : {}),
   });
 }
 
@@ -420,7 +413,7 @@ const SECTION_FIELDS: Record<ProjectFormSection, (keyof ProjectFormState)[]> = {
     "providerKeyKey",
     "allowedModels",
   ],
-  agent: ["modeRef", "reviewLoopDisabled", "customInstructions", "bugSquasher"],
+  agent: ["modeRef", "reviewLoopDisabled", "customInstructions"],
   runtime: [
     "image",
     "timeout",
@@ -502,7 +495,6 @@ export function agentSummary(form: ProjectFormState): string {
     form.modeRef.trim() || "Interactive",
     form.reviewLoopDisabled ? "no review loop" : "review loop",
     ...(form.customInstructions.trim() ? ["custom instructions"] : []),
-    ...(form.bugSquasher ? ["bug squasher"] : []),
   ].join(" · ");
 }
 

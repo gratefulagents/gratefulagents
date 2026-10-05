@@ -15,15 +15,15 @@ func TestTriggerRefMatchesKind(t *testing.T) {
 		kind string
 		want bool
 	}{
-		{name: "exact", kind: "SecurityScan", want: true},
-		{name: "case insensitive", kind: "securityscan", want: true},
-		{name: "surrounding whitespace", kind: "  SECURITYSCAN\t", want: true},
-		{name: "different kind", kind: "GitHubRepository", want: false},
+		{name: "exact", kind: "GitHubRepository", want: true},
+		{name: "case insensitive", kind: "githubrepository", want: true},
+		{name: "surrounding whitespace", kind: "  GITHUBREPOSITORY\t", want: true},
+		{name: "different kind", kind: "Cron", want: false},
 		{name: "empty", kind: "", want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ref := TriggerRef{Kind: tc.kind}
-			if got := ref.MatchesKind("SecurityScan"); got != tc.want {
+			if got := ref.MatchesKind("GitHubRepository"); got != tc.want {
 				t.Fatalf("MatchesKind() = %v, want %v", got, tc.want)
 			}
 		})

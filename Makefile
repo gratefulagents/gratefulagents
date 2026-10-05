@@ -10,7 +10,7 @@ KUBECTL ?= kubectl
 help: ## Show the supported self-hosting commands.
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make <target>\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-BOOTSTRAP_DIRS := modetemplates roleinstructions securitypolicypacks securitypostscripts securityprograms securityrankers securityworkflows skills
+BOOTSTRAP_DIRS := modetemplates roleinstructions skills
 
 .PHONY: helm-sync-bootstrap
 helm-sync-bootstrap: ## Mirror shipped configuration assets into the Helm chart.
@@ -47,10 +47,9 @@ k3s-status: ## Show Kubernetes nodes, the application namespace, and workloads.
 test-installers: ## Run installer helper tests.
 	./scripts/latest-release-tag_test.sh
 	./scripts/install-k3s_test.sh
-	./scripts/security-scan-batch-compare_test.sh
 
-.PHONY: docker-build-all docker-build docker-build-worker docker-build-injector docker-build-security-tools
-docker-build-all: docker-build docker-build-worker docker-build-injector docker-build-security-tools
+.PHONY: docker-build-all docker-build docker-build-worker docker-build-injector
+docker-build-all: docker-build docker-build-worker docker-build-injector
 
 docker-build:
 	$(CONTAINER_TOOL) build -t $(IMG) .
@@ -61,11 +60,8 @@ docker-build-worker:
 docker-build-injector:
 	$(CONTAINER_TOOL) build -t $(INJECTOR_IMG) -f Dockerfile.injector .
 
-docker-build-security-tools:
-	$(CONTAINER_TOOL) build -t $(SECURITY_TOOLS_IMG) -f Dockerfile.security-tools .
-
-.PHONY: docker-push-all docker-push docker-push-worker docker-push-injector docker-push-security-tools
-docker-push-all: docker-push docker-push-worker docker-push-injector docker-push-security-tools
+.PHONY: docker-push-all docker-push docker-push-worker docker-push-injector
+docker-push-all: docker-push docker-push-worker docker-push-injector
 
 docker-push:
 	$(CONTAINER_TOOL) push $(IMG)
@@ -75,6 +71,3 @@ docker-push-worker:
 
 docker-push-injector:
 	$(CONTAINER_TOOL) push $(INJECTOR_IMG)
-
-docker-push-security-tools:
-	$(CONTAINER_TOOL) push $(SECURITY_TOOLS_IMG)

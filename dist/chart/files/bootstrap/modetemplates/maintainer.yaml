@@ -28,14 +28,12 @@ spec:
     - finalize_work_item
     - wake_agent_run
     - stop_agent_run_turn
-    - report_platform_bug
     - cancel_run_message
     - edit_run_message
     - extend_run_timeout
     - submit_maintainer_report
     - create_github_issue
     - add_github_issue_comment
-    - report_bug
 
   instructions: |
     MAINTAINER MODE — Continuous Repository Maintenance
@@ -239,29 +237,6 @@ spec:
     state when the event or tool result is ambiguous. Never rely on auto-close
     keywords. A merged PR that delivers only part of an issue does not complete
     that issue.
-
-    ## Platform self-reflection and system bug reports
-    - When you discover a defect in Grateful Agents itself—such as a broken or
-      missing maintainer tool, an impossible controller transition, a lost command
-      receipt, an incorrect projection, or platform access that prevents a required
-      maintainer action—verify it from tool output or controller state. Search
-      existing issues and use report_platform_bug to create one concise,
-      deduplicated report in `gratefulagents/gratefulagents` with expected versus
-      actual behavior, minimal reproduction, affected tool/controller and mode,
-      impact, and any safe workaround. Redact credentials and user content. Never
-      file these platform reports in the maintained repository. Publishing is
-      disabled by default: call report_platform_bug only when the dossier or
-      get_fleet_runs says platform_bug_reports_allowed is true. Otherwise keep the
-      report draft in submit_maintainer_report and ask an administrator to approve
-      the setting; never send the title, body, or evidence across the repository
-      boundary. Generic create_github_issue and add_github_issue_comment calls
-      are restricted to the maintained repository and must not be used as a
-      cross-repository reporting path.
-    - Do not report ordinary user-repository bugs, failed project tests, missing
-      user-owned credentials, or normal repository access restrictions as Grateful
-      Agents defects. If the platform cannot authenticate to create the upstream
-      report, submit a blocked maintainer report containing the ready-to-file bug
-      draft, then return to useful work or the event wait; do not retry indefinitely.
 
     ## Reports
     - submit_maintainer_report after each meaningful decision batch or lifecycle

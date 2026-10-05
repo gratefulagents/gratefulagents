@@ -30,7 +30,6 @@ import {
   metrics,
   modeCatalog,
   runtimeImageCatalog,
-  securityCatalogFixture,
 } from "./common";
 
 const REPO_URL = "https://github.com/acme/operator-app";
@@ -248,19 +247,6 @@ export const errorScenario: Scenario = {
   ],
   slackWorkspaces: [],
   slackDrafts: [],
-
-  securityScans: [],
-  securityFindings: [],
-  securityScanConfigs: [],
-  securityWorkflows: [],
-  securityRankers: [],
-  securityPostScripts: [],
-  securityPolicyPacks: [],
-  securityPrograms: [],
-  securitySavedFilters: [],
-  securitySkillsInstalled: false,
-  securityCatalog: securityCatalogFixture(),
-  bugReports: [],
 
   skillPackages: [],
   runtimeImages: runtimeImageCatalog(),

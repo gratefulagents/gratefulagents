@@ -176,15 +176,6 @@ func runRBACRules(run *platformv1alpha1.AgentRun, verifiedSupervisedName, verifi
 			Verbs:     []string{"get"},
 		},
 		{
-			APIGroups: []string{"platform.gratefulagents.dev"},
-			// run_security_tool records a SecurityToolRun in the run's own
-			// namespace and watches its status until the execution Job
-			// finishes. The request carries no image or argv: the controller
-			// derives both from the pinned registry.
-			Resources: []string{"securitytoolruns"},
-			Verbs:     []string{"create", "get", "list", "watch"},
-		},
-		{
 			APIGroups: []string{""},
 			Resources: []string{"configmaps"},
 			Verbs:     []string{"create", "get", "patch", "update"},
@@ -1769,10 +1760,10 @@ func modeConstraintEnvs(run *platformv1alpha1.AgentRun) []corev1.EnvVar {
 }
 
 // taskOutputSchemaAnnotation carries the JSON Schema for the run's typed
-// structured output, stamped by the SecurityScan controller on deterministic
+// structured output, stamped by task orchestrators on
 // workflow task runs. It is forwarded to the worker as
 // AGENTRUN_TASK_OUTPUT_SCHEMA, which gates registration of submit_task_output.
-const taskOutputSchemaAnnotation = "security.gratefulagents.dev/task-output-schema"
+const taskOutputSchemaAnnotation = "platform.gratefulagents.dev/task-output-schema"
 
 // maxTaskOutputSchemaBytes caps the schema forwarded to the worker. The
 // submitted output itself is capped at status.structuredOutput's

@@ -17,7 +17,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
-	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 )
 
 const (
@@ -31,9 +30,8 @@ const (
 	bootstrapSyncProtocolVersion      = "v5"
 )
 
-// syncBootstrapResources makes the chart's non-security namespaced defaults
-// available where a user's runs can reference them. Shipped security library
-// resources are installed only through an explicit catalog action.
+// syncBootstrapResources makes the chart's namespaced defaults
+// available where a user's runs can reference them.
 //
 // Only explicitly marked chart defaults are copied; arbitrary resources in the
 // manager namespace remain private. Existing resources win so a user can edit
@@ -67,8 +65,7 @@ func (s *Server) syncBootstrapResources(ctx context.Context, targetNamespace str
 	}
 	for i := range skills.Items {
 		source := &skills.Items[i]
-		if !isBootstrapDefault(source) ||
-			source.Annotations[securitySkillBundleAnnotation] == "true" {
+		if !isBootstrapDefault(source) {
 			continue
 		}
 		if err := s.createBootstrapResource(ctx, source, &platformv1alpha1.Skill{
@@ -235,16 +232,6 @@ func bootstrapSpecHash(object client.Object) (string, error) {
 	switch typed := object.(type) {
 	case *platformv1alpha1.Skill:
 		spec = typed.Spec
-	case *triggersv1alpha1.SecurityWorkflow:
-		spec = typed.Spec
-	case *triggersv1alpha1.SecurityRanker:
-		spec = typed.Spec
-	case *triggersv1alpha1.SecurityPostScript:
-		spec = typed.Spec
-	case *triggersv1alpha1.SecurityPolicyPack:
-		spec = typed.Spec
-	case *triggersv1alpha1.SecurityProgram:
-		spec = typed.Spec
 	default:
 		return "", fmt.Errorf("unsupported bootstrap resource %T", object)
 	}
@@ -260,16 +247,6 @@ func emptyBootstrapResource(object client.Object) client.Object {
 	switch object.(type) {
 	case *platformv1alpha1.Skill:
 		return &platformv1alpha1.Skill{}
-	case *triggersv1alpha1.SecurityWorkflow:
-		return &triggersv1alpha1.SecurityWorkflow{}
-	case *triggersv1alpha1.SecurityRanker:
-		return &triggersv1alpha1.SecurityRanker{}
-	case *triggersv1alpha1.SecurityPostScript:
-		return &triggersv1alpha1.SecurityPostScript{}
-	case *triggersv1alpha1.SecurityPolicyPack:
-		return &triggersv1alpha1.SecurityPolicyPack{}
-	case *triggersv1alpha1.SecurityProgram:
-		return &triggersv1alpha1.SecurityProgram{}
 	default:
 		panic(fmt.Sprintf("unsupported bootstrap resource %T", object))
 	}
@@ -279,16 +256,6 @@ func copyBootstrapSpec(destination, source client.Object) {
 	switch dst := destination.(type) {
 	case *platformv1alpha1.Skill:
 		dst.Spec = source.(*platformv1alpha1.Skill).DeepCopy().Spec
-	case *triggersv1alpha1.SecurityWorkflow:
-		dst.Spec = source.(*triggersv1alpha1.SecurityWorkflow).DeepCopy().Spec
-	case *triggersv1alpha1.SecurityRanker:
-		dst.Spec = source.(*triggersv1alpha1.SecurityRanker).DeepCopy().Spec
-	case *triggersv1alpha1.SecurityPostScript:
-		dst.Spec = source.(*triggersv1alpha1.SecurityPostScript).DeepCopy().Spec
-	case *triggersv1alpha1.SecurityPolicyPack:
-		dst.Spec = source.(*triggersv1alpha1.SecurityPolicyPack).DeepCopy().Spec
-	case *triggersv1alpha1.SecurityProgram:
-		dst.Spec = source.(*triggersv1alpha1.SecurityProgram).DeepCopy().Spec
 	default:
 		panic(fmt.Sprintf("unsupported bootstrap resource %T", destination))
 	}

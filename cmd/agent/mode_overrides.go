@@ -11,7 +11,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
-	triggersv1alpha1 "github.com/gratefulagents/gratefulagents/api/triggers/v1alpha1"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
 	sdkruntime "github.com/gratefulagents/sdk/pkg/agentsdk/runtime"
 )
@@ -135,17 +134,6 @@ func isDelegatedChildFromCRD(ctx context.Context, c client.Client, name, namespa
 		}
 	}
 	return false, nil
-}
-
-// shouldTerminateAfterFinish reports whether finish is a terminal signal for
-// this worker. User-facing runs remain resumable after finish, but orchestrated
-// SecurityScan tasks must reach a terminal AgentRun phase so their workflow can
-// consume the result and advance.
-func shouldTerminateAfterFinish(run *platformv1alpha1.AgentRun, delegatedChild bool) bool {
-	if delegatedChild {
-		return true
-	}
-	return run != nil && run.Spec.Trigger.MatchesKind(triggersv1alpha1.SecurityScanTriggerKind)
 }
 
 // setRuntimeParentMetadataEnv exports this run's identity for tools that
