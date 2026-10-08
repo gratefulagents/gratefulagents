@@ -39,6 +39,9 @@ const KNOWN_AGENTS: Record<string, number> = {
   "Explore": 0,            // blue
   "Plan": 7,               // cyan
   "general-purpose": 5,    // purple
+  "explore": 0,            // blue, shipped role
+  "general": 5,            // purple, built-in role
+  "reviewer": 1,           // amber, shipped role
   "code-reviewer": 1,      // amber
   "security-reviewer": 2,  // red
   "go-reviewer": 3,        // teal

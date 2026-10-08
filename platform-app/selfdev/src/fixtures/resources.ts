@@ -168,29 +168,27 @@ export function guardrailCatalog() {
 export function roleCatalog() {
   return [
     create(RoleInstructionSchema, {
-      name: "executor",
-      description: "Implements a scoped change end to end and verifies it with the project's test suite.",
+      name: "explore",
+      description: "Read-only and fast. Use for specific codebase questions so search output stays out of your context.",
       instructions:
-        "<identity>\nYou are the executor: you turn an approved plan into working code.\n</identity>\n\n<constraints>\n- Stay inside the files the plan names; ask the lead before widening scope.\n- Run the narrowest test command that proves the change.\n</constraints>\n\n<execution_loop>\n1. Read the plan step. 2. Implement. 3. Test. 4. Report what changed and what you ran.\n</execution_loop>",
-      toolAccess: "execution",
-      modelsByProvider: { anthropic: "claude-opus-5-5", openai: "gpt-5.6-sol" },
-      reasoningLevel: "high",
-    }),
-    create(RoleInstructionSchema, {
-      name: "code-reviewer",
-      description: "Reviews a diff for correctness, regressions, and missing tests without editing code.",
-      instructions:
-        "<identity>\nYou are a meticulous reviewer. You never edit files.\n</identity>\n\n<style>\nLead with the most severe finding. Cite file:line for every claim.\n</style>",
+        "Answer the codebase question in the task. You can read and search, but not change anything.\n\n- Search from several angles at once, then narrow.\n- Report absolute file paths with line numbers and a direct answer.",
       toolAccess: "read-only",
-      modelsByProvider: { anthropic: "claude-sonnet-5-5" },
-      reasoningLevel: "medium",
+      reasoningLevel: "low",
     }),
     create(RoleInstructionSchema, {
-      name: "researcher",
-      description: "Gathers evidence from the codebase and docs before the team commits to an approach.",
+      name: "general",
+      description: "Full tool access, same model as you. Use for implementation, fixes, and test runs.",
       instructions:
-        "<identity>\nYou are the researcher. You read widely and summarize precisely.\n</identity>\n\n<delegation>\nHand concrete implementation work back to the lead with a short brief.\n</delegation>",
-      toolAccess: "analysis",
+        "Carry the task through to a verified result: make the change, then run the checks that prove it works.",
+      toolAccess: "full",
+    }),
+    create(RoleInstructionSchema, {
+      name: "reviewer",
+      description: "Read-only. Use for an independent second look at a plan, diff, or diagnosis.",
+      instructions:
+        "Give an independent judgment on the work in the task. Report problems ranked by severity with file:line evidence.",
+      toolAccess: "read-only",
+      modelsByProvider: { anthropic: "claude-opus-5-5" },
     }),
   ];
 }

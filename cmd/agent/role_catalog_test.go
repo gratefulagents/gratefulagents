@@ -2,13 +2,18 @@ package main
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/agentroles"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func TestRoleModelForProvider(t *testing.T) {
@@ -107,7 +112,7 @@ func TestLoadRoleCatalogResolvesProviderModelsAndSortsRoles(t *testing.T) {
 	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&platformv1alpha1.RoleInstruction{
 			ObjectMeta: metav1.ObjectMeta{Name: "explore"},
 			Spec: platformv1alpha1.RoleInstructionSpec{
@@ -125,14 +130,17 @@ func TestLoadRoleCatalogResolvesProviderModelsAndSortsRoles(t *testing.T) {
 		},
 	).Build()
 
-	catalog, err := loadRoleCatalog(context.Background(), client, "openai", []platformv1alpha1.AgentRunRoleModelOverride{{
+	catalog, err := loadRoleCatalog(context.Background(), c, "openai", []platformv1alpha1.AgentRunRoleModelOverride{{
 		Role: "explore", ModelsByProvider: map[string]string{"openai": "gpt-5.6-terra"},
 	}})
 	if err != nil {
 		t.Fatalf("loadRoleCatalog: %v", err)
 	}
-	if len(catalog.Roles) != 2 || catalog.Roles[0].Name != "analyst" || catalog.Roles[1].Name != "explore" {
+	if len(catalog.Roles) != 3 || catalog.Roles[0].Name != "analyst" || catalog.Roles[1].Name != "explore" || catalog.Roles[2].Name != agentroles.GeneralName {
 		t.Fatalf("catalog order = %#v", catalog.Roles)
+	}
+	if want := agentroles.SharedInstructions + "\n\nexplore"; catalog.Roles[1].Instructions != want {
+		t.Fatalf("explore instructions = %q, want shared base prompt then role prompt", catalog.Roles[1].Instructions)
 	}
 	if catalog.Roles[0].ToolAccess != "analysis" || catalog.Roles[0].ModelOverride != "" {
 		t.Fatalf("analyst catalog entry = %#v", catalog.Roles[0])
@@ -142,6 +150,99 @@ func TestLoadRoleCatalogResolvesProviderModelsAndSortsRoles(t *testing.T) {
 	}
 	if catalog.ReasoningLevels["explore"] != "low" {
 		t.Fatalf("explore reasoning = %q, want low", catalog.ReasoningLevels["explore"])
+	}
+}
+
+func roleCatalogTestScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	return scheme
+}
+
+func TestLoadRoleCatalogAlwaysOffersGeneralRole(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(roleCatalogTestScheme(t)).Build()
+
+	catalog, err := loadRoleCatalog(context.Background(), c, "anthropic", nil)
+	if err != nil {
+		t.Fatalf("loadRoleCatalog: %v", err)
+	}
+	if len(catalog.Roles) != 1 {
+		t.Fatalf("catalog = %#v, want only the built-in general role", catalog.Roles)
+	}
+	general := catalog.Roles[0]
+	if general.Name != agentroles.GeneralName || general.ToolAccess != "full" || general.Description != agentroles.GeneralDescription {
+		t.Fatalf("general role = %#v", general)
+	}
+	if general.ModelOverride != "" {
+		t.Fatalf("general model = %q, want parent inheritance", general.ModelOverride)
+	}
+	if !strings.HasPrefix(general.Instructions, agentroles.SharedInstructions) || !strings.HasSuffix(general.Instructions, agentroles.GeneralInstructions) {
+		t.Fatalf("general instructions = %q, want shared base prompt then general prompt", general.Instructions)
+	}
+	if _, ok := catalog.ReasoningLevels[agentroles.GeneralName]; ok {
+		t.Fatal("general role must inherit the parent's reasoning level")
+	}
+}
+
+func TestLoadRoleCatalogBuiltinGeneralHonorsPersonalModel(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(roleCatalogTestScheme(t)).Build()
+
+	catalog, err := loadRoleCatalog(context.Background(), c, "openai", []platformv1alpha1.AgentRunRoleModelOverride{{
+		Role: agentroles.GeneralName, ModelsByProvider: map[string]string{"openai": "gpt-5.6-terra"},
+	}})
+	if err != nil {
+		t.Fatalf("loadRoleCatalog: %v", err)
+	}
+	if got := catalog.Roles[0].ModelOverride; got != "openai/gpt-5.6-terra" {
+		t.Fatalf("general model = %q, want personal preference", got)
+	}
+}
+
+func TestLoadRoleCatalogUsesGeneralRoleInstructionOverride(t *testing.T) {
+	c := fake.NewClientBuilder().WithScheme(roleCatalogTestScheme(t)).WithObjects(
+		&platformv1alpha1.RoleInstruction{
+			ObjectMeta: metav1.ObjectMeta{Name: agentroles.GeneralName},
+			Spec: platformv1alpha1.RoleInstructionSpec{
+				Description:  "Team general agent",
+				Instructions: "Follow the team runbook.",
+				ToolAccess:   "execution",
+			},
+		},
+	).Build()
+
+	catalog, err := loadRoleCatalog(context.Background(), c, "openai", nil)
+	if err != nil {
+		t.Fatalf("loadRoleCatalog: %v", err)
+	}
+	if len(catalog.Roles) != 1 {
+		t.Fatalf("catalog = %#v, want the override to replace the built-in general role", catalog.Roles)
+	}
+	general := catalog.Roles[0]
+	if general.Description != "Team general agent" || general.ToolAccess != "execution" {
+		t.Fatalf("general role = %#v, want the RoleInstruction override", general)
+	}
+	if want := agentroles.SharedInstructions + "\n\nFollow the team runbook."; general.Instructions != want {
+		t.Fatalf("general instructions = %q, want %q", general.Instructions, want)
+	}
+}
+
+func TestLoadRoleCatalogListFailureKeepsGeneralRole(t *testing.T) {
+	listErr := errors.New("roleinstructions is forbidden")
+	c := fake.NewClientBuilder().WithScheme(roleCatalogTestScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+			return listErr
+		},
+	}).Build()
+
+	catalog, err := loadRoleCatalog(context.Background(), c, "openai", nil)
+	if !errors.Is(err, listErr) {
+		t.Fatalf("loadRoleCatalog error = %v, want %v", err, listErr)
+	}
+	if len(catalog.Roles) != 1 || catalog.Roles[0].Name != agentroles.GeneralName {
+		t.Fatalf("catalog = %#v, want the built-in general role despite the list failure", catalog.Roles)
 	}
 }
 

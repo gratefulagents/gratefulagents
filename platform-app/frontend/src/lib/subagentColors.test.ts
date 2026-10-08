@@ -7,6 +7,9 @@ describe("getSubagentColor", () => {
     expect(getSubagentColor("Explore").text).toBe("text-agent-blue-fg");
     expect(getSubagentColor("Plan").text).toBe("text-agent-cyan-fg");
     expect(getSubagentColor("general-purpose").text).toBe("text-agent-purple-fg");
+    expect(getSubagentColor("explore").text).toBe("text-agent-blue-fg");
+    expect(getSubagentColor("general").text).toBe("text-agent-purple-fg");
+    expect(getSubagentColor("reviewer").text).toBe("text-agent-amber-fg");
   });
 
   it("is deterministic regardless of call/encounter order", () => {

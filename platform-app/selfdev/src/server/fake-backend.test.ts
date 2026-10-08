@@ -143,7 +143,7 @@ describe("fake backend", () => {
     expect((await platform.listRuntimeProfiles({})).profiles.length).toBe(3);
     expect((await platform.listGuardrailPolicies({})).policies[0].rules.length).toBe(3);
     expect((await platform.listModeTemplates({})).templates.some((mode) => mode.name === "autopilot")).toBe(true);
-    expect((await platform.listRoleInstructions({})).instructions.map((role) => role.name)).toContain("executor");
+    expect((await platform.listRoleInstructions({})).instructions.map((role) => role.name)).toEqual(["explore", "general", "reviewer"]);
 
     await platform.createGuardrailPolicy({ policy: { name: "zzz-test", rules: [] } });
     const names = (await platform.listGuardrailPolicies({})).policies.map((policy) => policy.name);

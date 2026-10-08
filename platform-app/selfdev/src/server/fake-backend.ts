@@ -736,10 +736,9 @@ function buildPlatformImpl(s: Scenario): AnyImpl {
           breakdown("WebFetch", Math.round(totals.toolCalls * 0.04), 0, 0, 0, 0, 2_900),
         ],
         subagents: [
-          breakdown("executor", Math.round(totals.subagents * 0.4), totals.subagentFailures, totals.generationCostUsd * 0.22, 0, 0, 260_000),
-          breakdown("explore", Math.round(totals.subagents * 0.3), 0, totals.generationCostUsd * 0.08, 0, 0, 90_000),
-          breakdown("code-reviewer", Math.round(totals.subagents * 0.2), 0, totals.generationCostUsd * 0.1, 0, 0, 150_000),
-          breakdown("planner", Math.round(totals.subagents * 0.1), 0, totals.generationCostUsd * 0.05, 0, 0, 120_000),
+          breakdown("general", Math.round(totals.subagents * 0.5), totals.subagentFailures, totals.generationCostUsd * 0.22, 0, 0, 260_000),
+          breakdown("explore", Math.round(totals.subagents * 0.35), 0, totals.generationCostUsd * 0.08, 0, 0, 90_000),
+          breakdown("reviewer", Math.round(totals.subagents * 0.15), 0, totals.generationCostUsd * 0.1, 0, 0, 150_000),
         ],
         models: [
           breakdown("anthropic/claude-opus-4.6", Math.round(totals.llmAttempts * 0.52), Math.round(totals.llmFailures * 0.4), totals.generationCostUsd * 0.68, Math.round(totals.generationInputTokens * 0.6), Math.round(totals.generationOutputTokens * 0.55), 21_000),

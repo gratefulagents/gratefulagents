@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	platformv1alpha1 "github.com/gratefulagents/gratefulagents/api/platform/v1alpha1"
+	"github.com/gratefulagents/gratefulagents/internal/agentroles"
 	agent "github.com/gratefulagents/sdk/pkg/agentsdk"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -14,6 +16,8 @@ import (
 // role names, applied when a RoleInstruction CRD omits spec.toolAccess.
 // (Formerly sdkmode.AgentCatalog, removed from the SDK in v0.0.36.)
 var defaultRoleToolAccess = map[string]string{
+	agentroles.GeneralName:  agentroles.GeneralToolAccess,
+	"reviewer":              "read-only",
 	"explore":               "read-only",
 	"analyst":               "analysis",
 	"planner":               "analysis",
@@ -61,12 +65,18 @@ func parentModelSettingsForTurn(base, overrides agent.ModelSettings) agent.Model
 // loadRoleCatalog maps operator RoleInstruction CRDs into the SDK-native role
 // catalog contract and resolves each role's model for the active provider. A
 // run-scoped role-wide parent preference wins first; otherwise personal models
-// win only for their matching role and provider.
+// win only for their matching role and provider. The built-in general role is
+// always present, even when the list fails, so delegation never depends on a
+// persona being installed.
 func loadRoleCatalog(ctx context.Context, c client.Client, provider string, userOverrides []platformv1alpha1.AgentRunRoleModelOverride) (resolvedRoleCatalog, error) {
 	list := &platformv1alpha1.RoleInstructionList{}
 	if err := c.List(ctx, list); err != nil {
-		return resolvedRoleCatalog{}, err
+		return resolveRoleCatalog(nil, provider, userOverrides), err
 	}
+	return resolveRoleCatalog(list.Items, provider, userOverrides), nil
+}
+
+func resolveRoleCatalog(items []platformv1alpha1.RoleInstruction, provider string, userOverrides []platformv1alpha1.AgentRunRoleModelOverride) resolvedRoleCatalog {
 	userModels := make(map[string]platformv1alpha1.AgentRunRoleModelOverride, len(userOverrides))
 	for _, override := range userOverrides {
 		role := strings.TrimSpace(override.Role)
@@ -74,12 +84,13 @@ func loadRoleCatalog(ctx context.Context, c client.Client, provider string, user
 			userModels[role] = override
 		}
 	}
-	sort.Slice(list.Items, func(i, j int) bool { return list.Items[i].Name < list.Items[j].Name })
+	items = withBuiltinGeneralRole(items)
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 	resolved := resolvedRoleCatalog{
-		Roles:           make(agent.RoleCatalog, 0, len(list.Items)),
-		ReasoningLevels: make(map[string]string, len(list.Items)),
+		Roles:           make(agent.RoleCatalog, 0, len(items)),
+		ReasoningLevels: make(map[string]string, len(items)),
 	}
-	for _, ri := range list.Items {
+	for _, ri := range items {
 		toolAccess := ri.Spec.ToolAccess
 		if toolAccess == "" {
 			toolAccess = defaultRoleToolAccess[ri.Name]
@@ -88,7 +99,7 @@ func loadRoleCatalog(ctx context.Context, c client.Client, provider string, user
 		resolved.Roles = append(resolved.Roles, agent.RoleSpec{
 			Name:          ri.Name,
 			Description:   ri.Spec.Description,
-			Instructions:  ri.Spec.Instructions,
+			Instructions:  agentroles.WithSharedInstructions(ri.Spec.Instructions),
 			ToolAccess:    toolAccess,
 			ModelOverride: roleModelForProviderWithOverride(ri.Spec, provider, userOverride.ModelsByProvider, hasUserOverride && userOverride.UseParentModel),
 		})
@@ -96,7 +107,28 @@ func loadRoleCatalog(ctx context.Context, c client.Client, provider string, user
 			resolved.ReasoningLevels[ri.Name] = level
 		}
 	}
-	return resolved, nil
+	return resolved
+}
+
+// withBuiltinGeneralRole appends the built-in general role unless a
+// RoleInstruction already overrides it. The SDK only offers its own generic
+// sub-agent when the catalog is empty, so the operator supplies one here.
+func withBuiltinGeneralRole(items []platformv1alpha1.RoleInstruction) []platformv1alpha1.RoleInstruction {
+	for _, ri := range items {
+		if ri.Name == agentroles.GeneralName {
+			return items
+		}
+	}
+	out := make([]platformv1alpha1.RoleInstruction, 0, len(items)+1)
+	out = append(out, items...)
+	return append(out, platformv1alpha1.RoleInstruction{
+		ObjectMeta: metav1.ObjectMeta{Name: agentroles.GeneralName},
+		Spec: platformv1alpha1.RoleInstructionSpec{
+			Description:  agentroles.GeneralDescription,
+			Instructions: agentroles.GeneralInstructions,
+			ToolAccess:   agentroles.GeneralToolAccess,
+		},
+	})
 }
 
 // roleModelForProvider applies the platform role-model precedence contract:
