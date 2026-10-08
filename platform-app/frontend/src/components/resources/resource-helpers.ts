@@ -40,7 +40,7 @@ export const resourceMeta: Record<ResourceKind, { label: string; singular: strin
     label: "Roles",
     singular: "role",
     description:
-      "Prompts and tool boundaries for the specialist sub-agents a run can delegate to. The role name must match the agent catalog entry it instructs.",
+      "Sub-agents a run can delegate to, each with its own prompt and tool boundary. Runs always offer a built-in general sub-agent, and a role named general replaces it.",
   },
 };
 

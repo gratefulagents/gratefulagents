@@ -66,6 +66,15 @@ function draftFromRole(role: RoleInstruction | null): Draft {
 
 const meta = resourceMeta.roles;
 
+/** The runtime always offers this role; a RoleInstruction of the same name replaces it. */
+const GENERAL_ROLE = "general";
+
+function deleteRoleDescription(name: string | undefined) {
+  return name === GENERAL_ROLE
+    ? "Runs go back to the built-in general sub-agent. This cannot be undone."
+    : "Runs stop offering this sub-agent. This cannot be undone.";
+}
+
 export function RolesSection() {
   const { user } = useAuth();
   const creatable = canCreateResource("roles", user?.role);
@@ -112,7 +121,7 @@ export function RolesSection() {
         noMatches={visible.length === 0 && rows.length > 0}
         emptyIcon={<UserCog />}
         emptyTitle="No roles yet"
-        emptyDescription="Instruct the specialist sub-agents a run can delegate to: a prompt, a tool boundary, and optional model routing per role."
+        emptyDescription="Runs still offer the built-in general sub-agent. Add a role to give a sub-agent its own prompt, tool boundary, or model."
         emptyAction={createButton}
       >
         {visible.map((role) => {
@@ -179,7 +188,7 @@ export function RolesSection() {
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title={`Delete ${deleting?.name ?? ""}?`}
-        description="Sub-agents that use this role fall back to the built-in catalog prompt. This cannot be undone."
+        description={deleteRoleDescription(deleting?.name)}
         confirmLabel="Delete role"
         destructive
         onConfirm={async () => {
@@ -256,7 +265,7 @@ function RoleDialog({
       onClose={onClose}
       icon={<UserCog />}
       title={isNew ? "New role" : readOnly ? role.name : `Edit ${role.name}`}
-      description="The behavioral prompt and tool boundary for one specialist sub-agent role."
+      description="The prompt and tool boundary for one sub-agent the parent agent can delegate to."
       dirty={dirty}
       saving={saving}
       canSave={valid && (isNew || dirty)}
@@ -271,12 +280,12 @@ function RoleDialog({
           value={draft.name}
           onChange={(name) => patch({ name })}
           isNew={isNew}
-          placeholder="executor"
-          hint="Must match the agent catalog role it instructs, for example executor, debugger, or code-reviewer."
+          placeholder="reviewer"
+          hint={`The parent agent delegates to the role by this name. Name a role ${GENERAL_ROLE} to replace the built-in general sub-agent.`}
           autoFocus={isNew}
         />
-        <FlowField id="role-description" label="Description" hint="One line, used for handoff descriptions and tool catalog entries.">
-          <Input id="role-description" value={draft.description} onChange={(event) => patch({ description: event.target.value })} placeholder="Implements approved plans and ships the change" />
+        <FlowField id="role-description" label="Description" hint="Shown to the parent agent when it picks a sub-agent. Say what the role can do and when to use it.">
+          <Input id="role-description" value={draft.description} onChange={(event) => patch({ description: event.target.value })} placeholder="Read-only. Use for a second look at a plan or diff." />
         </FlowField>
       </FormSection>
 
@@ -296,12 +305,12 @@ function RoleDialog({
       </FormSection>
 
       <FormSection title="Instructions">
-        <FlowField id="role-instructions" label="Instructions" required hint="Full structured prompt. XML sections such as <identity>, <constraints>, and <execution_loop> are supported.">
+        <FlowField id="role-instructions" label="Instructions" required hint="Added after the shared sub-agent base prompt. Keep it short: the parent's task message carries the task-specific instructions.">
           <Textarea
             id="role-instructions"
             value={draft.instructions}
             onChange={(event) => patch({ instructions: event.target.value })}
-            placeholder={"<identity>\nYou are the executor…\n</identity>"}
+            placeholder="Review the change in the task and report problems with file:line evidence."
             className="min-h-[280px] font-mono text-xs"
             spellCheck={false}
             required
@@ -311,7 +320,7 @@ function RoleDialog({
 
       <OptionRows label="Options">
         <OptionRow icon={Cpu} title="Model routing" summary={routingSummary} modified={activeProviders > 0 || draft.reasoningLevel !== "inherit" || Boolean(draft.model)}>
-          <FlowField label="Models by provider" hint="Providers without an entry inherit the parent run's model.">
+          <FlowField label="Models by provider" hint="Leave empty to use the parent run's model. A pinned model stays put when the parent moves to a newer one.">
             <KeyValueRows
               rows={draft.providerModels}
               onChange={(providerModels) => patch({ providerModels: providerModels.map((row) => ({ ...row, key: row.key.toLowerCase() })) })}

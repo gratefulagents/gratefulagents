@@ -26,8 +26,9 @@ spec:
             openAPIV3Schema:
                 description: |-
                     RoleInstruction is the Schema for the roleinstructions API.
-                    Each CR defines the full behavioral prompt for one agent role.
-                    The CR name must match the role name (e.g. "executor", "debugger").
+                    Each CR defines one sub-agent role; the CR name is the role name.
+                    The runtime always offers a built-in "general" role, which a CR of that
+                    name replaces.
                 properties:
                     apiVersion:
                         description: |-
@@ -48,21 +49,19 @@ spec:
                         type: object
                     spec:
                         description: |-
-                            RoleInstructionSpec defines the behavioral prompt for an agent role.
-                            The CR name MUST match the role name in AgentCatalog
-                            (e.g. "executor", "debugger", "code-reviewer").
-                            Convention: role name = RoleInstruction CR name. No explicit refs needed.
+                            RoleInstructionSpec defines one sub-agent role the parent agent can delegate
+                            to. The CR name is the role name (e.g. "general", "explore", "reviewer").
                         properties:
                             description:
                                 description: |-
-                                    Description is a short one-line summary used for HandoffDescription
-                                    and tool catalog entries.
+                                    Description is shown to the parent agent when it picks a sub-agent: what
+                                    the role can do and when to use it.
                                 type: string
                             instructions:
                                 description: |-
-                                    Instructions is the full structured prompt injected into this role's
-                                    system context. Supports XML-structured sections like <identity>,
-                                    <constraints>, <delegation>, <execution_loop>, <style>, etc.
+                                    Instructions is the role's prompt. The runtime adds it after the shared
+                                    sub-agent base prompt. Keep it short: the parent's task message carries
+                                    the task-specific instructions.
                                 type: string
                             model:
                                 description: |-

@@ -21,6 +21,14 @@ vi.mock("@/lib/client", () => ({
         model: "",
         modelsByProvider: { anthropic: "claude-opus-5-5" },
         reasoningLevel: "high",
+      }, {
+        name: "general",
+        description: "Team general agent",
+        instructions: "Follow the team runbook.",
+        toolAccess: "full",
+        model: "",
+        modelsByProvider: {},
+        reasoningLevel: "",
       }],
     }),
     createRoleInstruction: vi.fn().mockResolvedValue({}),
@@ -86,6 +94,23 @@ describe("RolesSection", () => {
           reasoningLevel: "",
         }),
       });
+    });
+  });
+
+  it("explains what deleting a role does to runs", async () => {
+    role = "admin";
+    render(<RolesSection />);
+    expect(await screen.findByText("Ships approved plans")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete executor" }));
+    expect(screen.getByText("Runs stop offering this sub-agent. This cannot be undone.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete general" }));
+    expect(screen.getByText("Runs go back to the built-in general sub-agent. This cannot be undone.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete role" }));
+    await waitFor(() => {
+      expect(client.deleteRoleInstruction).toHaveBeenCalledWith({ name: "general" });
     });
   });
 

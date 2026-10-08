@@ -307,9 +307,9 @@ func (r *chatRuntime) setup(ctx context.Context, k8sClient *kubernetes.Clientset
 	roleCatalog, err := loadRoleCatalog(ctx, crdClient, cfg.Provider, roleModelOverrides)
 	roleCatalogProvider := strings.ToLower(strings.TrimSpace(cfg.Provider))
 	if err != nil {
-		log.Printf("WARN: failed to load RoleInstruction catalog: %v — specialist roles will be unavailable", err)
+		log.Printf("WARN: failed to load RoleInstruction catalog: %v — only the built-in general sub-agent is available", err)
 	} else {
-		log.Printf("Loaded %d RoleInstruction CRDs into SDK role catalog", len(roleCatalog.Roles))
+		log.Printf("Loaded %d sub-agent roles into SDK role catalog", len(roleCatalog.Roles))
 	}
 
 	// A pod whose base permission mode is read-only serves the whole session

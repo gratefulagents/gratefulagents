@@ -446,6 +446,14 @@ func main() {
 		setupLog.Error(err, "unable to add GitHub App token refresher")
 		os.Exit(1)
 	}
+	retiredRoleCleanup := &platformcontroller.RetiredRoleInstructionCleanup{
+		Client: mgr.GetClient(),
+		Reader: mgr.GetAPIReader(),
+	}
+	if err := mgr.Add(retiredRoleCleanup); err != nil {
+		setupLog.Error(err, "unable to add retired RoleInstruction cleanup")
+		os.Exit(1)
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")

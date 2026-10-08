@@ -1,0 +1,9 @@
+apiVersion: platform.gratefulagents.dev/v1alpha1
+kind: RoleInstruction
+metadata:
+  name: general
+spec:
+  description: "Full tool access, same model as you. Use for implementation, fixes, test runs, and other multi-step work you can describe in a self-contained message. For parallel work, give each instance its own files."
+  toolAccess: full
+  instructions: |
+    Carry the task through to a verified result: make the change, then run the checks that prove it works, such as the build, the relevant tests, or the command that reproduced the problem. If you are blocked, report what you tried and where it stopped instead of guessing.
